@@ -10,6 +10,8 @@ interface WatchState {
   toggle: (symbol: string) => void;
   /** Add any ticker; rejects with the server's message (e.g. unknown symbol). */
   add: (symbol: string) => Promise<void>;
+  /** Re-fetch after the server changed the list (e.g. a name moved to or from Positions). */
+  reload: () => void;
 }
 
 const WatchContext = createContext<WatchState | null>(null);
@@ -51,8 +53,8 @@ export function WatchlistProvider({ version, children }: { version: string | nul
   );
 
   const value = useMemo<WatchState>(
-    () => ({ symbols, data, error, isWatched: (s) => symbols.includes(s), toggle, add }),
-    [symbols, data, error, toggle, add],
+    () => ({ symbols, data, error, isWatched: (s) => symbols.includes(s), toggle, add, reload }),
+    [symbols, data, error, toggle, add, reload],
   );
   return <WatchContext.Provider value={value}>{children}</WatchContext.Provider>;
 }

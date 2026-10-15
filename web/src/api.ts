@@ -113,13 +113,24 @@ export class ApiError extends Error {
   }
 }
 
+/** FastAPI errors: `detail` is a string, or a list of `{msg}` objects for validation failures. */
+export function errorDetail(body: unknown): string | null {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => (d as { msg?: unknown })?.msg).filter((m): m is string => typeof m === "string");
+    return msgs.length ? msgs.join("; ") : null;
+  }
+  return null;
+}
+
 async function get<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     const text = await res.text();
     let detail = text;
     try {
-      detail = (JSON.parse(text) as { detail?: string }).detail ?? text;
+      detail = errorDetail(JSON.parse(text)) ?? text;
     } catch {
       // not JSON
     }
@@ -145,7 +156,39 @@ export const api = {
       body: JSON.stringify({ symbol }),
     }),
   unwatch: (symbol: string) => get<Watchlist>(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
+  positions: () => get<Positions>("/api/positions"),
+  openPosition: (req: PositionInput & { symbol: string }) => send<Positions>("/api/positions", "POST", req),
+  updatePosition: (symbol: string, req: Required<Pick<PositionInput, "entry_price" | "entry_date">> & Pick<PositionInput, "shares">) =>
+    send<Positions>(`/api/positions/${encodeURIComponent(symbol)}`, "PUT", req),
+  closePosition: (symbol: string) => get<Positions>(`/api/positions/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
+  positionToWatchlist: (symbol: string) =>
+    get<Positions>(`/api/positions/${encodeURIComponent(symbol)}/watchlist`, { method: "POST" }),
 };
+
+function send<T>(url: string, method: string, body: unknown): Promise<T> {
+  return get<T>(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+/** Entry details; omitted price/date default to the last price and today on the server. */
+export interface PositionInput {
+  entry_price?: number | null;
+  shares?: number | null;
+  entry_date?: string | null;
+}
+
+export interface Position {
+  symbol: string;
+  entry_price: number;
+  shares: number | null;
+  entry_date: string;
+  /** Live scan row; null until the symbol has cached data. */
+  row: ScanRow | null;
+}
+
+export interface Positions {
+  symbols: string[];
+  positions: Position[];
+}
 
 export interface Watchlist {
   symbols: string[];
