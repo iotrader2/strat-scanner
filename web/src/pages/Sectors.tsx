@@ -34,7 +34,7 @@ function SectorCard({ etf }: { etf: SectorEtf }) {
         <TfBadges tf={r.tf} />
         <ScorePill score={r.score} />
       </div>
-      <CandleChart candles={etf.candles} lines={lines} height={180} labelLast={6} compact />
+      <CandleChart candles={etf.candles} lines={lines} height={180} compact />
       <div className="sector-foot">
         <span className="small">
           {setup ? (
@@ -68,7 +68,10 @@ export default function Sectors({ version }: { version: string | null }) {
       .finally(() => setLoading(false));
   }, [tf, version]);
 
-  const ranked = useMemo(() => [...etfs].sort((a, b) => b.row.score - a.row.score), [etfs]);
+  const ranked = useMemo(
+    () => [...etfs].sort((a, b) => b.row.score - a.row.score || a.symbol.localeCompare(b.symbol)),
+    [etfs],
+  );
 
   return (
     <div className="page">
@@ -76,7 +79,7 @@ export default function Sectors({ version }: { version: string | null }) {
         <div>
           <h1>Sectors</h1>
           <p className="muted">
-            Sector and industry ETFs with Strat labels on every candle. Each card lists its weekly setup and trigger;
+            Sector and industry ETFs with their M/W/D Strat badges. Each card lists its weekly setup and trigger;
             green-bordered cards have Monthly and Weekly continuity. Use “Scan sector” to filter the stock scanner.
           </p>
         </div>
@@ -101,7 +104,7 @@ export default function Sectors({ version }: { version: string | null }) {
 
       {loading && etfs.length === 0 && <p className="muted">Loading…</p>}
       {GROUPS.map((g) => {
-        const items = etfs.filter((e) => e.group === g.key);
+        const items = ranked.filter((e) => e.group === g.key);
         if (!items.length) return null;
         return (
           <section key={g.key}>

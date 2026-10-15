@@ -11,7 +11,9 @@ and is cached in a local SQLite file.
 
 ## Quick start
 
-Requirements: **Python 3.10+** and **Node.js 18+** (npm).
+Requirements: **Python 3.10+** and **Node.js 20.19+ or 22.12+** (npm), as required by Vite 8. If the `node` on
+your PATH is older, `npm run dev` picks the newest compatible version installed with nvm. On macOS, a Homebrew
+`python3.1x` is used when the system `python3` is too old.
 
 ```bash
 npm run dev        # or: make dev
@@ -106,9 +108,10 @@ continuity context, e.g. `Weekly Inside bar — trigger 106.00 (+1.9% away) · M
   weekly setup type, stocks/ETFs, min price, min dollar volume, max distance to trigger). M/W/D badges show the Strat number (text colour,
   yellow outline for `1`, purple for `3`) on a green/red fill for continuity; `H` marks a hammer.
 - **Detail** (`/stock/SYMBOL`): interactive candlestick chart ([TradingView lightweight-charts](https://github.com/tradingview/lightweight-charts))
-  with a Monthly/Weekly/Daily toggle, Strat numbers above recent bars, hammer arrows, and the dashed weekly trigger line.
+  with a Monthly/Weekly/Daily toggle, hammer arrows and the dashed weekly trigger line. Charts carry no per-candle
+  Strat labels so the candles stay readable; the Strat numbers are shown in the M/W/D badges.
 - **Sectors**: SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
-  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks, each with a labelled chart,
+  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks, each with a candlestick chart,
   its weekly setup and trigger, M/W/D badges and a strongest→weakest leaderboard. “Scan sector →” filters the scanner to that sector.
 
 ## Layout

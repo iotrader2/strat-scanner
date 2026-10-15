@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 
 from . import config, data
-from .scanner import chart_payload, scan_all, scan_symbol
+from .scanner import chart_payload, scan_all, scan_symbol, sector_entries
 from .universe import ETFS, SECTOR_ETF, load_universe
 
 log = logging.getLogger(__name__)
@@ -140,20 +140,5 @@ def symbol_detail(symbol: str):
 def sectors(tf: str = Query("D", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
     _ensure_scan()
     by_symbol = {r["symbol"]: r for r in State.scan}
-    out = []
-    for sym, name, sector, group in ETFS:
-        daily = State.daily.get(sym)
-        row = by_symbol.get(sym)
-        if daily is None or row is None:
-            continue
-        out.append(
-            {
-                "symbol": sym,
-                "name": name,
-                "sector": sector,
-                "group": group,
-                "row": row,
-                "candles": chart_payload(daily, tf, bars),
-            }
-        )
+    out = sector_entries(ETFS, by_symbol, State.daily, tf, bars)
     return {"tf": tf, "as_of": State.scan_key, "etfs": out}

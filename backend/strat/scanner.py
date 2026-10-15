@@ -102,3 +102,31 @@ def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:
             }
         )
     return out[-limit:]
+
+
+def sector_entries(
+    etfs: list[tuple[str, str, str, str]],
+    rows_by_symbol: dict[str, dict],
+    daily_by_symbol: dict[str, pd.DataFrame],
+    tf: str,
+    bars: int,
+) -> list[dict]:
+    """Sector ETF cards for one timeframe, strongest score first (ties by symbol)."""
+    out = []
+    for sym, name, sector, group in etfs:
+        daily = daily_by_symbol.get(sym)
+        row = rows_by_symbol.get(sym)
+        if daily is None or row is None:
+            continue
+        out.append(
+            {
+                "symbol": sym,
+                "name": name,
+                "sector": sector,
+                "group": group,
+                "row": row,
+                "candles": chart_payload(daily, tf, bars),
+            }
+        )
+    out.sort(key=lambda e: (-e["row"]["score"], e["symbol"]))
+    return out

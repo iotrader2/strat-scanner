@@ -75,9 +75,9 @@ export default function Detail({ version }: { version: string | null }) {
                 </button>
               ))}
             </div>
-            <span className="muted small">Strat numbers above bars · H = hammer · dashed lines = trigger</span>
+            <span className="muted small">H = hammer · dashed line = weekly trigger</span>
           </div>
-          <CandleChart candles={data.charts[activeTf]} lines={lines} height={480} labelLast={activeTf === "M" ? 30 : 35} />
+          <CandleChart candles={data.charts[activeTf]} lines={lines} height={480} visibleBars={activeTf === "M" ? 60 : 70} />
         </section>
 
         <aside className="side">
