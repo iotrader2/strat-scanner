@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
+import { isTimeframe, usePersisted } from "../persist";
 import { ScorePill, TfBadge } from "../components/Badges";
+import { BreakdownTable } from "../components/ScoreBreakdown";
 import { CandleChart, type PriceLine } from "../components/CandleChart";
 
 const TF_NAME: Record<Tf, string> = { M: "Monthly", W: "Weekly", D: "Daily" };
@@ -10,7 +12,7 @@ export default function Detail({ version }: { version: string | null }) {
   const { symbol = "" } = useParams();
   const [data, setData] = useState<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tf, setTf] = useState<Tf | null>(null);
+  const [storedTf, setTf] = usePersisted<Tf | null>("detailTf", null);
 
   useEffect(() => {
     setData(null);
@@ -19,13 +21,12 @@ export default function Detail({ version }: { version: string | null }) {
       .then((d) => {
         setData(d);
         setError(null);
-        setTf((cur) => cur ?? d.row.trigger_tf ?? "D");
       })
       .catch((e) => setError(String(e)));
   }, [symbol, version]);
 
   const row = data?.row;
-  const activeTf: Tf = tf ?? "D";
+  const activeTf: Tf = isTimeframe(storedTf) ? storedTf : (row?.trigger_tf ?? "W");
 
   const lines = useMemo<PriceLine[]>(() => {
     if (!row) return [];
@@ -58,7 +59,7 @@ export default function Detail({ version }: { version: string | null }) {
           <span className={row.change_pct >= 0 ? "green-text" : "red-text"}>{fmtPct(row.change_pct, 2)}</span>
         </div>
         <div className="detail-kpis">
-          <div><span className="kpi-label">Score</span><ScorePill score={row.score} /></div>
+          <div><span className="kpi-label">Score</span><ScorePill score={row.score} row={row} /></div>
           <div><span className="kpi-label">Trigger</span><span className="accent-text kpi">{row.trigger?.toFixed(2) ?? "—"}</span></div>
           <div><span className="kpi-label">To trigger</span><span className="kpi">{fmtPct(row.trigger_distance_pct)}</span></div>
           <div><span className="kpi-label">Avg $vol</span><span className="kpi">{fmtMoney(row.avg_dollar_volume)}</span></div>
@@ -75,7 +76,7 @@ export default function Detail({ version }: { version: string | null }) {
                 </button>
               ))}
             </div>
-            <span className="muted small">H = hammer · dashed line = weekly trigger</span>
+            <span className="muted small">H = hammer · I = inside bar · dashed line = weekly trigger</span>
           </div>
           <CandleChart candles={data.charts[activeTf]} lines={lines} height={480} visibleBars={activeTf === "M" ? 60 : 70} />
         </section>
@@ -87,6 +88,10 @@ export default function Detail({ version }: { version: string | null }) {
             <ul className="reasons">
               {row.reason.split(" · ").map((r) => <li key={r}>{r}</li>)}
             </ul>
+          </div>
+          <div className="card">
+            <h3>Score breakdown</h3>
+            <BreakdownTable row={row} showDetail />
           </div>
           <div className="card">
             <h3>Timeframes</h3>

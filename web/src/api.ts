@@ -22,6 +22,14 @@ export interface TfState {
   hammer: boolean;
 }
 
+export interface ScoreComponent {
+  key: string;
+  label: string;
+  points: number;
+  max_points: number;
+  detail: string;
+}
+
 export interface ScanRow {
   symbol: string;
   name: string;
@@ -32,8 +40,12 @@ export interface ScanRow {
   price: number;
   change_pct: number;
   avg_dollar_volume: number;
+  avg_volume: number;
   as_of: string;
   score: number;
+  score_raw: number;
+  score_max_raw: number;
+  score_breakdown: ScoreComponent[];
   full_continuity: boolean;
   mw_green: boolean;
   monthly_2u: boolean;
@@ -94,10 +106,8 @@ export const api = {
   status: () => get<Status>("/api/status"),
   config: () => get<AppConfig>("/api/config"),
   refresh: (full = false) => get<{ started: boolean }>(`/api/refresh?full=${full}`, { method: "POST" }),
-  scan: (minPrice: number, minDollarVolume: number) =>
-    get<{ as_of: string | null; count: number; rows: ScanRow[] }>(
-      `/api/scan?min_price=${minPrice}&min_dollar_volume=${minDollarVolume}`,
-    ),
+  // Liquidity filters are applied on the client, so fetch every weekly setup once.
+  scan: () => get<{ as_of: string | null; count: number; rows: ScanRow[] }>("/api/scan?min_price=0&min_dollar_volume=0"),
   symbol: (symbol: string) =>
     get<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> }>(`/api/symbol/${encodeURIComponent(symbol)}`),
   sectors: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: SectorEtf[] }>(`/api/sectors?tf=${tf}&bars=${bars}`),

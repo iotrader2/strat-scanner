@@ -27,11 +27,6 @@ export function TfBadges({ tf }: { tf: Record<Tf, TfState | null> }) {
   );
 }
 
-export function ScorePill({ score }: { score: number }) {
-  const level = score >= 70 ? "hi" : score >= 50 ? "mid" : "lo";
-  return <span className={`score-pill ${level}`}>{score.toFixed(0)}</span>;
-}
-
 export function Legend() {
   return (
     <div className="legend">
@@ -43,3 +38,5 @@ export function Legend() {
     </div>
   );
 }
+
+export { ScorePill } from "./ScoreBreakdown";

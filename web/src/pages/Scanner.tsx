@@ -2,19 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { Legend, ScorePill, TfBadges } from "../components/Badges";
+import { LogSlider } from "../components/LogSlider";
+import { fmtCompact, passesLiquidity } from "../logScale";
+import { usePersisted } from "../persist";
 
-type SortKey = "score" | "symbol" | "price" | "change_pct" | "trigger_distance_pct" | "avg_dollar_volume" | "sector";
+type SortKey =
+  | "score"
+  | "symbol"
+  | "price"
+  | "change_pct"
+  | "trigger_distance_pct"
+  | "avg_dollar_volume"
+  | "avg_volume"
+  | "sector";
+
+const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
+const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
 type SetupFilter = "any" | "pending" | "inside" | "hammer";
-
-function usePersisted<T>(key: string, initial: T) {
-  const [value, setValue] = useState<T>(() => {
-    const raw = localStorage.getItem(`strat:${key}`);
-    return raw === null ? initial : (JSON.parse(raw) as T);
-  });
-  useEffect(() => localStorage.setItem(`strat:${key}`, JSON.stringify(value)), [key, value]);
-  return [value, setValue] as const;
-}
 
 export default function Scanner({ version }: { version: string | null }) {
   const navigate = useNavigate();
@@ -28,6 +33,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
   const [minPrice, setMinPrice] = usePersisted<number | null>("minPrice", null);
   const [minDvM, setMinDvM] = usePersisted<number | null>("minDvM", null);
+  const [minAvgVol, setMinAvgVol] = usePersisted<number>("minAvgVol", AVG_VOL_RANGE.min);
   const [continuity, setContinuity] = usePersisted<Continuity>("continuity", "mw");
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
   const [maxDist, setMaxDist] = usePersisted<number | null>("maxDist", null);
@@ -43,21 +49,25 @@ export default function Scanner({ version }: { version: string | null }) {
   const effDv = (minDvM ?? (config ? config.min_dollar_volume / 1e6 : 50)) * 1e6;
 
   useEffect(() => {
-    if (!config) return;
     setLoading(true);
     api
-      .scan(effPrice, effDv)
+      .scan()
       .then((r) => {
         setRows(r.rows);
         setError(null);
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [config, effPrice, effDv, version]);
+  }, [version]);
+
+  const liquid = useMemo(
+    () => rows.filter((r) => passesLiquidity(r, { minPrice: effPrice, minDollarVolume: effDv, minAvgVolume: minAvgVol })),
+    [rows, effPrice, effDv, minAvgVol],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toUpperCase();
-    const out = rows.filter((r) => {
+    const out = liquid.filter((r) => {
       if (q && !r.symbol.includes(q) && !r.name.toUpperCase().includes(q)) return false;
       if (sector && r.sector !== sector) return false;
       if (kind !== "all" && r.kind !== kind) return false;
@@ -83,15 +93,15 @@ export default function Scanner({ version }: { version: string | null }) {
       return ((av as number) - (bv as number)) * dir;
     });
     return out;
-  }, [rows, query, sector, kind, continuity, setupFilter, maxDist, sort]);
+  }, [liquid, query, sector, kind, continuity, setupFilter, maxDist, sort]);
 
   const stats = useMemo(
     () => ({
-      m2u: rows.filter((r) => r.monthly_2u).length,
-      mw: rows.filter((r) => r.mw_green).length,
-      pending: rows.filter((r) => r.mw_green && r.trigger !== null && !r.triggered).length,
+      m2u: liquid.filter((r) => r.monthly_2u).length,
+      mw: liquid.filter((r) => r.mw_green).length,
+      pending: liquid.filter((r) => r.mw_green && r.trigger !== null && !r.triggered).length,
     }),
-    [rows],
+    [liquid],
   );
 
   const header = (key: SortKey, label: string, cls = "") => (
@@ -123,7 +133,7 @@ export default function Scanner({ version }: { version: string | null }) {
         </div>
         <div className="stat-cards">
           <div className="stat-card">
-            <span className="stat-value">{rows.length}</span>
+            <span className="stat-value">{liquid.length}</span>
             <span className="stat-label">weekly setups</span>
           </div>
           <div className="stat-card">
@@ -185,10 +195,22 @@ export default function Scanner({ version }: { version: string | null }) {
           Min price $
           <input className="input num" type="number" min={0} value={effPrice} onChange={(e) => setMinPrice(e.target.value === "" ? null : Number(e.target.value))} />
         </label>
-        <label>
-          Min avg $vol (M)
-          <input className="input num" type="number" min={0} step={10} value={effDv / 1e6} onChange={(e) => setMinDvM(e.target.value === "" ? null : Number(e.target.value))} />
-        </label>
+        <LogSlider
+          label="Min avg $ volume"
+          value={effDv}
+          min={DOLLAR_VOL_RANGE.min}
+          max={DOLLAR_VOL_RANGE.max}
+          format={(v) => `$${fmtCompact(v)}`}
+          onChange={(v) => setMinDvM(v / 1e6)}
+        />
+        <LogSlider
+          label="Min avg volume (shares)"
+          value={minAvgVol}
+          min={AVG_VOL_RANGE.min}
+          max={AVG_VOL_RANGE.max}
+          format={fmtCompact}
+          onChange={setMinAvgVol}
+        />
         <label>
           Max trigger dist %
           <input className="input num" type="number" min={0} step={0.5} placeholder="any" value={maxDist ?? ""} onChange={(e) => setMaxDist(e.target.value === "" ? null : Number(e.target.value))} />
@@ -197,7 +219,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
       <div className="table-meta">
         <span className="muted">
-          {loading ? "Loading…" : `${filtered.length} of ${rows.length} shown`}
+          {loading ? "Loading…" : `${filtered.length} of ${rows.length} weekly setups shown`}
           {sector && (
             <button className="chip" onClick={() => setSector("")}>
               {sector} ✕
@@ -224,6 +246,7 @@ export default function Scanner({ version }: { version: string | null }) {
               <th>Weekly setup</th>
               <th className="num">Trigger</th>
               {header("trigger_distance_pct", "To trigger", "num")}
+              {header("avg_volume", "Avg vol", "num")}
               {header("avg_dollar_volume", "Avg $vol", "num")}
               {header("score", "Score", "num")}
             </tr>
@@ -266,9 +289,10 @@ export default function Scanner({ version }: { version: string | null }) {
                 </td>
                 <td className="num accent-text">{r.trigger?.toFixed(2) ?? "—"}</td>
                 <td className="num">{fmtPct(r.trigger_distance_pct)}</td>
+                <td className="num">{fmtCompact(r.avg_volume)}</td>
                 <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
                 <td className="num">
-                  <ScorePill score={r.score} />
+                  <ScorePill score={r.score} row={r} />
                 </td>
               </tr>
             ))}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtPct, type SectorEtf, type Tf } from "../api";
+import { isTimeframe, usePersisted } from "../persist";
 import { Legend, ScorePill, TfBadges } from "../components/Badges";
 import { CandleChart, type PriceLine } from "../components/CandleChart";
 
@@ -32,7 +33,7 @@ function SectorCard({ etf }: { etf: SectorEtf }) {
       </div>
       <div className="sector-badges">
         <TfBadges tf={r.tf} />
-        <ScorePill score={r.score} />
+        <ScorePill score={r.score} row={r} />
       </div>
       <CandleChart candles={etf.candles} lines={lines} height={180} compact />
       <div className="sector-foot">
@@ -56,7 +57,8 @@ function SectorCard({ etf }: { etf: SectorEtf }) {
 }
 
 export default function Sectors({ version }: { version: string | null }) {
-  const [tf, setTf] = useState<Tf>("W");
+  const [storedTf, setTf] = usePersisted<Tf>("sectorsTf", "W");
+  const tf: Tf = isTimeframe(storedTf) ? storedTf : "W";
   const [etfs, setEtfs] = useState<SectorEtf[]>([]);
   const [loading, setLoading] = useState(true);
 
