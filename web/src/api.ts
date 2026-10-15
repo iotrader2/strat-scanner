@@ -35,6 +35,11 @@ export interface ScanRow {
   name: string;
   sector: string;
   sector_etf: string;
+  /** GICS sub-industry, ICB subsector or Yahoo industry ("" for ETFs). */
+  industry?: string;
+  /** ETF whose Sectors-page score drives the Sector strength points (null for ETFs). */
+  strength_etf?: string | null;
+  sector_strength?: SectorStrength | null;
   kind: "stock" | "etf";
   indexes: string;
   in_universe: boolean;
@@ -60,6 +65,15 @@ export interface ScanRow {
   tf: Record<Tf, TfState | null>;
   earnings?: Earnings | null;
   setups?: (Setup & { tf: Tf; points: number })[];
+}
+
+export interface SectorStrength {
+  etf: string;
+  name: string;
+  score: number;
+  rank: number;
+  total: number;
+  points: number;
 }
 
 export interface Earnings {

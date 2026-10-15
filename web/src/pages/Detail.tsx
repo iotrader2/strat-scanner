@@ -57,7 +57,13 @@ export default function Detail({ version }: { version: string | null }) {
           </div>
           <div className="muted small">
             <Link className="sector-link" to={`/?sector=${encodeURIComponent(row.sector)}`}>{row.sector}</Link>
+            {row.industry && <> · {row.industry}</>}
             {row.sector_etf && <> · sector ETF <Link className="sector-link" to={`/stock/${row.sector_etf}`}>{row.sector_etf}</Link></>}
+            {row.strength_etf && row.strength_etf !== row.sector_etf && (
+              <>
+                {" "}· industry ETF <Link className="sector-link" to={`/stock/${row.strength_etf}`}>{row.strength_etf}</Link>
+              </>
+            )}
             {" "}· as of {row.as_of}
           </div>
         </div>
