@@ -9,8 +9,9 @@
     "setup": "node scripts/setup.mjs",
     "refresh": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.refresh",
     "refresh:universe": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.refresh --universe",
-    "test": "node scripts/setup.mjs && cd backend && .venv/bin/python -m pytest -q",
-    "typecheck": "cd web && npx tsc -b"
+    "test": "node scripts/setup.mjs && cd backend && .venv/bin/python -m pytest -q && cd ../web && npm test",
+    "typecheck": "cd web && npx tsc -b",
+    "test:web": "cd web && npm test"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
