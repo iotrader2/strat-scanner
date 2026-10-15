@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, type AppConfig, type ScanRow } from "../api";
 import { Legend } from "../components/Badges";
 import { ScanTable } from "../components/ScanTable";
+import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { usePersisted } from "../persist";
@@ -12,6 +13,25 @@ const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
 type SetupFilter = "any" | "pending" | "inside" | "hammer";
+type Kind = "all" | "stock" | "etf";
+
+const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
+  { value: "mw", label: "M + W green" },
+  { value: "m2u", label: "Monthly 2U" },
+  { value: "full", label: "M + W + D green" },
+  { value: "any", label: "Any" },
+];
+const SETUP_OPTIONS: DropdownOption<SetupFilter>[] = [
+  { value: "any", label: "Any" },
+  { value: "pending", label: "Awaiting trigger" },
+  { value: "inside", label: "Inside week" },
+  { value: "hammer", label: "Weekly hammer" },
+];
+const KIND_OPTIONS: DropdownOption<Kind>[] = [
+  { value: "all", label: "Stocks + ETFs" },
+  { value: "stock", label: "Stocks" },
+  { value: "etf", label: "ETFs" },
+];
 
 export default function Scanner({ version }: { version: string | null }) {
   const [params, setParams] = useSearchParams();
@@ -27,7 +47,7 @@ export default function Scanner({ version }: { version: string | null }) {
   const [minAvgVol, setMinAvgVol] = usePersisted<number>("minAvgVol", AVG_VOL_RANGE.min);
   const [continuity, setContinuity] = usePersisted<Continuity>("continuity", "mw");
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
-  const [kind, setKind] = usePersisted<"all" | "stock" | "etf">("kind", "all");
+  const [kind, setKind] = usePersisted<Kind>("kind", "all");
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -80,6 +100,15 @@ export default function Scanner({ version }: { version: string | null }) {
     [liquid],
   );
 
+  const sectorOptions = useMemo<DropdownOption<string>[]>(
+    () => [
+      { value: "", label: "All sectors" },
+      ...(config?.sectors ?? []).map((s) => ({ value: s, label: `${s} (${config?.sector_etfs[s]})` })),
+      { value: "Benchmark", label: "Benchmark ETFs" },
+    ],
+    [config],
+  );
+
   const setSector = (s: string) => {
     const next = new URLSearchParams(params);
     if (s) next.set("sector", s);
@@ -119,44 +148,22 @@ export default function Scanner({ version }: { version: string | null }) {
 
       <section className="card filters">
         <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <label>
-          Sector
-          <select className="input" value={sector} onChange={(e) => setSector(e.target.value)}>
-            <option value="">All sectors</option>
-            {config?.sectors.map((s) => (
-              <option key={s} value={s}>
-                {s} ({config.sector_etfs[s]})
-              </option>
-            ))}
-            <option value="Benchmark">Benchmark ETFs</option>
-          </select>
-        </label>
-        <label>
-          Continuity
-          <select className="input" value={continuity} onChange={(e) => setContinuity(e.target.value as Continuity)}>
-            <option value="mw">M + W green</option>
-            <option value="m2u">Monthly 2U</option>
-            <option value="full">M + W + D green</option>
-            <option value="any">Any</option>
-          </select>
-        </label>
-        <label>
-          Setup
-          <select className="input" value={setupFilter} onChange={(e) => setSetupFilter(e.target.value as SetupFilter)}>
-            <option value="any">Any</option>
-            <option value="pending">Awaiting trigger</option>
-            <option value="inside">Inside week</option>
-            <option value="hammer">Weekly hammer</option>
-          </select>
-        </label>
-        <label>
-          Type
-          <select className="input" value={kind} onChange={(e) => setKind(e.target.value as "all" | "stock" | "etf")}>
-            <option value="all">Stocks + ETFs</option>
-            <option value="stock">Stocks</option>
-            <option value="etf">ETFs</option>
-          </select>
-        </label>
+        <Dropdown
+          label="Sector"
+          header="Filter by sector"
+          value={sector}
+          options={sectorOptions}
+          onChange={setSector}
+        />
+        <Dropdown
+          label="Continuity"
+          header="Filter by continuity"
+          value={continuity}
+          options={CONTINUITY_OPTIONS}
+          onChange={setContinuity}
+        />
+        <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
+        <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
         <LogSlider
           label="Min price"
           value={effPrice}
