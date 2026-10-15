@@ -16,10 +16,28 @@ def extra_members(only_tracked: bool, base: Optional[list[Member]] = None) -> li
     known = {m.symbol for m in (load_universe() if base is None else base)}
     tracked = data.tracked_symbols() if only_tracked else None
     return [
-        Member(e["symbol"], e["name"], e["sector"], e["kind"], "Watchlist", in_universe=False)
+        Member(e["symbol"], e["name"], e["sector"], e["kind"], "Watchlist", in_universe=False, industry=e["industry"])
         for e in data.extra_symbols()
         if e["symbol"] not in known and (tracked is None or e["symbol"] in tracked)
     ]
+
+
+def backfill_industries(members: list[Member], fetch: Callable[[str], str] | None = None) -> int:
+    """Look up the Yahoo industry of added stocks saved before industries were stored; returns how many were set."""
+    fetch = fetch or data.fetch_industry
+    updated = 0
+    for m in members:
+        if m.in_universe or m.kind != "stock" or m.industry:
+            continue
+        try:
+            industry = fetch(m.symbol)
+        except Exception:
+            log.warning("industry lookup failed for %s", m.symbol, exc_info=True)
+            continue
+        if industry:
+            data.set_extra_industry(m.symbol, industry)
+            updated += 1
+    return updated
 
 
 def effective_universe(base: Optional[list[Member]] = None) -> list[Member]:

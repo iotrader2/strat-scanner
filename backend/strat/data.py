@@ -55,9 +55,17 @@ CREATE TABLE IF NOT EXISTS extra_symbols (
     symbol TEXT PRIMARY KEY,
     name   TEXT NOT NULL,
     sector TEXT NOT NULL,
-    kind   TEXT NOT NULL
+    kind   TEXT NOT NULL,
+    industry TEXT NOT NULL DEFAULT ''
 );
 """
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a cache file was created."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(extra_symbols)")}
+    if "industry" not in cols:
+        conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
 
 _write_lock = threading.Lock()
 
@@ -69,6 +77,7 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(path, timeout=30)
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         yield conn
         conn.commit()
     finally:
@@ -139,16 +148,30 @@ def tracked_symbols(db_path: Path | None = None) -> set[str]:
 def extra_symbols(db_path: Path | None = None) -> list[dict]:
     """Symbols outside the scan universe that were added from the watchlist, with their metadata."""
     with connect(db_path) as conn:
-        rows = conn.execute("SELECT symbol, name, sector, kind FROM extra_symbols ORDER BY symbol").fetchall()
-    return [dict(zip(("symbol", "name", "sector", "kind"), r)) for r in rows]
+        rows = conn.execute("SELECT symbol, name, sector, kind, industry FROM extra_symbols ORDER BY symbol").fetchall()
+    return [dict(zip(("symbol", "name", "sector", "kind", "industry"), r)) for r in rows]
 
 
-def save_extra_symbol(symbol: str, name: str, sector: str, kind: str, db_path: Path | None = None) -> None:
+def save_extra_symbol(
+    symbol: str, name: str, sector: str, kind: str, industry: str = "", db_path: Path | None = None
+) -> None:
     with _write_lock, connect(db_path) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO extra_symbols(symbol, name, sector, kind) VALUES (?, ?, ?, ?)",
-            (symbol, name, sector, kind),
+            "INSERT OR REPLACE INTO extra_symbols(symbol, name, sector, kind, industry) VALUES (?, ?, ?, ?, ?)",
+            (symbol, name, sector, kind, industry),
         )
+
+
+def set_extra_industry(symbol: str, industry: str, db_path: Path | None = None) -> None:
+    with _write_lock, connect(db_path) as conn:
+        conn.execute("UPDATE extra_symbols SET industry = ? WHERE symbol = ?", (industry, symbol))
+
+
+def fetch_industry(symbol: str) -> str:
+    """Yahoo Finance industry for a ticker ("" when unknown); raises on network errors."""
+    import yfinance as yf
+
+    return str((yf.Ticker(symbol).info or {}).get("industry") or "")
 
 
 def load_earnings(db_path: Path | None = None) -> dict[str, dict]:
@@ -201,6 +224,7 @@ def lookup_symbol(symbol: str) -> tuple[pd.DataFrame, dict]:
         "name": info.get("shortName") or info.get("longName") or symbol,
         "sector": sector,
         "kind": "etf" if is_etf else "stock",
+        "industry": "" if is_etf else str(info.get("industry") or ""),
     }
     return df, meta
 
