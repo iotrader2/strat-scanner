@@ -90,7 +90,6 @@ class Setup:
     kind: str  # machine key, e.g. "inside", "hammer", "2-1-2"
     label: str  # human label, e.g. "2-1-2 bullish"
     trigger: float
-    stop: float
     triggered: bool  # True once price already traded through the trigger
     detail: str = ""
 
@@ -129,28 +128,28 @@ def find_long_setups(candles: Sequence[Candle], types: Sequence[Optional[str]]) 
         else:
             label, kind = "Inside bar", "inside"
         setups.append(
-            Setup(kind, label, cur.high, cur.low, False, "break of the inside-bar high")
+            Setup(kind, label, cur.high, False, "break of the inside-bar high")
         )
 
     if is_hammer(cur):
-        setups.append(Setup("hammer", "Hammer", cur.high, cur.low, False, "break of the hammer high"))
+        setups.append(Setup("hammer", "Hammer", cur.high, False, "break of the hammer high"))
 
     if t0 == TWO_UP and t1 == INSIDE:
         if t2 in (TWO_UP, TWO_DOWN):
             label = "2D-1-2U reversal" if t2 == TWO_DOWN else "2U-1-2U continuation"
-            setups.append(Setup("2-1-2", f"2-1-2 bullish ({label})", prev.high, prev.low, True))
+            setups.append(Setup("2-1-2", f"2-1-2 bullish ({label})", prev.high, True))
         elif t2 == OUTSIDE:
-            setups.append(Setup("3-1-2", "3-1-2 bullish", prev.high, prev.low, True))
+            setups.append(Setup("3-1-2", "3-1-2 bullish", prev.high, True))
 
     if t0 == TWO_UP and t1 == TWO_DOWN:
         if t2 == INSIDE:
-            setups.append(Setup("1-2-2", "1-2-2 RevStrat", prev.high, prev.low, True))
+            setups.append(Setup("1-2-2", "1-2-2 RevStrat", prev.high, True))
         else:
-            setups.append(Setup("2D-2U", "2D-2U reversal", prev.high, prev.low, True))
+            setups.append(Setup("2D-2U", "2D-2U reversal", prev.high, True))
 
     if t0 != INSIDE and len(candles) >= 2 and is_hammer(prev) and cur.high > prev.high:
         setups.append(
-            Setup("hammer-triggered", "Hammer triggered", prev.high, prev.low, True, "broke the prior hammer high")
+            Setup("hammer-triggered", "Hammer triggered", prev.high, True, "broke the prior hammer high")
         )
 
     return setups

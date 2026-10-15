@@ -99,11 +99,11 @@ def _kinds(candles):
 
 
 class TestSetups:
-    def test_inside_bar_trigger_and_stop(self):
+    def test_inside_bar_trigger(self):
         candles = [Candle(95, 100, 90, 98), Candle(98, 112, 94, 110), Candle(108, 111, 100, 109)]
         setups = find_long_setups(candles, classify_series(candles))
         pending = next(s for s in setups if s.kind == "2-1-2-pending")
-        assert (pending.trigger, pending.stop, pending.triggered) == (111, 100, False)
+        assert (pending.trigger, pending.triggered) == (111, False)
 
     def test_three_one_pending(self):
         candles = [Candle(95, 100, 90, 98), Candle(98, 105, 85, 99), Candle(99, 103, 88, 100)]
@@ -119,7 +119,7 @@ class TestSetups:
         setups = find_long_setups(candles, classify_series(candles))
         s = next(s for s in setups if s.kind == "2-1-2")
         assert "2D-1-2U" in s.label
-        assert (s.trigger, s.stop, s.triggered) == (100, 87, True)
+        assert (s.trigger, s.triggered) == (100, True)
 
     def test_three_one_two(self):
         candles = [Candle(100, 105, 95, 100), Candle(100, 110, 90, 108), Candle(108, 109, 95, 100), Candle(100, 112, 99, 111)]
@@ -138,11 +138,16 @@ class TestSetups:
         candles = [Candle(100, 105, 95, 96), Candle(96, 97.2, 89, 97)]
         setups = find_long_setups(candles, classify_series(candles))
         h = next(s for s in setups if s.kind == "hammer")
-        assert (h.trigger, h.stop) == (97.2, 89)
+        assert h.trigger == 97.2
 
     def test_bearish_patterns_ignored(self):
         candles = [Candle(100, 110, 90, 105), Candle(105, 108, 92, 100), Candle(100, 106, 85, 86)]
         assert _kinds(candles) == set()
+
+    def test_setups_carry_no_stop(self):
+        candles = [Candle(95, 100, 90, 98), Candle(98, 112, 94, 110), Candle(108, 111, 100, 109)]
+        for s in find_long_setups(candles, classify_series(candles)):
+            assert not hasattr(s, "stop")
 
     def test_timeframe_state(self):
         st = timeframe_state("W", [Candle(95, 100, 90, 98), Candle(96, 99, 91, 97.5)])

@@ -5,7 +5,6 @@ export interface Setup {
   kind: string;
   label: string;
   trigger: number;
-  stop: number;
   triggered: boolean;
   detail: string;
 }
@@ -39,7 +38,6 @@ export interface ScanRow {
   full_continuity: boolean;
   mw_green: boolean;
   trigger: number | null;
-  stop: number | null;
   trigger_tf: Tf | null;
   setup: string | null;
   triggered: boolean | null;

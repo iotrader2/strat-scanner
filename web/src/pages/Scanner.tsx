@@ -221,7 +221,6 @@ export default function Scanner({ version }: { version: string | null }) {
               <th>M · W · D</th>
               <th>Best setup</th>
               <th className="num">Trigger</th>
-              <th className="num">Stop</th>
               {header("trigger_distance_pct", "To trigger", "num")}
               {header("avg_dollar_volume", "Avg $vol", "num")}
               {header("score", "Score", "num")}
@@ -262,7 +261,6 @@ export default function Scanner({ version }: { version: string | null }) {
                   )}
                 </td>
                 <td className="num accent-text">{r.trigger?.toFixed(2) ?? "—"}</td>
-                <td className="num red-text">{r.stop?.toFixed(2) ?? "—"}</td>
                 <td className="num">{fmtPct(r.trigger_distance_pct)}</td>
                 <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
                 <td className="num">

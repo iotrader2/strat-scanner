@@ -152,5 +152,5 @@ def _pick_primary(scored: list[ScoredSetup], price: float) -> Optional[ScoredSet
 def _describe(s: ScoredSetup, dist: float) -> str:
     tf = TF_NAMES[s.tf]
     if s.setup.triggered or dist <= 0:
-        return f"{tf} {s.setup.label} — triggered above {s.setup.trigger:.2f}, stop {s.setup.stop:.2f}"
-    return f"{tf} {s.setup.label} — trigger {s.setup.trigger:.2f} ({dist:+.1f}% away), stop {s.setup.stop:.2f}"
+        return f"{tf} {s.setup.label} — triggered above {s.setup.trigger:.2f}"
+    return f"{tf} {s.setup.label} — trigger {s.setup.trigger:.2f} ({dist:+.1f}% away)"

@@ -15,12 +15,7 @@ function SectorCard({ etf, tf }: { etf: SectorEtf; tf: Tf }) {
   const st = r.tf[tf];
   const lines = useMemo<PriceLine[]>(() => {
     const s = st?.setups.find((x) => !x.triggered) ?? st?.setups[0];
-    return s
-      ? [
-          { price: s.trigger, color: "#38bdf8", title: "trigger" },
-          { price: s.stop, color: "#f43f5e", title: "stop" },
-        ]
-      : [];
+    return s ? [{ price: s.trigger, color: "#38bdf8", title: "trigger" }] : [];
   }, [st]);
   const setup = st?.setups[0];
 
@@ -45,8 +40,7 @@ function SectorCard({ etf, tf }: { etf: SectorEtf; tf: Tf }) {
         <span className="small">
           {setup ? (
             <>
-              <b>{tf}</b> {setup.label} · <span className="accent-text">{setup.trigger.toFixed(2)}</span> /{" "}
-              <span className="red-text">{setup.stop.toFixed(2)}</span>
+              <b>{tf}</b> {setup.label} · trigger <span className="accent-text">{setup.trigger.toFixed(2)}</span>
             </>
           ) : (
             <span className="muted">No {tf} long setup</span>

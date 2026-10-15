@@ -25,7 +25,6 @@ def test_higher_timeframe_inside_bar_ranks_higher():
     assert weekly_inside.score > daily_inside.score
     assert weekly_inside.primary.tf == "W"
     assert weekly_inside.primary.setup.trigger == 106
-    assert weekly_inside.primary.setup.stop == 95
 
 
 def test_trigger_closer_to_price_scores_higher():
@@ -47,7 +46,8 @@ def test_pinned_low_volatility_name_is_penalised():
     assert any("low volatility" in r for r in pinned.reasons)
 
 
-def test_reason_mentions_trigger_and_stop():
+def test_reason_mentions_trigger_without_stop():
     s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
     text = " ".join(s.reasons)
-    assert "trigger 106.00" in text and "stop 95.00" in text
+    assert "trigger 106.00" in text
+    assert "stop" not in text.lower()

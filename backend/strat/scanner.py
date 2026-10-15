@@ -57,7 +57,6 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
         "full_continuity": sc.full_continuity,
         "mw_green": sc.mw_green,
         "trigger": round(primary.setup.trigger, 2) if primary else None,
-        "stop": round(primary.setup.stop, 2) if primary else None,
         "trigger_tf": primary.tf if primary else None,
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,
         "triggered": primary.setup.triggered if primary else None,

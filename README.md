@@ -70,16 +70,19 @@ the top third of the range.
 
 **Long setups** found on M, W and D:
 
-| Setup | Pattern | Trigger / stop |
+| Setup | Pattern | Trigger |
 | --- | --- | --- |
-| Inside bar (incl. inside month/week/day) | current candle is `1` | above the inside-bar high / inside-bar low |
-| 2-1 → 2-1-2, 3-1 → 3-1-2 (pending) | `2`/`3` then current `1` | inside-bar high / inside-bar low |
-| Hammer | current candle is a hammer | hammer high / hammer low |
-| 2-1-2 bullish (2D-1-2U, 2U-1-2U) | triggered | inside-bar high / inside-bar low |
-| 3-1-2 bullish | triggered | inside-bar high / inside-bar low |
-| 1-2-2 RevStrat | `1`, `2D`, `2U` | 2D-candle high / 2D-candle low |
-| 2D-2U reversal | `2D` then `2U` | 2D-candle high / 2D-candle low |
-| Hammer triggered | prior candle hammer, current breaks its high | hammer high / hammer low |
+| Inside bar (incl. inside month/week/day) | current candle is `1` | above the inside-bar high |
+| 2-1 → 2-1-2, 3-1 → 3-1-2 (pending) | `2`/`3` then current `1` | inside-bar high |
+| Hammer | current candle is a hammer | hammer high |
+| 2-1-2 bullish (2D-1-2U, 2U-1-2U) | triggered | inside-bar high |
+| 3-1-2 bullish | triggered | inside-bar high |
+| 1-2-2 RevStrat | `1`, `2D`, `2U` | 2D-candle high |
+| 2D-2U reversal | `2D` then `2U` | 2D-candle high |
+| Hammer triggered | prior candle hammer, current breaks its high | hammer high |
+
+Stops are intentionally not shown: they are managed intraday (e.g. on the 5-minute chart), which is out of
+scope for this scanner.
 
 **Actionability score (0–100)**:
 
@@ -90,7 +93,7 @@ the top third of the range.
 - Liquidity: up to +10, log-scaled from $50M to $5B average daily dollar volume.
 - Names with an average daily range under 0.5% (typically pinned by a pending acquisition) have their score halved.
 
-The chosen ("best") setup supplies the **trigger**, **stop** and **reason** text shown in the table.
+The chosen ("best") setup supplies the **trigger** and **reason** text shown in the table.
 
 ## UI
 
@@ -98,7 +101,7 @@ The chosen ("best") setup supplies the **trigger**, **stop** and **reason** text
   min price, min dollar volume, max distance to trigger). M/W/D badges show the Strat number (text colour,
   yellow outline for `1`, purple for `3`) on a green/red fill for continuity; `H` marks a hammer.
 - **Detail** (`/stock/SYMBOL`): interactive candlestick chart ([TradingView lightweight-charts](https://github.com/tradingview/lightweight-charts))
-  with a Monthly/Weekly/Daily toggle, Strat numbers above recent bars, hammer arrows, and dashed trigger/stop lines.
+  with a Monthly/Weekly/Daily toggle, Strat numbers above recent bars, hammer arrows, and dashed trigger lines.
 - **Sectors**: SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
   (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks, each with a labelled chart,
   M/W/D badges and a strongest→weakest leaderboard. “Scan sector →” filters the scanner to that sector.

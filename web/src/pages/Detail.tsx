@@ -30,16 +30,14 @@ export default function Detail({ version }: { version: string | null }) {
   const lines = useMemo<PriceLine[]>(() => {
     if (!row) return [];
     const out: PriceLine[] = [];
-    if (row.trigger !== null && row.stop !== null) {
+    if (row.trigger !== null) {
       out.push({ price: row.trigger, color: "#38bdf8", title: `Trigger (${row.trigger_tf})` });
-      out.push({ price: row.stop, color: "#f43f5e", title: `Stop (${row.trigger_tf})` });
     }
     const st = row.tf[activeTf];
     if (st && row.trigger_tf !== activeTf) {
       const local = st.setups.find((s) => !s.triggered) ?? st.setups[0];
       if (local) {
         out.push({ price: local.trigger, color: "rgba(56,189,248,0.5)", title: `${activeTf} trigger` });
-        out.push({ price: local.stop, color: "rgba(244,63,94,0.5)", title: `${activeTf} stop` });
       }
     }
     return out;
@@ -69,7 +67,6 @@ export default function Detail({ version }: { version: string | null }) {
         <div className="detail-kpis">
           <div><span className="kpi-label">Score</span><ScorePill score={row.score} /></div>
           <div><span className="kpi-label">Trigger</span><span className="accent-text kpi">{row.trigger?.toFixed(2) ?? "—"}</span></div>
-          <div><span className="kpi-label">Stop</span><span className="red-text kpi">{row.stop?.toFixed(2) ?? "—"}</span></div>
           <div><span className="kpi-label">To trigger</span><span className="kpi">{fmtPct(row.trigger_distance_pct)}</span></div>
           <div><span className="kpi-label">Avg $vol</span><span className="kpi">{fmtMoney(row.avg_dollar_volume)}</span></div>
         </div>
@@ -85,7 +82,7 @@ export default function Detail({ version }: { version: string | null }) {
                 </button>
               ))}
             </div>
-            <span className="muted small">Strat numbers above bars · H = hammer · dashed lines = trigger / stop</span>
+            <span className="muted small">Strat numbers above bars · H = hammer · dashed lines = trigger</span>
           </div>
           <CandleChart candles={data.charts[activeTf]} lines={lines} height={480} labelLast={activeTf === "M" ? 30 : 35} />
         </section>
@@ -133,7 +130,6 @@ export default function Detail({ version }: { version: string | null }) {
                     <span className="tf-tag">{s.tf}</span>
                     <span className="grow">{s.label}{s.triggered && <span className="trig-chip">triggered</span>}</span>
                     <span className="accent-text">{s.trigger.toFixed(2)}</span>
-                    <span className="red-text">{s.stop.toFixed(2)}</span>
                   </li>
                 ))}
               </ul>
