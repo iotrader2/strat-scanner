@@ -159,11 +159,13 @@ ETFS: list[tuple[str, str, str, str]] = [
     ("IYT", "iShares Transportation Average", "Industrials", "industry"),
     ("GDX", "VanEck Gold Miners", "Materials", "industry"),
     ("XME", "SPDR S&P Metals & Mining", "Materials", "industry"),
-    ("SPY", "SPDR S&P 500", "Benchmark", "benchmark"),
+    # Shown on the State of the Market tab in this order, not on the Sectors page.
     ("QQQ", "Invesco QQQ (Nasdaq-100)", "Benchmark", "benchmark"),
+    ("SPY", "SPDR S&P 500", "Benchmark", "benchmark"),
     ("IWM", "iShares Russell 2000", "Benchmark", "benchmark"),
-    ("DIA", "SPDR Dow Jones Industrial Average", "Benchmark", "benchmark"),
 ]
+SECTOR_ETFS = [e for e in ETFS if e[3] != "benchmark"]
+MARKET_ETFS = [e for e in ETFS if e[3] == "benchmark"]
 
 
 @dataclass(frozen=True)

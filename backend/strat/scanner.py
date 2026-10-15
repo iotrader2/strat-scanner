@@ -11,7 +11,7 @@ from . import config
 from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
 from .data import resample
 from .scoring import TF_NAMES, SectorStrength, score_symbol, sector_strength_points
-from .universe import ETFS, Member
+from .universe import SECTOR_ETFS, Member
 
 TIMEFRAMES = ("M", "W", "D")
 
@@ -31,7 +31,7 @@ def _tf_payload(st: Optional[TimeframeState]) -> Optional[dict]:
 def sector_strengths(rows: list[dict]) -> dict[str, SectorStrength]:
     """Rank the sector and industry ETFs (not benchmarks) by score, as on the Sectors page."""
     by_symbol = {r["symbol"]: r for r in rows}
-    candidates = [(by_symbol[sym], name) for sym, name, _, group in ETFS if group != "benchmark" and sym in by_symbol]
+    candidates = [(by_symbol[sym], name) for sym, name, _, _ in SECTOR_ETFS if sym in by_symbol]
     ranked = sorted(candidates, key=lambda rn: (-rn[0]["score"], rn[0]["symbol"]))
     if not ranked:
         return {}
@@ -162,6 +162,19 @@ def sector_entries(
     bars: int,
 ) -> list[dict]:
     """Sector ETF cards for one timeframe, strongest score first (ties by symbol)."""
+    out = etf_cards(etfs, rows_by_symbol, daily_by_symbol, tf, bars)
+    out.sort(key=lambda e: (-e["row"]["score"], e["symbol"]))
+    return out
+
+
+def etf_cards(
+    etfs: list[tuple[str, str, str, str]],
+    rows_by_symbol: dict[str, dict],
+    daily_by_symbol: dict[str, pd.DataFrame],
+    tf: str,
+    bars: int,
+) -> list[dict]:
+    """ETF cards (scan row + chart candles) in the order given; ETFs without data are skipped."""
     out = []
     for sym, name, sector, group in etfs:
         daily = daily_by_symbol.get(sym)
@@ -178,5 +191,4 @@ def sector_entries(
                 "candles": chart_payload(daily, tf, bars),
             }
         )
-    out.sort(key=lambda e: (-e["row"]["score"], e["symbol"]))
     return out

@@ -12,9 +12,9 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import config, data, earnings
-from .scanner import chart_payload, scan_all, scan_symbol, sector_entries, sector_strengths
+from .scanner import chart_payload, etf_cards, scan_all, scan_symbol, sector_entries, sector_strengths
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
-from .universe import ETFS, SECTOR_ETF, Member, load_universe, to_yahoo
+from .universe import MARKET_ETFS, SECTOR_ETF, SECTOR_ETFS, Member, load_universe, to_yahoo
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="Strat Scanner (local)")
@@ -357,5 +357,14 @@ def position_to_watchlist(symbol: str):
 def sectors(tf: str = Query("D", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
     _ensure_scan()
     by_symbol = {r["symbol"]: r for r in State.scan}
-    out = sector_entries(ETFS, by_symbol, State.daily, tf, bars)
+    out = sector_entries(SECTOR_ETFS, by_symbol, State.daily, tf, bars)
+    return {"tf": tf, "as_of": State.scan_key, "etfs": out}
+
+
+@app.get("/api/market")
+def market(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
+    """State of the Market cards: QQQ, SPY and IWM, in that order."""
+    _ensure_scan()
+    by_symbol = {r["symbol"]: r for r in State.scan}
+    out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars)
     return {"tf": tf, "as_of": State.scan_key, "etfs": out}

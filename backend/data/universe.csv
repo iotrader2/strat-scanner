@@ -1,5 +1,4 @@
 symbol,name,sector,kind,indexes,industry
-DIA,SPDR Dow Jones Industrial Average,Benchmark,etf,benchmark,
 GDX,VanEck Gold Miners,Materials,etf,industry,
 IGV,iShares Expanded Tech-Software,Information Technology,etf,industry,
 ITA,iShares U.S. Aerospace & Defense,Industrials,etf,industry,
