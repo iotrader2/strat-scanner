@@ -32,7 +32,7 @@ takes about a minute; the top bar shows progress. Press `Ctrl+C` to stop both se
 | Command | What it does |
 | --- | --- |
 | `npm run setup` | Install/update Python + web dependencies only |
-| `npm run refresh` | Download the latest bars into the cache from the CLI (same as the **↻ Refresh data** button) |
+| `npm run refresh` | Download the latest bars into the cache from the CLI (the **↻ Refresh data** button also updates earnings dates) |
 | `npm run refresh:universe` | Rebuild the S&P 500 / Nasdaq-100 list from Wikipedia, then refresh |
 | `npm test` | Run the backend (pytest) and frontend (Vitest) unit tests |
 | `npm run typecheck` | Type-check the frontend |
@@ -159,9 +159,29 @@ Scanner** (drill into weekly setups, optionally filtered to a sector) and **Watc
   adds the symbol.
   - Once a name is watched the button shows a check, which turns into **−** on hover, and clicking it removes the name.
   - The Watchlist tab shows a count badge.
-  - It lists the watched names with the Stock Scanner's columns, badges, trigger and score tooltip, plus a **Remove** button.
+  - It lists the watched names with the Stock Scanner's columns, badges, trigger and score tooltip. The first-column
+    check/**−** toggle removes a name.
   - Names stay on the list after their weekly setup goes away; they are then marked “no active setup”.
   - The list is stored in the `watchlist` table of the local SQLite cache, so it survives restarts and data refreshes.
+  - **Add symbol** (on the Watchlist tab) takes any Yahoo Finance ticker, not just universe names: type it (it is
+    upper-cased) and press Enter.
+    - Tickers outside the S&P 500 / Nasdaq-100 / ETF universe (e.g. `SOFI`) are first validated by downloading
+      their history with yfinance. Only a ticker Yahoo reports as missing is rejected (404); a network failure
+      returns 502 instead.
+    - Their bars, name and sector are cached, and while they are watched they get the same M/W/D Strat data, score
+      and trigger, are included in every data refresh, and have a working detail page and chart.
+    - They show an **Added** chip.
+    - They appear in the Stock Scanner only when they have a weekly setup and pass its filters like any other name.
+- **Earnings caution**: a ⚠ icon next to the symbol (Stock Scanner, Watchlist and detail header) marks a stock with
+  earnings in the next 10 calendar days, counting today.
+  - Hover or focus it to see the date and timing: **BMO** (before open), **AMC** (after close) or **time TBD**.
+    When Yahoo only gives an estimated date range, the range is shown.
+  - Dates come from yfinance (`Ticker.calendar` for the date; `get_earnings_dates` for the scheduled time).
+  - A time before 09:30 ET is BMO, 16:00 ET or later is AMC, and anything else (including date-only entries) is
+    time TBD.
+  - Results are cached in the `earnings` table and re-fetched on every data refresh. On startup, entries older
+    than 12 hours are refreshed in the background.
+  - When the source has no date, no icon is shown; nothing is guessed. ETFs never show it.
 - **Sticky selections**: the last tab (including the Stock Scanner's sector filter) and the M/W/D timeframe on the
   detail and Sectors views are saved in `localStorage`. They survive navigation and full reloads, and opening the bare
   app URL reopens the last tab; a first-time visitor with nothing saved lands on **Sectors**. Deep links such as
@@ -173,7 +193,9 @@ Scanner** (drill into weekly setups, optionally filtered to a sector) and **Watc
 backend/
   strat/candles.py    Strat classification, continuity, hammer, long setups (pure, unit tested)
   strat/scoring.py    actionability score
-  strat/data.py       SQLite cache, yfinance download, weekly/monthly resampling
+  strat/data.py       SQLite cache (bars, watchlist, added symbols, earnings), yfinance download, resampling
+  strat/members.py    effective universe = universe + watched off-universe symbols
+  strat/earnings.py   upcoming earnings dates and BMO/AMC timing from yfinance
   strat/scanner.py    per-symbol scan + chart payloads
   strat/universe.py   S&P 500 / Nasdaq-100 / ETF universe (snapshot in data/universe.csv)
   strat/api.py        FastAPI app (localhost only)
@@ -192,7 +214,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`)
 | `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
 | `GET /api/sectors?tf=W` | Sector/industry ETF cards for a timeframe |
 | `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
-| `POST /api/watchlist` | Add a symbol, body `{"symbol": "TDY"}` (404 if it is not in the universe) |
+| `POST /api/watchlist` | Add any ticker, body `{"symbol": "SOFI"}`. Returns 404 only if Yahoo Finance has no such symbol and 502 if the lookup fails |
 | `DELETE /api/watchlist/{symbol}` | Remove a symbol |
 | `GET /api/status`, `POST /api/refresh` | Cache status and data refresh |
 
