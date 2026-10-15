@@ -149,7 +149,14 @@ The detail page has a **Score breakdown** panel with the same numbers plus a one
   - Each card has a candlestick chart with **I** inside-bar markers, its weekly setup and trigger, M/W/D badges and a score.
   - Cards and the leaderboard are sorted strongest first on every timeframe.
   - “Scan sector →” filters the scanner to that sector.
-- **Sticky selections**: the last tab (Scanner or Sectors, including the scanner's sector filter) and the M/W/D
+- **Watchlist** (`/watchlist`): a **+** button on every scanner row, on the detail page header and on each Sectors card
+  adds the symbol.
+  - Once a name is watched the button shows a check, which turns into **−** on hover, and clicking it removes the name.
+  - The Watchlist tab shows a count badge.
+  - It lists the watched names with the scanner's columns, badges, trigger and score tooltip, plus a **Remove** button.
+  - Names stay on the list after their weekly setup goes away; they are then marked “no active setup”.
+  - The list is stored in the `watchlist` table of the local SQLite cache, so it survives restarts and data refreshes.
+- **Sticky selections**: the last tab (Scanner, Sectors or Watchlist, including the scanner's sector filter) and the M/W/D
   timeframe on the detail and Sectors views are saved in `localStorage`. They survive navigation and full reloads, and
   opening the bare app URL reopens the last tab. Deep links such as `/stock/TDY` or `/?sector=Energy` always win.
 
@@ -167,5 +174,19 @@ backend/
 web/                  React + Vite + lightweight-charts UI
 scripts/              setup + dev launcher used by `npm run dev`
 ```
+
+### Local API
+
+The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`):
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/scan` | Ranked weekly setups |
+| `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
+| `GET /api/sectors?tf=W` | Sector/industry ETF cards for a timeframe |
+| `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
+| `POST /api/watchlist` | Add a symbol, body `{"symbol": "TDY"}` (404 if it is not in the universe) |
+| `DELETE /api/watchlist/{symbol}` | Remove a symbol |
+| `GET /api/status`, `POST /api/refresh` | Cache status and data refresh |
 
 Not investment advice. Yahoo Finance data is unofficial and can be delayed or incomplete.
