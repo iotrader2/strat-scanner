@@ -1,7 +1,7 @@
 # strat-scanner
 
 A **local-only** stock scanner for Rob Smith's **The Strat**, long bias only. It scans liquid US names
-(S&P 500 + Nasdaq-100 + sector/industry ETFs) for **weekly** setups (inside weeks, weekly hammers and
+(S&P 500 + Nasdaq-100 + sector/industry ETFs + the QQQ, SPY and IWM index ETFs) for **weekly** setups (inside weeks, weekly hammers and
 bullish weekly Strat combos) and ranks them by an *actionability* score. Monthly, Weekly and Daily candles are all
 classified and shown as context (Strat number and continuity).
 
@@ -19,7 +19,7 @@ your PATH is older, `npm run dev` picks the newest compatible version installed 
 npm run dev        # or: make dev
 ```
 
-Then open **http://127.0.0.1:5173**. The first visit opens on the Sectors tab; after that the app reopens
+Then open **http://127.0.0.1:5173**. The first visit opens on the State of the Market tab; after that the app reopens
 whichever tab you used last.
 
 `npm run dev` does everything on first run: it creates `backend/.venv`, installs the Python requirements and the
@@ -116,7 +116,7 @@ ETFs:   score = raw × 100 / 108        (no Sector strength component, see below
 **Sector strength details**
 
 - The ranking is the 24 sector and industry ETFs on the Sectors page (11 SPDR sectors + 13 industry ETFs), sorted by
-  their own score, strongest first; ties are broken by symbol. Benchmarks (SPY, QQQ, IWM, DIA) are not ranked.
+  their own score, strongest first; ties are broken by symbol. Benchmarks (QQQ, SPY, IWM, shown on the State of the Market tab) are not ranked.
 - ETFs are scored first (without this component, so their scale stays at 108), then every stock is scored against
   that ranking in the same scan. Because the ETF scores are the ranking, ETFs never get Sector strength themselves.
 - Each stock maps to its GICS sector's SPDR ETF, except where an industry ETF is a clearly better benchmark:
@@ -166,18 +166,29 @@ setup points and closeness, with a small preference for setups that have not tri
 liquidity +9.3, Sector strength +2.5 (XBI scores 12.4, #23 of 24: `15 × 12.4 / 75.7`). Raw 69.7 / 123 gives a score of 56.7.
 
 In the app, hover (or keyboard-focus) any score pill in the Stock Scanner, Watchlist or Positions table or on a
-Sectors card to see this breakdown.
+Sectors or State of the Market card to see this breakdown.
 The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component.
 
 ## UI
 
-The top tabs follow the recommended workflow, left to right: **Sectors** (find the strongest groups), **Stock
+The top tabs follow the recommended workflow, left to right: **State of the Market** (read the indexes first),
+**Sectors** (find the strongest groups), **Stock
 Scanner** (drill into weekly setups, optionally filtered to a sector), **Watchlist** (track the names you picked) and
 **Positions** (track what you bought against your entry).
 
-- **Sectors** (`/sectors`): SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
-  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks.
-  - Each card has a candlestick chart with **I** inside-bar markers, its weekly setup and trigger, M/W/D badges and a score.
+- **State of the Market** (`/market`, the first tab): QQQ (Nasdaq-100), SPY (S&P 500) and IWM (Russell 2000), in that
+  order, as larger versions of the Sectors cards.
+  - Each card has the same candlestick chart with **H** / **I** markers and the weekly trigger line, M/W/D Strat badges
+    (continuity fill), a score with the hover breakdown and a **+** watchlist button. A green border means Monthly +
+    Weekly green continuity.
+  - A Monthly / Weekly / Daily toggle (saved separately from the Sectors one) switches the charts.
+  - A summary line counts how many of the three have Monthly + Weekly green continuity (and full M+W+D), with each
+    index's score.
+  - These are the only benchmark ETFs; DIA is no longer part of the universe. They are still scanned and appear in the
+    Stock Scanner ("Benchmark ETFs" sector filter), but they are not on the Sectors page or in its Sector strength ranking.
+- **Sectors** (`/sectors`): SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC) and industry ETFs
+  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME).
+  - Each card has a candlestick chart with **H** hammer and **I** inside-bar markers, its weekly setup and trigger, M/W/D badges and a score.
   - Cards and the leaderboard are sorted strongest first on every timeframe.
   - “Scan sector →” opens the Stock Scanner filtered to that sector.
 - **Stock Scanner** (`/`): ranked, sortable and filterable table of weekly setups.
@@ -238,8 +249,8 @@ Scanner** (drill into weekly setups, optionally filtered to a sector), **Watchli
     than 12 hours are refreshed in the background.
   - When the source has no date, no icon is shown; nothing is guessed. ETFs never show it.
 - **Sticky selections**: the last tab (including the Stock Scanner's sector filter) and the M/W/D timeframe on the
-  detail and Sectors views are saved in `localStorage`. They survive navigation and full reloads, and opening the bare
-  app URL reopens the last tab; a first-time visitor with nothing saved lands on **Sectors**. Deep links such as
+  detail, Sectors and State of the Market views are saved in `localStorage`. They survive navigation and full reloads, and opening the bare
+  app URL reopens the last tab; a first-time visitor with nothing saved lands on **State of the Market**. Deep links such as
   `/stock/TDY` or `/?sector=Energy` always win.
 
 ## Layout
@@ -267,7 +278,8 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`)
 | --- | --- |
 | `GET /api/scan` | Ranked weekly setups |
 | `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
-| `GET /api/sectors?tf=W` | Sector/industry ETF cards for a timeframe |
+| `GET /api/sectors?tf=W` | Sector/industry ETF cards for a timeframe, strongest first (no benchmarks) |
+| `GET /api/market?tf=W` | State of the Market cards: QQQ, SPY and IWM, in that order |
 | `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
 | `POST /api/watchlist` | Add any ticker, body `{"symbol": "SOFI"}`. Returns 404 only if Yahoo Finance has no such symbol and 502 if the lookup fails |
 | `DELETE /api/watchlist/{symbol}` | Remove a symbol |
