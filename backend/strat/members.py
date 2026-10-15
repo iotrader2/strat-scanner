@@ -1,4 +1,4 @@
-"""The effective scan universe: S&P 500 / Nasdaq-100 / ETFs plus off-universe symbols on the watchlist."""
+"""The effective scan universe: S&P 500 / Nasdaq-100 / ETFs plus off-universe symbols on the watchlist or in Positions."""
 
 from __future__ import annotations
 
@@ -11,21 +11,21 @@ from .universe import Member, load_universe
 log = logging.getLogger(__name__)
 
 
-def extra_members(only_watched: bool, base: Optional[list[Member]] = None) -> list[Member]:
-    """Symbols added from the watchlist that are not in the universe (only the watched ones by default)."""
+def extra_members(only_tracked: bool, base: Optional[list[Member]] = None) -> list[Member]:
+    """Added symbols outside the universe; with ``only_tracked``, just those watched or held as positions."""
     known = {m.symbol for m in (load_universe() if base is None else base)}
-    watched = set(data.watchlist()) if only_watched else None
+    tracked = data.tracked_symbols() if only_tracked else None
     return [
         Member(e["symbol"], e["name"], e["sector"], e["kind"], "Watchlist", in_universe=False)
         for e in data.extra_symbols()
-        if e["symbol"] not in known and (watched is None or e["symbol"] in watched)
+        if e["symbol"] not in known and (tracked is None or e["symbol"] in tracked)
     ]
 
 
 def effective_universe(base: Optional[list[Member]] = None) -> list[Member]:
-    """Universe plus watched off-universe symbols, which are scanned and refreshed like the rest."""
+    """Universe plus tracked off-universe symbols, which are scanned and refreshed like the rest."""
     base = load_universe() if base is None else base
-    return base + extra_members(only_watched=True, base=base)
+    return base + extra_members(only_tracked=True, base=base)
 
 
 def refresh_earnings(

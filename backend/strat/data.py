@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS watchlist (
     symbol   TEXT PRIMARY KEY,
     added_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS positions (
+    symbol      TEXT PRIMARY KEY,
+    entry_price REAL NOT NULL,
+    shares      REAL,
+    entry_date  TEXT NOT NULL,
+    added_at    TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS earnings (
     symbol     TEXT PRIMARY KEY,
     date       TEXT,
@@ -94,6 +101,39 @@ def add_to_watchlist(symbol: str, db_path: Path | None = None) -> None:
 def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:
     with _write_lock, connect(db_path) as conn:
         conn.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
+
+
+def positions(db_path: Path | None = None) -> list[dict]:
+    """Open positions, oldest first: symbol, entry_price, shares (None when not given), entry_date."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT symbol, entry_price, shares, entry_date FROM positions ORDER BY added_at, symbol"
+        ).fetchall()
+    return [dict(zip(("symbol", "entry_price", "shares", "entry_date"), r)) for r in rows]
+
+
+def save_position(
+    symbol: str, entry_price: float, shares: Optional[float], entry_date: str, db_path: Path | None = None
+) -> None:
+    """Insert or update a position, keeping its original place in the list."""
+    added = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with _write_lock, connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO positions(symbol, entry_price, shares, entry_date, added_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(symbol) DO UPDATE SET entry_price = excluded.entry_price, shares = excluded.shares, "
+            "entry_date = excluded.entry_date",
+            (symbol, entry_price, shares, entry_date, added),
+        )
+
+
+def remove_position(symbol: str, db_path: Path | None = None) -> None:
+    with _write_lock, connect(db_path) as conn:
+        conn.execute("DELETE FROM positions WHERE symbol = ?", (symbol,))
+
+
+def tracked_symbols(db_path: Path | None = None) -> set[str]:
+    """Symbols on the watchlist or held as positions."""
+    return set(watchlist(db_path)) | {p["symbol"] for p in positions(db_path)}
 
 
 def extra_symbols(db_path: Path | None = None) -> list[dict]:

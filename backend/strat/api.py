@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from datetime import date
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import config, data, earnings
 from .scanner import chart_payload, scan_all, scan_symbol, sector_entries
@@ -38,7 +39,7 @@ def _universe() -> list[Member]:
 def _find_member(symbol: str) -> Optional[Member]:
     """Universe member, or any symbol ever added from the watchlist (so its detail page keeps working)."""
     base = load_universe()
-    return next((m for m in base + extra_members(only_watched=False, base=base) if m.symbol == symbol), None)
+    return next((m for m in base + extra_members(only_tracked=False, base=base) if m.symbol == symbol), None)
 
 
 def _rescan_symbol(member: Member) -> None:
@@ -178,9 +179,67 @@ class WatchRequest(BaseModel):
     symbol: str
 
 
+class PositionRequest(BaseModel):
+    symbol: str
+    entry_price: Optional[float] = Field(None, gt=0)
+    shares: Optional[float] = Field(None, gt=0)
+    entry_date: Optional[date] = None
+
+
+class PositionUpdate(BaseModel):
+    entry_price: float = Field(gt=0)
+    shares: Optional[float] = Field(None, gt=0)
+    entry_date: date
+
+
+TICKER_RE = re.compile(r"^\^?[A-Z0-9][A-Z0-9.\-=]{0,14}$")
+
+
+def _rows_by_symbol() -> dict[str, dict]:
+    return {r["symbol"]: r for r in _ensure_scan()}
+
+
+def _resolve_symbol(raw: str) -> tuple[str, bool]:
+    """Canonical symbol and whether it is in the scan universe ("brk.b" -> "BRK-B"); 404 if malformed."""
+    raw = raw.strip().upper()
+    if not TICKER_RE.match(raw):
+        raise HTTPException(404, f"{raw or 'Empty symbol'} is not a valid ticker")
+    universe = {m.symbol for m in load_universe()}
+    if to_yahoo(raw) in universe:
+        return to_yahoo(raw), True
+    return raw, raw in universe
+
+
+def _fetch_off_universe(symbol: str) -> None:
+    """Validate an off-universe ticker via yfinance and cache its bars, metadata and earnings."""
+    try:
+        bars, meta = data.lookup_symbol(symbol)
+    except data.SymbolNotFound:
+        raise HTTPException(404, f"{symbol} was not found on Yahoo Finance")
+    except data.LookupFailed as exc:
+        raise HTTPException(502, f"Could not look up {symbol} right now: {exc}")
+    data.save_bars(symbol, bars)
+    data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"])
+    if meta["kind"] == "stock":
+        earnings.refresh_earnings([symbol], max_age_hours=0)
+
+
+def _start_tracking(symbol: str, in_universe: bool) -> None:
+    """Make sure an off-universe symbol that was just watched or bought is scanned (call after saving it)."""
+    if not in_universe:
+        _ensure_scan()
+        _rescan_symbol(_find_member(symbol))
+
+
+def _stop_tracking_if_unused(symbol: str) -> None:
+    """Drop an off-universe symbol from the scan once it is neither watched nor held."""
+    if symbol not in {m.symbol for m in load_universe()} and symbol not in data.tracked_symbols():
+        State.scan = [r for r in State.scan if r["symbol"] != symbol]
+
+
 def _watchlist_payload() -> dict:
     symbols = data.watchlist()
-    by_symbol = {r["symbol"]: r for r in _ensure_scan()}
+    by_symbol = _rows_by_symbol()
     return {
         "symbols": symbols,
         "rows": _with_earnings([by_symbol[s] for s in symbols if s in by_symbol]),
@@ -194,35 +253,16 @@ def get_watchlist():
     return _watchlist_payload()
 
 
-TICKER_RE = re.compile(r"^\^?[A-Z0-9][A-Z0-9.\-=]{0,14}$")
-
-
 @app.post("/api/watchlist")
 def add_watch(req: WatchRequest):
     """Add any ticker. Symbols outside the universe are validated and downloaded via yfinance first."""
-    raw = req.symbol.strip().upper()
-    if not TICKER_RE.match(raw):
-        raise HTTPException(404, f"{raw or 'Empty symbol'} is not a valid ticker")
-    universe = {m.symbol for m in load_universe()}
-    symbol = to_yahoo(raw) if to_yahoo(raw) in universe else raw
+    symbol, in_universe = _resolve_symbol(req.symbol)
     if symbol in data.watchlist():
         return _watchlist_payload()
-    if symbol not in universe:
-        try:
-            bars, meta = data.lookup_symbol(symbol)
-        except data.SymbolNotFound:
-            raise HTTPException(404, f"{symbol} was not found on Yahoo Finance")
-        except data.LookupFailed as exc:
-            raise HTTPException(502, f"Could not look up {symbol} right now: {exc}")
-        data.save_bars(symbol, bars)
-        data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"])
-        if meta["kind"] == "stock":
-            earnings.refresh_earnings([symbol], max_age_hours=0)
-        data.add_to_watchlist(symbol)
-        _ensure_scan()
-        _rescan_symbol(_find_member(symbol))
-    else:
-        data.add_to_watchlist(symbol)
+    if not in_universe and symbol not in data.tracked_symbols():
+        _fetch_off_universe(symbol)
+    data.add_to_watchlist(symbol)
+    _start_tracking(symbol, in_universe)
     return _watchlist_payload()
 
 
@@ -230,9 +270,81 @@ def add_watch(req: WatchRequest):
 def remove_watch(symbol: str):
     symbol = symbol.strip().upper()
     data.remove_from_watchlist(symbol)
-    if symbol not in {m.symbol for m in load_universe()}:
-        State.scan = [r for r in State.scan if r["symbol"] != symbol]
+    _stop_tracking_if_unused(symbol)
     return _watchlist_payload()
+
+
+def _positions_payload() -> dict:
+    held = data.positions()
+    held_symbols = {p["symbol"] for p in held}
+    rows = {r["symbol"]: r for r in _with_earnings([r for r in _rows_by_symbol().values() if r["symbol"] in held_symbols])}
+    return {
+        "symbols": [p["symbol"] for p in held],
+        "positions": [{**p, "row": rows.get(p["symbol"])} for p in held],
+    }
+
+
+def _check_entry_date(d: date) -> str:
+    if d > earnings.today_et():
+        raise HTTPException(422, "Entry date cannot be in the future")
+    return d.isoformat()
+
+
+@app.get("/api/positions")
+def get_positions():
+    """Open positions with their entry details and live scan row (row is null until data is cached)."""
+    return _positions_payload()
+
+
+@app.post("/api/positions")
+def add_position(req: PositionRequest):
+    """Open a position in any ticker (moving it off the watchlist). Entry defaults: last price, today."""
+    symbol, in_universe = _resolve_symbol(req.symbol)
+    if any(p["symbol"] == symbol for p in data.positions()):
+        raise HTTPException(409, f"{symbol} is already in Positions")
+    entry_date = _check_entry_date(req.entry_date or earnings.today_et())
+    if not in_universe and symbol not in data.tracked_symbols():
+        _fetch_off_universe(symbol)
+    entry_price = req.entry_price
+    if entry_price is None:
+        member = _find_member(symbol)
+        daily = data.load_daily(symbol) if member else None
+        row = _rows_by_symbol().get(symbol) or (scan_symbol(member, daily) if member else None)
+        if row is None:
+            raise HTTPException(422, f"No price for {symbol} yet; enter an entry price")
+        entry_price = row["price"]
+    data.save_position(symbol, entry_price, req.shares, entry_date)
+    data.remove_from_watchlist(symbol)
+    _start_tracking(symbol, in_universe)
+    return _positions_payload()
+
+
+@app.put("/api/positions/{symbol}")
+def update_position(symbol: str, req: PositionUpdate):
+    symbol = symbol.strip().upper()
+    if not any(p["symbol"] == symbol for p in data.positions()):
+        raise HTTPException(404, f"{symbol} is not in Positions")
+    data.save_position(symbol, req.entry_price, req.shares, _check_entry_date(req.entry_date))
+    return _positions_payload()
+
+
+@app.delete("/api/positions/{symbol}")
+def close_position(symbol: str):
+    symbol = symbol.strip().upper()
+    data.remove_position(symbol)
+    _stop_tracking_if_unused(symbol)
+    return _positions_payload()
+
+
+@app.post("/api/positions/{symbol}/watchlist")
+def position_to_watchlist(symbol: str):
+    """Move a position back to the watchlist."""
+    symbol = symbol.strip().upper()
+    if not any(p["symbol"] == symbol for p in data.positions()):
+        raise HTTPException(404, f"{symbol} is not in Positions")
+    data.add_to_watchlist(symbol)
+    data.remove_position(symbol)
+    return _positions_payload()
 
 
 @app.get("/api/sectors")

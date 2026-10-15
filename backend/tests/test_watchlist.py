@@ -12,8 +12,8 @@ UNIVERSE = [
     Member("XLE", "Energy Select", "Energy", "etf", ""),
 ]
 SCAN = [
-    {"symbol": "AAPL", "has_setup": True, "setup": "Inside week", "score": 80.0},
-    {"symbol": "TDY", "has_setup": False, "setup": None, "score": 40.0},
+    {"symbol": "AAPL", "kind": "stock", "has_setup": True, "setup": "Inside week", "score": 80.0, "price": 250.5},
+    {"symbol": "TDY", "kind": "stock", "has_setup": False, "setup": None, "score": 40.0, "price": 619.0},
 ]
 
 

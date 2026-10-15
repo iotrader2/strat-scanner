@@ -16,7 +16,7 @@ def test_effective_universe_adds_only_watched_off_universe_symbols(tmp_path, mon
     got = members.effective_universe(BASE)
     assert [m.symbol for m in got] == ["AAPL", "XLE", "SOFI"]
     assert got[-1].in_universe is False and got[-1].indexes == "Watchlist"
-    assert {m.symbol for m in members.extra_members(only_watched=False, base=BASE)} == {"SOFI", "RIVN"}
+    assert {m.symbol for m in members.extra_members(only_tracked=False, base=BASE)} == {"SOFI", "RIVN"}
 
 
 def test_cli_refresh_includes_watched_symbols_and_earnings(tmp_path, monkeypatch):
