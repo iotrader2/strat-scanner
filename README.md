@@ -33,7 +33,7 @@ takes about a minute; the top bar shows progress. Press `Ctrl+C` to stop both se
 | `npm run setup` | Install/update Python + web dependencies only |
 | `npm run refresh` | Download the latest bars into the cache from the CLI (same as the **↻ Refresh data** button) |
 | `npm run refresh:universe` | Rebuild the S&P 500 / Nasdaq-100 list from Wikipedia, then refresh |
-| `npm test` | Run the backend unit tests (candle classification, hammer, setups, scoring) |
+| `npm test` | Run the backend (pytest) and frontend (Vitest) unit tests |
 | `npm run typecheck` | Type-check the frontend |
 
 Each has a `make` equivalent (`make refresh`, `make test`, ...). The `refresh`/`test` npm scripts assume a
@@ -88,31 +88,70 @@ ranked list, even if their monthly or daily candle shows a pattern.
 Stops are intentionally not shown: they are managed intraday (e.g. on the 5-minute chart), which is out of
 scope for this scanner.
 
-**Actionability score (0–100)**:
-
-- Monthly 2U: **+20** when the current monthly candle is a 2U (strongest single factor).
-- Continuity: Monthly green +12, Weekly green +12, Daily green +6, plus a +8 bonus for full M+W+D.
-- Weekly setup: pending 2-1 / 3-1 setups +23, inside week +20, hammer +18; triggered combos score less
-  (2-1-2 / 3-1-2 +12, 1-2-2 +10, 2D-2U +9, hammer triggered +8). Extra weekly setups add a quarter of their points (capped at 25).
-- Proximity: up to +15 when price is within 5% below the weekly trigger (half credit once triggered).
-- Liquidity: up to +10, log-scaled from $50M to $5B average daily dollar volume.
-- Names with an average daily range under 0.5% (typically pinned by a pending acquisition) have their score halved.
-- The raw points (max 108) are rescaled to 0–100 so the top names don't tie at a cap.
+See [How scoring works](#how-scoring-works) for the actionability score.
 
 The chosen weekly setup supplies the **trigger** and the start of the **reason** text, followed by Monthly 2U and
 continuity context, e.g. `Weekly Inside bar — trigger 106.00 (+1.9% away) · Monthly 2U · Full continuity M+W+D green`.
 
+## How scoring works
+
+Every name with a weekly setup gets an **actionability score**. It is the sum of five components (raw points,
+max **108**), rescaled to 0–100:
+
+```
+score = raw × 100 / 108        (capped at 100, rounded to 0.1)
+```
+
+| Component | Max | How it is computed |
+| --- | --- | --- |
+| Monthly 2U | 20 | +20 if the current (still-forming) monthly candle is a 2U, otherwise 0. |
+| Continuity | 38 | Price above the period open: Monthly +12, Weekly +12, Daily +6, plus +8 when all three are green. |
+| Weekly setup | 25 | Points of the strongest weekly setup + 25% of every other weekly setup, capped at 25. Setup points: 2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8. |
+| Distance to trigger | 15 | `15 × (1 − d / 5)`, where `d` is how far (in %) price is below the weekly trigger: 15 at the trigger, 0 at 5% or more below. A setup that has already triggered gets a flat 7.5. |
+| Liquidity | 10 | `10 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 10 at $5B or more. |
+
+If the 20-day average daily range is under 0.5% of price (usually a stock pinned by a pending acquisition), the raw
+total is halved; this shows as a negative "Pinned penalty" line.
+
+When a name has several weekly setups, the one used for the trigger is the setup with the best combination of
+setup points and closeness, with a small preference for setups that have not triggered yet.
+
+**Worked example (TDY, Oct 15 2026):**
+
+- Monthly 2U: +20.
+- Continuity: +38 (all three timeframes green, including the +8 bonus).
+- Weekly setup: +25. A 3-1 → 3-1-2 pending setup (23) plus 25% of a weekly hammer (4.5) is 27.5, capped at 25.
+- Distance to trigger: +14.9. Price 619.00 is 0.04% below the 619.22 trigger, so `15 × (1 − 0.04/5)`.
+- Liquidity: +2.6. The average dollar volume of $164M/day gives `10 × log10(164/50) / 2`.
+- Raw total: 100.5 out of 108, so the score is `100.5 × 100 / 108 = 93`.
+
+In the app, hover (or keyboard-focus) any score pill in the scanner table or on a Sectors card to see this breakdown.
+The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component.
+
 ## UI
 
-- **Scanner**: ranked, sortable and filterable table of weekly setups (search, sector, continuity incl. Monthly 2U,
-  weekly setup type, stocks/ETFs, min price, min dollar volume, max distance to trigger). M/W/D badges show the Strat number (text colour,
-  yellow outline for `1`, purple for `3`) on a green/red fill for continuity; `H` marks a hammer.
+- **Scanner**: ranked, sortable and filterable table of weekly setups.
+  - Filters: search, sector, continuity (including Monthly 2U), weekly setup type, stocks/ETFs, min price and max
+    distance to trigger.
+  - Two log-scale sliders: **min average dollar volume** ($10M–$5B) and **min average share volume** (20-day average,
+    100K–50M shares), each with a live readout such as `≥ 2.5M`.
+  - All filters run in the browser, so the table updates instantly without a re-scan. Every filter value is saved in
+    `localStorage`.
+  - Columns include **Avg vol** (shares) and **Avg $vol**.
+  - M/W/D badges show the Strat number (text colour, yellow outline for `1`, purple for `3`) on a green/red fill for
+    continuity; `H` marks a hammer.
 - **Detail** (`/stock/SYMBOL`): interactive candlestick chart ([TradingView lightweight-charts](https://github.com/tradingview/lightweight-charts))
-  with a Monthly/Weekly/Daily toggle, hammer arrows and the dashed weekly trigger line. Charts carry no per-candle
-  Strat labels so the candles stay readable; the Strat numbers are shown in the M/W/D badges.
+  with a Monthly/Weekly/Daily toggle and the dashed weekly trigger line.
+  - The chart has only two markers: a blue **H** arrow under hammers and a yellow **I** arrow under inside bars (Strat 1).
+  - The other Strat numbers are shown in the M/W/D badges, not on the candles.
 - **Sectors**: SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
-  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks, each with a candlestick chart,
-  its weekly setup and trigger, M/W/D badges and a strongest→weakest leaderboard. “Scan sector →” filters the scanner to that sector.
+  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks.
+  - Each card has a candlestick chart with **I** inside-bar markers, its weekly setup and trigger, M/W/D badges and a score.
+  - Cards and the leaderboard are sorted strongest first on every timeframe.
+  - “Scan sector →” filters the scanner to that sector.
+- **Sticky selections**: the last tab (Scanner or Sectors, including the scanner's sector filter) and the M/W/D
+  timeframe on the detail and Sectors views are saved in `localStorage`. They survive navigation and full reloads, and
+  opening the bare app URL reopens the last tab. Deep links such as `/stock/TDY` or `/?sector=Energy` always win.
 
 ## Layout
 
