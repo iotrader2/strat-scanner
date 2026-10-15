@@ -10,6 +10,8 @@ import Watchlist from "./pages/Watchlist";
 import Positions from "./pages/Positions";
 import { WatchlistProvider, useWatchlist } from "./components/Watch";
 import { PositionsProvider, usePositions } from "./components/Positions";
+import { LoadingIndicator, RefreshBanner } from "./components/Loading";
+import { refreshProgress } from "./loading";
 
 function useStickyTab() {
   const location = useLocation();
@@ -58,15 +60,18 @@ function PositionsTab() {
 export default function App() {
   useStickyTab();
   const [status, setStatus] = useState<Status | null>(null);
+  const [connected, setConnected] = useState<boolean | null>(null);
   const [dataVersion, setDataVersion] = useState<string | null>(null);
 
   const poll = useCallback(async () => {
     try {
       const s = await api.status();
       setStatus(s);
+      setConnected(true);
       if (!s.refreshing) setDataVersion(s.last_refresh);
     } catch {
       setStatus(null);
+      setConnected(false);
     }
   }, []);
 
@@ -81,47 +86,47 @@ export default function App() {
     poll();
   };
 
-  const pct = status && status.progress.total ? Math.round((status.progress.done / status.progress.total) * 100) : 0;
 
   return (
     <WatchlistProvider version={dataVersion}>
       <PositionsProvider version={dataVersion}>
         <div className="app">
-          <header className="topbar">
-            <div className="brand">
-              <span className="brand-mark">◆</span>
-              <span>
-                Strat<span className="brand-dim">Scanner</span>
-              </span>
-              <span className="local-chip">localhost</span>
-            </div>
-            <nav>
-              <NavLink to="/market">State of the Market</NavLink>
-            <NavLink to="/sectors">Sectors</NavLink>
-              <NavLink to="/" end>
-                Stock Scanner
-              </NavLink>
-              <WatchlistTab />
-              <PositionsTab />
-            </nav>
-            <div className="status">
-              {status === null ? (
-                <span className="muted">API offline</span>
-              ) : status.refreshing ? (
-                <span className="refreshing">
-                  <span className="spinner" /> Refreshing {pct}% · {status.progress.message}
+          <div className="topbar-wrap">
+            <header className="topbar">
+              <div className="brand">
+                <span className="brand-mark">◆</span>
+                <span>
+                  Strat<span className="brand-dim">Scanner</span>
                 </span>
-              ) : (
-                <span className="muted">
-                  {status.symbols_cached}/{status.universe_size} symbols · updated{" "}
-                  {status.last_refresh ? new Date(status.last_refresh).toLocaleString() : "never"}
-                </span>
-              )}
-              <button className="btn" onClick={refresh} disabled={!status || status.refreshing}>
-                ↻ Refresh data
-              </button>
-            </div>
-          </header>
+                <span className="local-chip">localhost</span>
+              </div>
+              <nav>
+                <NavLink to="/market">State of the Market</NavLink>
+                <NavLink to="/sectors">Sectors</NavLink>
+                <NavLink to="/" end>
+                  Stock Scanner
+                </NavLink>
+                <WatchlistTab />
+                <PositionsTab />
+              </nav>
+              <div className="status">
+                {status === null ? (
+                  connected === null ? <LoadingIndicator label="Connecting…" /> : <span className="muted">API offline</span>
+                ) : status.refreshing ? (
+                  <LoadingIndicator label={`Refreshing ${refreshProgress(status.progress).pct ?? 0}%`} />
+                ) : (
+                  <span className="muted">
+                    {status.symbols_cached}/{status.universe_size} symbols · updated{" "}
+                    {status.last_refresh ? new Date(status.last_refresh).toLocaleString() : "never"}
+                  </span>
+                )}
+                <button className="btn" onClick={refresh} disabled={!status || status.refreshing}>
+                  ↻ Refresh data
+                </button>
+              </div>
+            </header>
+            <RefreshBanner status={status} />
+          </div>
           {status?.error && <div className="banner error">Last refresh failed: {status.error}</div>}
           <main>
             <Routes>

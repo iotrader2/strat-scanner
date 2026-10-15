@@ -4,6 +4,7 @@ import { api, type SectorEtf, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { Legend } from "../components/Badges";
 import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
+import { LoadingIndicator, SkeletonCards } from "../components/Loading";
 
 const GROUPS: { key: SectorEtf["group"]; title: string }[] = [
   { key: "spdr", title: "SPDR sector ETFs" },
@@ -45,6 +46,7 @@ export default function Sectors({ version }: { version: string | null }) {
 
       <div className="card leaderboard">
         <span className="muted small">Strongest → weakest:</span>
+        {loading && etfs.length === 0 && <LoadingIndicator label="Ranking…" className="small" />}
         {ranked.map((e) => (
           <Link key={e.symbol} to={`/stock/${e.symbol}`} className={`lb-item ${e.row.mw_green ? "green" : "red"}`}>
             {e.symbol} <b>{e.row.score.toFixed(0)}</b>
@@ -53,7 +55,7 @@ export default function Sectors({ version }: { version: string | null }) {
       </div>
       <Legend />
 
-      {loading && etfs.length === 0 && <p className="muted">Loading…</p>}
+      {loading && etfs.length === 0 && <SkeletonCards count={8} label="Loading sector and industry ETFs…" />}
       {GROUPS.map((g) => {
         const items = ranked.filter((e) => e.group === g.key);
         if (!items.length) return null;

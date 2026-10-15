@@ -5,6 +5,7 @@ import { isTimeframe, usePersisted } from "../persist";
 import { Legend } from "../components/Badges";
 import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
 import { marketRead } from "../market";
+import { SkeletonCards } from "../components/Loading";
 
 export default function Market({ version }: { version: string | null }) {
   const [storedTf, setTf] = usePersisted<Tf>("marketTf", "W");
@@ -54,7 +55,9 @@ export default function Market({ version }: { version: string | null }) {
       <Legend />
 
       {error && <div className="banner error">{error}</div>}
-      {loading && etfs.length === 0 && <p className="muted">Loading…</p>}
+      {loading && etfs.length === 0 && (
+        <SkeletonCards count={3} chartHeight={300} className="sector-grid market-grid" label="Loading QQQ, SPY and IWM…" />
+      )}
       <div className="sector-grid market-grid">
         {etfs.map((e) => (
           <EtfCard key={e.symbol} etf={e} chartHeight={300} />

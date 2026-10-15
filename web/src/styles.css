@@ -36,8 +36,8 @@ button { font: inherit; }
 
 .app { display: flex; flex-direction: column; min-height: 100vh; }
 
+.topbar-wrap { position: sticky; top: 0; z-index: 10; }
 .topbar {
-  position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; gap: 28px;
   padding: 12px 28px;
   background: rgba(7, 9, 13, 0.85);
@@ -363,3 +363,66 @@ th.num { text-align: right; }
 .input[type="date"] { color-scheme: dark; }
 .add-position .num-input { width: 150px; text-transform: none; }
 .add-position .date-input { width: auto; text-transform: none; }
+
+/* Loading states: spinner + pulsing text, shimmer skeletons, refresh banner */
+.spinner { flex: none; box-shadow: 0 0 10px rgba(56, 189, 248, 0.45); }
+.loading-indicator { display: inline-flex; align-items: center; gap: 9px; color: var(--accent); font-weight: 600; }
+.loading-indicator .spinner { width: 14px; height: 14px; }
+.loading-text { animation: loading-pulse 1.2s ease-in-out infinite; }
+.loading-indicator.big-loading { font-size: 18px; margin-bottom: 10px; }
+.loading-indicator.big-loading .spinner { width: 18px; height: 18px; border-width: 3px; }
+@keyframes loading-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.skeleton-bar {
+  display: block; height: 11px; width: 60%; border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0%, rgba(56, 189, 248, 0.2) 45%, rgba(255, 255, 255, 0.05) 90%);
+  background-size: 220% 100%; animation: shimmer 1.4s linear infinite;
+}
+.skeleton-bar.wide { width: 85%; height: 13px; }
+.skeleton-bar.mid { width: 45%; }
+.skeleton-bar.short { width: 22%; }
+.skeleton-bar.sub { width: 55%; height: 8px; margin-top: 6px; }
+.skeleton-bar.pill { width: 46px; height: 18px; border-radius: 6px; }
+.skeleton-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.skeleton-row .skeleton-bar.pill + .skeleton-bar.pill { margin-left: -2px; }
+.skeleton-chart {
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0%, rgba(56, 189, 248, 0.1) 45%, rgba(255, 255, 255, 0.025) 90%);
+  background-size: 220% 100%; animation: shimmer 1.6s linear infinite;
+}
+.skeleton-card { gap: 12px; display: flex; flex-direction: column; border-color: rgba(56, 189, 248, 0.18); }
+.skeleton-card > .skeleton-bar + .skeleton-bar { margin-top: 2px; }
+.skeleton-table .skeleton-head { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.skeleton-table td { padding: 14px 10px; }
+.skeleton-table tbody tr { cursor: default; }
+.skeleton-table tbody tr:hover { background: none; }
+.skeleton-cards-label { margin: 6px 0 12px; }
+@keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+.refresh-banner {
+  display: flex; flex-direction: column; gap: 7px; padding: 9px 28px 0;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.16), rgba(56, 189, 248, 0.06));
+  border-bottom: 1px solid rgba(56, 189, 248, 0.45);
+  animation: banner-pulse 1.6s ease-in-out infinite;
+}
+.refresh-banner-text { display: flex; align-items: center; gap: 10px; color: var(--accent); font-weight: 700; font-size: 13px; }
+.refresh-banner-text .spinner { width: 14px; height: 14px; }
+.refresh-banner-text .muted { font-weight: 500; }
+.refresh-track { height: 3px; margin: 0 -28px; background: rgba(56, 189, 248, 0.12); overflow: hidden; }
+.refresh-fill { height: 100%; width: 0; background: var(--accent); box-shadow: 0 0 10px var(--accent); transition: width 0.6s ease; }
+.refresh-track.indeterminate .refresh-fill { width: 30%; animation: indeterminate 1.3s ease-in-out infinite; }
+@keyframes banner-pulse {
+  0%, 100% { background-color: rgba(56, 189, 248, 0.04); border-bottom-color: rgba(56, 189, 248, 0.45); }
+  50% { background-color: rgba(56, 189, 248, 0.14); border-bottom-color: rgba(56, 189, 248, 0.9); }
+}
+@keyframes indeterminate { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+/* Reduced motion: no spinning, pulsing or shimmering; states stay visible through colour and static shapes. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .loading-text, .skeleton-bar, .skeleton-chart, .refresh-banner, .refresh-fill,
+  .refresh-track.indeterminate .refresh-fill { animation: none !important; transition: none !important; }
+  .spinner { border-color: var(--accent); border-top-color: transparent; }
+  .skeleton-bar, .skeleton-chart { background: rgba(56, 189, 248, 0.1); }
+  .refresh-banner { background: rgba(56, 189, 248, 0.12); border-bottom-color: var(--accent); }
+  .refresh-track.indeterminate .refresh-fill { width: 100%; opacity: 0.5; }
+}

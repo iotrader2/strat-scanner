@@ -7,6 +7,7 @@ import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { usePersisted } from "../persist";
+import { LoadingIndicator, SkeletonTable } from "../components/Loading";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
 const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
@@ -192,7 +193,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
       <div className="table-meta">
         <span className="muted">
-          {loading ? "Loading…" : `${filtered.length} of ${rows.length} weekly setups shown`}
+          {loading ? <LoadingIndicator label="Loading weekly setups…" /> : `${filtered.length} of ${rows.length} weekly setups shown`}
           {sector && (
             <button className="chip" onClick={() => setSector("")}>
               {sector} ✕
@@ -206,7 +207,11 @@ export default function Scanner({ version }: { version: string | null }) {
         <div className="card empty-state">No weekly setups match these filters (if the cache is empty, the first download starts automatically and takes a minute or two).</div>
       )}
 
-      <ScanTable rows={filtered} onSector={setSector} />
+      {loading && rows.length === 0 ? (
+        <SkeletonTable rows={10} cols={13} label="Scanning weekly setups…" />
+      ) : (
+        <ScanTable rows={filtered} onSector={setSector} />
+      )}
     </div>
   );
 }

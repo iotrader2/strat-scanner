@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
+import { LoadingIndicator } from "../components/Loading";
 import { NO_SETUP_LABEL } from "../watchlist";
 import { AddedChip, ScorePill, TfBadge } from "../components/Badges";
 import { EarningsIcon } from "../components/EarningsIcon";
@@ -41,7 +42,38 @@ export default function Detail({ version }: { version: string | null }) {
   }, [row]);
 
   if (error) return <div className="page"><div className="banner error">{error}</div></div>;
-  if (!data || !row) return <div className="page muted">Loading {symbol}…</div>;
+  if (!data || !row)
+    return (
+      <div className="page" aria-busy="true">
+        <Link to="/" className="back">← Stock Scanner</Link>
+        <section className="detail-head card skeleton-card">
+          <div>
+            <LoadingIndicator label={`Loading ${symbol?.toUpperCase() ?? ""}…`} className="big-loading" />
+            <span className="skeleton-bar wide" />
+          </div>
+        </section>
+        <div className="detail-grid" aria-hidden="true">
+          <section className="card chart-card skeleton-card">
+            <div className="skeleton-row">
+              <span className="skeleton-bar pill" />
+              <span className="skeleton-bar pill" />
+              <span className="skeleton-bar pill" />
+            </div>
+            <div className="skeleton-chart" style={{ height: 480 }} />
+          </section>
+          <aside className="side">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="card skeleton-card">
+                <span className="skeleton-bar mid" />
+                <span className="skeleton-bar wide" />
+                <span className="skeleton-bar" />
+                <span className="skeleton-bar wide" />
+              </div>
+            ))}
+          </aside>
+        </div>
+      </div>
+    );
 
   return (
     <div className="page">
