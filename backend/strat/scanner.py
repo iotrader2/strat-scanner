@@ -10,7 +10,7 @@ import pandas as pd
 from . import config
 from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
 from .data import resample
-from .scoring import TF_NAMES, score_symbol
+from .scoring import MAX_RAW_POINTS, TF_NAMES, score_symbol
 from .universe import Member
 
 TIMEFRAMES = ("M", "W", "D")
@@ -36,6 +36,7 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
     price = float(last.close)
     recent = daily.tail(config.ADV_LOOKBACK_DAYS)
     adv = float((recent.close * recent.volume).mean())
+    avg_volume = float(recent.volume.mean())
     atr_pct = float(((recent.high - recent.low) / recent.close).mean() * 100)
     prev_close = float(daily.close.iloc[-2]) if len(daily) > 1 else price
 
@@ -51,9 +52,22 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
         "price": round(price, 2),
         "change_pct": round((price / prev_close - 1) * 100, 2) if prev_close else 0.0,
         "avg_dollar_volume": adv,
+        "avg_volume": avg_volume,
         "atr_pct": round(atr_pct, 2),
         "as_of": daily.index[-1].strftime("%Y-%m-%d"),
         "score": sc.score,
+        "score_raw": sc.raw,
+        "score_max_raw": MAX_RAW_POINTS,
+        "score_breakdown": [
+            {
+                "key": c.key,
+                "label": c.label,
+                "points": round(c.points, 2),
+                "max_points": c.max_points,
+                "detail": c.detail,
+            }
+            for c in sc.breakdown
+        ],
         "full_continuity": sc.full_continuity,
         "mw_green": sc.mw_green,
         "monthly_2u": sc.monthly_2u,

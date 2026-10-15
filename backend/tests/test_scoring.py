@@ -82,3 +82,42 @@ def test_reason_leads_with_weekly_trigger_without_stop():
 def test_best_possible_setup_scores_at_most_100():
     s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.9, 50e9)
     assert 90 < s.score <= 100
+
+
+def test_breakdown_components_sum_to_raw_and_rescale_to_score():
+    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    keys = [c.key for c in s.breakdown]
+    assert keys == ["monthly_2u", "continuity", "weekly_setup", "proximity", "liquidity"]
+    assert abs(sum(c.points for c in s.breakdown) - s.raw) < 0.01
+    assert abs(s.score - s.raw * 100 / MAX_RAW_POINTS) < 0.06
+    assert sum(c.max_points for c in s.breakdown) == MAX_RAW_POINTS == 108
+    for c in s.breakdown:
+        assert 0 <= c.points <= c.max_points
+
+
+def test_breakdown_values_for_known_setup():
+    # Monthly 2U green, weekly inside green, daily 2U green; price 104 vs trigger 106 (1.92% away).
+    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    pts = {c.key: c.points for c in s.breakdown}
+    assert pts["monthly_2u"] == 20
+    assert pts["continuity"] == 12 + 12 + 6 + 8
+    assert pts["weekly_setup"] == 20
+    assert abs(pts["proximity"] - 15 * (1 - (2 / 104 * 100) / 5)) < 1e-9
+    assert abs(pts["liquidity"] - liquidity_points(1e9)) < 1e-9
+
+
+def test_pinned_penalty_shows_in_breakdown():
+    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9, atr_pct=0.2)
+    pinned = next(c for c in s.breakdown if c.key == "pinned")
+    before = sum(c.points for c in s.breakdown if c.key != "pinned")
+    assert abs(pinned.points + before / 2) < 1e-9
+    assert abs(s.raw - before / 2) < 0.01
+
+
+def test_setup_points_cap_is_explained():
+    # A 2-1 pending inside week that is also a hammer: 23 + 25% of 18 = 27.5 -> capped at 25.
+    w = [Candle(100, 110, 90, 95), Candle(95, 105, 85, 88), Candle(96, 96.6, 89, 96.5)]
+    s = score_symbol(_states(GREEN_UP, w, GREEN_UP), 96.5, 1e9)
+    setup = next(c for c in s.breakdown if c.key == "weekly_setup")
+    assert setup.points == 25
+    assert "capped at 25" in setup.detail

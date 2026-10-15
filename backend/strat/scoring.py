@@ -55,8 +55,19 @@ class ScoredSetup:
 
 
 @dataclass
+class Component:
+    key: str
+    label: str
+    points: float
+    max_points: float
+    detail: str
+
+
+@dataclass
 class Score:
     score: float
+    raw: float
+    breakdown: list[Component]
     primary: Optional[ScoredSetup]
     setups: list[ScoredSetup]
     reasons: list[str]
@@ -96,45 +107,90 @@ def score_symbol(
     avg_dollar_volume: float,
     atr_pct: Optional[float] = None,
 ) -> Score:
-    total = 0.0
+    reasons: list[str] = []
+    parts: list[Component] = []
 
     weekly = states.get(SETUP_TF)
     scored = [
         ScoredSetup(SETUP_TF, setup, SETUP_POINTS.get(setup.kind, 0.0))
         for setup in (weekly.setups if weekly else [])
     ]
-    if scored:
-        ordered = sorted(scored, key=lambda s: s.points, reverse=True)
-        total += min(MAX_SETUP_POINTS, ordered[0].points + 0.25 * sum(s.points for s in ordered[1:]))
-
-    reasons: list[str] = []
+    ordered = sorted(scored, key=lambda s: s.points, reverse=True)
     primary = _pick_primary(scored, price)
-    dist = None
-    if primary:
-        dist = trigger_distance_pct(price, primary.setup.trigger)
-        total += proximity_points(dist, primary.setup.triggered)
-        reasons.append(_describe(primary, dist))
-        reasons.extend(
-            f"Weekly {s.setup.label}"
-            for s in sorted(scored, key=lambda s: s.points, reverse=True)
-            if s is not primary
-        )
-    else:
-        reasons.append("No weekly setup")
 
     monthly = states.get("M")
     monthly_2u = bool(monthly and monthly.strat == TWO_UP)
-    if monthly_2u:
-        total += MONTHLY_2U_POINTS
-        reasons.append("Monthly 2U")
+    parts.append(
+        Component(
+            "monthly_2u", "Monthly 2U", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
+            "current month is 2U" if monthly_2u else f"current month is {monthly.strat if monthly else 'n/a'}",
+        )
+    )
 
     colors = {tf: (s.color if s else None) for tf, s in states.items()}
     green = [tf for tf in ("M", "W", "D") if colors.get(tf) == "green"]
-    total += sum(CONTINUITY_POINTS[tf] for tf in green)
     full = len(green) == 3
     mw_green = "M" in green and "W" in green
+    cont = sum(CONTINUITY_POINTS[tf] for tf in green) + (FULL_CONTINUITY_BONUS if full else 0.0)
+    cont_detail = " ".join(f"{tf} +{CONTINUITY_POINTS[tf]:g}" for tf in green) or "no timeframe green"
     if full:
-        total += FULL_CONTINUITY_BONUS
+        cont_detail += f", full M+W+D bonus +{FULL_CONTINUITY_BONUS:g}"
+    parts.append(
+        Component(
+            "continuity", "Continuity (green vs open)", cont,
+            sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS, cont_detail,
+        )
+    )
+
+    setup_pts = 0.0
+    setup_detail = "no weekly setup"
+    if ordered:
+        extra = 0.25 * sum(s.points for s in ordered[1:])
+        setup_pts = min(MAX_SETUP_POINTS, ordered[0].points + extra)
+        setup_detail = f"{ordered[0].setup.label} {ordered[0].points:g}"
+        if extra:
+            setup_detail += f" + 25% of other weekly setups {extra:g}"
+        if ordered[0].points + extra > MAX_SETUP_POINTS:
+            setup_detail += f", capped at {MAX_SETUP_POINTS:g}"
+    parts.append(Component("weekly_setup", "Weekly setup", setup_pts, MAX_SETUP_POINTS, setup_detail))
+
+    dist = None
+    prox = 0.0
+    prox_detail = "no trigger"
+    if primary:
+        dist = trigger_distance_pct(price, primary.setup.trigger)
+        prox = proximity_points(dist, primary.setup.triggered)
+        prox_detail = (
+            "already triggered (half credit)"
+            if primary.setup.triggered or dist <= 0
+            else f"{dist:.2f}% below trigger (full credit at 0%, none at {PROXIMITY_WINDOW_PCT:g}%)"
+        )
+    parts.append(Component("proximity", "Distance to trigger", prox, PROXIMITY_POINTS, prox_detail))
+
+    liq = liquidity_points(avg_dollar_volume)
+    parts.append(
+        Component(
+            "liquidity", "Liquidity", liq, LIQUIDITY_POINTS,
+            f"avg ${avg_dollar_volume / 1e6:,.0f}M/day (log scale, 0 at $50M, max at $5B)",
+        )
+    )
+
+    raw = sum(c.points for c in parts)
+    if atr_pct is not None and atr_pct < MIN_ATR_PCT:
+        penalty = -raw * (1 - PINNED_PENALTY)
+        parts.append(
+            Component("pinned", "Pinned penalty", penalty, 0.0, f"avg daily range {atr_pct:.2f}% < {MIN_ATR_PCT}%, score halved")
+        )
+        raw += penalty
+
+    if primary:
+        reasons.append(_describe(primary, dist))
+        reasons.extend(f"Weekly {s.setup.label}" for s in ordered if s is not primary)
+    else:
+        reasons.append("No weekly setup")
+    if monthly_2u:
+        reasons.append("Monthly 2U")
+    if full:
         reasons.append("Full continuity M+W+D green")
     elif mw_green:
         reasons.append("M+W green")
@@ -142,13 +198,13 @@ def score_symbol(
         reasons.append("Green on " + "+".join(green))
     else:
         reasons.append("No green continuity")
-
-    total += liquidity_points(avg_dollar_volume)
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
-        total *= PINNED_PENALTY
         reasons.append(f"Very low volatility (avg range {atr_pct:.2f}%), possibly pinned by a deal")
+
     return Score(
-        score=round(min(100.0, total * 100.0 / MAX_RAW_POINTS), 1),
+        score=round(min(100.0, raw * 100.0 / MAX_RAW_POINTS), 1),
+        raw=round(raw, 2),
+        breakdown=parts,
         primary=primary,
         setups=scored,
         reasons=reasons,
