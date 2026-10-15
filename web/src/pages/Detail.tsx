@@ -44,7 +44,7 @@ export default function Detail({ version }: { version: string | null }) {
 
   return (
     <div className="page">
-      <Link to="/" className="back">← Scanner</Link>
+      <Link to="/" className="back">← Stock Scanner</Link>
       <section className="detail-head card">
         <div>
           <div className="detail-symbol">

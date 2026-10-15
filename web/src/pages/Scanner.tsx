@@ -91,7 +91,7 @@ export default function Scanner({ version }: { version: string | null }) {
     <div className="page">
       <section className="hero">
         <div>
-          <h1>Weekly Strat setups</h1>
+          <h1>Stock Scanner</h1>
           <p className="muted">
             Long setups on the weekly chart only (S&amp;P 500 + Nasdaq-100 + sector ETFs), ranked by actionability:
             Monthly 2U, M/W/D continuity, distance to the weekly trigger and liquidity.

@@ -25,19 +25,31 @@ export function usePersisted<T>(key: string, initial: T) {
 export const LAST_TAB_KEY = "lastTab";
 const TABS = ["/", "/sectors", "/watchlist"];
 
-/** Top-level tab (Scanner, Sectors or Watchlist) for a location, including its query string, or null for other pages. */
+/** Top-level tab (Sectors, Stock Scanner or Watchlist) for a location, including its query string, or null for other pages. */
 export function tabLocation(pathname: string, search: string): string | null {
   return TABS.includes(pathname) ? pathname + search : null;
 }
 
+/** Tab for first-time visitors: Sectors first, then drill into the Stock Scanner. */
+export const DEFAULT_TAB = "/sectors";
+
 /**
- * Where to send a fresh visit to the bare app URL: the last tab the user had open.
- * Deep links (any path or query string) are always respected.
+ * Where to send a visit to the bare app URL: the last tab the user had open, or Sectors when nothing
+ * valid is saved. Deep links (any path or query string) are always respected. Null means stay put.
  */
 export function restoreTarget(pathname: string, search: string, lastTab: string | null): string | null {
-  if (pathname !== "/" || search !== "" || !lastTab || lastTab === "/") return null;
-  const [path] = lastTab.split("?");
-  return TABS.includes(path) ? lastTab : null;
+  if (pathname !== "/" || search !== "") return null;
+  const saved = lastTab && TABS.includes(lastTab.split("?")[0]) ? lastTab : DEFAULT_TAB;
+  return saved === "/" ? null : saved;
+}
+
+const TITLES: Record<string, string> = { "/": "Stock Scanner", "/sectors": "Sectors", "/watchlist": "Watchlist" };
+
+/** Browser tab title for a route. */
+export function pageTitle(pathname: string): string {
+  const stock = pathname.match(/^\/stock\/([^/]+)/);
+  const name = stock ? decodeURIComponent(stock[1]).toUpperCase() : TITLES[pathname];
+  return name ? `${name} · Strat Scanner` : "Strat Scanner";
 }
 
 export const TIMEFRAMES = ["M", "W", "D"] as const;

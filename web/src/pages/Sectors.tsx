@@ -84,7 +84,7 @@ export default function Sectors({ version }: { version: string | null }) {
           <h1>Sectors</h1>
           <p className="muted">
             Sector and industry ETFs with their M/W/D Strat badges. Each card lists its weekly setup and trigger;
-            green-bordered cards have Monthly and Weekly continuity. Use “Scan sector” to filter the stock scanner.
+            green-bordered cards have Monthly and Weekly continuity. Use “Scan sector” to filter the Stock Scanner.
           </p>
         </div>
         <div className="seg">

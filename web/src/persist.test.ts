@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTimeframe, readPersisted, restoreTarget, tabLocation, writePersisted } from "./persist";
+import { DEFAULT_TAB, isTimeframe, pageTitle, readPersisted, restoreTarget, tabLocation, writePersisted } from "./persist";
 
 class MemoryStorage implements Storage {
   private data = new Map<string, string>();
@@ -53,13 +53,30 @@ describe("tab restore", () => {
     expect(restoreTarget("/", "", "/?sector=Health%20Care")).toBe("/?sector=Health%20Care");
   });
 
-  it("never overrides deep links or an already-correct tab", () => {
+  it("defaults first-time visitors (or unusable saved values) to Sectors", () => {
+    expect(restoreTarget("/", "", null)).toBe("/sectors");
+    expect(restoreTarget("/", "", "/evil")).toBe("/sectors");
+    expect(DEFAULT_TAB).toBe("/sectors");
+  });
+
+  it("keeps the Stock Scanner when it was the last tab", () => {
+    expect(restoreTarget("/", "", "/")).toBeNull();
+  });
+
+  it("never overrides deep links", () => {
     expect(restoreTarget("/sectors", "", "/")).toBeNull();
+    expect(restoreTarget("/watchlist", "", null)).toBeNull();
     expect(restoreTarget("/stock/TDY", "", "/sectors")).toBeNull();
     expect(restoreTarget("/", "?sector=Energy", "/sectors")).toBeNull();
-    expect(restoreTarget("/", "", "/")).toBeNull();
-    expect(restoreTarget("/", "", null)).toBeNull();
-    expect(restoreTarget("/", "", "/evil")).toBeNull();
+    expect(restoreTarget("/", "?sector=Energy", null)).toBeNull();
+  });
+
+  it("titles each page after its tab", () => {
+    expect(pageTitle("/")).toBe("Stock Scanner · Strat Scanner");
+    expect(pageTitle("/sectors")).toBe("Sectors · Strat Scanner");
+    expect(pageTitle("/watchlist")).toBe("Watchlist · Strat Scanner");
+    expect(pageTitle("/stock/brk-b")).toBe("BRK-B · Strat Scanner");
+    expect(pageTitle("/nope")).toBe("Strat Scanner");
   });
 
   it("validates timeframes", () => {

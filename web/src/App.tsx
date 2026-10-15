@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { LAST_TAB_KEY, readPersisted, restoreTarget, tabLocation, writePersisted } from "./persist";
+import { LAST_TAB_KEY, pageTitle, readPersisted, restoreTarget, tabLocation, writePersisted } from "./persist";
 import { api, type Status } from "./api";
 import Scanner from "./pages/Scanner";
 import Detail from "./pages/Detail";
@@ -24,6 +24,7 @@ function useStickyTab() {
     }
     const tab = tabLocation(location.pathname, location.search);
     if (tab) writePersisted(LAST_TAB_KEY, tab);
+    document.title = pageTitle(location.pathname);
   }, [location.pathname, location.search, navigate]);
 }
 
@@ -79,10 +80,10 @@ export default function App() {
             <span className="local-chip">localhost</span>
           </div>
           <nav>
-            <NavLink to="/" end>
-              Scanner
-            </NavLink>
             <NavLink to="/sectors">Sectors</NavLink>
+            <NavLink to="/" end>
+              Stock Scanner
+            </NavLink>
             <WatchlistTab />
           </nav>
           <div className="status">

@@ -17,7 +17,7 @@ export default function Watchlist() {
         <div>
           <h1>Watchlist</h1>
           <p className="muted">
-            Names you are tracking, with the same Strat badges, weekly trigger and score as the scanner. They stay here
+            Names you are tracking, with the same Strat badges, weekly trigger and score as the Stock Scanner. They stay here
             when the weekly setup goes away (shown as “no active setup”) until you remove them. Saved in the local
             SQLite cache, so the list survives restarts.
           </p>
@@ -45,7 +45,7 @@ export default function Watchlist() {
       {data !== null && symbols.length === 0 ? (
         <div className="card empty-state">
           Your watchlist is empty. Use the <span className="watch-btn inline">+</span> button on a{" "}
-          <Link className="sector-link" to="/">scanner</Link> row, a stock page or a{" "}
+          <Link className="sector-link" to="/">Stock Scanner</Link> row, a stock page or a{" "}
           <Link className="sector-link" to="/sectors">sector</Link> card to add names.
         </div>
       ) : (
