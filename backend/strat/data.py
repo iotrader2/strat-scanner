@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS watchlist (
+    symbol   TEXT PRIMARY KEY,
+    added_at TEXT NOT NULL
+);
 """
 
 _write_lock = threading.Lock()
@@ -59,6 +63,23 @@ def get_meta(key: str, db_path: Path | None = None) -> Optional[str]:
 def set_meta(key: str, value: str, db_path: Path | None = None) -> None:
     with _write_lock, connect(db_path) as conn:
         conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, value))
+
+
+def watchlist(db_path: Path | None = None) -> list[str]:
+    """Watched symbols, oldest addition first."""
+    with connect(db_path) as conn:
+        return [r[0] for r in conn.execute("SELECT symbol FROM watchlist ORDER BY added_at, symbol")]
+
+
+def add_to_watchlist(symbol: str, db_path: Path | None = None) -> None:
+    added = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with _write_lock, connect(db_path) as conn:
+        conn.execute("INSERT OR IGNORE INTO watchlist(symbol, added_at) VALUES (?, ?)", (symbol, added))
+
+
+def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:
+    with _write_lock, connect(db_path) as conn:
+        conn.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
 
 
 def cached_symbols(db_path: Path | None = None) -> dict[str, str]:

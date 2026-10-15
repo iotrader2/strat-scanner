@@ -7,6 +7,7 @@ import threading
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
 
 from . import config, data
 from .scanner import chart_payload, scan_all, scan_symbol, sector_entries
@@ -134,6 +135,41 @@ def symbol_detail(symbol: str):
         "row": scan_symbol(member, daily),
         "charts": {tf: chart_payload(daily, tf, CHART_LIMITS[tf]) for tf in CHART_LIMITS},
     }
+
+
+class WatchRequest(BaseModel):
+    symbol: str
+
+
+def _watchlist_payload() -> dict:
+    symbols = data.watchlist()
+    by_symbol = {r["symbol"]: r for r in _ensure_scan()}
+    return {
+        "symbols": symbols,
+        "rows": [by_symbol[s] for s in symbols if s in by_symbol],
+        "missing": [s for s in symbols if s not in by_symbol],
+    }
+
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    """Watched names with their full scan row, whether or not they still have a weekly setup."""
+    return _watchlist_payload()
+
+
+@app.post("/api/watchlist")
+def add_watch(req: WatchRequest):
+    symbol = req.symbol.strip().upper()
+    if not any(m.symbol == symbol for m in _universe()):
+        raise HTTPException(404, f"{symbol} is not in the scanner universe")
+    data.add_to_watchlist(symbol)
+    return _watchlist_payload()
+
+
+@app.delete("/api/watchlist/{symbol}")
+def remove_watch(symbol: str):
+    data.remove_from_watchlist(symbol.strip().upper())
+    return _watchlist_payload()
 
 
 @app.get("/api/sectors")
