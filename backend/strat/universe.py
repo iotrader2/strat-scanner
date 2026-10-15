@@ -47,6 +47,22 @@ ICB_TO_GICS = {
     "Utilities": "Utilities",
 }
 
+# Yahoo Finance sector names (used for symbols added from the watchlist) -> GICS sector.
+YAHOO_TO_GICS = {
+    "Technology": "Information Technology",
+    "Healthcare": "Health Care",
+    "Financial Services": "Financials",
+    "Consumer Cyclical": "Consumer Discretionary",
+    "Consumer Defensive": "Consumer Staples",
+    "Basic Materials": "Materials",
+    "Communication Services": "Communication Services",
+    "Energy": "Energy",
+    "Industrials": "Industrials",
+    "Utilities": "Utilities",
+    "Real Estate": "Real Estate",
+}
+OTHER_SECTOR = "Other"
+
 # (symbol, name, sector, group). group: "spdr" | "industry" | "benchmark"
 ETFS: list[tuple[str, str, str, str]] = [
     ("XLK", "Technology Select Sector SPDR", "Information Technology", "spdr"),
@@ -87,6 +103,7 @@ class Member:
     sector: str
     kind: str  # "stock" | "etf"
     indexes: str  # e.g. "SP500;NDX" for stocks, ETF group for ETFs
+    in_universe: bool = True  # False for symbols added from the watchlist
 
     @property
     def sector_etf(self) -> str:

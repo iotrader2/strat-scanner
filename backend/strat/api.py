@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Optional
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 
 from . import config, data
 from .scanner import chart_payload, scan_all, scan_symbol, sector_entries
-from .universe import ETFS, SECTOR_ETF, load_universe
+from .universe import ETFS, SECTOR_ETF, Member, load_universe, to_yahoo
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="Strat Scanner (local)")
@@ -29,8 +30,33 @@ class State:
     daily: dict = {}
 
 
-def _universe():
-    return load_universe()
+def _extra_members(only_watched: bool) -> list[Member]:
+    watched = set(data.watchlist()) if only_watched else None
+    return [
+        Member(e["symbol"], e["name"], e["sector"], e["kind"], "Watchlist", in_universe=False)
+        for e in data.extra_symbols()
+        if watched is None or e["symbol"] in watched
+    ]
+
+
+def _universe() -> list[Member]:
+    """Scan universe plus off-universe symbols that are currently on the watchlist (scanned and refreshed too)."""
+    base = load_universe()
+    known = {m.symbol for m in base}
+    return base + [m for m in _extra_members(only_watched=True) if m.symbol not in known]
+
+
+def _find_member(symbol: str) -> Optional[Member]:
+    """Universe member, or any symbol ever added from the watchlist (so its detail page keeps working)."""
+    return next((m for m in load_universe() + _extra_members(only_watched=False) if m.symbol == symbol), None)
+
+
+def _rescan_symbol(member: Member) -> None:
+    daily = data.load_daily(member.symbol)
+    State.daily = {**State.daily, member.symbol: daily}
+    row = scan_symbol(member, daily)
+    rows = [r for r in State.scan if r["symbol"] != member.symbol] + ([row] if row else [])
+    State.scan = sorted(rows, key=lambda r: r["score"], reverse=True)
 
 
 def _run_refresh(full: bool) -> None:
@@ -127,12 +153,15 @@ def scan(
 def symbol_detail(symbol: str):
     symbol = symbol.upper()
     _ensure_scan()
-    member = next((m for m in _universe() if m.symbol == symbol), None)
+    member = _find_member(symbol)
     daily = State.daily.get(symbol)
-    if member is None or daily is None:
-        raise HTTPException(404, f"{symbol} is not in the cached universe")
+    if member is None or daily is None or daily.empty:
+        raise HTTPException(404, f"{symbol} is not in the cache")
+    row = next((r for r in State.scan if r["symbol"] == symbol), None) or scan_symbol(member, daily)
+    if row is None:
+        raise HTTPException(404, f"{symbol} does not have enough price history yet")
     return {
-        "row": scan_symbol(member, daily),
+        "row": row,
         "charts": {tf: chart_payload(daily, tf, CHART_LIMITS[tf]) for tf in CHART_LIMITS},
     }
 
@@ -157,18 +186,42 @@ def get_watchlist():
     return _watchlist_payload()
 
 
+TICKER_RE = re.compile(r"^\^?[A-Z0-9][A-Z0-9.\-=]{0,14}$")
+
+
 @app.post("/api/watchlist")
 def add_watch(req: WatchRequest):
-    symbol = req.symbol.strip().upper()
-    if not any(m.symbol == symbol for m in _universe()):
-        raise HTTPException(404, f"{symbol} is not in the scanner universe")
-    data.add_to_watchlist(symbol)
+    """Add any ticker. Symbols outside the universe are validated and downloaded via yfinance first."""
+    raw = req.symbol.strip().upper()
+    if not TICKER_RE.match(raw):
+        raise HTTPException(404, f"{raw or 'Empty symbol'} is not a valid ticker")
+    universe = {m.symbol for m in load_universe()}
+    symbol = to_yahoo(raw) if to_yahoo(raw) in universe else raw
+    if symbol in data.watchlist():
+        return _watchlist_payload()
+    if symbol not in universe:
+        try:
+            bars, meta = data.lookup_symbol(symbol)
+        except data.SymbolNotFound:
+            raise HTTPException(404, f"{symbol} was not found on Yahoo Finance")
+        except data.LookupFailed as exc:
+            raise HTTPException(502, f"Could not look up {symbol} right now: {exc}")
+        data.save_bars(symbol, bars)
+        data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"])
+        data.add_to_watchlist(symbol)
+        _ensure_scan()
+        _rescan_symbol(_find_member(symbol))
+    else:
+        data.add_to_watchlist(symbol)
     return _watchlist_payload()
 
 
 @app.delete("/api/watchlist/{symbol}")
 def remove_watch(symbol: str):
-    data.remove_from_watchlist(symbol.strip().upper())
+    symbol = symbol.strip().upper()
+    data.remove_from_watchlist(symbol)
+    if symbol not in {m.symbol for m in load_universe()}:
+        State.scan = [r for r in State.scan if r["symbol"] != symbol]
     return _watchlist_payload()
 
 

@@ -14,6 +14,7 @@ from typing import Callable, Iterable, Iterator, Optional
 import pandas as pd
 
 from . import config
+from .universe import OTHER_SECTOR, YAHOO_TO_GICS
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +36,12 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS watchlist (
     symbol   TEXT PRIMARY KEY,
     added_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS extra_symbols (
+    symbol TEXT PRIMARY KEY,
+    name   TEXT NOT NULL,
+    sector TEXT NOT NULL,
+    kind   TEXT NOT NULL
 );
 """
 
@@ -80,6 +87,59 @@ def add_to_watchlist(symbol: str, db_path: Path | None = None) -> None:
 def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:
     with _write_lock, connect(db_path) as conn:
         conn.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
+
+
+def extra_symbols(db_path: Path | None = None) -> list[dict]:
+    """Symbols outside the scan universe that were added from the watchlist, with their metadata."""
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT symbol, name, sector, kind FROM extra_symbols ORDER BY symbol").fetchall()
+    return [dict(zip(("symbol", "name", "sector", "kind"), r)) for r in rows]
+
+
+def save_extra_symbol(symbol: str, name: str, sector: str, kind: str, db_path: Path | None = None) -> None:
+    with _write_lock, connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO extra_symbols(symbol, name, sector, kind) VALUES (?, ?, ?, ?)",
+            (symbol, name, sector, kind),
+        )
+
+
+class SymbolNotFound(Exception):
+    """Yahoo Finance has no such ticker (or no price history for it)."""
+
+
+class LookupFailed(Exception):
+    """The lookup could not be completed (network error, rate limit, ...); the symbol may still exist."""
+
+
+def lookup_symbol(symbol: str) -> tuple[pd.DataFrame, dict]:
+    """Daily history plus name/sector/kind for any Yahoo Finance ticker."""
+    import yfinance as yf
+    from yfinance.exceptions import YFTickerMissingError
+
+    ticker = yf.Ticker(symbol)
+    try:
+        df = ticker.history(
+            period=config.HISTORY_PERIOD, interval="1d", auto_adjust=False, actions=False, raise_errors=True
+        )
+    except YFTickerMissingError as exc:
+        raise SymbolNotFound(symbol) from exc
+    except Exception as exc:
+        raise LookupFailed(f"{symbol}: {exc}") from exc
+    if df.empty:
+        raise SymbolNotFound(symbol)
+    try:
+        info = ticker.info or {}
+    except Exception:  # metadata is cosmetic; prices are what matter
+        info = {}
+    is_etf = info.get("quoteType") == "ETF"
+    sector = YAHOO_TO_GICS.get(info.get("sector") or "", OTHER_SECTOR)
+    meta = {
+        "name": info.get("shortName") or info.get("longName") or symbol,
+        "sector": sector,
+        "kind": "etf" if is_etf else "stock",
+    }
+    return df, meta
 
 
 def cached_symbols(db_path: Path | None = None) -> dict[str, str]:

@@ -49,6 +49,7 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
         "sector_etf": member.sector_etf,
         "kind": member.kind,
         "indexes": member.indexes,
+        "in_universe": member.in_universe,
         "price": round(price, 2),
         "change_pct": round((price / prev_close - 1) * 100, 2) if prev_close else 0.0,
         "avg_dollar_volume": adv,
