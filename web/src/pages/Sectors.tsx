@@ -10,14 +10,13 @@ const GROUPS: { key: SectorEtf["group"]; title: string }[] = [
   { key: "benchmark", title: "Benchmarks" },
 ];
 
-function SectorCard({ etf, tf }: { etf: SectorEtf; tf: Tf }) {
+function SectorCard({ etf }: { etf: SectorEtf }) {
   const r = etf.row;
-  const st = r.tf[tf];
   const lines = useMemo<PriceLine[]>(() => {
-    const s = st?.setups.find((x) => !x.triggered) ?? st?.setups[0];
+    const s = r.setups?.find((x) => !x.triggered) ?? r.setups?.[0];
     return s ? [{ price: s.trigger, color: "#38bdf8", title: "trigger" }] : [];
-  }, [st]);
-  const setup = st?.setups[0];
+  }, [r.setups]);
+  const setup = r.setups?.[0];
 
   return (
     <div className={`card sector-card ${r.mw_green ? "mw-green" : ""}`}>
@@ -40,10 +39,10 @@ function SectorCard({ etf, tf }: { etf: SectorEtf; tf: Tf }) {
         <span className="small">
           {setup ? (
             <>
-              <b>{tf}</b> {setup.label} · trigger <span className="accent-text">{setup.trigger.toFixed(2)}</span>
+              <b>W</b> {setup.label} · trigger <span className="accent-text">{setup.trigger.toFixed(2)}</span>
             </>
           ) : (
-            <span className="muted">No {tf} long setup</span>
+            <span className="muted">No weekly setup</span>
           )}
         </span>
         {etf.group !== "benchmark" && (
@@ -77,8 +76,8 @@ export default function Sectors({ version }: { version: string | null }) {
         <div>
           <h1>Sectors</h1>
           <p className="muted">
-            Sector and industry ETFs with Strat labels on every candle. Green-bordered cards have Monthly and Weekly
-            continuity. Use “Scan sector” to filter the stock scanner.
+            Sector and industry ETFs with Strat labels on every candle. Each card lists its weekly setup and trigger;
+            green-bordered cards have Monthly and Weekly continuity. Use “Scan sector” to filter the stock scanner.
           </p>
         </div>
         <div className="seg">
@@ -109,7 +108,7 @@ export default function Sectors({ version }: { version: string | null }) {
             <h2 className="group-title">{g.title}</h2>
             <div className="sector-grid">
               {items.map((e) => (
-                <SectorCard key={e.symbol} etf={e} tf={tf} />
+                <SectorCard key={e.symbol} etf={e} />
               ))}
             </div>
           </section>

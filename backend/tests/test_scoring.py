@@ -1,30 +1,57 @@
 from strat.candles import Candle, timeframe_state
-from strat.scoring import liquidity_points, score_symbol
+from strat.scoring import MAX_RAW_POINTS, MONTHLY_2U_POINTS, liquidity_points, score_symbol
 
 
 def _states(m, w, d):
     return {"M": timeframe_state("M", m), "W": timeframe_state("W", w), "D": timeframe_state("D", d)}
 
 
-GREEN_UP = [Candle(90, 100, 85, 95), Candle(95, 106, 94, 105)]
-RED_DOWN = [Candle(90, 100, 85, 95), Candle(95, 96, 80, 82)]
-INSIDE_GREEN = [Candle(90, 110, 85, 105), Candle(100, 106, 95, 104)]
+GREEN_UP = [Candle(90, 100, 85, 95), Candle(95, 106, 94, 105)]  # 2U, green, no setup
+GREEN_INSIDE_PRIOR = [Candle(90, 110, 85, 105), Candle(100, 108, 95, 104)]  # 1, green, plain prior
+RED_DOWN = [Candle(90, 100, 85, 95), Candle(95, 96, 80, 82)]  # 2D, red
+INSIDE_GREEN = [Candle(90, 110, 85, 105), Candle(100, 106, 95, 104)]  # 1, green -> inside setup
+HAMMER = [Candle(100, 105, 95, 96), Candle(96, 97.2, 89, 97)]  # 2D hammer, green
+
+
+def test_only_weekly_setups_are_ranked():
+    weekly = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    assert weekly.has_setup
+    assert weekly.primary.tf == "W"
+    assert weekly.primary.setup.trigger == 106
+    assert all(s.tf == "W" for s in weekly.setups)
+
+
+def test_monthly_only_and_daily_only_setups_are_ignored():
+    monthly_only = score_symbol(_states(INSIDE_GREEN, GREEN_UP, GREEN_UP), 104, 1e9)
+    daily_only = score_symbol(_states(GREEN_UP, GREEN_UP, HAMMER), 97, 1e9)
+    for s in (monthly_only, daily_only):
+        assert not s.has_setup
+        assert s.primary is None
+        assert s.trigger_distance_pct is None
+        assert "No weekly setup" in s.reasons
+
+
+def test_weekly_hammer_is_a_setup():
+    s = score_symbol(_states(GREEN_UP, HAMMER, GREEN_UP), 97, 1e9)
+    assert s.primary.setup.kind == "hammer"
+    assert s.primary.setup.trigger == 97.2
+
+
+def test_monthly_2u_gets_a_strong_boost():
+    m2u = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    m_inside = score_symbol(_states(GREEN_INSIDE_PRIOR, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    assert m2u.monthly_2u and not m_inside.monthly_2u
+    # Both monthly candles are green, so the gap is exactly the Monthly 2U boost.
+    assert abs((m2u.score - m_inside.score) - MONTHLY_2U_POINTS * 100 / MAX_RAW_POINTS) < 0.15
+    assert "Monthly 2U" in m2u.reasons
 
 
 def test_full_continuity_beats_red_monthly():
-    good = score_symbol(_states(GREEN_UP, GREEN_UP, GREEN_UP), 105, 1e9)
-    bad = score_symbol(_states(RED_DOWN, GREEN_UP, GREEN_UP), 105, 1e9)
+    good = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    bad = score_symbol(_states(RED_DOWN, INSIDE_GREEN, GREEN_UP), 104, 1e9)
     assert good.full_continuity and good.mw_green
     assert not bad.mw_green
     assert good.score > bad.score
-
-
-def test_higher_timeframe_inside_bar_ranks_higher():
-    weekly_inside = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
-    daily_inside = score_symbol(_states(GREEN_UP, GREEN_UP, INSIDE_GREEN), 104, 1e9)
-    assert weekly_inside.score > daily_inside.score
-    assert weekly_inside.primary.tf == "W"
-    assert weekly_inside.primary.setup.trigger == 106
 
 
 def test_trigger_closer_to_price_scores_higher():
@@ -46,8 +73,12 @@ def test_pinned_low_volatility_name_is_penalised():
     assert any("low volatility" in r for r in pinned.reasons)
 
 
-def test_reason_mentions_trigger_without_stop():
+def test_reason_leads_with_weekly_trigger_without_stop():
     s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
-    text = " ".join(s.reasons)
-    assert "trigger 106.00" in text
-    assert "stop" not in text.lower()
+    assert s.reasons[0].startswith("Weekly Inside bar — trigger 106.00")
+    assert "stop" not in " ".join(s.reasons).lower()
+
+
+def test_best_possible_setup_scores_at_most_100():
+    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.9, 50e9)
+    assert 90 < s.score <= 100

@@ -24,7 +24,7 @@ def _tf_payload(st: Optional[TimeframeState]) -> Optional[dict]:
     if st is None:
         return None
     d = asdict(st)
-    d["setups"] = [asdict(s) for s in st.setups]
+    del d["setups"]
     return d
 
 
@@ -56,6 +56,8 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
         "score": sc.score,
         "full_continuity": sc.full_continuity,
         "mw_green": sc.mw_green,
+        "monthly_2u": sc.monthly_2u,
+        "has_setup": sc.has_setup,
         "trigger": round(primary.setup.trigger, 2) if primary else None,
         "trigger_tf": primary.tf if primary else None,
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,

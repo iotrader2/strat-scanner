@@ -114,7 +114,8 @@ def scan(
     rows = [
         {k: v for k, v in r.items() if k != "setups"}
         for r in _ensure_scan()
-        if r["price"] >= min_price
+        if r["has_setup"]
+        and r["price"] >= min_price
         and r["avg_dollar_volume"] >= min_dollar_volume
         and (include_etfs or r["kind"] == "stock")
     ]
@@ -151,7 +152,7 @@ def sectors(tf: str = Query("D", pattern="^[MWD]$"), bars: int = Query(60, ge=10
                 "name": name,
                 "sector": sector,
                 "group": group,
-                "row": {k: v for k, v in row.items() if k != "setups"},
+                "row": row,
                 "candles": chart_payload(daily, tf, bars),
             }
         )

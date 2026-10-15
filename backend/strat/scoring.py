@@ -6,32 +6,45 @@ import math
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from .candles import Setup, TimeframeState
+from .candles import TWO_UP, Setup, TimeframeState
 
 TF_NAMES = {"M": "Monthly", "W": "Weekly", "D": "Daily"}
 
-CONTINUITY_POINTS = {"M": 15.0, "W": 15.0, "D": 8.0}
-FULL_CONTINUITY_BONUS = 10.0
+# Only weekly setups are ranked; Monthly and Daily candles are context (continuity, Monthly 2U).
+SETUP_TF = "W"
 
-# Pending (not yet triggered) setups are the most actionable; higher timeframes weigh more.
+CONTINUITY_POINTS = {"M": 12.0, "W": 12.0, "D": 6.0}
+FULL_CONTINUITY_BONUS = 8.0
+MONTHLY_2U_POINTS = 20.0
+
+# Pending (not yet triggered) weekly setups are the most actionable.
 SETUP_POINTS = {
-    "inside": {"M": 22.0, "W": 18.0, "D": 12.0},
-    "2-1-2-pending": {"M": 24.0, "W": 20.0, "D": 14.0},
-    "3-1-2-pending": {"M": 24.0, "W": 20.0, "D": 14.0},
-    "hammer": {"M": 18.0, "W": 15.0, "D": 10.0},
-    "2-1-2": {"M": 12.0, "W": 10.0, "D": 7.0},
-    "3-1-2": {"M": 12.0, "W": 10.0, "D": 7.0},
-    "1-2-2": {"M": 10.0, "W": 8.0, "D": 6.0},
-    "2D-2U": {"M": 9.0, "W": 7.0, "D": 5.0},
-    "hammer-triggered": {"M": 9.0, "W": 7.0, "D": 5.0},
+    "2-1-2-pending": 23.0,
+    "3-1-2-pending": 23.0,
+    "inside": 20.0,
+    "hammer": 18.0,
+    "2-1-2": 12.0,
+    "3-1-2": 12.0,
+    "1-2-2": 10.0,
+    "2D-2U": 9.0,
+    "hammer-triggered": 8.0,
 }
-MAX_SETUP_POINTS = 28.0
+MAX_SETUP_POINTS = 25.0
 PROXIMITY_POINTS = 15.0
 PROXIMITY_WINDOW_PCT = 5.0
 LIQUIDITY_POINTS = 10.0
 # Names whose average daily range is this tight are usually pinned by a pending deal.
 MIN_ATR_PCT = 0.5
 PINNED_PENALTY = 0.5
+
+MAX_RAW_POINTS = (
+    MONTHLY_2U_POINTS
+    + sum(CONTINUITY_POINTS.values())
+    + FULL_CONTINUITY_BONUS
+    + MAX_SETUP_POINTS
+    + PROXIMITY_POINTS
+    + LIQUIDITY_POINTS
+)
 
 
 @dataclass
@@ -49,7 +62,12 @@ class Score:
     reasons: list[str]
     full_continuity: bool
     mw_green: bool
+    monthly_2u: bool
     trigger_distance_pct: Optional[float]
+
+    @property
+    def has_setup(self) -> bool:
+        return bool(self.setups)
 
 
 def trigger_distance_pct(price: float, trigger: float) -> float:
@@ -78,13 +96,41 @@ def score_symbol(
     avg_dollar_volume: float,
     atr_pct: Optional[float] = None,
 ) -> Score:
-    reasons: list[str] = []
     total = 0.0
+
+    weekly = states.get(SETUP_TF)
+    scored = [
+        ScoredSetup(SETUP_TF, setup, SETUP_POINTS.get(setup.kind, 0.0))
+        for setup in (weekly.setups if weekly else [])
+    ]
+    if scored:
+        ordered = sorted(scored, key=lambda s: s.points, reverse=True)
+        total += min(MAX_SETUP_POINTS, ordered[0].points + 0.25 * sum(s.points for s in ordered[1:]))
+
+    reasons: list[str] = []
+    primary = _pick_primary(scored, price)
+    dist = None
+    if primary:
+        dist = trigger_distance_pct(price, primary.setup.trigger)
+        total += proximity_points(dist, primary.setup.triggered)
+        reasons.append(_describe(primary, dist))
+        reasons.extend(
+            f"Weekly {s.setup.label}"
+            for s in sorted(scored, key=lambda s: s.points, reverse=True)
+            if s is not primary
+        )
+    else:
+        reasons.append("No weekly setup")
+
+    monthly = states.get("M")
+    monthly_2u = bool(monthly and monthly.strat == TWO_UP)
+    if monthly_2u:
+        total += MONTHLY_2U_POINTS
+        reasons.append("Monthly 2U")
 
     colors = {tf: (s.color if s else None) for tf, s in states.items()}
     green = [tf for tf in ("M", "W", "D") if colors.get(tf) == "green"]
-    for tf in green:
-        total += CONTINUITY_POINTS[tf]
+    total += sum(CONTINUITY_POINTS[tf] for tf in green)
     full = len(green) == 3
     mw_green = "M" in green and "W" in green
     if full:
@@ -97,42 +143,18 @@ def score_symbol(
     else:
         reasons.append("No green continuity")
 
-    scored: list[ScoredSetup] = []
-    for tf in ("M", "W", "D"):
-        st = states.get(tf)
-        if not st:
-            continue
-        for setup in st.setups:
-            pts = SETUP_POINTS.get(setup.kind, {}).get(tf, 0.0)
-            scored.append(ScoredSetup(tf, setup, pts))
-
-    setup_total = 0.0
-    if scored:
-        ordered = sorted(scored, key=lambda s: s.points, reverse=True)
-        setup_total = ordered[0].points + 0.25 * sum(s.points for s in ordered[1:])
-    total += min(MAX_SETUP_POINTS, setup_total)
-
-    primary = _pick_primary(scored, price)
-    dist = None
-    if primary:
-        dist = trigger_distance_pct(price, primary.setup.trigger)
-        total += proximity_points(dist, primary.setup.triggered)
-        reasons.append(_describe(primary, dist))
-        for other in sorted(scored, key=lambda s: s.points, reverse=True):
-            if other is not primary:
-                reasons.append(f"{TF_NAMES[other.tf]} {other.setup.label}")
-
     total += liquidity_points(avg_dollar_volume)
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
         total *= PINNED_PENALTY
         reasons.append(f"Very low volatility (avg range {atr_pct:.2f}%), possibly pinned by a deal")
     return Score(
-        score=round(min(100.0, total), 1),
+        score=round(min(100.0, total * 100.0 / MAX_RAW_POINTS), 1),
         primary=primary,
         setups=scored,
         reasons=reasons,
         full_continuity=full,
         mw_green=mw_green,
+        monthly_2u=monthly_2u,
         trigger_distance_pct=None if dist is None else round(dist, 2),
     )
 

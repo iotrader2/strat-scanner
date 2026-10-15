@@ -4,7 +4,7 @@ import { api, fmtMoney, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { Legend, ScorePill, TfBadges } from "../components/Badges";
 
 type SortKey = "score" | "symbol" | "price" | "change_pct" | "trigger_distance_pct" | "avg_dollar_volume" | "sector";
-type Continuity = "any" | "mw" | "full";
+type Continuity = "any" | "mw" | "full" | "m2u";
 type SetupFilter = "any" | "pending" | "inside" | "hammer";
 
 function usePersisted<T>(key: string, initial: T) {
@@ -63,9 +63,10 @@ export default function Scanner({ version }: { version: string | null }) {
       if (kind !== "all" && r.kind !== kind) return false;
       if (continuity === "mw" && !r.mw_green) return false;
       if (continuity === "full" && !r.full_continuity) return false;
+      if (continuity === "m2u" && !r.monthly_2u) return false;
       if (setupFilter === "pending" && (r.trigger === null || r.triggered)) return false;
-      if (setupFilter === "inside" && !(["M", "W", "D"] as const).some((t) => r.tf[t]?.inside)) return false;
-      if (setupFilter === "hammer" && !(["M", "W", "D"] as const).some((t) => r.tf[t]?.hammer)) return false;
+      if (setupFilter === "inside" && !r.tf.W?.inside) return false;
+      if (setupFilter === "hammer" && !r.tf.W?.hammer) return false;
       if (maxDist !== null && (r.trigger_distance_pct === null || r.trigger_distance_pct > maxDist)) return false;
       return true;
     });
@@ -86,7 +87,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
   const stats = useMemo(
     () => ({
-      full: rows.filter((r) => r.full_continuity).length,
+      m2u: rows.filter((r) => r.monthly_2u).length,
       mw: rows.filter((r) => r.mw_green).length,
       pending: rows.filter((r) => r.mw_green && r.trigger !== null && !r.triggered).length,
     }),
@@ -114,24 +115,24 @@ export default function Scanner({ version }: { version: string | null }) {
     <div className="page">
       <section className="hero">
         <div>
-          <h1>Long Strat setups</h1>
+          <h1>Weekly Strat setups</h1>
           <p className="muted">
-            S&amp;P 500 + Nasdaq-100 + sector ETFs, ranked by actionability: timeframe continuity, higher-timeframe
-            inside bars &amp; hammers, distance to trigger and liquidity.
+            Long setups on the weekly chart only (S&amp;P 500 + Nasdaq-100 + sector ETFs), ranked by actionability:
+            Monthly 2U, M/W/D continuity, distance to the weekly trigger and liquidity.
           </p>
         </div>
         <div className="stat-cards">
           <div className="stat-card">
             <span className="stat-value">{rows.length}</span>
-            <span className="stat-label">liquid names</span>
+            <span className="stat-label">weekly setups</span>
           </div>
           <div className="stat-card">
             <span className="stat-value green-text">{stats.mw}</span>
             <span className="stat-label">M + W green</span>
           </div>
           <div className="stat-card">
-            <span className="stat-value green-text">{stats.full}</span>
-            <span className="stat-label">full M/W/D continuity</span>
+            <span className="stat-value green-text">{stats.m2u}</span>
+            <span className="stat-label">Monthly 2U</span>
           </div>
           <div className="stat-card">
             <span className="stat-value accent-text">{stats.pending}</span>
@@ -158,6 +159,7 @@ export default function Scanner({ version }: { version: string | null }) {
           Continuity
           <select className="input" value={continuity} onChange={(e) => setContinuity(e.target.value as Continuity)}>
             <option value="mw">M + W green</option>
+            <option value="m2u">Monthly 2U</option>
             <option value="full">M + W + D green</option>
             <option value="any">Any</option>
           </select>
@@ -167,8 +169,8 @@ export default function Scanner({ version }: { version: string | null }) {
           <select className="input" value={setupFilter} onChange={(e) => setSetupFilter(e.target.value as SetupFilter)}>
             <option value="any">Any</option>
             <option value="pending">Awaiting trigger</option>
-            <option value="inside">Inside bar (M/W/D)</option>
-            <option value="hammer">Hammer (M/W/D)</option>
+            <option value="inside">Inside week</option>
+            <option value="hammer">Weekly hammer</option>
           </select>
         </label>
         <label>
@@ -206,7 +208,7 @@ export default function Scanner({ version }: { version: string | null }) {
       </div>
       {error && <div className="banner error">{error}</div>}
       {!loading && rows.length === 0 && !error && (
-        <div className="card empty-state">No cached data yet. The first download starts automatically; it takes a minute or two.</div>
+        <div className="card empty-state">No weekly setups match these filters (if the cache is empty, the first download starts automatically and takes a minute or two).</div>
       )}
 
       <div className="card table-card">
@@ -219,7 +221,7 @@ export default function Scanner({ version }: { version: string | null }) {
               {header("price", "Price", "num")}
               {header("change_pct", "Day", "num")}
               <th>M · W · D</th>
-              <th>Best setup</th>
+              <th>Weekly setup</th>
               <th className="num">Trigger</th>
               {header("trigger_distance_pct", "To trigger", "num")}
               {header("avg_dollar_volume", "Avg $vol", "num")}
@@ -254,7 +256,9 @@ export default function Scanner({ version }: { version: string | null }) {
                         {r.setup}
                         {r.triggered && <span className="trig-chip">triggered</span>}
                       </div>
-                      <div className="sub muted reason" title={r.reason}>{r.reason}</div>
+                      <div className="sub muted reason" title={r.reason}>
+                        {r.reason.split(" · ").slice(1).join(" · ")}
+                      </div>
                     </>
                   ) : (
                     <span className="sub muted reason" title={r.reason}>{r.reason}</span>

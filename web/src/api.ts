@@ -20,7 +20,6 @@ export interface TfState {
   close: number;
   inside: boolean;
   hammer: boolean;
-  setups: Setup[];
 }
 
 export interface ScanRow {
@@ -37,6 +36,8 @@ export interface ScanRow {
   score: number;
   full_continuity: boolean;
   mw_green: boolean;
+  monthly_2u: boolean;
+  has_setup: boolean;
   trigger: number | null;
   trigger_tf: Tf | null;
   setup: string | null;

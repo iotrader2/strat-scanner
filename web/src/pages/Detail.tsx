@@ -33,15 +33,8 @@ export default function Detail({ version }: { version: string | null }) {
     if (row.trigger !== null) {
       out.push({ price: row.trigger, color: "#38bdf8", title: `Trigger (${row.trigger_tf})` });
     }
-    const st = row.tf[activeTf];
-    if (st && row.trigger_tf !== activeTf) {
-      const local = st.setups.find((s) => !s.triggered) ?? st.setups[0];
-      if (local) {
-        out.push({ price: local.trigger, color: "rgba(56,189,248,0.5)", title: `${activeTf} trigger` });
-      }
-    }
     return out;
-  }, [row, activeTf]);
+  }, [row]);
 
   if (error) return <div className="page"><div className="banner error">{error}</div></div>;
   if (!data || !row) return <div className="page muted">Loading {symbol}…</div>;
@@ -90,7 +83,7 @@ export default function Detail({ version }: { version: string | null }) {
         <aside className="side">
           <div className="card">
             <h3>Setup</h3>
-            <p className="setup big-setup">{row.setup ?? "No long setup"}</p>
+            <p className="setup big-setup">{row.setup ?? "No weekly setup"}</p>
             <ul className="reasons">
               {row.reason.split(" · ").map((r) => <li key={r}>{r}</li>)}
             </ul>
@@ -122,7 +115,7 @@ export default function Detail({ version }: { version: string | null }) {
             </table>
           </div>
           <div className="card">
-            <h3>All long setups</h3>
+            <h3>Weekly setups</h3>
             {row.setups && row.setups.length > 0 ? (
               <ul className="setup-list">
                 {row.setups.map((s, i) => (
@@ -134,7 +127,7 @@ export default function Detail({ version }: { version: string | null }) {
                 ))}
               </ul>
             ) : (
-              <p className="muted small">No inside bars, hammers or bullish combos right now.</p>
+              <p className="muted small">No weekly inside bar, hammer or bullish combo right now.</p>
             )}
           </div>
         </aside>

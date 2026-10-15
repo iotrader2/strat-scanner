@@ -1,8 +1,9 @@
 # strat-scanner
 
 A **local-only** stock scanner for Rob Smith's **The Strat**, long bias only. It scans liquid US names
-(S&P 500 + Nasdaq-100 + sector/industry ETFs), classifies the Monthly, Weekly and Daily candles,
-flags inside bars, hammers and bullish Strat combos, and ranks everything by an *actionability* score.
+(S&P 500 + Nasdaq-100 + sector/industry ETFs) for **weekly** setups (inside weeks, weekly hammers and
+bullish weekly Strat combos) and ranks them by an *actionability* score. Monthly, Weekly and Daily candles are all
+classified and shown as context (Strat number and continuity).
 
 It runs on your machine only (API and UI bind to `127.0.0.1`). There is no deploy or hosting config.
 Data comes from Yahoo Finance via [yfinance](https://github.com/ranaroussi/yfinance) (no API key needed)
@@ -68,43 +69,47 @@ The best names have Monthly **and** Weekly green; the scanner defaults to that f
 **Hammer**: lower wick ≥ 2× body, small upper wick (≤ the body or ≤ 10% of the range), and a close in
 the top third of the range.
 
-**Long setups** found on M, W and D:
+**Long setups** are detected on the **weekly** timeframe only. Names without a weekly setup do not appear in the
+ranked list, even if their monthly or daily candle shows a pattern.
 
 | Setup | Pattern | Trigger |
 | --- | --- | --- |
-| Inside bar (incl. inside month/week/day) | current candle is `1` | above the inside-bar high |
-| 2-1 → 2-1-2, 3-1 → 3-1-2 (pending) | `2`/`3` then current `1` | inside-bar high |
-| Hammer | current candle is a hammer | hammer high |
-| 2-1-2 bullish (2D-1-2U, 2U-1-2U) | triggered | inside-bar high |
-| 3-1-2 bullish | triggered | inside-bar high |
-| 1-2-2 RevStrat | `1`, `2D`, `2U` | 2D-candle high |
-| 2D-2U reversal | `2D` then `2U` | 2D-candle high |
-| Hammer triggered | prior candle hammer, current breaks its high | hammer high |
+| Inside week (ready to trigger) | current week is `1` | above the inside-week high |
+| 2-1 → 2-1-2, 3-1 → 3-1-2 (pending) | `2`/`3` week then current week `1` | inside-week high |
+| Weekly hammer | current week is a hammer | hammer high |
+| 2-1-2 bullish (2D-1-2U, 2U-1-2U) | triggered | inside-week high |
+| 3-1-2 bullish | triggered | inside-week high |
+| 1-2-2 RevStrat | `1`, `2D`, `2U` weeks | 2D-week high |
+| 2D-2U reversal | `2D` week then `2U` week | 2D-week high |
+| Hammer triggered | prior week a hammer, current week breaks its high | hammer high |
 
 Stops are intentionally not shown: they are managed intraday (e.g. on the 5-minute chart), which is out of
 scope for this scanner.
 
 **Actionability score (0–100)**:
 
-- Continuity: Monthly green +15, Weekly green +15, Daily green +8, plus a +10 bonus for full M+W+D.
-- Setups: pending inside bars / hammers score highest, and higher timeframes weigh more
-  (e.g. a monthly 2-1 setup scores more than a daily one). Triggered combos score less (capped at 28 points).
-- Proximity: up to +15 when price is within 5% below the trigger of the chosen setup (half credit once triggered).
+- Monthly 2U: **+20** when the current monthly candle is a 2U (strongest single factor).
+- Continuity: Monthly green +12, Weekly green +12, Daily green +6, plus a +8 bonus for full M+W+D.
+- Weekly setup: pending 2-1 / 3-1 setups +23, inside week +20, hammer +18; triggered combos score less
+  (2-1-2 / 3-1-2 +12, 1-2-2 +10, 2D-2U +9, hammer triggered +8). Extra weekly setups add a quarter of their points (capped at 25).
+- Proximity: up to +15 when price is within 5% below the weekly trigger (half credit once triggered).
 - Liquidity: up to +10, log-scaled from $50M to $5B average daily dollar volume.
 - Names with an average daily range under 0.5% (typically pinned by a pending acquisition) have their score halved.
+- The raw points (max 108) are rescaled to 0–100 so the top names don't tie at a cap.
 
-The chosen ("best") setup supplies the **trigger** and **reason** text shown in the table.
+The chosen weekly setup supplies the **trigger** and the start of the **reason** text, followed by Monthly 2U and
+continuity context, e.g. `Weekly Inside bar — trigger 106.00 (+1.9% away) · Monthly 2U · Full continuity M+W+D green`.
 
 ## UI
 
-- **Scanner**: ranked, sortable and filterable table (search, sector, continuity, setup type, stocks/ETFs,
-  min price, min dollar volume, max distance to trigger). M/W/D badges show the Strat number (text colour,
+- **Scanner**: ranked, sortable and filterable table of weekly setups (search, sector, continuity incl. Monthly 2U,
+  weekly setup type, stocks/ETFs, min price, min dollar volume, max distance to trigger). M/W/D badges show the Strat number (text colour,
   yellow outline for `1`, purple for `3`) on a green/red fill for continuity; `H` marks a hammer.
 - **Detail** (`/stock/SYMBOL`): interactive candlestick chart ([TradingView lightweight-charts](https://github.com/tradingview/lightweight-charts))
-  with a Monthly/Weekly/Daily toggle, Strat numbers above recent bars, hammer arrows, and dashed trigger lines.
+  with a Monthly/Weekly/Daily toggle, Strat numbers above recent bars, hammer arrows, and the dashed weekly trigger line.
 - **Sectors**: SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
   (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks, each with a labelled chart,
-  M/W/D badges and a strongest→weakest leaderboard. “Scan sector →” filters the scanner to that sector.
+  its weekly setup and trigger, M/W/D badges and a strongest→weakest leaderboard. “Scan sector →” filters the scanner to that sector.
 
 ## Layout
 
