@@ -132,7 +132,8 @@ The detail page has a **Score breakdown** panel with the same numbers plus a one
 ## UI
 
 The top tabs follow the recommended workflow, left to right: **Sectors** (find the strongest groups), **Stock
-Scanner** (drill into weekly setups, optionally filtered to a sector) and **Watchlist** (track the names you picked).
+Scanner** (drill into weekly setups, optionally filtered to a sector), **Watchlist** (track the names you picked) and
+**Positions** (track what you bought against your entry).
 
 - **Sectors** (`/sectors`): SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
   (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks.
@@ -173,7 +174,20 @@ Scanner** (drill into weekly setups, optionally filtered to a sector) and **Watc
       and trigger, are included in every data refresh, and have a working detail page and chart.
     - They show an **Added** chip.
     - They appear in the Stock Scanner only when they have a weekly setup and pass its filters like any other name.
-- **Earnings caution**: a ⚠ icon next to the symbol (Stock Scanner, Watchlist and detail header) marks a stock with
+  - Every row has a **Move to Positions →** button for when you buy. It opens a small form: entry price (prefilled
+    with the last price), shares (optional) and entry date (today by default, no future dates). Saving removes the name
+    from the Watchlist and opens it in Positions.
+- **Positions** (`/positions`): your open positions, with a count badge on the tab.
+  - Same columns, badges, earnings icon and score tooltip as the Watchlist, plus **Entry** (price with the entry date
+    under it), **Last** price, **% G/L** (green for a gain, red for a loss), **$ P/L** (only when shares were entered)
+    and **Days held** (calendar days since the entry date). The header cards total the open $ P/L.
+  - The row **⋯** menu (same dropdown styling and keyboard support) has **Edit entry…**, **Move back to Watchlist**
+    and **Close position…**; closing asks for confirmation and deletes the entry.
+  - **Add position** takes any ticker directly (validated and cached like Add symbol), with an optional entry price
+    (blank means the last price), shares and entry date.
+  - Stored in the `positions` table of the local SQLite cache. Off-universe names keep refreshing while they are
+    watched or held. There are no stops.
+- **Earnings caution**: a ⚠ icon next to the symbol (Stock Scanner, Watchlist, Positions and detail header) marks a stock with
   earnings in the next 10 calendar days, counting today.
   - Hover or focus it to see the date and timing: **BMO** (before open), **AMC** (after close) or **time TBD**.
     When Yahoo only gives an estimated date range, the range is shown.
@@ -194,8 +208,8 @@ Scanner** (drill into weekly setups, optionally filtered to a sector) and **Watc
 backend/
   strat/candles.py    Strat classification, continuity, hammer, long setups (pure, unit tested)
   strat/scoring.py    actionability score
-  strat/data.py       SQLite cache (bars, watchlist, added symbols, earnings), yfinance download, resampling
-  strat/members.py    effective universe = universe + watched off-universe symbols
+  strat/data.py       SQLite cache (bars, watchlist, positions, added symbols, earnings), yfinance download, resampling
+  strat/members.py    effective universe = universe + watched/held off-universe symbols
   strat/earnings.py   upcoming earnings dates and BMO/AMC timing from yfinance
   strat/scanner.py    per-symbol scan + chart payloads
   strat/universe.py   S&P 500 / Nasdaq-100 / ETF universe (snapshot in data/universe.csv)
@@ -217,6 +231,11 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`)
 | `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
 | `POST /api/watchlist` | Add any ticker, body `{"symbol": "SOFI"}`. Returns 404 only if Yahoo Finance has no such symbol and 502 if the lookup fails |
 | `DELETE /api/watchlist/{symbol}` | Remove a symbol |
+| `GET /api/positions` | Open positions: `symbols` and `positions` (`symbol`, `entry_price`, `shares`, `entry_date`, scan `row` or `null` before data is cached) |
+| `POST /api/positions` | Open a position in any ticker, body `{"symbol": "NVDA", "entry_price": 196.4, "shares": 40, "entry_date": "2026-09-22"}`. `entry_price` defaults to the last price, `entry_date` to today (US/Eastern) and `shares` is optional. Removes the name from the watchlist. 404 for unknown tickers, 409 if already held, 422 for a future date or non-positive numbers |
+| `PUT /api/positions/{symbol}` | Edit `entry_price`, `shares` and `entry_date` |
+| `DELETE /api/positions/{symbol}` | Close (remove) a position |
+| `POST /api/positions/{symbol}/watchlist` | Move a position back to the watchlist |
 | `GET /api/status`, `POST /api/refresh` | Cache status and data refresh |
 
 Not investment advice. Yahoo Finance data is unofficial and can be delayed or incomplete.
