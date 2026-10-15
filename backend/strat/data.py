@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS watchlist (
     symbol   TEXT PRIMARY KEY,
     added_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS earnings (
+    symbol     TEXT PRIMARY KEY,
+    date       TEXT,
+    date_end   TEXT,
+    timing     TEXT,
+    fetched_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS extra_symbols (
     symbol TEXT PRIMARY KEY,
     name   TEXT NOT NULL,
@@ -101,6 +108,22 @@ def save_extra_symbol(symbol: str, name: str, sector: str, kind: str, db_path: P
         conn.execute(
             "INSERT OR REPLACE INTO extra_symbols(symbol, name, sector, kind) VALUES (?, ?, ?, ?)",
             (symbol, name, sector, kind),
+        )
+
+
+def load_earnings(db_path: Path | None = None) -> dict[str, dict]:
+    """symbol -> {date, date_end, timing, fetched_at}; date is None when the source had no upcoming date."""
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT symbol, date, date_end, timing, fetched_at FROM earnings").fetchall()
+    return {r[0]: dict(zip(("date", "date_end", "timing", "fetched_at"), r[1:])) for r in rows}
+
+
+def save_earnings(entries: list[dict], db_path: Path | None = None) -> None:
+    fetched = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _write_lock, connect(db_path) as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO earnings(symbol, date, date_end, timing, fetched_at) VALUES (?, ?, ?, ?, ?)",
+            [(e["symbol"], e.get("date"), e.get("date_end"), e.get("timing"), fetched) for e in entries],
         )
 
 

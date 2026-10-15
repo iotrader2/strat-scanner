@@ -10,8 +10,9 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from . import config, data
+from . import config, data, earnings
 from .scanner import chart_payload, scan_all, scan_symbol, sector_entries
+from .members import effective_universe, extra_members, refresh_earnings
 from .universe import ETFS, SECTOR_ETF, Member, load_universe, to_yahoo
 
 log = logging.getLogger(__name__)
@@ -30,25 +31,14 @@ class State:
     daily: dict = {}
 
 
-def _extra_members(only_watched: bool) -> list[Member]:
-    watched = set(data.watchlist()) if only_watched else None
-    return [
-        Member(e["symbol"], e["name"], e["sector"], e["kind"], "Watchlist", in_universe=False)
-        for e in data.extra_symbols()
-        if watched is None or e["symbol"] in watched
-    ]
-
-
 def _universe() -> list[Member]:
-    """Scan universe plus off-universe symbols that are currently on the watchlist (scanned and refreshed too)."""
-    base = load_universe()
-    known = {m.symbol for m in base}
-    return base + [m for m in _extra_members(only_watched=True) if m.symbol not in known]
+    return effective_universe(load_universe())
 
 
 def _find_member(symbol: str) -> Optional[Member]:
     """Universe member, or any symbol ever added from the watchlist (so its detail page keeps working)."""
-    return next((m for m in load_universe() + _extra_members(only_watched=False) if m.symbol == symbol), None)
+    base = load_universe()
+    return next((m for m in base + extra_members(only_watched=False, base=base) if m.symbol == symbol), None)
 
 
 def _rescan_symbol(member: Member) -> None:
@@ -67,6 +57,7 @@ def _run_refresh(full: bool) -> None:
             State.progress = {"done": done, "total": total, "message": message}
 
         data.refresh(symbols, full=full, progress=progress)
+        _refresh_earnings(max_age_hours=0, progress=progress)
         State.error = None
     except Exception as exc:
         log.exception("refresh failed")
@@ -74,6 +65,20 @@ def _run_refresh(full: bool) -> None:
     finally:
         State.refreshing = False
         _ensure_scan(force=True)
+
+
+def _refresh_earnings(max_age_hours: float, progress=None) -> None:
+    refresh_earnings(_universe(), max_age_hours, progress)
+
+
+def _with_earnings(rows: list[dict]) -> list[dict]:
+    """Attach the upcoming-earnings warning (next 10 calendar days, as of today) to each row."""
+    cached = data.load_earnings()
+    today = earnings.today_et()
+    return [
+        {**r, "earnings": earnings.upcoming(cached.get(r["symbol"]), today) if r.get("kind") == "stock" else None}
+        for r in rows
+    ]
 
 
 def start_refresh(full: bool = False) -> bool:
@@ -101,17 +106,20 @@ def _startup() -> None:
     if not data.cached_symbols():
         log.info("Cache is empty, starting the initial download")
         start_refresh(full=True)
+    else:
+        threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
 
 
 @app.get("/api/status")
 def status():
+    universe = {m.symbol for m in _universe()}
     return {
         "last_refresh": data.get_meta("last_refresh"),
         "refreshing": State.refreshing,
         "progress": State.progress,
         "error": State.error,
-        "symbols_cached": len(data.cached_symbols()),
-        "universe_size": len(_universe()),
+        "symbols_cached": len(universe & set(data.cached_symbols())),
+        "universe_size": len(universe),
     }
 
 
@@ -138,14 +146,14 @@ def scan(
 ):
     min_price = config.MIN_PRICE if min_price is None else min_price
     min_dollar_volume = config.MIN_DOLLAR_VOLUME if min_dollar_volume is None else min_dollar_volume
-    rows = [
+    rows = _with_earnings([
         {k: v for k, v in r.items() if k != "setups"}
         for r in _ensure_scan()
         if r["has_setup"]
         and r["price"] >= min_price
         and r["avg_dollar_volume"] >= min_dollar_volume
         and (include_etfs or r["kind"] == "stock")
-    ]
+    ])
     return {"as_of": State.scan_key, "count": len(rows), "rows": rows}
 
 
@@ -161,7 +169,7 @@ def symbol_detail(symbol: str):
     if row is None:
         raise HTTPException(404, f"{symbol} does not have enough price history yet")
     return {
-        "row": row,
+        "row": _with_earnings([row])[0],
         "charts": {tf: chart_payload(daily, tf, CHART_LIMITS[tf]) for tf in CHART_LIMITS},
     }
 
@@ -175,7 +183,7 @@ def _watchlist_payload() -> dict:
     by_symbol = {r["symbol"]: r for r in _ensure_scan()}
     return {
         "symbols": symbols,
-        "rows": [by_symbol[s] for s in symbols if s in by_symbol],
+        "rows": _with_earnings([by_symbol[s] for s in symbols if s in by_symbol]),
         "missing": [s for s in symbols if s not in by_symbol],
     }
 
@@ -208,6 +216,8 @@ def add_watch(req: WatchRequest):
             raise HTTPException(502, f"Could not look up {symbol} right now: {exc}")
         data.save_bars(symbol, bars)
         data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"])
+        if meta["kind"] == "stock":
+            earnings.refresh_earnings([symbol], max_age_hours=0)
         data.add_to_watchlist(symbol)
         _ensure_scan()
         _rescan_symbol(_find_member(symbol))

@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from strat import api, config, data
+from strat import api, config, data, earnings
 from strat.universe import Member
 
 UNIVERSE = [
@@ -44,6 +44,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(api.State, "daily", {})
     monkeypatch.setattr(api, "_ensure_scan", lambda force=False: api.State.scan)
     monkeypatch.setattr(data, "lookup_symbol", fake_lookup)
+    monkeypatch.setattr(earnings, "fetch_earnings", lambda s: {"symbol": s, "date": None, "date_end": None, "timing": None})
     return TestClient(api.app)
 
 
@@ -163,3 +164,12 @@ def test_off_universe_rows_reach_the_scanner_only_through_its_filters(client):
     loose = [r["symbol"] for r in client.get("/api/scan?min_price=1&min_dollar_volume=1000000").json()["rows"]]
     assert "PENNY" not in default and "PENNY" in loose
     assert "NOSETUP" not in loose
+
+
+def test_status_counts_only_symbols_in_the_current_universe(client):
+    client.post("/api/watchlist", json={"symbol": "MRNA"})
+    assert client.get("/api/status").json()["universe_size"] == len(UNIVERSE) + 1
+    client.delete("/api/watchlist/MRNA")
+    status = client.get("/api/status").json()
+    assert status["universe_size"] == len(UNIVERSE)
+    assert status["symbols_cached"] <= status["universe_size"]
