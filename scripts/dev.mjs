@@ -2,11 +2,17 @@
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { setup, venvPython } from "./setup.mjs";
+import { setup, venvPython, withCompatibleNode } from "./setup.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const apiPort = process.env.STRAT_API_PORT ?? "8000";
 const webPort = process.env.STRAT_WEB_PORT ?? "5173";
+
+const node = withCompatibleNode({
+  ...process.env,
+  STRAT_API_PORT: apiPort,
+  STRAT_WEB_PORT: webPort,
+});
 
 setup();
 
@@ -14,7 +20,7 @@ const procs = [];
 function start(name, color, cmd, args, cwd) {
   const p = spawn(cmd, args, {
     cwd,
-    env: { ...process.env, STRAT_API_PORT: apiPort, STRAT_WEB_PORT: webPort },
+    env: node.env,
     shell: process.platform === "win32",
   });
   const prefix = `\x1b[${color}m[${name}]\x1b[0m `;
@@ -47,5 +53,5 @@ process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
 start("api", "36", venvPython, ["-m", "uvicorn", "strat.api:app", "--host", "127.0.0.1", "--port", apiPort], join(root, "backend"));
-start("web", "35", "npm", ["run", "dev"], join(root, "web"));
+start("web", "35", node.npm, ["run", "dev"], join(root, "web"));
 console.log(`\n  Strat Scanner → http://127.0.0.1:${webPort}  (API on 127.0.0.1:${apiPort})\n`);
