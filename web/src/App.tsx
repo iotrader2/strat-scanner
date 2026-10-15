@@ -1,11 +1,32 @@
-import { useCallback, useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { LAST_TAB_KEY, readPersisted, restoreTarget, tabLocation, writePersisted } from "./persist";
 import { api, type Status } from "./api";
 import Scanner from "./pages/Scanner";
 import Detail from "./pages/Detail";
 import Sectors from "./pages/Sectors";
 
+function useStickyTab() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const restored = useRef(false);
+
+  useEffect(() => {
+    if (!restored.current) {
+      restored.current = true;
+      const target = restoreTarget(location.pathname, location.search, readPersisted<string | null>(LAST_TAB_KEY, null));
+      if (target) {
+        navigate(target, { replace: true });
+        return;
+      }
+    }
+    const tab = tabLocation(location.pathname, location.search);
+    if (tab) writePersisted(LAST_TAB_KEY, tab);
+  }, [location.pathname, location.search, navigate]);
+}
+
 export default function App() {
+  useStickyTab();
   const [status, setStatus] = useState<Status | null>(null);
   const [dataVersion, setDataVersion] = useState<string | null>(null);
 
