@@ -37,6 +37,7 @@ export interface ScanRow {
   sector_etf: string;
   kind: "stock" | "etf";
   indexes: string;
+  in_universe: boolean;
   price: number;
   change_pct: number;
   avg_dollar_volume: number;
@@ -57,7 +58,15 @@ export interface ScanRow {
   trigger_distance_pct: number | null;
   reason: string;
   tf: Record<Tf, TfState | null>;
+  earnings?: Earnings | null;
   setups?: (Setup & { tf: Tf; points: number })[];
+}
+
+export interface Earnings {
+  date: string;
+  date_end: string | null;
+  timing: "BMO" | "AMC" | null;
+  days_until: number;
 }
 
 export interface ChartCandle {
@@ -96,9 +105,26 @@ export interface SectorEtf {
   candles: ChartCandle[];
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function get<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      detail = (JSON.parse(text) as { detail?: string }).detail ?? text;
+    } catch {
+      // not JSON
+    }
+    throw new ApiError(res.status, detail || `${res.status}`);
+  }
   return res.json() as Promise<T>;
 }
 

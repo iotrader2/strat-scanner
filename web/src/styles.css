@@ -260,9 +260,22 @@ th.num { text-align: right; }
 .watch-btn.inline { width: 20px; height: 20px; font-size: 13px; vertical-align: -3px; cursor: default; }
 .scan-table .watch-col { width: 38px; padding-right: 0; }
 .no-setup { display: inline-block; font-size: 12px; color: var(--muted); border: 1px dashed var(--border-2); border-radius: 999px; padding: 2px 9px; }
-.remove-btn { padding: 4px 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
-.remove-btn:hover:not(:disabled) { color: var(--red); border-color: rgba(244, 63, 94, 0.5); }
 .sector-head { gap: 10px; }
 .sector-head > div:first-child { flex: 1; min-width: 0; }
 .page .banner { margin: 12px 0; }
 .banner:not(.error) { background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--text); }
+
+/* Off-universe symbols and earnings caution */
+.added-chip { margin-left: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 5px; padding: 1px 4px; vertical-align: 2px; }
+.detail-symbol .added-chip { font-size: 10px; vertical-align: 5px; }
+.sym .earnings-icon, .sym .added-chip { margin-left: 0; }
+.earnings-icon { display: inline-block; margin-left: 5px; color: #fbbf24; font-size: 13px; line-height: 1; cursor: help; vertical-align: 1px; }
+.earnings-icon:focus-visible { outline: 1px solid #fbbf24; border-radius: 3px; }
+.detail-symbol .earnings-icon { font-size: 20px; margin-left: 8px; vertical-align: 3px; }
+.earnings-tooltip { position: fixed; z-index: 1000; min-width: 220px; padding: 10px 12px; border-radius: 10px; background: #111823; border: 1px solid rgba(251, 191, 36, 0.45); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55); font-size: 13px; line-height: 1.5; color: var(--text); pointer-events: none; }
+.earnings-tooltip .tt-title { color: #fbbf24; }
+.add-symbol { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.add-symbol label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.add-symbol .input { width: 200px; text-transform: uppercase; }
+.add-symbol .input::placeholder { text-transform: none; }
+.add-symbol .add-hint { margin-left: auto; }

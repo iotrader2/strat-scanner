@@ -40,3 +40,12 @@ export function Legend() {
 }
 
 export { ScorePill } from "./ScoreBreakdown";
+
+/** Marks symbols outside the S&P 500 / Nasdaq-100 / ETF universe that were added from the watchlist. */
+export function AddedChip() {
+  return (
+    <span className="added-chip" title="Added to the watchlist from outside the S&P 500 / Nasdaq-100 universe">
+      Added
+    </span>
+  );
+}

@@ -13,3 +13,8 @@ export function watchedRows(rows: ScanRow[], symbols: string[]): ScanRow[] {
 }
 
 export const NO_SETUP_LABEL = "no active setup";
+
+/** Trimmed, upper-cased ticker as typed into the Add symbol box ("" when blank). */
+export function normalizeTicker(input: string): string {
+  return input.trim().toUpperCase();
+}

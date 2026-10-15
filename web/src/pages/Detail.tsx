@@ -3,7 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { NO_SETUP_LABEL } from "../watchlist";
-import { ScorePill, TfBadge } from "../components/Badges";
+import { AddedChip, ScorePill, TfBadge } from "../components/Badges";
+import { EarningsIcon } from "../components/EarningsIcon";
 import { BreakdownTable } from "../components/ScoreBreakdown";
 import { WatchButton } from "../components/Watch";
 import { CandleChart, type PriceLine } from "../components/CandleChart";
@@ -48,7 +49,10 @@ export default function Detail({ version }: { version: string | null }) {
       <section className="detail-head card">
         <div>
           <div className="detail-symbol">
-            {row.symbol} <span className="muted detail-name">{row.name}</span>
+            {row.symbol}
+            <EarningsIcon earnings={row.earnings} />
+            <span className="muted detail-name">{row.name}</span>
+            {row.in_universe === false && <AddedChip />}
             <WatchButton symbol={row.symbol} labelled />
           </div>
           <div className="muted small">
@@ -89,7 +93,10 @@ export default function Detail({ version }: { version: string | null }) {
             <h3>Setup</h3>
             <p className="setup big-setup">{row.has_setup && row.setup ? row.setup : <span className="no-setup">{NO_SETUP_LABEL}</span>}</p>
             <ul className="reasons">
-              {row.reason.split(" · ").map((r) => <li key={r}>{r}</li>)}
+              {row.reason
+                .split(" · ")
+                .filter((r) => row.has_setup || !r.startsWith("No weekly"))
+                .map((r) => <li key={r}>{r}</li>)}
             </ul>
           </div>
           <div className="card">

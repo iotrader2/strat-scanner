@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
 import { fmtCompact } from "../logScale";
 import { NO_SETUP_LABEL } from "../watchlist";
-import { ScorePill, TfBadges } from "./Badges";
-import { WatchButton, useWatchlist } from "./Watch";
+import { AddedChip, ScorePill, TfBadges } from "./Badges";
+import { EarningsIcon } from "./EarningsIcon";
+import { WatchButton } from "./Watch";
 
 export type SortKey =
   | "score"
@@ -32,17 +33,8 @@ export function sortRows(rows: ScanRow[], key: SortKey, dir: 1 | -1): ScanRow[] 
 
 const ASCENDING_FIRST: SortKey[] = ["symbol", "sector", "trigger_distance_pct"];
 
-export function ScanTable({
-  rows,
-  onSector,
-  removable = false,
-}: {
-  rows: ScanRow[];
-  onSector?: (sector: string) => void;
-  removable?: boolean;
-}) {
+export function ScanTable({ rows, onSector }: { rows: ScanRow[]; onSector?: (sector: string) => void }) {
   const navigate = useNavigate();
-  const { toggle } = useWatchlist();
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "score", dir: -1 });
   const sorted = useMemo(() => sortRows(rows, sort.key, sort.dir), [rows, sort]);
 
@@ -74,7 +66,6 @@ export function ScanTable({
             {header("avg_volume", "Avg vol", "num")}
             {header("avg_dollar_volume", "Avg $vol", "num")}
             {header("score", "Score", "num")}
-            {removable && <th aria-label="Remove" />}
           </tr>
         </thead>
         <tbody>
@@ -87,7 +78,9 @@ export function ScanTable({
               <td>
                 <div className="sym">
                   {r.symbol}
+                  <EarningsIcon earnings={r.earnings} />
                   {r.kind === "etf" && <span className="etf-chip">ETF</span>}
+                  {r.in_universe === false && <AddedChip />}
                 </div>
                 <div className="sub muted">{r.name}</div>
               </td>
@@ -132,20 +125,6 @@ export function ScanTable({
               <td className="num">
                 <ScorePill score={r.score} row={r} />
               </td>
-              {removable && (
-                <td>
-                  <button
-                    type="button"
-                    className="btn remove-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggle(r.symbol);
-                    }}
-                  >
-                    ✕ Remove
-                  </button>
-                </td>
-              )}
             </tr>
           ))}
         </tbody>

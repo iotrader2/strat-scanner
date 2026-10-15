@@ -8,6 +8,8 @@ interface WatchState {
   error: string | null;
   isWatched: (symbol: string) => boolean;
   toggle: (symbol: string) => void;
+  /** Add any ticker; rejects with the server's message (e.g. unknown symbol). */
+  add: (symbol: string) => Promise<void>;
 }
 
 const WatchContext = createContext<WatchState | null>(null);
@@ -41,9 +43,16 @@ export function WatchlistProvider({ version, children }: { version: string | nul
     [symbols, apply, reload],
   );
 
+  const add = useCallback(
+    async (symbol: string) => {
+      apply(await api.watch(symbol));
+    },
+    [apply],
+  );
+
   const value = useMemo<WatchState>(
-    () => ({ symbols, data, error, isWatched: (s) => symbols.includes(s), toggle }),
-    [symbols, data, error, toggle],
+    () => ({ symbols, data, error, isWatched: (s) => symbols.includes(s), toggle, add }),
+    [symbols, data, error, toggle, add],
   );
   return <WatchContext.Provider value={value}>{children}</WatchContext.Provider>;
 }
