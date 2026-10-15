@@ -96,11 +96,12 @@ continuity context, e.g. `Weekly Inside bar — trigger 106.00 (+1.9% away) · M
 
 ## How scoring works
 
-Every name with a weekly setup gets an **actionability score**. It is the sum of five components (raw points,
-max **108**), rescaled to 0–100:
+Every name with a weekly setup gets an **actionability score**. For stocks it is the sum of six components (raw
+points, max **123**), rescaled to 0–100:
 
 ```
-score = raw × 100 / 108        (capped at 100, rounded to 0.1)
+stocks: score = raw × 100 / 123        (capped at 100, rounded to 0.1)
+ETFs:   score = raw × 100 / 108        (no Sector strength component, see below)
 ```
 
 | Component | Max | How it is computed |
@@ -110,6 +111,39 @@ score = raw × 100 / 108        (capped at 100, rounded to 0.1)
 | Weekly setup | 25 | Points of the strongest weekly setup + 25% of every other weekly setup, capped at 25. Setup points: 2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8. |
 | Distance to trigger | 15 | `15 × (1 − d / 5)`, where `d` is how far (in %) price is below the weekly trigger: 15 at the trigger, 0 at 5% or more below. A setup that has already triggered gets a flat 7.5. |
 | Liquidity | 10 | `10 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 10 at $5B or more. |
+| Sector strength | 15 | `15 × ETF score / top ETF score`, using the stock's sector ETF (see the mapping below) and its score on the Sectors page. The top-ranked sector/industry ETF gives the full 15; an ETF at half the leader's score gives 7.5. The tooltip shows the ETF, its score and its rank, e.g. `Sector strength · XBI 12 (#23 of 24)`. 0 when the ETF has no data. |
+
+**Sector strength details**
+
+- The ranking is the 24 sector and industry ETFs on the Sectors page (11 SPDR sectors + 13 industry ETFs), sorted by
+  their own score, strongest first; ties are broken by symbol. Benchmarks (SPY, QQQ, IWM, DIA) are not ranked.
+- ETFs are scored first (without this component, so their scale stays at 108), then every stock is scored against
+  that ranking in the same scan. Because the ETF scores are the ranking, ETFs never get Sector strength themselves.
+- Each stock maps to its GICS sector's SPDR ETF, except where an industry ETF is a clearly better benchmark:
+
+  | Industry (GICS sub-industry / ICB subsector / Yahoo industry) | ETF |
+  | --- | --- |
+  | Semiconductors; Semiconductor Materials & Equipment | SMH |
+  | Application Software; Systems Software; Software (ICB); Software - Application / Infrastructure (Yahoo) | IGV |
+  | Biotechnology | XBI |
+  | Regional Banks | KRE |
+  | Diversified Banks | KBE |
+  | Oil & Gas Exploration & Production (Yahoo: Oil & Gas E&P) | XOP |
+  | Homebuilding (Yahoo: Residential Construction) | ITB |
+  | Aerospace & Defense (ICB: Aerospace, Defense) | ITA |
+  | Gold | GDX |
+  | Steel; Copper; Aluminum; Diversified / Other Industrial Metals & Mining | XME |
+  | Rail Transportation; Cargo Ground Transportation; Air Freight & Logistics; Passenger Airlines (Yahoo: Railroads, Integrated Freight & Logistics, Trucking, Airlines) | IYT |
+  | Apparel, Automotive, Home Improvement, Computer & Electronics, Homefurnishing and Other Specialty Retail (Yahoo: Specialty Retail, Apparel Retail, Auto & Truck Dealerships) | XRT |
+  | everything else, e.g. Pharmaceuticals, Health Care Equipment, Broadline Retail (AMZN), Building Products | SPDR sector ETF (XLK, XLV, XLY, …) |
+
+  For example MRNA (Biotechnology) uses XBI rather than XLV, NVDA uses SMH, MSFT uses IGV and AAPL (Technology
+  Hardware) stays on XLK. The table lives in `INDUSTRY_ETF` in `backend/strat/universe.py`.
+- Industries come from the `industry` column of `data/universe.csv` (GICS sub-industry from the S&P 500 list, ICB
+  subsector for Nasdaq-100-only names). `npm run refresh:universe` rebuilds it; `python -m strat.universe --industries`
+  (in `backend/`) only refills the column. Symbols added from the Watchlist or Positions use the Yahoo Finance industry,
+  saved when they are added. Older additions are looked up on the next data refresh. A stock whose sector has no
+  ETF (sector `Other`) scores 0 for this component.
 
 If the 20-day average daily range is under 0.5% of price (usually a stock pinned by a pending acquisition), the raw
 total is halved; this shows as a negative "Pinned penalty" line.
@@ -124,9 +158,15 @@ setup points and closeness, with a small preference for setups that have not tri
 - Weekly setup: +25. A 3-1 → 3-1-2 pending setup (23) plus 25% of a weekly hammer (4.5) is 27.5, capped at 25.
 - Distance to trigger: +14.9. Price 619.00 is 0.04% below the 619.22 trigger, so `15 × (1 − 0.04/5)`.
 - Liquidity: +2.6. The average dollar volume of $164M/day gives `10 × log10(164/50) / 2`.
-- Raw total: 100.5 out of 108, so the score is `100.5 × 100 / 108 = 93`.
+- Sector strength: +6.1. TDY (Electronic Equipment & Instruments) maps to XLK, which scores 30.9 (#17 of 24) against
+  the leader XLV at 75.7, so `15 × 30.9 / 75.7`.
+- Raw total: 106.6 out of 123, so the score is `106.6 × 100 / 123 = 86.7`.
 
-In the app, hover (or keyboard-focus) any score pill in the Stock Scanner table or on a Sectors card to see this breakdown.
+**Second example (MRNA, Oct 15 2026, no weekly setup):** Monthly 2U +20, continuity +38, weekly setup 0, distance 0,
+liquidity +9.3, Sector strength +2.5 (XBI scores 12.4, #23 of 24: `15 × 12.4 / 75.7`). Raw 69.7 / 123 gives a score of 56.7.
+
+In the app, hover (or keyboard-focus) any score pill in the Stock Scanner, Watchlist or Positions table or on a
+Sectors card to see this breakdown.
 The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component.
 
 ## UI
@@ -212,7 +252,7 @@ backend/
   strat/members.py    effective universe = universe + watched/held off-universe symbols
   strat/earnings.py   upcoming earnings dates and BMO/AMC timing from yfinance
   strat/scanner.py    per-symbol scan + chart payloads
-  strat/universe.py   S&P 500 / Nasdaq-100 / ETF universe (snapshot in data/universe.csv)
+  strat/universe.py   S&P 500 / Nasdaq-100 / ETF universe (snapshot in data/universe.csv), industry -> sector ETF map
   strat/api.py        FastAPI app (localhost only)
   tests/              pytest suite
 web/                  React + Vite + lightweight-charts UI
