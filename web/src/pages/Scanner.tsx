@@ -8,12 +8,12 @@ import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { usePersisted } from "../persist";
 import { LoadingIndicator, SkeletonTable } from "../components/Loading";
+import { matchesSetup, type SetupFilter } from "../setupFilter";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
 const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
-type SetupFilter = "any" | "pending" | "inside" | "hammer";
 type Kind = "all" | "stock" | "etf";
 
 const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
@@ -25,6 +25,7 @@ const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
 const SETUP_OPTIONS: DropdownOption<SetupFilter>[] = [
   { value: "any", label: "Any" },
   { value: "pending", label: "Awaiting trigger" },
+  { value: "triggered", label: "Already triggered" },
   { value: "inside", label: "Inside week" },
   { value: "hammer", label: "Weekly hammer" },
 ];
@@ -84,10 +85,7 @@ export default function Scanner({ version }: { version: string | null }) {
       if (continuity === "mw" && !r.mw_green) return false;
       if (continuity === "full" && !r.full_continuity) return false;
       if (continuity === "m2u" && !r.monthly_2u) return false;
-      if (setupFilter === "pending" && (r.trigger === null || r.triggered)) return false;
-      if (setupFilter === "inside" && !r.tf.W?.inside) return false;
-      if (setupFilter === "hammer" && !r.tf.W?.hammer) return false;
-      return true;
+      return matchesSetup(r, setupFilter);
     });
     return out;
   }, [liquid, query, sector, kind, continuity, setupFilter]);
