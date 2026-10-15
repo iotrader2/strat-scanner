@@ -26,7 +26,6 @@ export default function Scanner({ version }: { version: string | null }) {
   const [minAvgVol, setMinAvgVol] = usePersisted<number>("minAvgVol", AVG_VOL_RANGE.min);
   const [continuity, setContinuity] = usePersisted<Continuity>("continuity", "mw");
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
-  const [maxDist, setMaxDist] = usePersisted<number | null>("maxDist", null);
   const [kind, setKind] = usePersisted<"all" | "stock" | "etf">("kind", "all");
   const [query, setQuery] = useState("");
 
@@ -66,11 +65,10 @@ export default function Scanner({ version }: { version: string | null }) {
       if (setupFilter === "pending" && (r.trigger === null || r.triggered)) return false;
       if (setupFilter === "inside" && !r.tf.W?.inside) return false;
       if (setupFilter === "hammer" && !r.tf.W?.hammer) return false;
-      if (maxDist !== null && (r.trigger_distance_pct === null || r.trigger_distance_pct > maxDist)) return false;
       return true;
     });
     return out;
-  }, [liquid, query, sector, kind, continuity, setupFilter, maxDist]);
+  }, [liquid, query, sector, kind, continuity, setupFilter]);
 
   const stats = useMemo(
     () => ({
@@ -178,10 +176,6 @@ export default function Scanner({ version }: { version: string | null }) {
           format={fmtCompact}
           onChange={setMinAvgVol}
         />
-        <label>
-          Max trigger dist %
-          <input className="input num" type="number" min={0} step={0.5} placeholder="any" value={maxDist ?? ""} onChange={(e) => setMaxDist(e.target.value === "" ? null : Number(e.target.value))} />
-        </label>
       </section>
 
       <div className="table-meta">
