@@ -37,7 +37,10 @@ LIQUIDITY_POINTS = 10.0
 MIN_ATR_PCT = 0.5
 PINNED_PENALTY = 0.5
 
-MAX_RAW_POINTS = (
+SECTOR_STRENGTH_POINTS = 15.0
+
+# ETFs are what the sector ranking is built from, so they are scored without the Sector strength component.
+ETF_MAX_RAW_POINTS = (
     MONTHLY_2U_POINTS
     + sum(CONTINUITY_POINTS.values())
     + FULL_CONTINUITY_BONUS
@@ -45,6 +48,31 @@ MAX_RAW_POINTS = (
     + PROXIMITY_POINTS
     + LIQUIDITY_POINTS
 )
+MAX_RAW_POINTS = ETF_MAX_RAW_POINTS + SECTOR_STRENGTH_POINTS
+
+
+@dataclass(frozen=True)
+class SectorStrength:
+    """A sector/industry ETF's standing on the Sectors page."""
+
+    etf: str
+    name: str
+    score: float
+    rank: int  # 1 = strongest
+    total: int
+    top_etf: str
+    top_score: float
+
+
+def sector_strength_points(strength: Optional[SectorStrength]) -> float:
+    """Up to 15 points in proportion to the ETF's score relative to the top-ranked ETF's (which gets all 15)."""
+    if strength is None or strength.top_score <= 0:
+        return 0.0
+    return SECTOR_STRENGTH_POINTS * min(1.0, max(0.0, strength.score) / strength.top_score)
+
+
+def max_raw_points(kind: str) -> float:
+    return ETF_MAX_RAW_POINTS if kind == "etf" else MAX_RAW_POINTS
 
 
 @dataclass
@@ -67,6 +95,7 @@ class Component:
 class Score:
     score: float
     raw: float
+    max_raw: float
     breakdown: list[Component]
     primary: Optional[ScoredSetup]
     setups: list[ScoredSetup]
@@ -106,7 +135,11 @@ def score_symbol(
     price: float,
     avg_dollar_volume: float,
     atr_pct: Optional[float] = None,
+    kind: str = "stock",
+    sector: Optional[SectorStrength] = None,
+    sector_etf: str = "",
 ) -> Score:
+    """Score one symbol. Stocks also get Sector strength from ``sector`` (the standing of ``sector_etf``)."""
     reasons: list[str] = []
     parts: list[Component] = []
 
@@ -175,6 +208,9 @@ def score_symbol(
         )
     )
 
+    if kind != "etf":
+        parts.append(_sector_component(sector, sector_etf))
+
     raw = sum(c.points for c in parts)
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
         penalty = -raw * (1 - PINNED_PENALTY)
@@ -201,9 +237,11 @@ def score_symbol(
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
         reasons.append(f"Very low volatility (avg range {atr_pct:.2f}%), possibly pinned by a deal")
 
+    max_raw = max_raw_points(kind)
     return Score(
-        score=round(min(100.0, raw * 100.0 / MAX_RAW_POINTS), 1),
+        score=round(min(100.0, raw * 100.0 / max_raw), 1),
         raw=round(raw, 2),
+        max_raw=max_raw,
         breakdown=parts,
         primary=primary,
         setups=scored,
@@ -212,6 +250,25 @@ def score_symbol(
         mw_green=mw_green,
         monthly_2u=monthly_2u,
         trigger_distance_pct=None if dist is None else round(dist, 2),
+    )
+
+
+def _sector_component(sector: Optional[SectorStrength], sector_etf: str) -> Component:
+    if sector is None:
+        detail = f"no Sectors-page score for {sector_etf} yet" if sector_etf else "no sector ETF for this sector"
+        return Component("sector_strength", "Sector strength", 0.0, SECTOR_STRENGTH_POINTS, detail)
+    pts = sector_strength_points(sector)
+    rank = f"#{sector.rank} of {sector.total}"
+    if sector.etf == sector.top_etf:
+        how = "top-ranked sector/industry ETF, full credit"
+    else:
+        how = f"{SECTOR_STRENGTH_POINTS:g} × {sector.score:.1f} / {sector.top_score:.1f} (top: {sector.top_etf})"
+    return Component(
+        "sector_strength",
+        f"Sector strength · {sector.etf} {sector.score:.0f} ({rank})",
+        pts,
+        SECTOR_STRENGTH_POINTS,
+        f"{sector.etf} {sector.name}: score {sector.score:.1f}, {rank} sector/industry ETFs; {how}",
     )
 
 

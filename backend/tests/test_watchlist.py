@@ -25,7 +25,7 @@ def _bars(n=300, start=20.0):
     )
 
 
-YAHOO = {"MRNA": (_bars(), {"name": "Moderna, Inc.", "sector": "Health Care", "kind": "stock"})}
+YAHOO = {"MRNA": (_bars(), {"name": "Moderna, Inc.", "sector": "Health Care", "kind": "stock", "industry": "Biotechnology"})}
 
 
 def fake_lookup(symbol):
@@ -44,6 +44,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(api.State, "daily", {})
     monkeypatch.setattr(api, "_ensure_scan", lambda force=False: api.State.scan)
     monkeypatch.setattr(data, "lookup_symbol", fake_lookup)
+    monkeypatch.setattr(data, "fetch_industry", lambda s: pytest.fail(f"unexpected industry lookup for {s}"))
     monkeypatch.setattr(earnings, "fetch_earnings", lambda s: {"symbol": s, "date": None, "date_end": None, "timing": None})
     return TestClient(api.app)
 

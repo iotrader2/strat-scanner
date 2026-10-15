@@ -12,8 +12,8 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import config, data, earnings
-from .scanner import chart_payload, scan_all, scan_symbol, sector_entries
-from .members import effective_universe, extra_members, refresh_earnings
+from .scanner import chart_payload, scan_all, scan_symbol, sector_entries, sector_strengths
+from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
 from .universe import ETFS, SECTOR_ETF, Member, load_universe, to_yahoo
 
 log = logging.getLogger(__name__)
@@ -42,10 +42,15 @@ def _find_member(symbol: str) -> Optional[Member]:
     return next((m for m in base + extra_members(only_tracked=False, base=base) if m.symbol == symbol), None)
 
 
+def _sectors():
+    """Current sector/industry ETF ranking used for each stock's Sector strength points."""
+    return sector_strengths(State.scan)
+
+
 def _rescan_symbol(member: Member) -> None:
     daily = data.load_daily(member.symbol)
     State.daily = {**State.daily, member.symbol: daily}
-    row = scan_symbol(member, daily)
+    row = scan_symbol(member, daily, _sectors())
     rows = [r for r in State.scan if r["symbol"] != member.symbol] + ([row] if row else [])
     State.scan = sorted(rows, key=lambda r: r["score"], reverse=True)
 
@@ -58,6 +63,7 @@ def _run_refresh(full: bool) -> None:
             State.progress = {"done": done, "total": total, "message": message}
 
         data.refresh(symbols, full=full, progress=progress)
+        backfill_industries(_universe())
         _refresh_earnings(max_age_hours=0, progress=progress)
         State.error = None
     except Exception as exc:
@@ -166,7 +172,7 @@ def symbol_detail(symbol: str):
     daily = State.daily.get(symbol)
     if member is None or daily is None or daily.empty:
         raise HTTPException(404, f"{symbol} is not in the cache")
-    row = next((r for r in State.scan if r["symbol"] == symbol), None) or scan_symbol(member, daily)
+    row = next((r for r in State.scan if r["symbol"] == symbol), None) or scan_symbol(member, daily, _sectors())
     if row is None:
         raise HTTPException(404, f"{symbol} does not have enough price history yet")
     return {
@@ -219,7 +225,7 @@ def _fetch_off_universe(symbol: str) -> None:
     except data.LookupFailed as exc:
         raise HTTPException(502, f"Could not look up {symbol} right now: {exc}")
     data.save_bars(symbol, bars)
-    data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"])
+    data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"], meta.get("industry", ""))
     if meta["kind"] == "stock":
         earnings.refresh_earnings([symbol], max_age_hours=0)
 
@@ -309,7 +315,7 @@ def add_position(req: PositionRequest):
     if entry_price is None:
         member = _find_member(symbol)
         daily = data.load_daily(symbol) if member else None
-        row = _rows_by_symbol().get(symbol) or (scan_symbol(member, daily) if member else None)
+        row = _rows_by_symbol().get(symbol) or (scan_symbol(member, daily, _sectors()) if member else None)
         if row is None:
             raise HTTPException(422, f"No price for {symbol} yet; enter an entry price")
         entry_price = row["price"]

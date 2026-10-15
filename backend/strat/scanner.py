@@ -10,8 +10,8 @@ import pandas as pd
 from . import config
 from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
 from .data import resample
-from .scoring import MAX_RAW_POINTS, TF_NAMES, score_symbol
-from .universe import Member
+from .scoring import TF_NAMES, SectorStrength, score_symbol, sector_strength_points
+from .universe import ETFS, Member
 
 TIMEFRAMES = ("M", "W", "D")
 
@@ -28,7 +28,22 @@ def _tf_payload(st: Optional[TimeframeState]) -> Optional[dict]:
     return d
 
 
-def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
+def sector_strengths(rows: list[dict]) -> dict[str, SectorStrength]:
+    """Rank the sector and industry ETFs (not benchmarks) by score, as on the Sectors page."""
+    by_symbol = {r["symbol"]: r for r in rows}
+    candidates = [(by_symbol[sym], name) for sym, name, _, group in ETFS if group != "benchmark" and sym in by_symbol]
+    ranked = sorted(candidates, key=lambda rn: (-rn[0]["score"], rn[0]["symbol"]))
+    if not ranked:
+        return {}
+    top = ranked[0][0]
+    return {
+        r["symbol"]: SectorStrength(r["symbol"], name, r["score"], i, len(ranked), top["symbol"], top["score"])
+        for i, (r, name) in enumerate(ranked, start=1)
+    }
+
+
+def scan_symbol(member: Member, daily: pd.DataFrame, sectors: Optional[dict[str, SectorStrength]] = None) -> Optional[dict]:
+    """Scan one symbol; stocks get Sector strength from ``sectors`` (see ``sector_strengths``)."""
     if daily is None or len(daily) < 30:
         return None
     states = {tf: timeframe_state(tf, to_candles(resample(daily, tf))) for tf in TIMEFRAMES}
@@ -40,13 +55,29 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
     atr_pct = float(((recent.high - recent.low) / recent.close).mean() * 100)
     prev_close = float(daily.close.iloc[-2]) if len(daily) > 1 else price
 
-    sc = score_symbol(states, price, adv, atr_pct)
+    strength_etf = member.strength_etf
+    strength = (sectors or {}).get(strength_etf)
+    sc = score_symbol(states, price, adv, atr_pct, kind=member.kind, sector=strength, sector_etf=strength_etf)
     primary = sc.primary
     return {
         "symbol": member.symbol,
         "name": member.name,
         "sector": member.sector,
         "sector_etf": member.sector_etf,
+        "industry": member.industry,
+        "strength_etf": strength_etf or None,
+        "sector_strength": (
+            {
+                "etf": strength.etf,
+                "name": strength.name,
+                "score": strength.score,
+                "rank": strength.rank,
+                "total": strength.total,
+                "points": round(sector_strength_points(strength), 2),
+            }
+            if strength
+            else None
+        ),
         "kind": member.kind,
         "indexes": member.indexes,
         "in_universe": member.in_universe,
@@ -58,7 +89,7 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
         "as_of": daily.index[-1].strftime("%Y-%m-%d"),
         "score": sc.score,
         "score_raw": sc.raw,
-        "score_max_raw": MAX_RAW_POINTS,
+        "score_max_raw": sc.max_raw,
         "score_breakdown": [
             {
                 "key": c.key,
@@ -88,11 +119,15 @@ def scan_symbol(member: Member, daily: pd.DataFrame) -> Optional[dict]:
 
 
 def scan_all(members: list[Member], daily_by_symbol: dict[str, pd.DataFrame]) -> list[dict]:
-    rows = []
+    """Scan ETFs first so their scores can rank the sectors that feed each stock's Sector strength."""
+    etf_rows = [scan_symbol(m, daily_by_symbol.get(m.symbol)) for m in members if m.kind == "etf"]
+    rows = [r for r in etf_rows if r]
+    sectors = sector_strengths(rows)
     for m in members:
-        row = scan_symbol(m, daily_by_symbol.get(m.symbol))
-        if row:
-            rows.append(row)
+        if m.kind != "etf":
+            row = scan_symbol(m, daily_by_symbol.get(m.symbol), sectors)
+            if row:
+                rows.append(row)
     rows.sort(key=lambda r: r["score"], reverse=True)
     return rows
 

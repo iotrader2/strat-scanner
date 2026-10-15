@@ -1,5 +1,14 @@
 from strat.candles import Candle, timeframe_state
-from strat.scoring import MAX_RAW_POINTS, MONTHLY_2U_POINTS, liquidity_points, score_symbol
+from strat.scoring import (
+    ETF_MAX_RAW_POINTS,
+    MAX_RAW_POINTS,
+    MONTHLY_2U_POINTS,
+    SectorStrength,
+    liquidity_points,
+    score_symbol,
+)
+
+TOP_SECTOR = SectorStrength("XLK", "Technology Select Sector SPDR", 80.0, 1, 24, "XLK", 80.0)
 
 
 def _states(m, w, d):
@@ -80,19 +89,28 @@ def test_reason_leads_with_weekly_trigger_without_stop():
 
 
 def test_best_possible_setup_scores_at_most_100():
-    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.9, 50e9)
+    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.9, 50e9, sector=TOP_SECTOR, sector_etf="XLK")
     assert 90 < s.score <= 100
+    etf = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.9, 50e9, kind="etf")
+    assert 90 < etf.score <= 100
 
 
 def test_breakdown_components_sum_to_raw_and_rescale_to_score():
-    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9, sector=TOP_SECTOR, sector_etf="XLK")
     keys = [c.key for c in s.breakdown]
-    assert keys == ["monthly_2u", "continuity", "weekly_setup", "proximity", "liquidity"]
+    assert keys == ["monthly_2u", "continuity", "weekly_setup", "proximity", "liquidity", "sector_strength"]
     assert abs(sum(c.points for c in s.breakdown) - s.raw) < 0.01
     assert abs(s.score - s.raw * 100 / MAX_RAW_POINTS) < 0.06
-    assert sum(c.max_points for c in s.breakdown) == MAX_RAW_POINTS == 108
+    assert sum(c.max_points for c in s.breakdown) == MAX_RAW_POINTS == s.max_raw == 123
     for c in s.breakdown:
         assert 0 <= c.points <= c.max_points
+
+
+def test_etfs_are_scored_without_sector_strength_on_the_108_scale():
+    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9, kind="etf", sector=TOP_SECTOR)
+    assert "sector_strength" not in [c.key for c in s.breakdown]
+    assert sum(c.max_points for c in s.breakdown) == ETF_MAX_RAW_POINTS == s.max_raw == 108
+    assert abs(s.score - s.raw * 100 / 108) < 0.06
 
 
 def test_breakdown_values_for_known_setup():
