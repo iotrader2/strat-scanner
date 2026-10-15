@@ -140,7 +140,8 @@ Scanner** (drill into weekly setups, optionally filtered to a sector) and **Watc
   - Cards and the leaderboard are sorted strongest first on every timeframe.
   - “Scan sector →” opens the Stock Scanner filtered to that sector.
 - **Stock Scanner** (`/`): ranked, sortable and filterable table of weekly setups.
-  - Filters: search, sector, continuity (including Monthly 2U), weekly setup type and stocks/ETFs. The
+  - Filters: search, sector, continuity (including Monthly 2U), weekly setup type and stocks/ETFs, using
+    a custom dropdown (arrow keys, Home/End, type-to-jump, Enter/Space to pick, Esc or an outside click to close). The
     "To trigger" column is sortable by closeness to the weekly trigger.
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
     - **min price**: $1–$1,000, default $10 (`STRAT_MIN_PRICE`).
