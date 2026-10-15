@@ -111,7 +111,21 @@ export const api = {
   symbol: (symbol: string) =>
     get<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> }>(`/api/symbol/${encodeURIComponent(symbol)}`),
   sectors: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: SectorEtf[] }>(`/api/sectors?tf=${tf}&bars=${bars}`),
+  watchlist: () => get<Watchlist>("/api/watchlist"),
+  watch: (symbol: string) =>
+    get<Watchlist>("/api/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol }),
+    }),
+  unwatch: (symbol: string) => get<Watchlist>(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
 };
+
+export interface Watchlist {
+  symbols: string[];
+  rows: ScanRow[];
+  missing: string[];
+}
 
 export function fmtMoney(v: number): string {
   if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;

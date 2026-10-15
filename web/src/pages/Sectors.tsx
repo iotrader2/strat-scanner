@@ -4,6 +4,7 @@ import { api, fmtPct, type SectorEtf, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { Legend, ScorePill, TfBadges } from "../components/Badges";
 import { CandleChart, type PriceLine } from "../components/CandleChart";
+import { WatchButton } from "../components/Watch";
 
 const GROUPS: { key: SectorEtf["group"]; title: string }[] = [
   { key: "spdr", title: "SPDR sector ETFs" },
@@ -30,6 +31,7 @@ function SectorCard({ etf }: { etf: SectorEtf }) {
           <span className="num">{r.price.toFixed(2)}</span>
           <span className={`small ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</span>
         </div>
+        <WatchButton symbol={etf.symbol} />
       </div>
       <div className="sector-badges">
         <TfBadges tf={r.tf} />

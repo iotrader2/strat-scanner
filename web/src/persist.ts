@@ -23,9 +23,9 @@ export function usePersisted<T>(key: string, initial: T) {
 }
 
 export const LAST_TAB_KEY = "lastTab";
-const TABS = ["/", "/sectors"];
+const TABS = ["/", "/sectors", "/watchlist"];
 
-/** Top-level tab (Scanner or Sectors) for a location, including its query string, or null for other pages. */
+/** Top-level tab (Scanner, Sectors or Watchlist) for a location, including its query string, or null for other pages. */
 export function tabLocation(pathname: string, search: string): string | null {
   return TABS.includes(pathname) ? pathname + search : null;
 }

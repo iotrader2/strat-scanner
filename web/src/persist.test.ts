@@ -43,11 +43,13 @@ describe("tab restore", () => {
   it("records only the top-level tabs, keeping their query", () => {
     expect(tabLocation("/sectors", "")).toBe("/sectors");
     expect(tabLocation("/", "?sector=Energy")).toBe("/?sector=Energy");
+    expect(tabLocation("/watchlist", "")).toBe("/watchlist");
     expect(tabLocation("/stock/AAPL", "")).toBeNull();
   });
 
   it("reopens the last tab on a bare visit", () => {
     expect(restoreTarget("/", "", "/sectors")).toBe("/sectors");
+    expect(restoreTarget("/", "", "/watchlist")).toBe("/watchlist");
     expect(restoreTarget("/", "", "/?sector=Health%20Care")).toBe("/?sector=Health%20Care");
   });
 

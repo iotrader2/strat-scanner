@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
+import { NO_SETUP_LABEL } from "../watchlist";
 import { ScorePill, TfBadge } from "../components/Badges";
 import { BreakdownTable } from "../components/ScoreBreakdown";
+import { WatchButton } from "../components/Watch";
 import { CandleChart, type PriceLine } from "../components/CandleChart";
 
 const TF_NAME: Record<Tf, string> = { M: "Monthly", W: "Weekly", D: "Daily" };
@@ -47,6 +49,7 @@ export default function Detail({ version }: { version: string | null }) {
         <div>
           <div className="detail-symbol">
             {row.symbol} <span className="muted detail-name">{row.name}</span>
+            <WatchButton symbol={row.symbol} labelled />
           </div>
           <div className="muted small">
             <Link className="sector-link" to={`/?sector=${encodeURIComponent(row.sector)}`}>{row.sector}</Link>
@@ -84,7 +87,7 @@ export default function Detail({ version }: { version: string | null }) {
         <aside className="side">
           <div className="card">
             <h3>Setup</h3>
-            <p className="setup big-setup">{row.setup ?? "No weekly setup"}</p>
+            <p className="setup big-setup">{row.has_setup && row.setup ? row.setup : <span className="no-setup">{NO_SETUP_LABEL}</span>}</p>
             <ul className="reasons">
               {row.reason.split(" · ").map((r) => <li key={r}>{r}</li>)}
             </ul>

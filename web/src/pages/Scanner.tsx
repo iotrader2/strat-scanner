@@ -1,20 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, fmtMoney, fmtPct, type AppConfig, type ScanRow } from "../api";
-import { Legend, ScorePill, TfBadges } from "../components/Badges";
+import { useSearchParams } from "react-router-dom";
+import { api, type AppConfig, type ScanRow } from "../api";
+import { Legend } from "../components/Badges";
+import { ScanTable } from "../components/ScanTable";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, passesLiquidity } from "../logScale";
 import { usePersisted } from "../persist";
-
-type SortKey =
-  | "score"
-  | "symbol"
-  | "price"
-  | "change_pct"
-  | "trigger_distance_pct"
-  | "avg_dollar_volume"
-  | "avg_volume"
-  | "sector";
 
 const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
@@ -22,7 +13,6 @@ type Continuity = "any" | "mw" | "full" | "m2u";
 type SetupFilter = "any" | "pending" | "inside" | "hammer";
 
 export default function Scanner({ version }: { version: string | null }) {
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const sector = params.get("sector") ?? "";
 
@@ -39,7 +29,6 @@ export default function Scanner({ version }: { version: string | null }) {
   const [maxDist, setMaxDist] = usePersisted<number | null>("maxDist", null);
   const [kind, setKind] = usePersisted<"all" | "stock" | "etf">("kind", "all");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "score", dir: -1 });
 
   useEffect(() => {
     api.config().then(setConfig).catch(() => undefined);
@@ -80,20 +69,8 @@ export default function Scanner({ version }: { version: string | null }) {
       if (maxDist !== null && (r.trigger_distance_pct === null || r.trigger_distance_pct > maxDist)) return false;
       return true;
     });
-    const { key, dir } = sort;
-    // Distance sorts by closeness to the trigger, whichever side of it price is on.
-    const value = (r: ScanRow) =>
-      key === "trigger_distance_pct" && r.trigger_distance_pct !== null ? Math.abs(r.trigger_distance_pct) : r[key];
-    out.sort((a, b) => {
-      const av = value(a);
-      const bv = value(b);
-      if (av === null || av === undefined) return 1;
-      if (bv === null || bv === undefined) return -1;
-      if (typeof av === "string" && typeof bv === "string") return av.localeCompare(bv) * dir;
-      return ((av as number) - (bv as number)) * dir;
-    });
     return out;
-  }, [liquid, query, sector, kind, continuity, setupFilter, maxDist, sort]);
+  }, [liquid, query, sector, kind, continuity, setupFilter, maxDist]);
 
   const stats = useMemo(
     () => ({
@@ -102,16 +79,6 @@ export default function Scanner({ version }: { version: string | null }) {
       pending: liquid.filter((r) => r.mw_green && r.trigger !== null && !r.triggered).length,
     }),
     [liquid],
-  );
-
-  const header = (key: SortKey, label: string, cls = "") => (
-    <th
-      className={`sortable ${cls} ${sort.key === key ? "active" : ""}`}
-      onClick={() => setSort((s) => ({ key, dir: s.key === key ? ((-s.dir) as 1 | -1) : key === "symbol" || key === "sector" || key === "trigger_distance_pct" ? 1 : -1 }))}
-    >
-      {label}
-      {sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
-    </th>
   );
 
   const setSector = (s: string) => {
@@ -233,72 +200,7 @@ export default function Scanner({ version }: { version: string | null }) {
         <div className="card empty-state">No weekly setups match these filters (if the cache is empty, the first download starts automatically and takes a minute or two).</div>
       )}
 
-      <div className="card table-card">
-        <table className="scan-table">
-          <thead>
-            <tr>
-              <th className="rank">#</th>
-              {header("symbol", "Symbol")}
-              {header("sector", "Sector")}
-              {header("price", "Price", "num")}
-              {header("change_pct", "Day", "num")}
-              <th>M · W · D</th>
-              <th>Weekly setup</th>
-              <th className="num">Trigger</th>
-              {header("trigger_distance_pct", "To trigger", "num")}
-              {header("avg_volume", "Avg vol", "num")}
-              {header("avg_dollar_volume", "Avg $vol", "num")}
-              {header("score", "Score", "num")}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r, i) => (
-              <tr key={r.symbol} onClick={() => navigate(`/stock/${r.symbol}`)}>
-                <td className="rank muted">{i + 1}</td>
-                <td>
-                  <div className="sym">
-                    {r.symbol}
-                    {r.kind === "etf" && <span className="etf-chip">ETF</span>}
-                  </div>
-                  <div className="sub muted">{r.name}</div>
-                </td>
-                <td className="muted small">
-                  <span className="sector-link" onClick={(e) => { e.stopPropagation(); setSector(r.sector); }}>
-                    {r.sector}
-                  </span>
-                </td>
-                <td className="num">{r.price.toFixed(2)}</td>
-                <td className={`num ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</td>
-                <td>
-                  <TfBadges tf={r.tf} />
-                </td>
-                <td className="setup-cell">
-                  {r.setup ? (
-                    <>
-                      <div className={r.triggered ? "setup triggered" : "setup"}>
-                        {r.setup}
-                        {r.triggered && <span className="trig-chip">triggered</span>}
-                      </div>
-                      <div className="sub muted reason" title={r.reason}>
-                        {r.reason.split(" · ").slice(1).join(" · ")}
-                      </div>
-                    </>
-                  ) : (
-                    <span className="sub muted reason" title={r.reason}>{r.reason}</span>
-                  )}
-                </td>
-                <td className="num accent-text">{r.trigger?.toFixed(2) ?? "—"}</td>
-                <td className="num">{fmtPct(r.trigger_distance_pct)}</td>
-                <td className="num">{fmtCompact(r.avg_volume)}</td>
-                <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
-                <td className="num">
-                  <ScorePill score={r.score} row={r} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ScanTable rows={filtered} onSector={setSector} />
     </div>
   );
 }
