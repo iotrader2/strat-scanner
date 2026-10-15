@@ -15,8 +15,9 @@ export function valueToSlider(value: number, min: number, max: number): number {
 /** Round to 2 significant digits so slider values read cleanly (2.5M, 140K, 50M). */
 export function niceRound(value: number): number {
   if (value <= 0) return 0;
-  const mag = Math.pow(10, Math.floor(Math.log10(value)) - 1);
-  return Math.round(value / mag) * mag;
+  const exp = Math.floor(Math.log10(value)) - 1;
+  // Divide by the inverse for small magnitudes so 1.2 stays 1.2 rather than 1.2000000000000002.
+  return exp < 0 ? Math.round(value * 10 ** -exp) / 10 ** -exp : Math.round(value / 10 ** exp) * 10 ** exp;
 }
 
 export function fmtCompact(value: number): string {
@@ -33,6 +34,11 @@ export function fmtCompact(value: number): string {
     }
   }
   return value.toFixed(0);
+}
+
+/** Dollar price for slider readouts: "$1.5", "$10", "$450", "$1,000". */
+export function fmtPrice(value: number): string {
+  return `$${Number(value.toFixed(2)).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
 export interface LiquidityFilter {

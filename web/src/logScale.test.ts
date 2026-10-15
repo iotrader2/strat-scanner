@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SLIDER_STEPS,
   fmtCompact,
+  fmtPrice,
   niceRound,
   passesLiquidity,
   sliderToValue,
@@ -89,5 +90,38 @@ describe("slider stepping", () => {
 
   it("resyncs when the value changes from outside", () => {
     expect(syncSliderPosition(2_500_000, MIN, MAX, 3)).toBe(valueToSlider(2_500_000, MIN, MAX));
+  });
+});
+
+describe("price slider", () => {
+  const P = { min: 1, max: 1_000 };
+
+  it("formats readouts as dollars", () => {
+    expect(fmtPrice(10)).toBe("$10");
+    expect(fmtPrice(1.5)).toBe("$1.5");
+    expect(fmtPrice(450)).toBe("$450");
+    expect(fmtPrice(1_000)).toBe("$1,000");
+  });
+
+  it("keeps the $10 default exactly where the slider puts it", () => {
+    const pos = valueToSlider(10, P.min, P.max);
+    expect(pos).toBe(Math.round(SLIDER_STEPS / 3));
+    expect(sliderValue(pos, P.min, P.max)).toBe(10);
+    expect(syncSliderPosition(10, P.min, P.max, pos)).toBe(pos);
+  });
+
+  it("covers $1 to $1,000 with clean values in between", () => {
+    expect(sliderValue(0, P.min, P.max)).toBe(1);
+    expect(sliderValue(SLIDER_STEPS, P.min, P.max)).toBe(1_000);
+    for (let pos = 1; pos < SLIDER_STEPS; pos += 37) {
+      const v = sliderValue(pos, P.min, P.max);
+      expect(String(v)).toMatch(/^\d+(\.\d)?$/);
+    }
+  });
+
+  it("filters rows on the chosen minimum price", () => {
+    const row = { price: 9.5, avg_dollar_volume: 1e9, avg_volume: 1e7 };
+    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 0, minAvgVolume: 0 })).toBe(false);
+    expect(passesLiquidity(row, { minPrice: 9.5, minDollarVolume: 0, minAvgVolume: 0 })).toBe(true);
   });
 });

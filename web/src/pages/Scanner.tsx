@@ -4,9 +4,10 @@ import { api, type AppConfig, type ScanRow } from "../api";
 import { Legend } from "../components/Badges";
 import { ScanTable } from "../components/ScanTable";
 import { LogSlider } from "../components/LogSlider";
-import { fmtCompact, passesLiquidity } from "../logScale";
+import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { usePersisted } from "../persist";
 
+const PRICE_RANGE = { min: 1, max: 1_000 };
 const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
@@ -156,10 +157,14 @@ export default function Scanner({ version }: { version: string | null }) {
             <option value="etf">ETFs</option>
           </select>
         </label>
-        <label>
-          Min price $
-          <input className="input num" type="number" min={0} value={effPrice} onChange={(e) => setMinPrice(e.target.value === "" ? null : Number(e.target.value))} />
-        </label>
+        <LogSlider
+          label="Min price"
+          value={effPrice}
+          min={PRICE_RANGE.min}
+          max={PRICE_RANGE.max}
+          format={fmtPrice}
+          onChange={setMinPrice}
+        />
         <LogSlider
           label="Min avg $ volume"
           value={effDv}

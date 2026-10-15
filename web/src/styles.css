@@ -97,7 +97,6 @@ main { flex: 1; }
 .input:focus { border-color: var(--accent); }
 select.input option { background: #0d1117; color: var(--text); }
 .input.search { flex: 1; min-width: 140px; }
-.input.num { width: 84px; }
 
 .table-meta { display: flex; justify-content: space-between; align-items: center; margin: 4px 2px 10px; gap: 12px; flex-wrap: wrap; }
 .chip { margin-left: 10px; background: rgba(56, 189, 248, 0.1); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }

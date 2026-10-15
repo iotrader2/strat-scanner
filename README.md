@@ -131,10 +131,12 @@ The detail page has a **Score breakdown** panel with the same numbers plus a one
 ## UI
 
 - **Scanner**: ranked, sortable and filterable table of weekly setups.
-  - Filters: search, sector, continuity (including Monthly 2U), weekly setup type, stocks/ETFs and min price. The
+  - Filters: search, sector, continuity (including Monthly 2U), weekly setup type and stocks/ETFs. The
     "To trigger" column is sortable by closeness to the weekly trigger.
-  - Two log-scale sliders: **min average dollar volume** ($10M–$5B) and **min average share volume** (20-day average,
-    100K–50M shares), each with a live readout such as `≥ 2.5M`.
+  - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
+    - **min price**: $1–$1,000, default $10 (`STRAT_MIN_PRICE`).
+    - **min average dollar volume**: $10M–$5B.
+    - **min average share volume**: 20-day average, 100K–50M shares.
   - All filters run in the browser, so the table updates instantly without a re-scan. Every filter value is saved in
     `localStorage`.
   - Columns include **Avg vol** (shares) and **Avg $vol**.
