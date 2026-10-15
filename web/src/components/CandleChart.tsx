@@ -82,13 +82,18 @@ export function CandleChart({ candles, lines = [], height = 420, visibleBars = 6
       );
     }
 
-    if (!compact) {
-      const hammers: SeriesMarker<Time>[] = candles
-        .slice(-visibleBars)
-        .filter((c) => c.hammer)
-        .map((c) => ({ time: c.time as Time, position: "belowBar", shape: "arrowUp", color: "#38bdf8", text: "H" }));
-      createSeriesMarkers(series, hammers);
+    // Only two marker kinds, to keep the candles readable: H = hammer, I = inside bar (Strat 1).
+    const markers: SeriesMarker<Time>[] = [];
+    for (const c of compact ? candles : candles.slice(-visibleBars)) {
+      const time = c.time as Time;
+      if (c.hammer && !compact) {
+        markers.push({ time, position: "belowBar", shape: "arrowUp", color: "#38bdf8", text: "H" });
+      }
+      if (c.strat === "1") {
+        markers.push({ time, position: "belowBar", shape: "arrowUp", color: "#facc15", text: "I", size: compact ? 0.7 : 1 });
+      }
     }
+    createSeriesMarkers(series, markers);
 
     for (const line of lines) {
       series.createPriceLine({
