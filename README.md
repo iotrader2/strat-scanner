@@ -19,7 +19,8 @@ your PATH is older, `npm run dev` picks the newest compatible version installed 
 npm run dev        # or: make dev
 ```
 
-Then open **http://127.0.0.1:5173**.
+Then open **http://127.0.0.1:5173**. The first visit opens on the Sectors tab; after that the app reopens
+whichever tab you used last.
 
 `npm run dev` does everything on first run: it creates `backend/.venv`, installs the Python requirements and the
 web dependencies, starts the FastAPI backend on `127.0.0.1:8000` and the Vite UI on `127.0.0.1:5173`.
@@ -66,7 +67,7 @@ current, still-forming period**, which is how The Strat is read in real time.
 - `3` outside: takes out both
 
 **Continuity**: a timeframe is green when price is above that period's open (red if below).
-The best names have Monthly **and** Weekly green; the scanner defaults to that filter.
+The best names have Monthly **and** Weekly green; the Stock Scanner defaults to that filter.
 
 **Hammer**: lower wick ≥ 2× body, small upper wick (≤ the body or ≤ 10% of the range), and a close in
 the top third of the range.
@@ -125,12 +126,20 @@ setup points and closeness, with a small preference for setups that have not tri
 - Liquidity: +2.6. The average dollar volume of $164M/day gives `10 × log10(164/50) / 2`.
 - Raw total: 100.5 out of 108, so the score is `100.5 × 100 / 108 = 93`.
 
-In the app, hover (or keyboard-focus) any score pill in the scanner table or on a Sectors card to see this breakdown.
+In the app, hover (or keyboard-focus) any score pill in the Stock Scanner table or on a Sectors card to see this breakdown.
 The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component.
 
 ## UI
 
-- **Scanner**: ranked, sortable and filterable table of weekly setups.
+The top tabs follow the recommended workflow, left to right: **Sectors** (find the strongest groups), **Stock
+Scanner** (drill into weekly setups, optionally filtered to a sector) and **Watchlist** (track the names you picked).
+
+- **Sectors** (`/sectors`): SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
+  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks.
+  - Each card has a candlestick chart with **I** inside-bar markers, its weekly setup and trigger, M/W/D badges and a score.
+  - Cards and the leaderboard are sorted strongest first on every timeframe.
+  - “Scan sector →” opens the Stock Scanner filtered to that sector.
+- **Stock Scanner** (`/`): ranked, sortable and filterable table of weekly setups.
   - Filters: search, sector, continuity (including Monthly 2U), weekly setup type and stocks/ETFs. The
     "To trigger" column is sortable by closeness to the weekly trigger.
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
@@ -146,21 +155,17 @@ The detail page has a **Score breakdown** panel with the same numbers plus a one
   with a Monthly/Weekly/Daily toggle and the dashed weekly trigger line.
   - The chart has only two markers: a blue **H** arrow under hammers and a yellow **I** arrow under inside bars (Strat 1).
   - The other Strat numbers are shown in the M/W/D badges, not on the candles.
-- **Sectors**: SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC), industry ETFs
-  (SMH, IGV, XBI, KRE, KBE, XOP, XHB, ITB, XRT, ITA, IYT, GDX, XME) and benchmarks.
-  - Each card has a candlestick chart with **I** inside-bar markers, its weekly setup and trigger, M/W/D badges and a score.
-  - Cards and the leaderboard are sorted strongest first on every timeframe.
-  - “Scan sector →” filters the scanner to that sector.
-- **Watchlist** (`/watchlist`): a **+** button on every scanner row, on the detail page header and on each Sectors card
+- **Watchlist** (`/watchlist`): a **+** button on every Stock Scanner row, on the detail page header and on each Sectors card
   adds the symbol.
   - Once a name is watched the button shows a check, which turns into **−** on hover, and clicking it removes the name.
   - The Watchlist tab shows a count badge.
-  - It lists the watched names with the scanner's columns, badges, trigger and score tooltip, plus a **Remove** button.
+  - It lists the watched names with the Stock Scanner's columns, badges, trigger and score tooltip, plus a **Remove** button.
   - Names stay on the list after their weekly setup goes away; they are then marked “no active setup”.
   - The list is stored in the `watchlist` table of the local SQLite cache, so it survives restarts and data refreshes.
-- **Sticky selections**: the last tab (Scanner, Sectors or Watchlist, including the scanner's sector filter) and the M/W/D
-  timeframe on the detail and Sectors views are saved in `localStorage`. They survive navigation and full reloads, and
-  opening the bare app URL reopens the last tab. Deep links such as `/stock/TDY` or `/?sector=Energy` always win.
+- **Sticky selections**: the last tab (including the Stock Scanner's sector filter) and the M/W/D timeframe on the
+  detail and Sectors views are saved in `localStorage`. They survive navigation and full reloads, and opening the bare
+  app URL reopens the last tab; a first-time visitor with nothing saved lands on **Sectors**. Deep links such as
+  `/stock/TDY` or `/?sector=Energy` always win.
 
 ## Layout
 
