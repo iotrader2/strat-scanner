@@ -162,6 +162,8 @@ export const api = {
   symbol: (symbol: string) =>
     get<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> }>(`/api/symbol/${encodeURIComponent(symbol)}`),
   sectors: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: SectorEtf[] }>(`/api/sectors?tf=${tf}&bars=${bars}`),
+  /** QQQ, SPY and IWM for the State of the Market tab. */
+  market: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: SectorEtf[] }>(`/api/market?tf=${tf}&bars=${bars}`),
   watchlist: () => get<Watchlist>("/api/watchlist"),
   watch: (symbol: string) =>
     get<Watchlist>("/api/watchlist", {

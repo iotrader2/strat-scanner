@@ -1,62 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, fmtPct, type SectorEtf, type Tf } from "../api";
+import { api, type SectorEtf, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
-import { Legend, ScorePill, TfBadges } from "../components/Badges";
-import { CandleChart, type PriceLine } from "../components/CandleChart";
-import { WatchButton } from "../components/Watch";
+import { Legend } from "../components/Badges";
+import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
 
 const GROUPS: { key: SectorEtf["group"]; title: string }[] = [
   { key: "spdr", title: "SPDR sector ETFs" },
   { key: "industry", title: "Industry ETFs" },
-  { key: "benchmark", title: "Benchmarks" },
 ];
-
-function SectorCard({ etf }: { etf: SectorEtf }) {
-  const r = etf.row;
-  const lines = useMemo<PriceLine[]>(() => {
-    const s = r.setups?.find((x) => !x.triggered) ?? r.setups?.[0];
-    return s ? [{ price: s.trigger, color: "#38bdf8", title: "trigger" }] : [];
-  }, [r.setups]);
-  const setup = r.setups?.[0];
-
-  return (
-    <div className={`card sector-card ${r.mw_green ? "mw-green" : ""}`}>
-      <div className="sector-head">
-        <div>
-          <Link to={`/stock/${etf.symbol}`} className="sym">{etf.symbol}</Link>
-          <div className="sub muted">{etf.name}</div>
-        </div>
-        <div className="sector-right">
-          <span className="num">{r.price.toFixed(2)}</span>
-          <span className={`small ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</span>
-        </div>
-        <WatchButton symbol={etf.symbol} />
-      </div>
-      <div className="sector-badges">
-        <TfBadges tf={r.tf} />
-        <ScorePill score={r.score} row={r} />
-      </div>
-      <CandleChart candles={etf.candles} lines={lines} height={180} compact />
-      <div className="sector-foot">
-        <span className="small">
-          {setup ? (
-            <>
-              <b>W</b> {setup.label} · trigger <span className="accent-text">{setup.trigger.toFixed(2)}</span>
-            </>
-          ) : (
-            <span className="muted">No weekly setup</span>
-          )}
-        </span>
-        {etf.group !== "benchmark" && (
-          <Link className="chip" to={`/?sector=${encodeURIComponent(etf.sector)}`}>
-            Scan {etf.sector.replace("Information Technology", "Tech")} →
-          </Link>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default function Sectors({ version }: { version: string | null }) {
   const [storedTf, setTf] = usePersisted<Tf>("sectorsTf", "W");
@@ -67,7 +19,7 @@ export default function Sectors({ version }: { version: string | null }) {
   useEffect(() => {
     setLoading(true);
     api
-      .sectors(tf, tf === "D" ? 45 : tf === "W" ? 36 : 30)
+      .sectors(tf, CARD_BARS[tf])
       .then((r) => setEtfs(r.etfs))
       .finally(() => setLoading(false));
   }, [tf, version]);
@@ -84,21 +36,16 @@ export default function Sectors({ version }: { version: string | null }) {
           <h1>Sectors</h1>
           <p className="muted">
             Sector and industry ETFs with their M/W/D Strat badges. Each card lists its weekly setup and trigger;
-            green-bordered cards have Monthly and Weekly continuity. Use “Scan sector” to filter the Stock Scanner.
+            green-bordered cards have Monthly and Weekly continuity. Use “Scan sector” to filter the Stock Scanner. The
+            index benchmarks are on <Link className="sector-link" to="/market">State of the Market</Link>.
           </p>
         </div>
-        <div className="seg">
-          {(["M", "W", "D"] as Tf[]).map((t) => (
-            <button key={t} className={t === tf ? "active" : ""} onClick={() => setTf(t)}>
-              {t === "M" ? "Monthly" : t === "W" ? "Weekly" : "Daily"}
-            </button>
-          ))}
-        </div>
+        <TfToggle tf={tf} onChange={setTf} />
       </section>
 
       <div className="card leaderboard">
         <span className="muted small">Strongest → weakest:</span>
-        {ranked.filter((e) => e.group !== "benchmark").map((e) => (
+        {ranked.map((e) => (
           <Link key={e.symbol} to={`/stock/${e.symbol}`} className={`lb-item ${e.row.mw_green ? "green" : "red"}`}>
             {e.symbol} <b>{e.row.score.toFixed(0)}</b>
           </Link>
@@ -115,7 +62,7 @@ export default function Sectors({ version }: { version: string | null }) {
             <h2 className="group-title">{g.title}</h2>
             <div className="sector-grid">
               {items.map((e) => (
-                <SectorCard key={e.symbol} etf={e} />
+                <EtfCard key={e.symbol} etf={e} />
               ))}
             </div>
           </section>

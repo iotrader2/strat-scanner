@@ -5,6 +5,7 @@ import { api, type Status } from "./api";
 import Scanner from "./pages/Scanner";
 import Detail from "./pages/Detail";
 import Sectors from "./pages/Sectors";
+import Market from "./pages/Market";
 import Watchlist from "./pages/Watchlist";
 import Positions from "./pages/Positions";
 import { WatchlistProvider, useWatchlist } from "./components/Watch";
@@ -95,7 +96,8 @@ export default function App() {
               <span className="local-chip">localhost</span>
             </div>
             <nav>
-              <NavLink to="/sectors">Sectors</NavLink>
+              <NavLink to="/market">State of the Market</NavLink>
+            <NavLink to="/sectors">Sectors</NavLink>
               <NavLink to="/" end>
                 Stock Scanner
               </NavLink>
@@ -125,6 +127,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Scanner version={dataVersion} />} />
               <Route path="/stock/:symbol" element={<Detail version={dataVersion} />} />
+              <Route path="/market" element={<Market version={dataVersion} />} />
               <Route path="/sectors" element={<Sectors version={dataVersion} />} />
               <Route path="/watchlist" element={<Watchlist />} />
               <Route path="/positions" element={<Positions />} />

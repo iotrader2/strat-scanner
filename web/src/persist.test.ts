@@ -42,6 +42,7 @@ describe("persisted values", () => {
 describe("tab restore", () => {
   it("records only the top-level tabs, keeping their query", () => {
     expect(tabLocation("/sectors", "")).toBe("/sectors");
+    expect(tabLocation("/market", "")).toBe("/market");
     expect(tabLocation("/", "?sector=Energy")).toBe("/?sector=Energy");
     expect(tabLocation("/watchlist", "")).toBe("/watchlist");
     expect(tabLocation("/positions", "")).toBe("/positions");
@@ -50,15 +51,16 @@ describe("tab restore", () => {
 
   it("reopens the last tab on a bare visit", () => {
     expect(restoreTarget("/", "", "/sectors")).toBe("/sectors");
+    expect(restoreTarget("/", "", "/market")).toBe("/market");
     expect(restoreTarget("/", "", "/watchlist")).toBe("/watchlist");
     expect(restoreTarget("/", "", "/positions")).toBe("/positions");
     expect(restoreTarget("/", "", "/?sector=Health%20Care")).toBe("/?sector=Health%20Care");
   });
 
-  it("defaults first-time visitors (or unusable saved values) to Sectors", () => {
-    expect(restoreTarget("/", "", null)).toBe("/sectors");
-    expect(restoreTarget("/", "", "/evil")).toBe("/sectors");
-    expect(DEFAULT_TAB).toBe("/sectors");
+  it("defaults first-time visitors (or unusable saved values) to State of the Market", () => {
+    expect(restoreTarget("/", "", null)).toBe("/market");
+    expect(restoreTarget("/", "", "/evil")).toBe("/market");
+    expect(DEFAULT_TAB).toBe("/market");
   });
 
   it("keeps the Stock Scanner when it was the last tab", () => {
@@ -67,6 +69,7 @@ describe("tab restore", () => {
 
   it("never overrides deep links", () => {
     expect(restoreTarget("/sectors", "", "/")).toBeNull();
+    expect(restoreTarget("/market", "", "/watchlist")).toBeNull();
     expect(restoreTarget("/watchlist", "", null)).toBeNull();
     expect(restoreTarget("/stock/TDY", "", "/sectors")).toBeNull();
     expect(restoreTarget("/", "?sector=Energy", "/sectors")).toBeNull();
@@ -76,6 +79,7 @@ describe("tab restore", () => {
   it("titles each page after its tab", () => {
     expect(pageTitle("/")).toBe("Stock Scanner · Strat Scanner");
     expect(pageTitle("/sectors")).toBe("Sectors · Strat Scanner");
+    expect(pageTitle("/market")).toBe("State of the Market · Strat Scanner");
     expect(pageTitle("/watchlist")).toBe("Watchlist · Strat Scanner");
     expect(pageTitle("/positions")).toBe("Positions · Strat Scanner");
     expect(pageTitle("/stock/brk-b")).toBe("BRK-B · Strat Scanner");

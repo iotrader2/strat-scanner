@@ -196,6 +196,11 @@ th.num { text-align: right; }
 .lb-item.red { color: #fda4af; border-color: rgba(244, 63, 94, 0.25); }
 .group-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 22px 0 10px; }
 .sector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.market-grid { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.market-read .small { margin-right: 8px; font-weight: 600; }
+.market-read.green { border-color: rgba(34, 197, 94, 0.35); }
+.market-read.red { border-color: rgba(244, 63, 94, 0.35); }
+.market-read.mixed { border-color: rgba(250, 204, 21, 0.3); }
 .sector-card { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
 .sector-card.mw-green { border-color: rgba(34, 197, 94, 0.35); box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.08), 0 10px 30px -18px rgba(34, 197, 94, 0.4); }
 .sector-head { display: flex; justify-content: space-between; align-items: flex-start; }

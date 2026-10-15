@@ -23,18 +23,18 @@ export function usePersisted<T>(key: string, initial: T) {
 }
 
 export const LAST_TAB_KEY = "lastTab";
-const TABS = ["/", "/sectors", "/watchlist", "/positions"];
+const TABS = ["/", "/market", "/sectors", "/watchlist", "/positions"];
 
-/** Top-level tab (Sectors, Stock Scanner, Watchlist or Positions) for a location, including its query string, or null for other pages. */
+/** Top-level tab (State of the Market, Sectors, Stock Scanner, Watchlist or Positions) for a location, including its query string, or null for other pages. */
 export function tabLocation(pathname: string, search: string): string | null {
   return TABS.includes(pathname) ? pathname + search : null;
 }
 
-/** Tab for first-time visitors: Sectors first, then drill into the Stock Scanner. */
-export const DEFAULT_TAB = "/sectors";
+/** Tab for first-time visitors: the market first, then Sectors, then drill into the Stock Scanner. */
+export const DEFAULT_TAB = "/market";
 
 /**
- * Where to send a visit to the bare app URL: the last tab the user had open, or Sectors when nothing
+ * Where to send a visit to the bare app URL: the last tab the user had open, or State of the Market when nothing
  * valid is saved. Deep links (any path or query string) are always respected. Null means stay put.
  */
 export function restoreTarget(pathname: string, search: string, lastTab: string | null): string | null {
@@ -43,7 +43,7 @@ export function restoreTarget(pathname: string, search: string, lastTab: string 
   return saved === "/" ? null : saved;
 }
 
-const TITLES: Record<string, string> = { "/": "Stock Scanner", "/sectors": "Sectors", "/watchlist": "Watchlist", "/positions": "Positions" };
+const TITLES: Record<string, string> = { "/": "Stock Scanner", "/market": "State of the Market", "/sectors": "Sectors", "/watchlist": "Watchlist", "/positions": "Positions" };
 
 /** Browser tab title for a route. */
 export function pageTitle(pathname: string): string {
