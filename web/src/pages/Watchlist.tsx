@@ -1,6 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import type { ScanRow } from "../api";
 import { Legend } from "../components/Badges";
+import { EntryModal } from "../components/Modal";
+import { usePositions } from "../components/Positions";
 import { ScanTable } from "../components/ScanTable";
 import { useWatchlist } from "../components/Watch";
 import { normalizeTicker, watchedRows } from "../watchlist";
@@ -60,6 +63,8 @@ function AddSymbol() {
 
 export default function Watchlist() {
   const { symbols, data, error } = useWatchlist();
+  const { open } = usePositions();
+  const [moving, setMoving] = useState<ScanRow | null>(null);
   const rows = useMemo(() => watchedRows(data?.rows ?? [], symbols), [data, symbols]);
   const missing = (data?.missing ?? []).filter((s) => symbols.includes(s));
   const active = rows.filter((r) => r.has_setup).length;
@@ -71,7 +76,8 @@ export default function Watchlist() {
           <h1>Watchlist</h1>
           <p className="muted">
             Names you are tracking, with the same Strat badges, weekly trigger and score as the Stock Scanner. They stay here
-            when the weekly setup goes away (shown as “no active setup”) until you remove them with the first-column ✓ toggle. Saved in the local
+            when the weekly setup goes away (shown as “no active setup”) until you remove them with the first-column ✓ toggle. Once you buy one, use “Move to Positions” to record the entry and
+            track it on the Positions tab. Saved in the local
             SQLite cache, so the list survives restarts.
           </p>
         </div>
@@ -104,7 +110,26 @@ export default function Watchlist() {
           <Link className="sector-link" to="/sectors">sector</Link> card to add names.
         </div>
       ) : (
-        <ScanTable rows={rows} />
+        <ScanTable
+          rows={rows}
+          actionsLabel="Bought?"
+          actions={(r) => (
+            <button type="button" className="btn small move-btn" onClick={() => setMoving(r)} title="Record the entry and track it on the Positions tab">
+              Move to Positions →
+            </button>
+          )}
+        />
+      )}
+      {moving && (
+        <EntryModal
+          title="Move to Positions"
+          symbol={moving.symbol}
+          initial={{ price: moving.price, shares: null }}
+          lastPrice={moving.price}
+          submitLabel="Move to Positions"
+          onSubmit={(v) => open(moving.symbol, v)}
+          onClose={() => setMoving(null)}
+        />
       )}
     </div>
   );

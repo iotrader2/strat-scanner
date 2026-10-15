@@ -6,7 +6,9 @@ import Scanner from "./pages/Scanner";
 import Detail from "./pages/Detail";
 import Sectors from "./pages/Sectors";
 import Watchlist from "./pages/Watchlist";
+import Positions from "./pages/Positions";
 import { WatchlistProvider, useWatchlist } from "./components/Watch";
+import { PositionsProvider, usePositions } from "./components/Positions";
 
 function useStickyTab() {
   const location = useLocation();
@@ -34,6 +36,18 @@ function WatchlistTab() {
     <NavLink to="/watchlist">
       Watchlist
       <span className={`count-badge ${symbols.length ? "" : "zero"}`} aria-label={`${symbols.length} watched`}>
+        {symbols.length}
+      </span>
+    </NavLink>
+  );
+}
+
+function PositionsTab() {
+  const { symbols } = usePositions();
+  return (
+    <NavLink to="/positions">
+      Positions
+      <span className={`count-badge ${symbols.length ? "" : "zero"}`} aria-label={`${symbols.length} open`}>
         {symbols.length}
       </span>
     </NavLink>
@@ -70,53 +84,57 @@ export default function App() {
 
   return (
     <WatchlistProvider version={dataVersion}>
-      <div className="app">
-        <header className="topbar">
-          <div className="brand">
-            <span className="brand-mark">◆</span>
-            <span>
-              Strat<span className="brand-dim">Scanner</span>
-            </span>
-            <span className="local-chip">localhost</span>
-          </div>
-          <nav>
-            <NavLink to="/sectors">Sectors</NavLink>
-            <NavLink to="/" end>
-              Stock Scanner
-            </NavLink>
-            <WatchlistTab />
-          </nav>
-          <div className="status">
-            {status === null ? (
-              <span className="muted">API offline</span>
-            ) : status.refreshing ? (
-              <span className="refreshing">
-                <span className="spinner" /> Refreshing {pct}% · {status.progress.message}
+      <PositionsProvider version={dataVersion}>
+        <div className="app">
+          <header className="topbar">
+            <div className="brand">
+              <span className="brand-mark">◆</span>
+              <span>
+                Strat<span className="brand-dim">Scanner</span>
               </span>
-            ) : (
-              <span className="muted">
-                {status.symbols_cached}/{status.universe_size} symbols · updated{" "}
-                {status.last_refresh ? new Date(status.last_refresh).toLocaleString() : "never"}
-              </span>
-            )}
-            <button className="btn" onClick={refresh} disabled={!status || status.refreshing}>
-              ↻ Refresh data
-            </button>
-          </div>
-        </header>
-        {status?.error && <div className="banner error">Last refresh failed: {status.error}</div>}
-        <main>
-          <Routes>
-            <Route path="/" element={<Scanner version={dataVersion} />} />
-            <Route path="/stock/:symbol" element={<Detail version={dataVersion} />} />
-            <Route path="/sectors" element={<Sectors version={dataVersion} />} />
-            <Route path="/watchlist" element={<Watchlist />} />
-          </Routes>
-        </main>
-        <footer className="footer">
-          Long-bias Strat setups only · data from Yahoo Finance via yfinance, cached locally · not investment advice
-        </footer>
-      </div>
+              <span className="local-chip">localhost</span>
+            </div>
+            <nav>
+              <NavLink to="/sectors">Sectors</NavLink>
+              <NavLink to="/" end>
+                Stock Scanner
+              </NavLink>
+              <WatchlistTab />
+              <PositionsTab />
+            </nav>
+            <div className="status">
+              {status === null ? (
+                <span className="muted">API offline</span>
+              ) : status.refreshing ? (
+                <span className="refreshing">
+                  <span className="spinner" /> Refreshing {pct}% · {status.progress.message}
+                </span>
+              ) : (
+                <span className="muted">
+                  {status.symbols_cached}/{status.universe_size} symbols · updated{" "}
+                  {status.last_refresh ? new Date(status.last_refresh).toLocaleString() : "never"}
+                </span>
+              )}
+              <button className="btn" onClick={refresh} disabled={!status || status.refreshing}>
+                ↻ Refresh data
+              </button>
+            </div>
+          </header>
+          {status?.error && <div className="banner error">Last refresh failed: {status.error}</div>}
+          <main>
+            <Routes>
+              <Route path="/" element={<Scanner version={dataVersion} />} />
+              <Route path="/stock/:symbol" element={<Detail version={dataVersion} />} />
+              <Route path="/sectors" element={<Sectors version={dataVersion} />} />
+              <Route path="/watchlist" element={<Watchlist />} />
+              <Route path="/positions" element={<Positions />} />
+            </Routes>
+          </main>
+          <footer className="footer">
+            Long-bias Strat setups only · data from Yahoo Finance via yfinance, cached locally · not investment advice
+          </footer>
+        </div>
+      </PositionsProvider>
     </WatchlistProvider>
   );
 }

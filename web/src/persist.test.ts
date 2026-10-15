@@ -44,12 +44,14 @@ describe("tab restore", () => {
     expect(tabLocation("/sectors", "")).toBe("/sectors");
     expect(tabLocation("/", "?sector=Energy")).toBe("/?sector=Energy");
     expect(tabLocation("/watchlist", "")).toBe("/watchlist");
+    expect(tabLocation("/positions", "")).toBe("/positions");
     expect(tabLocation("/stock/AAPL", "")).toBeNull();
   });
 
   it("reopens the last tab on a bare visit", () => {
     expect(restoreTarget("/", "", "/sectors")).toBe("/sectors");
     expect(restoreTarget("/", "", "/watchlist")).toBe("/watchlist");
+    expect(restoreTarget("/", "", "/positions")).toBe("/positions");
     expect(restoreTarget("/", "", "/?sector=Health%20Care")).toBe("/?sector=Health%20Care");
   });
 
@@ -75,6 +77,7 @@ describe("tab restore", () => {
     expect(pageTitle("/")).toBe("Stock Scanner · Strat Scanner");
     expect(pageTitle("/sectors")).toBe("Sectors · Strat Scanner");
     expect(pageTitle("/watchlist")).toBe("Watchlist · Strat Scanner");
+    expect(pageTitle("/positions")).toBe("Positions · Strat Scanner");
     expect(pageTitle("/stock/brk-b")).toBe("BRK-B · Strat Scanner");
     expect(pageTitle("/nope")).toBe("Strat Scanner");
   });
