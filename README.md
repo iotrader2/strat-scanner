@@ -252,6 +252,14 @@ Scanner** (drill into weekly setups, optionally filtered to a sector), **Watchli
   detail, Sectors and State of the Market views are saved in `localStorage`. They survive navigation and full reloads, and opening the bare
   app URL reopens the last tab; a first-time visitor with nothing saved lands on **State of the Market**. Deep links such as
   `/stock/TDY` or `/?sector=Energy` always win.
+- **Loading states**: anything still loading shows a blue spinner with pulsing text (e.g. “Loading weekly setups…”).
+  - Tables (Stock Scanner, Watchlist, Positions) show shimmering skeleton rows, and the chart views (State of the Market,
+    Sectors, detail page) show skeleton cards with a shimmering chart area, until the first data arrives.
+  - During a data refresh a pulsing progress banner sits under the sticky tabs, e.g. “Refreshing data… 120/546 ·
+    Downloading AMD…AMZN (5d)”, then “Refreshing earnings dates… 60/519”. It has a progress bar and disappears when
+    the refresh is done. The header also shows the percentage.
+  - With `prefers-reduced-motion: reduce` there is no pulsing, shimmer or spinning: the spinner becomes a static blue
+    ring and the skeletons and banner are drawn flat, with the same text and progress bar.
 
 ## Layout
 
