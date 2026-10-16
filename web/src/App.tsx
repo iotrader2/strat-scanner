@@ -98,7 +98,6 @@ export default function App() {
                 <span>
                   Tilt<span className="brand-dim">Killer</span>
                 </span>
-                <span className="local-chip">localhost</span>
               </div>
               <nav>
                 <NavLink to="/market">State of the Market</NavLink>
