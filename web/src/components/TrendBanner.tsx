@@ -17,12 +17,20 @@ export function TrendBanner({ trend, days, nasdaq }: { trend: Trend; days: DayCh
 
   return (
     <section className={`card trend-banner ${trend.call}${allDown ? " smash" : ""}`}>
-      <div className="trend-copy">
-        <div className="trend-label">{label}</div>
-        <p className="trend-detail">
-          {detail}
-          {lopsided && ratio !== null && <> Nasdaq decliners were {ratio.toFixed(1)} to 1.</>}
-        </p>
+      <div className="trend-lead">
+        {trend.call === "off" && (
+          <img className="trend-ragnar" src="/ragnar-no-trade.png" alt="Ragnar says no" width={64} height={64} />
+        )}
+        {trend.call === "on" && (
+          <img className="trend-ragnar" src="/ragnar-game-on.png" alt="Ragnar says game on" width={64} height={64} />
+        )}
+        <div className="trend-copy">
+          <div className="trend-label">{label}</div>
+          <p className="trend-detail">
+            {detail}
+            {lopsided && ratio !== null && <> Nasdaq decliners were {ratio.toFixed(1)} to 1.</>}
+          </p>
+        </div>
       </div>
       <div className="trend-indexes">
         {trend.indexes.map((index) => {

@@ -26,7 +26,7 @@ describe("marketRead", () => {
 
 describe("trendLabel", () => {
   it("names the three trend calls", () => {
-    expect(trendLabel("on").label).toBe("GAME ON");
+    expect(trendLabel("on").label).toBe("GAME ON!");
     expect(trendLabel("off").label).toBe("DO NOT TRADE");
     expect(trendLabel("caution").label).toBe("CAUTION");
   });

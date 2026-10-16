@@ -26,7 +26,7 @@ export interface TrendLabel {
 /** Banner copy for the 10/20/50-day trend call. */
 export function trendLabel(call: TrendCall): TrendLabel {
   if (call === "on") {
-    return { label: "GAME ON", detail: "QQQ, SPY and IWM are above their 10, 20 and 50 day averages." };
+    return { label: "GAME ON!", detail: "QQQ, SPY and IWM are above their 10, 20 and 50 day averages." };
   }
   if (call === "off") {
     return { label: "DO NOT TRADE", detail: "QQQ, SPY and IWM are below their 10, 20 and 50 day averages." };
