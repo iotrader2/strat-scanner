@@ -96,7 +96,7 @@ export default function App() {
               <div className="brand">
                 <img className="brand-logo" src="/apple-touch-icon.png" alt="" width={30} height={30} />
                 <span>
-                  Tilt<span className="brand-dim">Killer</span>
+                  Tilt <span className="brand-dim">Killer</span>
                 </span>
                 <span className="local-chip">localhost</span>
               </div>
