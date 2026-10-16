@@ -20,6 +20,6 @@ def test_avg_volume_is_20_day_mean_of_shares():
 
 def test_row_carries_score_breakdown():
     row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), _daily())
-    assert row["score_max_raw"] == 123
+    assert row["score_max_raw"] == 138
     assert abs(sum(c["points"] for c in row["score_breakdown"]) - row["score_raw"]) < 0.05
     assert {"key", "label", "points", "max_points", "detail"} <= set(row["score_breakdown"][0])
