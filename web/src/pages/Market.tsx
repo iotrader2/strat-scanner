@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type MarketEtf, type Tf } from "../api";
+import { api, type Breadth, type MarketEtf, type Tf, type Trend } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { Legend } from "../components/Badges";
 import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
+import { BreadthPanel } from "../components/Breadth";
+import { TrendBanner } from "../components/TrendBanner";
 import { marketRead } from "../market";
 import { SkeletonCards } from "../components/Loading";
 
@@ -11,6 +13,8 @@ export default function Market({ version }: { version: string | null }) {
   const [storedTf, setTf] = usePersisted<Tf>("marketTf", "W");
   const tf: Tf = isTimeframe(storedTf) ? storedTf : "W";
   const [etfs, setEtfs] = useState<MarketEtf[]>([]);
+  const [trend, setTrend] = useState<Trend | null>(null);
+  const [breadth, setBreadth] = useState<Breadth | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,11 +24,19 @@ export default function Market({ version }: { version: string | null }) {
       .market(tf, CARD_BARS[tf])
       .then((r) => {
         setEtfs(r.etfs);
+        setTrend(r.trend);
         setError(null);
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [tf, version]);
+
+  useEffect(() => {
+    api
+      .breadth()
+      .then(setBreadth)
+      .catch(() => setBreadth(null));
+  }, [version]);
 
   const read = marketRead(etfs.map((e) => e.row));
 
@@ -39,8 +51,15 @@ export default function Market({ version }: { version: string | null }) {
             the <Link className="sector-link" to="/">Stock Scanner</Link>.
           </p>
         </div>
-        <TfToggle tf={tf} onChange={setTf} />
       </section>
+
+      {trend && (
+        <TrendBanner
+          trend={trend}
+          days={etfs.map((e) => ({ symbol: e.symbol, change_pct: e.row.change_pct }))}
+          nasdaq={breadth?.issues?.nasdaq}
+        />
+      )}
 
       {etfs.length > 0 && (
         <div className={`card leaderboard market-read ${read.tone}`}>
@@ -53,6 +72,10 @@ export default function Market({ version }: { version: string | null }) {
         </div>
       )}
       <Legend />
+      {breadth && <BreadthPanel breadth={breadth} />}
+      <div className="market-tf">
+        <TfToggle tf={tf} onChange={setTf} />
+      </div>
 
       {error && <div className="banner error">{error}</div>}
       {loading && etfs.length === 0 && (

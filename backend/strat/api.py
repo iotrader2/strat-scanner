@@ -12,6 +12,8 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import config, data, earnings
+from .breadth import fetch_breadth
+from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
 from .perf import MomentumRanks
 from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol, theme_cards
@@ -381,10 +383,16 @@ def themes(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10,
     return {"tf": tf, "as_of": State.scan_key, "themes": theme_cards(result, by_symbol, tf, bars)}
 
 
+@app.get("/api/breadth")
+def breadth():
+    """$NASI, CNN Fear & Greed and Nasdaq/NYSE advancers vs decliners for State of the Market."""
+    return fetch_breadth()
+
+
 @app.get("/api/market")
 def market(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
     """State of the Market cards: QQQ, SPY and IWM, in that order."""
     _ensure_scan()
     by_symbol = {r["symbol"]: r for r in State.scan}
     out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars)
-    return {"tf": tf, "as_of": State.scan_key, "etfs": out}
+    return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily)}

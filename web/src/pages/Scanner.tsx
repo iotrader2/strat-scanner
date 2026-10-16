@@ -7,7 +7,7 @@ import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { usePersisted } from "../persist";
-import { LoadingIndicator, SkeletonTable } from "../components/Loading";
+import { SkeletonTable } from "../components/Loading";
 import { matchesSetup, type SetupFilter } from "../setupFilter";
 import { matchesTheme, themeName, themeOptions } from "../themes";
 
@@ -175,7 +175,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
       <div className="table-meta">
         <span className="muted">
-          {loading ? <LoadingIndicator label="Loading weekly setups…" /> : `${filtered.length} of ${rows.length} weekly setups shown`}
+          {!loading && `${filtered.length} of ${rows.length} weekly setups shown`}
           {theme && (
             <button className="chip" onClick={() => setTheme("")}>
               {themeName(config?.themes ?? [], theme)} ✕

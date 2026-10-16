@@ -129,10 +129,18 @@ def test_market_endpoint_lists_qqq_spy_iwm_in_order(api_client, tf):
     assert body["tf"] == tf
     assert [e["symbol"] for e in body["etfs"]] == ["QQQ", "SPY", "IWM"]
     assert all(e["group"] == "benchmark" and e["candles"] and e["row"]["perf"]["1m"] is not None for e in body["etfs"])
+    assert body["trend"]["call"] == "on"
+    assert [i["symbol"] for i in body["trend"]["indexes"]] == ["QQQ", "SPY", "IWM"]
 
 
 def test_market_endpoint_validates_timeframe(api_client):
     assert api_client.get("/api/market?tf=Y").status_code == 422
+
+
+def test_breadth_endpoint(api_client, monkeypatch):
+    payload = {"nasi": None, "fear_greed": None, "issues": None}
+    monkeypatch.setattr(api, "fetch_breadth", lambda: payload)
+    assert api_client.get("/api/breadth").json() == payload
 
 
 def test_config_lists_themes_for_the_scanner_filter(api_client):

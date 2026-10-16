@@ -126,6 +126,60 @@ export interface ThemeInfo {
   count: number;
 }
 
+export interface NasiPoint {
+  time: string;
+  value: number;
+}
+
+/** Nasdaq McClellan Summation Index ($NASI). */
+export interface Nasi {
+  value: number;
+  change: number | null;
+  as_of: string;
+  points: NasiPoint[];
+}
+
+/** CNN Fear & Greed index, 0 (extreme fear) to 100 (extreme greed). */
+export interface FearGreed {
+  score: number;
+  rating: string;
+  previous_close: number | null;
+  previous_week: number | null;
+  previous_month: number | null;
+}
+
+export interface IssueCounts {
+  advancing: number;
+  declining: number;
+  unchanged: number;
+}
+
+export interface Breadth {
+  nasi: Nasi | null;
+  fear_greed: FearGreed | null;
+  issues: { nasdaq?: IssueCounts; nyse?: IssueCounts } | null;
+}
+
+export type TrendCall = "on" | "off" | "caution";
+
+export interface TrendAverage {
+  period: number;
+  value: number;
+  above: boolean;
+}
+
+export interface TrendIndex {
+  symbol: string;
+  price: number;
+  averages: TrendAverage[];
+}
+
+/** QQQ, SPY and IWM versus their 10, 20 and 50 day averages. */
+export interface Trend {
+  call: TrendCall;
+  indexes: TrendIndex[];
+}
+
 /** QQQ, SPY or IWM card on State of the Market. */
 export interface MarketEtf {
   symbol: string;
@@ -206,7 +260,10 @@ export const api = {
   /** Theme cards, strongest first. */
   themes: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; themes: ThemeCard[] }>(`/api/themes?tf=${tf}&bars=${bars}`),
   /** QQQ, SPY and IWM for the State of the Market tab. */
-  market: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: MarketEtf[] }>(`/api/market?tf=${tf}&bars=${bars}`),
+  market: (tf: Tf, bars = 60) =>
+    get<{ tf: Tf; as_of: string | null; etfs: MarketEtf[]; trend: Trend | null }>(`/api/market?tf=${tf}&bars=${bars}`),
+  /** $NASI, Fear & Greed and advancers vs decliners. */
+  breadth: () => get<Breadth>("/api/breadth"),
   watchlist: () => get<Watchlist>("/api/watchlist"),
   watch: (symbol: string) =>
     get<Watchlist>("/api/watchlist", {

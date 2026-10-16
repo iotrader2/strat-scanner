@@ -16,15 +16,15 @@ export function EtfCard({ etf, chartHeight = 180 }: { etf: MarketEtf; chartHeigh
   const setup = r.setups?.[0];
 
   return (
-    <div className={`card sector-card ${r.mw_green ? "mw-green" : ""}`}>
+    <div className={`card sector-card ${r.mw_green ? "mw-green" : ""} ${r.change_pct < 0 ? "day-down" : "day-up"}`}>
       <div className="sector-head">
         <div>
           <Link to={`/stock/${etf.symbol}`} className="sym">{etf.symbol}</Link>
           <div className="sub muted">{etf.name}</div>
         </div>
         <div className="sector-right">
-          <span className="num">{r.price.toFixed(2)}</span>
-          <span className={`small ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</span>
+          <span className={`day-change ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</span>
+          <span className="num muted">{r.price.toFixed(2)}</span>
         </div>
         <WatchButton symbol={etf.symbol} />
       </div>
