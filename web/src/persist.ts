@@ -53,7 +53,7 @@ const TITLES: Record<string, string> = { "/": "Stock Scanner", "/market": "State
 export function pageTitle(pathname: string): string {
   const stock = pathname.match(/^\/stock\/([^/]+)/);
   const name = stock ? decodeURIComponent(stock[1]).toUpperCase() : TITLES[pathname];
-  return name ? `${name} · Strat Scanner` : "Strat Scanner";
+  return name ? `${name} · TiltKiller` : "TiltKiller";
 }
 
 export const TIMEFRAMES = ["M", "W", "D"] as const;

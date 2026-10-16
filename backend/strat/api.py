@@ -19,7 +19,7 @@ from .themes import ThemeError, ThemeMap, load_themes
 from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
 
 log = logging.getLogger(__name__)
-app = FastAPI(title="Strat Scanner (local)")
+app = FastAPI(title="TiltKiller (local)")
 
 CHART_LIMITS = {"M": 60, "W": 156, "D": 260}
 

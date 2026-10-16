@@ -94,9 +94,9 @@ export default function App() {
           <div className="topbar-wrap">
             <header className="topbar">
               <div className="brand">
-                <span className="brand-mark">◆</span>
+                <img className="brand-logo" src="/apple-touch-icon.png" alt="" width={30} height={30} />
                 <span>
-                  Strat<span className="brand-dim">Scanner</span>
+                  Tilt<span className="brand-dim">Killer</span>
                 </span>
                 <span className="local-chip">localhost</span>
               </div>

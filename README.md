@@ -1,4 +1,4 @@
-# strat-scanner
+# TiltKiller (formerly Strat Scanner)
 
 A **local-only** stock scanner for Rob Smith's **The Strat**, long bias only. It scans liquid US names
 (S&P 500 + Nasdaq-100 + extra theme names + sector/industry ETFs + the QQQ, SPY and IWM index ETFs) for **weekly** setups (inside weeks, weekly hammers and
