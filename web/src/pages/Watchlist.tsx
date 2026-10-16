@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import type { ScanRow } from "../api";
 import { Legend } from "../components/Badges";
-import { LoadingIndicator, SkeletonTable } from "../components/Loading";
+import { SkeletonTable } from "../components/Loading";
 import { EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ScanTable } from "../components/ScanTable";
@@ -97,7 +97,7 @@ export default function Watchlist() {
       <AddSymbol />
 
       <div className="table-meta">
-        <span className="muted">{data === null ? <LoadingIndicator label="Loading watchlist…" /> : `${rows.length} watched names`}</span>
+        {data !== null && <span className="muted">{`${rows.length} watched names`}</span>}
         <Legend />
       </div>
       {error && <div className="banner error">{error}</div>}
