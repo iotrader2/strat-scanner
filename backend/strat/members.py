@@ -1,0 +1,58 @@
+"""The effective scan universe: S&P 500 / Nasdaq-100 / ETFs plus off-universe symbols on the watchlist or in Positions."""
+
+from __future__ import annotations
+
+import logging
+from typing import Callable, Optional
+
+from . import data, earnings
+from .universe import Member, load_universe
+
+log = logging.getLogger(__name__)
+
+
+def extra_members(only_tracked: bool, base: Optional[list[Member]] = None) -> list[Member]:
+    """Added symbols outside the universe; with ``only_tracked``, just those watched or held as positions."""
+    known = {m.symbol for m in (load_universe() if base is None else base)}
+    tracked = data.tracked_symbols() if only_tracked else None
+    return [
+        Member(e["symbol"], e["name"], e["sector"], e["kind"], "Watchlist", in_universe=False, industry=e["industry"])
+        for e in data.extra_symbols()
+        if e["symbol"] not in known and (tracked is None or e["symbol"] in tracked)
+    ]
+
+
+def backfill_industries(members: list[Member], fetch: Callable[[str], str] | None = None) -> int:
+    """Look up the Yahoo industry of added stocks saved before industries were stored; returns how many were set."""
+    fetch = fetch or data.fetch_industry
+    updated = 0
+    for m in members:
+        if m.in_universe or m.kind != "stock" or m.industry:
+            continue
+        try:
+            industry = fetch(m.symbol)
+        except Exception:
+            log.warning("industry lookup failed for %s", m.symbol, exc_info=True)
+            continue
+        if industry:
+            data.set_extra_industry(m.symbol, industry)
+            updated += 1
+    return updated
+
+
+def effective_universe(base: Optional[list[Member]] = None) -> list[Member]:
+    """Universe plus tracked off-universe symbols, which are scanned and refreshed like the rest."""
+    base = load_universe() if base is None else base
+    return base + extra_members(only_tracked=True, base=base)
+
+
+def refresh_earnings(
+    members: list[Member], max_age_hours: float, progress: Callable[[int, int, str], None] | None = None
+) -> None:
+    """Earnings dates for the stocks among ``members``; failures are logged, never raised."""
+    try:
+        earnings.refresh_earnings(
+            [m.symbol for m in members if m.kind == "stock"], max_age_hours=max_age_hours, progress=progress
+        )
+    except Exception:
+        log.exception("earnings refresh failed")

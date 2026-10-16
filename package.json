@@ -1,0 +1,19 @@
+{
+  "name": "strat-scanner",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-only long-bias Strat (Rob Smith) stock scanner",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "setup": "node scripts/setup.mjs",
+    "refresh": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.refresh",
+    "refresh:universe": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.refresh --universe",
+    "test": "node scripts/setup.mjs && cd backend && .venv/bin/python -m pytest -q && cd ../web && npm test",
+    "typecheck": "cd web && npx tsc -b",
+    "test:web": "cd web && npm test"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}
