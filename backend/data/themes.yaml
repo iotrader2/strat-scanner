@@ -1,0 +1,464 @@
+# Theme map: the source of truth for the Themes page, the scanner's Theme filter and the Theme strength score.
+#
+# - `members`: PRIMARY members. A stock is the primary member of at most one theme. They define the theme's equal-weight
+#   index, and the stock's Theme strength comes from this theme's rank.
+# - `also`: optional SECONDARY members: shown (dimmed) on the card and matched by the scanner's theme filter, but not part
+#   of the index and not used for scoring.
+# - `keep`: primary members that the correlation report flags but that were reviewed and deliberately kept (usually names
+#   the user asked for by hand). The report still lists them, marked as kept.
+# - Tickers are written as one space-separated string (YAML would read bare ON/NO as booleans). Class shares use a dash
+#   (BRK-B).
+# - Tickers outside the S&P 500 / Nasdaq-100 are added to the universe by `npm run themes:sync` when they pass the liquidity
+#   gate; names that fail it are removed from this file, and names no theme lists any more are pruned from the universe.
+# - Tune this file with `npm run themes:report` (rolling 6-month correlation of daily returns, beta-adjusted vs SPY,
+#   clustering, flagged members). The report only suggests; the map below always wins.
+#
+# Bump `version` whenever the membership changes.
+version: 3
+
+themes:
+  # ---- Technology -------------------------------------------------------------------------------------------------
+  mega-cap-tech:
+    name: Mega-cap tech
+    description: "The platform giants that move the Nasdaq-100."
+    members: "AAPL MSFT GOOGL AMZN META"
+    keep: "AAPL MSFT GOOGL META"
+
+  cybersecurity:
+    name: Cybersecurity
+    description: "Security software and platforms."
+    members: "CRWD PANW ZS FTNT NET S OKTA TENB"
+    also: "CHKP DDOG"
+
+  ai-hardware:
+    name: AI hardware & servers
+    description: "AI servers, networking switches and data-center power and cooling."
+    members: "DELL HPE SMCI ANET VRT"
+    also: "NTAP"
+    keep: "SMCI ANET VRT"
+
+  memory:
+    name: Memory & storage
+    description: "DRAM, NAND and hard-drive makers."
+    members: "MU SNDK WDC STX"
+
+  semiconductors:
+    name: Semis & chips
+    description: "Chip designers: AI accelerators, CPUs, mobile, custom and connectivity silicon."
+    members: "AMD INTC NVDA AVGO QCOM MRVL ARM"
+    keep: "AMD INTC NVDA AVGO QCOM MRVL ARM"
+
+  analog-semis:
+    name: Analog & auto semis
+    description: "Analog, microcontroller and power chips tied to industrial and auto demand."
+    members: "TXN ADI NXPI MCHP ON MPWR"
+    also: "SWKS"
+
+  semicap:
+    name: Semicap equipment
+    description: "Wafer-fab equipment, materials and inspection."
+    members: "AMAT LRCX KLAC TER ASML ENTG ONTO MKSI KEYS Q"
+
+  neoclouds:
+    name: Neoclouds & AI infrastructure
+    description: "GPU clouds and bitcoin miners converted to AI data centers."
+    members: "NBIS CRWV IREN CORZ APLD WULF CIFR RIOT CLSK"
+    also: "ORCL MARA"
+
+  ai-optical:
+    name: AI optical & connectivity
+    description: "Optical transceivers, lasers and connectivity silicon for AI clusters."
+    members: "COHR LITE CIEN GLW CRDO AAOI ALAB"
+    also: "MRVL"
+
+  software:
+    name: Software & SaaS
+    description: "Application and infrastructure software."
+    members: "CRM NOW ADBE INTU WDAY ADSK TEAM HUBS DDOG SNOW MDB PTC VEEV"
+    also: "PLTR"
+    keep: "DDOG"
+
+  it-services:
+    name: IT services & consulting
+    description: "Outsourcing and consulting."
+    members: "ACN CTSH IT EPAM"
+    also: "IBM"
+
+  business-data:
+    name: Data & vertical software
+    description: "Credit bureaus, data providers, vertical software and payroll processors."
+    members: "EFX VRSK TRI ROP BR TYL FDS CSGP TRMB ADP PAYX JKHY"
+
+  internet-platforms:
+    name: Internet platforms & ad tech
+    description: "High-beta consumer internet: ad platforms, social and marketplaces."
+    members: "APP RDDT PINS SNAP TTD SHOP"
+    keep: "TTD SHOP"
+
+  # ---- Financials -------------------------------------------------------------------------------------------------
+  payments:
+    name: Payments
+    description: "Card networks and payment processors."
+    members: "V MA FISV FIS GPN PYPL CPAY"
+    keep: "PYPL CPAY"
+
+  fintech:
+    name: Fintech & online lending
+    description: "Consumer fintech and digital lenders."
+    members: "SOFI AFRM UPST XYZ"
+
+  crypto:
+    name: Crypto-related
+    description: "Exchanges, treasury companies and brokers that trade with bitcoin."
+    members: "COIN MSTR HOOD MARA CRCL"
+    also: "RIOT CLSK"
+    keep: "MARA"
+
+  big-banks:
+    name: Big banks
+    description: "Money-center banks."
+    members: "JPM BAC C WFC"
+    keep: "C"
+
+  regional-banks:
+    name: Regional banks
+    description: "Regional and super-regional banks."
+    members: "CFG FITB HBAN KEY MTB RF PNC USB TFC ZION EWBC"
+
+  capital-markets:
+    name: Brokers & capital markets
+    description: "Investment banks and brokers."
+    members: "GS MS SCHW IBKR RJF"
+
+  asset-managers:
+    name: Asset managers & custody
+    description: "Traditional asset managers and custody banks."
+    members: "BLK TROW BEN IVZ STT NTRS BNY AMP"
+    keep: "BLK"
+
+  alt-managers:
+    name: Alternative asset managers
+    description: "Private equity and credit managers."
+    members: "BX KKR APO ARES OWL"
+
+  insurance-pc:
+    name: P&C insurance
+    description: "Property and casualty insurers."
+    members: "CB TRV ALL PGR HIG CINF WRB ACGL AIG L EG AIZ"
+
+  insurance-brokers:
+    name: Insurance brokers
+    description: "Insurance brokerage."
+    members: "AJG AON BRO WTW MRSH ERIE"
+
+  life-insurance:
+    name: Life insurance
+    description: "Life and annuity insurers."
+    members: "MET PRU AFL PFG GL"
+
+  exchanges-data:
+    name: Exchanges & ratings
+    description: "Exchanges, ratings and index providers."
+    members: "CME ICE NDAQ CBOE SPGI MCO MSCI"
+
+  consumer-credit:
+    name: Consumer credit
+    description: "Card issuers and consumer lenders."
+    members: "AXP COF SYF"
+
+  # ---- Health care ------------------------------------------------------------------------------------------------
+  biotech:
+    name: Biotech
+    description: "Large-cap biotechnology."
+    members: "AMGN GILD VRTX REGN BIIB INCY"
+
+  pharma:
+    name: Pharma
+    description: "Large-cap pharmaceutical companies."
+    members: "JNJ MRK PFE BMY ABBV LLY"
+
+  medtech:
+    name: Medtech
+    description: "Medical devices."
+    members: "ABT BSX MDT SYK ISRG EW ZBH BDX BAX DXCM PODD GEHC STE RMD IDXX"
+
+  life-science-tools:
+    name: Life-science tools
+    description: "Instruments, reagents and CROs."
+    members: "A DHR TMO WAT MTD IQV CRL ILMN RVTY TECH"
+
+  managed-care:
+    name: Managed care
+    description: "Health insurers."
+    members: "UNH ELV CI CVS HUM CNC MOH"
+
+  hospitals:
+    name: Hospitals
+    description: "Hospital operators."
+    members: "HCA UHS THC"
+
+  health-distributors:
+    name: Health distributors
+    description: "Drug and medical-supply wholesalers."
+    members: "MCK COR CAH"
+
+  # ---- Industrials ------------------------------------------------------------------------------------------------
+  defense:
+    name: Defense
+    description: "Prime defense contractors."
+    members: "LMT NOC GD RTX LHX HII TXT"
+    also: "LDOS"
+
+  aerospace:
+    name: Commercial aerospace
+    description: "Aircraft, engines and aerospace suppliers."
+    members: "GE HWM TDG BA HEI"
+
+  electrification:
+    name: Industrials & electrification
+    description: "Power equipment, generators, grid and electrical contractors."
+    members: "GEV ETN PWR HUBB EME FIX GNRC CAT CMI"
+    also: "VRT BE"
+
+  machinery:
+    name: Machinery
+    description: "Industrial machinery and components."
+    members: "EMR ITW DOV PH AME IR WAB PCAR SNA ROK DE"
+
+  hvac:
+    name: HVAC & building systems
+    description: "HVAC and building-systems makers."
+    members: "CARR TT JCI LII"
+    keep: "JCI"
+
+  homebuilders:
+    name: Homebuilders
+    description: "US homebuilders."
+    members: "DHI LEN NVR PHM TOL KBH"
+
+  home-improvement:
+    name: Home improvement & building products
+    description: "Home-improvement retail, coatings and building products."
+    members: "HD LOW SHW PPG WSM MAS AOS ALLE SWK"
+
+  construction-materials:
+    name: Construction materials
+    description: "Aggregates and cement."
+    members: "VMC MLM CRH"
+
+  railroads:
+    name: Railroads
+    description: "US Class I railroads."
+    members: "UNP CSX NSC"
+
+  trucking-logistics:
+    name: Trucking & logistics
+    description: "Trucking, parcel and freight brokers."
+    members: "ODFL JBHT UPS FDX EXPD CHRW"
+
+  airlines:
+    name: Airlines
+    description: "US passenger airlines."
+    members: "DAL UAL LUV AAL ALK"
+
+  waste-services:
+    name: Waste & route services
+    description: "Waste haulers and route-based service companies."
+    members: "WM RSG CTAS ROL"
+
+  # ---- Energy & power ---------------------------------------------------------------------------------------------
+  oil-gas-ep:
+    name: Oil & gas E&P
+    description: "Exploration & production and the integrated majors."
+    members: "XOM CVX COP EOG DVN FANG OXY APA EQT EXE"
+    keep: "EQT EXE"
+
+  oil-services:
+    name: Oil services
+    description: "Oilfield services and equipment."
+    members: "SLB HAL BKR NOV FTI"
+
+  midstream:
+    name: Midstream & pipelines
+    description: "Pipelines and gathering."
+    members: "KMI WMB OKE TRGP ET EPD"
+
+  refiners:
+    name: Refiners
+    description: "Refining and marketing."
+    members: "MPC PSX VLO"
+
+  nuclear:
+    name: Nuclear & uranium
+    description: "Uranium miners and advanced-reactor developers."
+    members: "OKLO SMR CCJ LEU UEC"
+
+  power-producers:
+    name: Independent power
+    description: "Power producers selling into AI-driven demand."
+    members: "CEG VST NRG TLN"
+    also: "GEV"
+
+  solar:
+    name: Solar
+    description: "Solar panels, inverters and installers."
+    members: "FSLR ENPH NXT RUN SEDG"
+
+  utilities:
+    name: Regulated utilities
+    description: "Electric, gas and water utilities."
+    members: "SO DUK AEP D XEL WEC ED EIX PEG ES ETR FE PPL AEE CMS CNP DTE NEE SRE AWK ATO LNT PNW EVRG NI EXC"
+
+  # ---- Consumer ---------------------------------------------------------------------------------------------------
+  warehouse-retail:
+    name: Warehouse & grocery retail
+    description: "Warehouse clubs, mass merchants and grocers."
+    members: "WMT COST BJ KR"
+
+  discount-retail:
+    name: Discount & general retail
+    description: "Dollar stores and general merchandise."
+    members: "DG DLTR TGT BBY ULTA"
+
+  auto-parts-retail:
+    name: Auto parts retail
+    description: "Auto-parts retailers."
+    members: "AZO ORLY TSCO"
+    keep: "TSCO"
+
+  apparel:
+    name: Apparel, footwear & off-price
+    description: "Apparel, footwear, luxury accessories and off-price retail."
+    members: "NKE LULU DECK ONON TPR RL TJX ROST"
+
+  restaurants:
+    name: Restaurants
+    description: "Restaurant chains."
+    members: "MCD CMG SBUX YUM DPZ DRI QSR TXRH"
+    keep: "MCD"
+
+  online-travel:
+    name: Online travel & mobility
+    description: "Online travel agencies and gig platforms."
+    members: "BKNG EXPE ABNB DASH UBER"
+
+  hotels:
+    name: Hotels
+    description: "Hotel brands."
+    members: "MAR HLT H HST"
+
+  cruise-lines:
+    name: Cruise lines
+    description: "Cruise operators."
+    members: "CCL RCL NCLH"
+
+  casinos:
+    name: Casinos
+    description: "Casino resorts."
+    members: "LVS MGM WYNN"
+
+  autos:
+    name: Autos
+    description: "Legacy automakers."
+    members: "GM F STLA"
+
+  staples-food:
+    name: Packaged food & beverages
+    description: "Packaged food and non-alcoholic beverages."
+    members: "KO PEP KDP MDLZ GIS KHC MKC SJM HSY"
+
+  staples-household:
+    name: Household & personal care
+    description: "Household and personal-care products."
+    members: "PG CL KMB CLX CHD KVUE"
+    also: "MO PM"
+
+  streaming-media:
+    name: Streaming & live entertainment
+    description: "Streaming, studios and live events."
+    members: "NFLX DIS SPOT LYV"
+
+  telecom:
+    name: Telecom & cable
+    description: "Wireless, wireline and cable."
+    members: "T VZ TMUS CMCSA CHTR"
+
+  china-adrs:
+    name: China ADRs
+    description: "Liquid China-based ADRs."
+    members: "BABA JD PDD BIDU NIO XPEV TCOM FUTU"
+
+  # ---- Materials --------------------------------------------------------------------------------------------------
+  gold-miners:
+    name: Gold & silver miners
+    description: "Precious-metals miners and royalty companies."
+    members: "NEM AEM KGC WPM FNV AU GFI HL PAAS"
+
+  copper-metals:
+    name: Copper & metals
+    description: "Copper and diversified miners."
+    members: "FCX SCCO HBM TECK"
+
+  steel:
+    name: Steel
+    description: "US steel makers."
+    members: "NUE STLD CLF CMC"
+
+  critical-minerals:
+    name: Lithium & rare earths
+    description: "Battery metals and rare earths."
+    members: "ALB SQM MP"
+    keep: "MP"
+
+  industrial-gases:
+    name: Industrial gases & specialty chemicals
+    description: "Industrial gases, cleaning and specialty chemicals."
+    members: "LIN APD ECL DD IFF"
+    keep: "ECL DD IFF"
+
+  commodity-chemicals:
+    name: Commodity chemicals
+    description: "Petrochemicals and commodity plastics."
+    members: "DOW LYB EMN WLK CE"
+
+  fertilizers:
+    name: Fertilizers & ag inputs
+    description: "Fertilizer, seed and agricultural merchants."
+    members: "CF MOS NTR CTVA ADM BG"
+
+  packaging:
+    name: Packaging
+    description: "Paper and plastic packaging."
+    members: "AMCR AVY IP PKG SW BALL"
+
+  # ---- Real estate ------------------------------------------------------------------------------------------------
+  property-reits:
+    name: Property REITs
+    description: "Retail, residential and storage REITs."
+    members: "PLD PSA EXR O KIM REG FRT SPG CPT ESS MAA UDR INVH VICI"
+
+  tower-datacenter-reits:
+    name: Towers & data-center REITs
+    description: "Cell towers and data-center landlords."
+    members: "AMT CCI SBAC DLR EQIX IRM"
+
+  health-reits:
+    name: Healthcare REITs
+    description: "Senior housing and medical-office REITs."
+    members: "WELL VTR DOC"
+
+  # ---- Emerging themes --------------------------------------------------------------------------------------------
+  quantum:
+    name: Quantum computing
+    description: "Quantum hardware and software."
+    members: "IONQ RGTI QBTS QUBT"
+
+  space:
+    name: Space
+    description: "Launch, satellites and lunar infrastructure."
+    members: "SPCX RKLB ASTS LUNR PL"
+
+  robotics-drones:
+    name: Drones, eVTOL & robotics
+    description: "Drones, air taxis and automation."
+    members: "ACHR JOBY KTOS AVAV RCAT"

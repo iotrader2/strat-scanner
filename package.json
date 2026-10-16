@@ -9,6 +9,9 @@
     "setup": "node scripts/setup.mjs",
     "refresh": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.refresh",
     "refresh:universe": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.refresh --universe",
+    "themes:report": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.themes_report",
+    "themes:sync": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.themes sync",
+    "themes:check": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.themes check",
     "test": "node scripts/setup.mjs && cd backend && .venv/bin/python -m pytest -q && cd ../web && npm test",
     "typecheck": "cd web && npx tsc -b",
     "test:web": "cd web && npm test"
