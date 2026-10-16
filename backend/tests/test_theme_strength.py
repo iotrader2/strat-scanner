@@ -108,6 +108,7 @@ class TestScan:
     def test_a_stock_uses_its_primary_theme_not_its_secondary_ones(self):
         rows = {r["symbol"]: r for r in scan_all(_members(), _history(), MAP).rows}
         assert rows["S1"]["theme"] == "slow" and rows["S1"]["secondary_themes"] == ["fast"]
+        assert rows["S1"]["secondary_theme_names"] == ["Fast movers"]
         assert rows["F1"]["secondary_themes"] == []
 
     def test_unthemed_stocks_score_zero_for_the_component(self):

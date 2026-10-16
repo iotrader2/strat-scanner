@@ -77,7 +77,8 @@ def scan_symbol(
     momentum = ranks.momentum(member.kind, perf) if ranks else None
     theme = themes.theme_of(member.symbol) if themes and member.kind == "stock" else None
     strength = (strengths or {}).get(theme.id) if theme else None
-    secondary = (themes.secondary.get(member.symbol, []) if themes and member.kind == "stock" else [])
+    secondary = themes.secondary.get(member.symbol, []) if themes and member.kind == "stock" else []
+    secondary_names = [themes.by_id(t).name for t in secondary] if themes else []
     sc = score_symbol(
         states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
         theme_name=theme.name if theme else "",
@@ -92,6 +93,7 @@ def scan_symbol(
         "theme": theme.id if theme else None,
         "theme_name": theme.name if theme else None,
         "secondary_themes": secondary,
+        "secondary_theme_names": secondary_names,
         "theme_strength": (
             {
                 "theme": strength.theme,
