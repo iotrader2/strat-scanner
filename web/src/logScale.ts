@@ -44,14 +44,13 @@ export function fmtPrice(value: number): string {
 export interface LiquidityFilter {
   minPrice: number;
   minDollarVolume: number;
-  minAvgVolume: number;
 }
 
 export function passesLiquidity(
-  row: { price: number; avg_dollar_volume: number; avg_volume: number },
+  row: { price: number; avg_dollar_volume: number },
   f: LiquidityFilter,
 ): boolean {
-  return row.price >= f.minPrice && row.avg_dollar_volume >= f.minDollarVolume && row.avg_volume >= f.minAvgVolume;
+  return row.price >= f.minPrice && row.avg_dollar_volume >= f.minDollarVolume;
 }
 
 /**

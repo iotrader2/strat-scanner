@@ -38,7 +38,7 @@ LIQUIDITY_POINTS = 10.0
 MIN_ATR_PCT = 0.5
 PINNED_PENALTY = 0.5
 
-THEME_STRENGTH_POINTS = 15.0
+THEME_STRENGTH_POINTS = 40.0
 MOMENTUM_POINTS = 15.0
 
 # Core components shared by every kind of row (Monthly 2U, continuity, weekly setup, distance to trigger).
@@ -67,7 +67,7 @@ class ThemeStrength:
 
 
 def theme_strength_points(strength: Optional[ThemeStrength]) -> float:
-    """Up to 15 points in proportion to the theme's score relative to the top-ranked theme's (which gets all 15)."""
+    """Up to THEME_STRENGTH_POINTS in proportion to the theme's score relative to the top-ranked theme's."""
     if strength is None or strength.top_score <= 0:
         return 0.0
     return THEME_STRENGTH_POINTS * min(1.0, max(0.0, strength.score) / strength.top_score)
@@ -169,7 +169,7 @@ def score_symbol(
     monthly_2u = bool(monthly and monthly.strat == TWO_UP)
     parts.append(
         Component(
-            "monthly_2u", "Monthly 2U", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
+            "monthly_2u", "Monthly setup", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
             "current month is 2U" if monthly_2u else f"current month is {monthly.strat if monthly else 'n/a'}",
         )
     )

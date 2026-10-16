@@ -64,12 +64,11 @@ describe("formatting", () => {
 });
 
 describe("passesLiquidity", () => {
-  const row = { price: 50, avg_dollar_volume: 120e6, avg_volume: 2.4e6 };
-  it("applies all three thresholds", () => {
-    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 50e6, minAvgVolume: 1e6 })).toBe(true);
-    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 50e6, minAvgVolume: 2.5e6 })).toBe(false);
-    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 200e6, minAvgVolume: 1e5 })).toBe(false);
-    expect(passesLiquidity(row, { minPrice: 60, minDollarVolume: 0, minAvgVolume: 0 })).toBe(false);
+  const row = { price: 50, avg_dollar_volume: 120e6 };
+  it("applies price and dollar-volume thresholds", () => {
+    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 50e6 })).toBe(true);
+    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 200e6 })).toBe(false);
+    expect(passesLiquidity(row, { minPrice: 60, minDollarVolume: 0 })).toBe(false);
   });
 });
 
@@ -120,8 +119,8 @@ describe("price slider", () => {
   });
 
   it("filters rows on the chosen minimum price", () => {
-    const row = { price: 9.5, avg_dollar_volume: 1e9, avg_volume: 1e7 };
-    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 0, minAvgVolume: 0 })).toBe(false);
-    expect(passesLiquidity(row, { minPrice: 9.5, minDollarVolume: 0, minAvgVolume: 0 })).toBe(true);
+    const row = { price: 9.5, avg_dollar_volume: 1e9 };
+    expect(passesLiquidity(row, { minPrice: 10, minDollarVolume: 0 })).toBe(false);
+    expect(passesLiquidity(row, { minPrice: 9.5, minDollarVolume: 0 })).toBe(true);
   });
 });

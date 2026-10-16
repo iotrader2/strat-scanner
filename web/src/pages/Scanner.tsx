@@ -12,7 +12,6 @@ import { matchesSetup, type SetupFilter } from "../setupFilter";
 import { matchesTheme, themeName, themeOptions } from "../themes";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
-const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
@@ -47,7 +46,6 @@ export default function Scanner({ version }: { version: string | null }) {
 
   const [minPrice, setMinPrice] = usePersisted<number | null>("minPrice", null);
   const [minDvM, setMinDvM] = usePersisted<number | null>("minDvM", null);
-  const [minAvgVol, setMinAvgVol] = usePersisted<number>("minAvgVol", AVG_VOL_RANGE.min);
   const [continuity, setContinuity] = usePersisted<Continuity>("continuity", "mw");
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
   const [kind, setKind] = usePersisted<Kind>("kind", "all");
@@ -73,8 +71,8 @@ export default function Scanner({ version }: { version: string | null }) {
   }, [version]);
 
   const liquid = useMemo(
-    () => rows.filter((r) => passesLiquidity(r, { minPrice: effPrice, minDollarVolume: effDv, minAvgVolume: minAvgVol })),
-    [rows, effPrice, effDv, minAvgVol],
+    () => rows.filter((r) => passesLiquidity(r, { minPrice: effPrice, minDollarVolume: effDv })),
+    [rows, effPrice, effDv],
   );
 
   const filtered = useMemo(() => {
@@ -121,7 +119,7 @@ export default function Scanner({ version }: { version: string | null }) {
         </div>
         <div className="stat-cards">
           <div className="stat-card">
-            <span className="stat-value">{liquid.length}</span>
+            <span className="stat-value green-text">{liquid.length}</span>
             <span className="stat-label">weekly setups</span>
           </div>
           <div className="stat-card">
@@ -172,14 +170,6 @@ export default function Scanner({ version }: { version: string | null }) {
           max={DOLLAR_VOL_RANGE.max}
           format={(v) => `$${fmtCompact(v)}`}
           onChange={(v) => setMinDvM(v / 1e6)}
-        />
-        <LogSlider
-          label="Min avg volume (shares)"
-          value={minAvgVol}
-          min={AVG_VOL_RANGE.min}
-          max={AVG_VOL_RANGE.max}
-          format={fmtCompact}
-          onChange={setMinAvgVol}
         />
       </section>
 

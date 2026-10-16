@@ -109,7 +109,7 @@ def test_breakdown_components_sum_to_raw_and_rescale_to_score():
     assert keys == ["monthly_2u", "continuity", "weekly_setup", "proximity", "liquidity", "momentum", "theme_strength"]
     assert abs(sum(c.points for c in s.breakdown) - s.raw) < 0.01
     assert abs(s.score - s.raw * 100 / MAX_RAW_POINTS) < 0.06
-    assert sum(c.max_points for c in s.breakdown) == MAX_RAW_POINTS == s.max_raw == 138
+    assert sum(c.max_points for c in s.breakdown) == MAX_RAW_POINTS == s.max_raw == 163
     for c in s.breakdown:
         assert 0 <= c.points <= c.max_points
 
