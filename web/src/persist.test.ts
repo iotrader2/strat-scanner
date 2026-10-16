@@ -78,13 +78,13 @@ describe("tab restore", () => {
   });
 
   it("titles each page after its tab", () => {
-    expect(pageTitle("/")).toBe("Stock Scanner · Tilt Killer");
-    expect(pageTitle("/themes")).toBe("Themes · Tilt Killer");
-    expect(pageTitle("/market")).toBe("State of the Market · Tilt Killer");
-    expect(pageTitle("/watchlist")).toBe("Watchlist · Tilt Killer");
-    expect(pageTitle("/positions")).toBe("Positions · Tilt Killer");
-    expect(pageTitle("/stock/brk-b")).toBe("BRK-B · Tilt Killer");
-    expect(pageTitle("/nope")).toBe("Tilt Killer");
+    expect(pageTitle("/")).toBe("Stock Scanner · TiltKiller");
+    expect(pageTitle("/themes")).toBe("Themes · TiltKiller");
+    expect(pageTitle("/market")).toBe("State of the Market · TiltKiller");
+    expect(pageTitle("/watchlist")).toBe("Watchlist · TiltKiller");
+    expect(pageTitle("/positions")).toBe("Positions · TiltKiller");
+    expect(pageTitle("/stock/brk-b")).toBe("BRK-B · TiltKiller");
+    expect(pageTitle("/nope")).toBe("TiltKiller");
   });
 
   it("validates timeframes", () => {

@@ -54,4 +54,4 @@ process.on("SIGTERM", () => shutdown(0));
 
 start("api", "36", venvPython, ["-m", "uvicorn", "strat.api:app", "--host", "127.0.0.1", "--port", apiPort], join(root, "backend"));
 start("web", "35", node.npm, ["run", "dev"], join(root, "web"));
-console.log(`\n  Tilt Killer → http://127.0.0.1:${webPort}  (API on 127.0.0.1:${apiPort})\n`);
+console.log(`\n  TiltKiller → http://127.0.0.1:${webPort}  (API on 127.0.0.1:${apiPort})\n`);
