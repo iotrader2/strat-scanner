@@ -227,7 +227,7 @@ export default function Positions() {
           <Link className="sector-link" to="/watchlist">Watchlist</Link> row once you buy it.
         </div>
       ) : data === null ? (
-        <SkeletonTable rows={4} cols={16} label="Loading positions…" />
+        <SkeletonTable rows={4} cols={19} label="Loading positions…" />
       ) : (
         <ScanTable
           rows={rows}

@@ -417,6 +417,34 @@ th.num { text-align: right; }
 }
 @keyframes indeterminate { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 
+/* Performance (1M / 3M / 6M) and theme cards */
+.scan-table .perf-col { min-width: 62px; font-variant-numeric: tabular-nums; }
+.scan-table td.theme-cell { max-width: 150px; white-space: normal; line-height: 1.25; }
+.perf-strip { display: flex; gap: 6px; }
+.perf-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255, 255, 255, 0.015); }
+.perf-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.perf-value { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.theme-card .theme-name { font-size: 15px; font-weight: 700; line-height: 1.2; }
+.theme-card .theme-sub { max-width: none; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; min-height: 31px; }
+.theme-card .sector-foot .chip.scan-theme { text-decoration: none; }
+.member-chips { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 2px; }
+.member-chip { display: inline-flex; align-items: baseline; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border-2); background: rgba(255, 255, 255, 0.02); }
+.member-chip:hover { border-color: var(--accent); }
+.member-chip.green { border-color: rgba(34, 197, 94, 0.35); }
+.member-chip.setup { box-shadow: inset 0 -2px 0 rgba(56, 189, 248, 0.55); }
+.member-chip.also { opacity: 0.55; border-style: dashed; }
+.member-day { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.member-more { background: none; border: 1px dashed var(--border-2); color: var(--accent); border-radius: 999px; font-size: 11.5px; padding: 2px 9px; cursor: pointer; }
+.member-note { margin-top: -2px; }
+.theme-tools { align-items: flex-end; }
+.theme-tools .theme-count { margin-left: auto; align-self: center; }
+.theme-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.theme-grid > div { display: flex; }
+.theme-grid > div > .card { width: 100%; }
+.show-more { display: flex; justify-content: center; margin: 18px 0 4px; }
+.detail-kpis { flex-wrap: wrap; }
+.leaderboard a.lb-item { cursor: pointer; }
+
 /* Reduced motion: no spinning, pulsing or shimmering; states stay visible through colour and static shapes. */
 @media (prefers-reduced-motion: reduce) {
   .spinner, .loading-text, .skeleton-bar, .skeleton-chart, .refresh-banner, .refresh-fill,

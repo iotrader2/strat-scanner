@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type SectorEtf, type Tf } from "../api";
+import { api, type MarketEtf, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { Legend } from "../components/Badges";
 import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
@@ -10,7 +10,7 @@ import { SkeletonCards } from "../components/Loading";
 export default function Market({ version }: { version: string | null }) {
   const [storedTf, setTf] = usePersisted<Tf>("marketTf", "W");
   const tf: Tf = isTimeframe(storedTf) ? storedTf : "W";
-  const [etfs, setEtfs] = useState<SectorEtf[]>([]);
+  const [etfs, setEtfs] = useState<MarketEtf[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +35,7 @@ export default function Market({ version }: { version: string | null }) {
           <h1>State of the Market</h1>
           <p className="muted">
             The Nasdaq-100 (QQQ), S&amp;P 500 (SPY) and Russell 2000 (IWM) with their M/W/D Strat badges, continuity and
-            weekly setups. Start here, then drill into <Link className="sector-link" to="/sectors">Sectors</Link> and
+            weekly setups. Start here, then drill into <Link className="sector-link" to="/themes">Themes</Link> and
             the <Link className="sector-link" to="/">Stock Scanner</Link>.
           </p>
         </div>

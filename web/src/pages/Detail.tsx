@@ -5,6 +5,8 @@ import { isTimeframe, usePersisted } from "../persist";
 import { LoadingIndicator } from "../components/Loading";
 import { NO_SETUP_LABEL } from "../watchlist";
 import { AddedChip, ScorePill, TfBadge } from "../components/Badges";
+import { fmtPerf, perfClass, PERF_PERIODS } from "../perf";
+import { scanThemeHref } from "../themes";
 import { EarningsIcon } from "../components/EarningsIcon";
 import { BreakdownTable } from "../components/ScoreBreakdown";
 import { WatchButton } from "../components/Watch";
@@ -88,14 +90,24 @@ export default function Detail({ version }: { version: string | null }) {
             <WatchButton symbol={row.symbol} labelled />
           </div>
           <div className="muted small">
-            <Link className="sector-link" to={`/?sector=${encodeURIComponent(row.sector)}`}>{row.sector}</Link>
-            {row.industry && <> · {row.industry}</>}
-            {row.sector_etf && <> · sector ETF <Link className="sector-link" to={`/stock/${row.sector_etf}`}>{row.sector_etf}</Link></>}
-            {row.strength_etf && row.strength_etf !== row.sector_etf && (
+            {row.theme && row.theme_name ? (
+              <Link className="sector-link" to={scanThemeHref(row.theme)} title="Scan this theme">{row.theme_name}</Link>
+            ) : (
+              <span>{row.kind === "etf" ? "ETF" : "No theme"}</span>
+            )}
+            {(row.secondary_themes?.length ?? 0) > 0 && (
               <>
-                {" "}· industry ETF <Link className="sector-link" to={`/stock/${row.strength_etf}`}>{row.strength_etf}</Link>
+                {" "}· also{" "}
+                {row.secondary_themes!.map((t, i) => (
+                  <span key={t}>
+                    {i > 0 && ", "}
+                    <Link className="sector-link" to={scanThemeHref(t)}>{row.secondary_theme_names?.[i] ?? t}</Link>
+                  </span>
+                ))}
               </>
             )}
+            {row.sector && <> · {row.sector}</>}
+            {row.industry && <> · {row.industry}</>}
             {" "}· as of {row.as_of}
           </div>
         </div>
@@ -108,6 +120,12 @@ export default function Detail({ version }: { version: string | null }) {
           <div><span className="kpi-label">Trigger</span><span className="accent-text kpi">{row.trigger?.toFixed(2) ?? "—"}</span></div>
           <div><span className="kpi-label">To trigger</span><span className="kpi">{fmtPct(row.trigger_distance_pct)}</span></div>
           <div><span className="kpi-label">Avg $vol</span><span className="kpi">{fmtMoney(row.avg_dollar_volume)}</span></div>
+          {PERF_PERIODS.map((p) => (
+            <div key={p.key}>
+              <span className="kpi-label">{p.label}</span>
+              <span className={`kpi ${perfClass(row.perf?.[p.key])}`}>{fmtPerf(row.perf?.[p.key])}</span>
+            </div>
+          ))}
         </div>
       </section>
 

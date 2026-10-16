@@ -37,10 +37,17 @@ export interface ScanRow {
   sector_etf: string;
   /** GICS sub-industry, ICB subsector or Yahoo industry ("" for ETFs). */
   industry?: string;
-  /** ETF whose Sectors-page score drives the Sector strength points (null for ETFs). */
-  strength_etf?: string | null;
-  sector_strength?: SectorStrength | null;
-  kind: "stock" | "etf";
+  /** Primary theme id and name (null for ETFs and stocks no theme lists). */
+  theme?: string | null;
+  theme_name?: string | null;
+  /** Other themes that list the stock as a secondary member (shown on their cards and matched by the theme filter). */
+  secondary_themes?: string[];
+  secondary_theme_names?: string[];
+  /** Standing of the primary theme on the Themes page, which drives the Theme strength points. */
+  theme_strength?: ThemeStrength | null;
+  /** Price return in percent over the last 1, 3 and 6 months (null while the history is too short). */
+  perf: Perf;
+  kind: "stock" | "etf" | "theme";
   indexes: string;
   in_universe: boolean;
   price: number;
@@ -67,8 +74,11 @@ export interface ScanRow {
   setups?: (Setup & { tf: Tf; points: number })[];
 }
 
-export interface SectorStrength {
-  etf: string;
+export type PerfPeriod = "1m" | "3m" | "6m";
+export type Perf = Record<PerfPeriod, number | null>;
+
+export interface ThemeStrength {
+  theme: string;
   name: string;
   score: number;
   rank: number;
@@ -106,15 +116,47 @@ export interface Status {
 export interface AppConfig {
   min_price: number;
   min_dollar_volume: number;
-  sectors: string[];
-  sector_etfs: Record<string, string>;
+  themes: ThemeInfo[];
 }
 
-export interface SectorEtf {
+export interface ThemeInfo {
+  id: string;
+  name: string;
+  /** Primary plus secondary members. */
+  count: number;
+}
+
+/** QQQ, SPY or IWM card on State of the Market. */
+export interface MarketEtf {
   symbol: string;
   name: string;
   sector: string;
-  group: "spdr" | "industry" | "benchmark";
+  group: "benchmark";
+  row: ScanRow;
+  candles: ChartCandle[];
+}
+
+export interface ThemeChip {
+  symbol: string;
+  name: string;
+  change_pct: number;
+  perf: Perf;
+  score: number;
+  mw_green: boolean;
+  has_setup: boolean;
+  /** Secondary member: shown dimmed, not part of the theme index. */
+  also: boolean;
+}
+
+/** One theme: its equal-weight index (row + candles) and member chips. */
+export interface ThemeCard {
+  id: string;
+  name: string;
+  description: string;
+  /** Primary members (the ones in the index). */
+  count: number;
+  members: ThemeChip[];
+  also: ThemeChip[];
   row: ScanRow;
   candles: ChartCandle[];
 }
@@ -161,9 +203,10 @@ export const api = {
   scan: () => get<{ as_of: string | null; count: number; rows: ScanRow[] }>("/api/scan?min_price=0&min_dollar_volume=0"),
   symbol: (symbol: string) =>
     get<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> }>(`/api/symbol/${encodeURIComponent(symbol)}`),
-  sectors: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: SectorEtf[] }>(`/api/sectors?tf=${tf}&bars=${bars}`),
+  /** Theme cards, strongest first. */
+  themes: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; themes: ThemeCard[] }>(`/api/themes?tf=${tf}&bars=${bars}`),
   /** QQQ, SPY and IWM for the State of the Market tab. */
-  market: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: SectorEtf[] }>(`/api/market?tf=${tf}&bars=${bars}`),
+  market: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; etfs: MarketEtf[] }>(`/api/market?tf=${tf}&bars=${bars}`),
   watchlist: () => get<Watchlist>("/api/watchlist"),
   watch: (symbol: string) =>
     get<Watchlist>("/api/watchlist", {
