@@ -73,7 +73,7 @@ def test_theme_rows_have_performance_momentum_and_index_perf(result, history):
     assert fast["perf"]["1m"] > 0 > result.theme_rows["slow"]["perf"]["1m"]
     # Each member rises in a straight line, so the equal-weight index return equals the (identical) members' return.
     assert fast["perf"]["3m"] == pytest.approx(rows["F1"]["perf"]["3m"], abs=0.2)
-    assert "momentum" in [c["key"] for c in fast["score_breakdown"]]
+    assert "rs" in [c["key"] for c in fast["score_breakdown"]]
 
 
 def test_rows_expose_one_three_and_six_month_performance(result):

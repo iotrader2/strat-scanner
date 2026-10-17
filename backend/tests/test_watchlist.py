@@ -11,9 +11,10 @@ UNIVERSE = [
     Member("BRK-B", "Berkshire Hathaway", "Financials", "stock", "SP500"),
     Member("XLE", "Energy Select", "Energy", "etf", ""),
 ]
+LEADER = {"rs": 0.95, "leadership": {"breakdown": "none"}}
 SCAN = [
-    {"symbol": "AAPL", "kind": "stock", "has_setup": True, "setup": "Inside week", "score": 80.0, "price": 250.5},
-    {"symbol": "TDY", "kind": "stock", "has_setup": False, "setup": None, "score": 40.0, "price": 619.0},
+    {"symbol": "AAPL", "kind": "stock", "has_setup": True, "setup": "Inside week", "score": 80.0, "price": 250.5, **LEADER},
+    {"symbol": "TDY", "kind": "stock", "has_setup": False, "setup": None, "score": 40.0, "price": 619.0, **LEADER},
 ]
 
 
@@ -154,17 +155,30 @@ def test_off_universe_symbols_are_refreshed_and_scanned_only_while_watched(clien
 
 def test_off_universe_rows_reach_the_scanner_only_through_its_filters(client):
     api.State.scan.append(
-        {"symbol": "PENNY", "kind": "stock", "has_setup": True, "price": 4.0, "avg_dollar_volume": 2e6, "score": 70.0}
+        {"symbol": "PENNY", "kind": "stock", "has_setup": True, "price": 4.0, "avg_dollar_volume": 2e6, "score": 70.0, **LEADER}
     )
     api.State.scan.append(
-        {"symbol": "NOSETUP", "kind": "stock", "has_setup": False, "price": 50.0, "avg_dollar_volume": 9e8, "score": 60.0}
+        {"symbol": "NOSETUP", "kind": "stock", "has_setup": False, "price": 50.0, "avg_dollar_volume": 9e8, "score": 60.0, **LEADER}
+    )
+    api.State.scan.append(
+        {"symbol": "LAGGARD", "kind": "stock", "has_setup": True, "price": 50.0, "avg_dollar_volume": 9e8, "score": 60.0,
+         "rs": 0.4, "leadership": {"breakdown": "none"}}
+    )
+    api.State.scan.append(
+        {"symbol": "BROKEN", "kind": "stock", "has_setup": True, "price": 50.0, "avg_dollar_volume": 9e8, "score": 60.0,
+         "rs": 0.97, "leadership": {"breakdown": "broken"}}
     )
     for r in api.State.scan[:2]:
         r.update(price=100.0, avg_dollar_volume=1e9, kind="stock")
     default = [r["symbol"] for r in client.get("/api/scan").json()["rows"]]
     loose = [r["symbol"] for r in client.get("/api/scan?min_price=1&min_dollar_volume=1000000").json()["rows"]]
     assert "PENNY" not in default and "PENNY" in loose
-    assert "NOSETUP" not in loose
+    assert "NOSETUP" in loose  # a leader needs no weekly setup
+    assert "LAGGARD" not in default and "BROKEN" not in default
+    everyone = [r["symbol"] for r in client.get("/api/scan?leaders_only=false").json()["rows"]]
+    assert {"LAGGARD", "BROKEN"} <= set(everyone)
+    loose_rs = [r["symbol"] for r in client.get("/api/scan?min_rs=0.3").json()["rows"]]
+    assert "LAGGARD" in loose_rs and "BROKEN" not in loose_rs
 
 
 def test_status_counts_only_symbols_in_the_current_universe(client):

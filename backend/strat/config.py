@@ -16,3 +16,6 @@ ADV_LOOKBACK_DAYS = int(os.environ.get("STRAT_ADV_LOOKBACK_DAYS", "20"))
 HISTORY_PERIOD = os.environ.get("STRAT_HISTORY_PERIOD", "3y")
 INCREMENTAL_PERIOD = os.environ.get("STRAT_INCREMENTAL_PERIOD", "3mo")
 DOWNLOAD_BATCH = int(os.environ.get("STRAT_DOWNLOAD_BATCH", "80"))
+
+# Cut the cached history off at this date (YYYY-MM-DD) to see the scanner as it would have looked then.
+AS_OF = os.environ.get("STRAT_AS_OF") or None
