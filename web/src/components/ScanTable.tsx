@@ -3,10 +3,56 @@ import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
 import { fmtCompact } from "../logScale";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
-import { NO_SETUP_LABEL } from "../watchlist";
+import { fmtRs, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
+
+/** Relative-strength percentile chip, with a flag when the leader is weakening or its trend is broken. */
+function RsChip({ row }: { row: ScanRow }) {
+  if (row.rs === null || row.rs === undefined) return null;
+  const level = row.leadership?.breakdown ?? "none";
+  const flag = level === "broken" ? " · broken" : level === "warning" ? " · weakening" : "";
+  const reasons = row.leadership?.breakdown_reasons ?? [];
+  const title = `Relative strength ${fmtRs(row.rs)}: blended 1M/3M/6M return percentile${reasons.length ? `. ${reasons.join("; ")}` : ""}`;
+  return (
+    <span className={`rs-chip ${level}`} title={title}>
+      RS {Math.round(row.rs * 100)}
+      {flag}
+    </span>
+  );
+}
+
+/** Trigger and distance cells: the weekly setup's trigger, or (muted) the nearest weekly high for a name with no setup. */
+function TriggerCells({ row }: { row: ScanRow }) {
+  const hint = triggerHint(row);
+  if (!hint) {
+    return (
+      <>
+        <td className="num">—</td>
+        <td className="num">—</td>
+      </>
+    );
+  }
+  if (hint.nearest) {
+    return (
+      <>
+        <td className="num muted" title={`Nearest trigger: ${hint.label}`}>
+          {hint.price.toFixed(2)}
+        </td>
+        <td className="num muted" title={`Nearest trigger: ${hint.label}`}>
+          {fmtPct(hint.distancePct)}
+        </td>
+      </>
+    );
+  }
+  return (
+    <>
+      <td className="num accent-text">{hint.price.toFixed(2)}</td>
+      <td className="num">{fmtPct(row.trigger_distance_pct)}</td>
+    </>
+  );
+}
 
 export type SortKey =
   | "score"
@@ -121,7 +167,7 @@ export function ScanTable({
             {header("trigger_distance_pct", "To trigger", "num")}
             {header("avg_volume", "Avg vol", "num")}
             {header("avg_dollar_volume", "Avg $vol", "num")}
-            {header("score", "Score", "num")}
+            {header("score", "Score", actions ? "num" : "num score-col")}
             {actions && <th className="actions-col">{actionsLabel}</th>}
           </tr>
         </thead>
@@ -139,6 +185,7 @@ export function ScanTable({
                   {r.symbol}
                   <EarningsIcon earnings={r.earnings} />
                   {r.kind === "etf" && <span className="etf-chip">ETF</span>}
+                  <RsChip row={r} />
                   {r.in_universe === false && <AddedChip />}
                 </div>
                 <div className="sub muted">{r.name}</div>
@@ -189,18 +236,17 @@ export function ScanTable({
                   </>
                 ) : (
                   <>
-                    <span className="no-setup">{NO_SETUP_LABEL}</span>
+                    <span className={noSetupLabel(r) === NO_SETUP_LEADER ? "no-setup leader" : "no-setup"}>{noSetupLabel(r)}</span>
                     <div className="sub muted reason" title={r.reason}>
                       {r.reason.split(" · ").filter((s) => !s.startsWith("No weekly")).join(" · ")}
                     </div>
                   </>
                 )}
               </td>
-              <td className="num accent-text">{r.trigger?.toFixed(2) ?? "—"}</td>
-              <td className="num">{fmtPct(r.trigger_distance_pct)}</td>
+              <TriggerCells row={r} />
               <td className="num">{fmtCompact(r.avg_volume)}</td>
               <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
-              <td className="num">
+              <td className={actions ? "num" : "num score-col"}>
                 <ScorePill score={r.score} row={r} />
               </td>
               {actions && (

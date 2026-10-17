@@ -115,8 +115,10 @@ export default function App() {
                   <LoadingIndicator label={`Refreshing ${refreshProgress(status.progress).pct ?? 0}%`} />
                 ) : (
                   <span className="muted">
-                    {status.symbols_cached}/{status.universe_size} symbols · updated{" "}
-                    {status.last_refresh ? new Date(status.last_refresh).toLocaleString() : "never"}
+                    {status.symbols_cached}/{status.universe_size} symbols ·{" "}
+                    {status.as_of
+                      ? `cut-off view, data through ${status.as_of}`
+                      : `updated ${status.last_refresh ? new Date(status.last_refresh).toLocaleString() : "never"}`}
                   </span>
                 )}
                 <button className="btn" onClick={refresh} disabled={!status || status.refreshing}>
@@ -139,7 +141,7 @@ export default function App() {
             </Routes>
           </main>
           <footer className="footer">
-            Long-bias Strat setups only · data from Yahoo Finance via yfinance, cached locally · not investment advice
+            Leadership-first, long-bias · Strat setups as timing · data from Yahoo Finance via yfinance, cached locally · not investment advice
           </footer>
         </div>
       </PositionsProvider>

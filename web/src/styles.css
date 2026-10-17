@@ -104,10 +104,10 @@ main { flex: 1; }
 
 .table-card { overflow: auto; }
 .scan-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.scan-table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 12px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--card); white-space: nowrap; }
+.scan-table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 12px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--card); white-space: nowrap; }
 .scan-table th.sortable { cursor: pointer; user-select: none; }
 .scan-table th.active { color: var(--text); }
-.scan-table td { padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.scan-table td { padding: 10px 7px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .scan-table tbody tr { cursor: pointer; transition: background 0.12s; }
 .scan-table tbody tr:hover { background: rgba(56, 189, 248, 0.04); }
 .num { text-align: right; white-space: nowrap; }
@@ -310,6 +310,10 @@ th.num { text-align: right; }
 .watch-btn.labelled { width: auto; height: 28px; padding: 0 11px; font-size: 13px; font-weight: 600; margin-left: 12px; vertical-align: 5px; }
 .watch-btn.inline { width: 20px; height: 20px; font-size: 13px; vertical-align: -3px; cursor: default; }
 .scan-table .watch-col { width: 38px; padding-right: 0; }
+.no-setup.leader { color: var(--green); border-color: rgba(34, 197, 94, 0.45); background: rgba(34, 197, 94, 0.08); font-weight: 600; }
+.rs-chip { font-size: 9.5px; font-weight: 700; color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 5px; padding: 1px 4px; white-space: nowrap; }
+.rs-chip.warning { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); }
+.rs-chip.broken { color: var(--red); border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.08); }
 .no-setup { display: inline-block; font-size: 12px; color: var(--muted); border: 1px dashed var(--border-2); border-radius: 999px; padding: 2px 9px; }
 .sector-head { gap: 10px; }
 .sector-head > div:first-child { flex: 1; min-width: 0; }
@@ -465,7 +469,7 @@ th.num { text-align: right; }
 @keyframes indeterminate { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 
 /* Performance (1M / 3M / 6M) and theme cards */
-.scan-table .perf-col { min-width: 62px; font-variant-numeric: tabular-nums; }
+.scan-table .perf-col { min-width: 56px; font-variant-numeric: tabular-nums; }
 .scan-table td.theme-cell { max-width: 150px; white-space: normal; line-height: 1.25; }
 .perf-strip { display: flex; gap: 6px; }
 .perf-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255, 255, 255, 0.015); }
@@ -501,3 +505,6 @@ th.num { text-align: right; }
   .refresh-banner { background: rgba(56, 189, 248, 0.12); border-bottom-color: var(--accent); }
   .refresh-track.indeterminate .refresh-fill { width: 100%; opacity: 0.5; }
 }
+
+/* The Score column stays in view when the table is wider than its card (narrow windows or long setup names). */
+.scan-table th.score-col, .scan-table td.score-col { position: sticky; right: 0; background: var(--card); padding-right: 12px; box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.5); }
