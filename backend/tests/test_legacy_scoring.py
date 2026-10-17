@@ -2,7 +2,7 @@ import pytest
 
 from strat.candles import Candle, timeframe_state
 from strat.perf import MomentumRanks
-from strat.scoring import (
+from strat.legacy_scoring import (
     ETF_MAX_RAW_POINTS,
     MAX_RAW_POINTS,
     MONTHLY_2U_POINTS,

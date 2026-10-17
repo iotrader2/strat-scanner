@@ -22,6 +22,21 @@ export interface TfState {
   hammer: boolean;
 }
 
+export type LeaderStatus = "leader" | "broken" | "laggard";
+
+export interface Leadership {
+  rs: number | null;
+  status: LeaderStatus;
+  /** Return minus the better of SPY/QQQ, in percentage points, per period. */
+  excess: Perf;
+  above_ma: Record<"10" | "20" | "50", boolean | null>;
+  off_52w_high_pct: number | null;
+  off_6m_high_pct: number | null;
+  /** "none", "warning" (weakening) or "broken" (trend lost: demoted and left off the leaders list). */
+  breakdown: "none" | "warning" | "broken";
+  breakdown_reasons: string[];
+}
+
 export interface ScoreComponent {
   key: string;
   label: string;
@@ -47,6 +62,11 @@ export interface ScanRow {
   theme_strength?: ThemeStrength | null;
   /** Price return in percent over the last 1, 3 and 6 months (null while the history is too short). */
   perf: Perf;
+  /** Blended 1M/3M/6M return percentile among peers (0..1); null while the history is too short. */
+  rs: number | null;
+  leader_status: LeaderStatus;
+  is_leader: boolean;
+  leadership: Leadership;
   kind: "stock" | "etf" | "theme";
   indexes: string;
   in_universe: boolean;
@@ -68,6 +88,10 @@ export interface ScanRow {
   setup: string | null;
   triggered: boolean | null;
   trigger_distance_pct: number | null;
+  /** For names with no weekly setup: the closest weekly high above price (this or last week's high). */
+  nearest_trigger: number | null;
+  nearest_trigger_label: string | null;
+  nearest_trigger_distance_pct: number | null;
   reason: string;
   tf: Record<Tf, TfState | null>;
   earnings?: Earnings | null;
@@ -106,6 +130,8 @@ export interface ChartCandle {
 
 export interface Status {
   last_refresh: string | null;
+  /** Set when the server runs on history cut off at a past date (STRAT_AS_OF). */
+  as_of: string | null;
   refreshing: boolean;
   progress: { done: number; total: number; message: string };
   error: string | null;
@@ -116,6 +142,8 @@ export interface Status {
 export interface AppConfig {
   min_price: number;
   min_dollar_volume: number;
+  /** Relative-strength percentile (0..1) a name needs to count as a leader. */
+  leader_min_rs: number;
   themes: ThemeInfo[];
 }
 
@@ -253,8 +281,9 @@ export const api = {
   status: () => get<Status>("/api/status"),
   config: () => get<AppConfig>("/api/config"),
   refresh: (full = false) => get<{ started: boolean }>(`/api/refresh?full=${full}`, { method: "POST" }),
-  // Liquidity filters are applied on the client, so fetch every weekly setup once.
-  scan: () => get<{ as_of: string | null; count: number; rows: ScanRow[] }>("/api/scan?min_price=0&min_dollar_volume=0"),
+  // Liquidity and leadership filters are applied on the client, so fetch every name once.
+  scan: () =>
+    get<{ as_of: string | null; count: number; rows: ScanRow[] }>("/api/scan?min_price=0&min_dollar_volume=0&leaders_only=false"),
   symbol: (symbol: string) =>
     get<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> }>(`/api/symbol/${encodeURIComponent(symbol)}`),
   /** Theme cards, strongest first. */
