@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { Position, ScanRow } from "../api";
 import { ActionMenu } from "../components/ActionMenu";
 import { Legend } from "../components/Badges";
-import { LoadingIndicator, SkeletonTable } from "../components/Loading";
+import { SkeletonTable } from "../components/Loading";
 import { ConfirmModal, EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
@@ -213,7 +213,7 @@ export default function Positions() {
       <AddPosition />
 
       <div className="table-meta">
-        <span className="muted">{data === null ? <LoadingIndicator label="Loading positions…" /> : `${held.length} open positions`}</span>
+        {data !== null && <span className="muted">{`${held.length} open positions`}</span>}
         <Legend />
       </div>
       {error && <div className="banner error">{error}</div>}
