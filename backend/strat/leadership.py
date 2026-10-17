@@ -21,7 +21,7 @@ MIN_HIGH_BARS = 60  # fewer bars than this and the "near highs" measures are ski
 
 # Relative strength versus QQQ: the outperformance (percentage points over QQQ's return) that earns full credit,
 # per period.
-FULL_EXCESS_PCT = {"1m": 15.0, "3m": 40.0, "6m": 70.0}
+FULL_EXCESS_PCT = {"1m": 45.0, "3m": 120.0, "6m": 210.0}
 BENCHMARK = "QQQ"
 
 # A leader needs at least this blended 1M/3M/6M return percentile among its peers (stocks vs stocks, ETFs vs ETFs):

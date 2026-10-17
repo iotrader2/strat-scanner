@@ -2,7 +2,7 @@
 
 Leadership comes first: relative strength of the 1M/3M/6M returns (against the peer group and against QQQ),
 theme strength and trend (price above a rising 10- and 20-day average) are 80% of the points. The weekly Strat setup is a timing overlay worth at most
-15 points. It is never a gate, and a name with no setup still scores on its leadership. A leader that is losing its
+10 points. It is never a gate, and a name with no setup still scores on its leadership. A leader that is losing its
 trend (lost moving averages, a deep drawdown from the high, 1M momentum turning negative) is demoted by a breakdown penalty.
 """
 
@@ -39,29 +39,42 @@ from .legacy_scoring import (
     proximity_points as legacy_proximity_points,
     trigger_distance_pct,
 )
+from .pricebehavior import (
+    CONTRACTION_RANGE,
+    CONTRACTION_WEIGHT,
+    KILL_LOOKBACK,
+    KILL_PENALTY,
+    RELATIVE_RANGE,
+    RELATIVE_WEIGHT,
+    KillCandle,
+    Tightness,
+    tightness_fraction,
+)
 from .perf import MOMENTUM_WEIGHTS, PERIOD_LABELS, PERIODS, Momentum
 
 __all__ = ["ThemeStrength", "Score", "score_symbol", "trigger_distance_pct", "liquidity_points", "max_raw_points"]
 
-# Leadership (80 of 100, plus 5 for liquidity)
-RS_POINTS = 32.0  # blended 1M/3M/6M return percentile within the peer group
-QQQ_POINTS = 15.0  # outperformance over QQQ
-THEME_POINTS = 20.0  # rank of the stock's primary theme on the Themes page
-TREND_POINTS = 13.0  # price above a rising 10-day and a rising 20-day average
+# Leadership (80 of 100, plus 5 for range tightness and 5 for liquidity). Chosen with the rank-quality backtest (README):
+# the size of the outperformance over QQQ ranks big winners far better than the percentile, which saturates at P99.
+RS_POINTS = 15.0  # blended 1M/3M/6M return percentile within the peer group
+QQQ_POINTS = 45.0  # outperformance over QQQ
+THEME_POINTS = 10.0  # rank of the stock's primary theme on the Themes page
+TREND_POINTS = 10.0  # price above a rising 10-day and a rising 20-day average
+TIGHTNESS_POINTS = 5.0  # calm, contracting daily ranges
 LIQUIDITY_POINTS = 5.0
 
-# Strat timing overlay (15 of 100)
-SETUP_OVERLAY_POINTS = 6.0
-PROXIMITY_OVERLAY_POINTS = 4.0
-CONTINUITY_POINTS = {"M": 1.0, "W": 1.0, "D": 0.5}
-FULL_CONTINUITY_BONUS = 0.5
-MONTHLY_2U_POINTS = 2.0
+# Strat timing overlay (10 of 100)
+SETUP_OVERLAY_POINTS = 4.0
+PROXIMITY_OVERLAY_POINTS = 2.5
+CONTINUITY_POINTS = {"M": 0.75, "W": 0.75, "D": 0.25}
+FULL_CONTINUITY_BONUS = 0.25
+MONTHLY_2U_POINTS = 1.5
 CONTINUITY_MAX = sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS
 STRAT_OVERLAY_MAX = SETUP_OVERLAY_POINTS + PROXIMITY_OVERLAY_POINTS + CONTINUITY_MAX + MONTHLY_2U_POINTS
 
 TREND_PERIODS = (10, 20)  # only these averages score; the 50-day and the highs only feed the breakdown rules
-TREND_ABOVE_POINTS = 4.0  # per average the price is above
-TREND_RISING_POINTS = 2.5  # per average that is rising (above its value 5 bars ago)
+TREND_ABOVE_POINTS = 3.0  # per average the price is above
+TREND_RISING_POINTS = 2.0  # per average that is rising (above its value 5 bars ago)
 TREND_PER_MA_POINTS = TREND_ABOVE_POINTS + TREND_RISING_POINTS
 TREND_SUB_WEIGHTS = [
     f"10-day {TREND_PER_MA_POINTS:g} pts · 20-day {TREND_PER_MA_POINTS:g} pts",
@@ -78,7 +91,7 @@ WARNING_FACTOR = 0.9
 
 # ETFs belong to no theme and themes are not traded, so they are scored without those components on a smaller scale.
 STOCK_MAX_RAW_POINTS = (
-    RS_POINTS + QQQ_POINTS + THEME_POINTS + TREND_POINTS + STRAT_OVERLAY_MAX + LIQUIDITY_POINTS
+    RS_POINTS + QQQ_POINTS + THEME_POINTS + TREND_POINTS + TIGHTNESS_POINTS + STRAT_OVERLAY_MAX + LIQUIDITY_POINTS
 )
 ETF_MAX_RAW_POINTS = STOCK_MAX_RAW_POINTS - THEME_POINTS
 THEME_MAX_RAW_POINTS = ETF_MAX_RAW_POINTS - LIQUIDITY_POINTS
@@ -162,6 +175,8 @@ def score_symbol(
     trend: Optional[Trend] = None,
     excess: Optional[Mapping[str, Optional[float]]] = None,
     trend_break: Optional[Breakdown] = None,
+    tightness: Optional[Tightness] = None,
+    kill: Optional[KillCandle] = None,
 ) -> Score:
     """Score one symbol.
 
@@ -177,6 +192,7 @@ def score_symbol(
     if kind == "stock":
         parts.append(_theme_component(theme, theme_name))
     parts.append(_trend_component(trend))
+    parts.append(_tightness_component(tightness))
 
     weekly = states.get(SETUP_TF)
     scored = [
@@ -252,6 +268,9 @@ def score_symbol(
         detail = "; ".join(trend_break.reasons) + f" — score × {keep:g}"
         parts.append(Component("breakdown", label, -raw * (1 - keep), 0.0, detail))
         raw *= keep
+    if kill is not None and kill.penalty > 0:
+        parts.append(_kill_component(kill, raw))
+        raw *= 1 - kill.penalty
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
         penalty = -raw * (1 - PINNED_PENALTY)
         parts.append(
@@ -275,6 +294,8 @@ def score_symbol(
         reasons.append("Green on " + "+".join(green))
     else:
         reasons.append("No green continuity")
+    if kill is not None and kill.penalty > 0:
+        reasons.append(f"Kill candle {kill.date} (score -{kill.penalty * 100:.0f}%)")
     if trend_break.level != "none":
         reasons.append(("Broken: " if trend_break.level == BROKEN else "Weakening: ") + "; ".join(trend_break.reasons))
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
@@ -376,3 +397,27 @@ def _trend_component(trend: Optional[Trend]) -> Component:
         else:
             bits.append(f"{p}-day {'above' if above else 'below'}{' & rising' if trend.rising.get(p) else ''}")
     return Component("trend", label, trend_points(trend), TREND_POINTS, "; ".join(bits), sub_weights=TREND_SUB_WEIGHTS)
+
+
+def _tightness_component(t: Optional[Tightness]) -> Component:
+    label = "Range tightness"
+    subs = [
+        f"last-10 vs 50-day range {RELATIVE_WEIGHT * 100:.0f}% (full at ≤{RELATIVE_RANGE[0]:g}×, none at ≥{RELATIVE_RANGE[1]:g}×)",
+        f"last-5 vs 20-day range {CONTRACTION_WEIGHT * 100:.0f}% (full at ≤{CONTRACTION_RANGE[0]:g}×, none at ≥{CONTRACTION_RANGE[1]:g}×)",
+    ]
+    if t is None:
+        return Component("tightness", label, 0.0, TIGHTNESS_POINTS, "not enough price history", sub_weights=subs)
+    detail = (
+        f"10-day range {t.range10_pct:.1f}% of price vs 50-day {t.range50_pct:.1f}% ({t.ratio:.2f}×); "
+        f"last 5 days {t.range5_pct:.1f}% vs 20-day {t.range20_pct:.1f}% ({t.contraction:.2f}×)"
+    )
+    return Component("tightness", label, TIGHTNESS_POINTS * tightness_fraction(t), TIGHTNESS_POINTS, detail, sub_weights=subs)
+
+
+def _kill_component(kill: KillCandle, raw: float) -> Component:
+    detail = (
+        f"{kill.age} session{'s' if kill.age != 1 else ''} ago: range {kill.range_x_atr:.1f}× the 20-day ATR, volume "
+        f"{kill.volume_x:.1f}× the 50-day average, closed {kill.close_position * 100:.0f}% up its range; "
+        f"{KILL_PENALTY * 100:.0f}% penalty fading over {KILL_LOOKBACK} sessions = score × {1 - kill.penalty:.2f}"
+    )
+    return Component("kill_candle", f"Kill candle ({kill.date})", -raw * kill.penalty, 0.0, detail)

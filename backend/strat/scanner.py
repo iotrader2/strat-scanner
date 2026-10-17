@@ -20,7 +20,9 @@ from .leadership import (
     nearest_trigger,
     trend_metrics,
 )
+from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout
 from .perf import MomentumRanks, Perf, period_returns
+from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
 from .scoring import TF_NAMES, ThemeStrength, trigger_distance_pct
 from .themes import Theme, ThemeMap, build_theme_index
 from .universe import Member
@@ -99,6 +101,9 @@ def scan_symbol(
     excess = qqq_excess(perf, qqq)
     long_rs = long_term_rs(momentum.percentiles) if momentum else None
     trend_break = assess_breakdown(trend, perf, long_rs)
+    tightness = range_stats(daily)
+    kill = find_kill_candle(daily)
+    breakout = find_breakout(daily, kill) if member.kind == "stock" and ((momentum.blended if momentum else None) or 0) >= MIN_BREAKOUT_RS else None
     if method == LEGACY:
         sc = legacy_scoring.score_symbol(
             states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
@@ -109,6 +114,7 @@ def scan_symbol(
         sc = scoring.score_symbol(
             states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
             theme_name=theme.name if theme else "", trend=trend, excess=excess, trend_break=trend_break,
+            tightness=tightness, kill=kill,
         )
         theme_points = scoring.theme_strength_points
     primary = sc.primary
@@ -155,6 +161,19 @@ def scan_symbol(
             "breakdown": trend_break.level,
             "breakdown_reasons": trend_break.reasons,
         },
+        "tightness": (
+            {
+                "range10_pct": round(tightness.range10_pct, 2),
+                "range50_pct": round(tightness.range50_pct, 2),
+                "ratio": round(tightness.ratio, 3),
+                "contraction": round(tightness.contraction, 3),
+                "fraction": round(tightness_fraction(tightness), 3),
+            }
+            if tightness
+            else None
+        ),
+        "kill_candle": asdict(kill) if kill else None,
+        "breakout": asdict(breakout) if breakout else None,
         "kind": member.kind,
         "indexes": member.indexes,
         "in_universe": member.in_universe,
