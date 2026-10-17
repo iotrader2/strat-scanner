@@ -27,7 +27,7 @@ export type LeaderStatus = "leader" | "broken" | "laggard";
 export interface Leadership {
   rs: number | null;
   status: LeaderStatus;
-  /** Return minus the better of SPY/QQQ, in percentage points, per period. */
+  /** Return minus QQQ, in percentage points, per period. */
   excess: Perf;
   above_ma: Record<"10" | "20" | "50", boolean | null>;
   off_52w_high_pct: number | null;
@@ -42,6 +42,10 @@ export interface ScoreComponent {
   label: string;
   points: number;
   max_points: number;
+  /** Share of the 100-point score this line is worth (max points / max raw points, in percent). */
+  weight_pct: number;
+  /** Internal weighting, e.g. "1M 20%" for relative strength or "52-week high 6 pts" for near highs. */
+  sub_weights: string[];
   detail: string;
 }
 

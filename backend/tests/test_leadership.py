@@ -9,7 +9,7 @@ from strat.leadership import (
     WARNING,
     Breakdown,
     assess_breakdown,
-    benchmark_excess,
+    qqq_excess,
     is_leader,
     leader_status,
     long_term_rs,
@@ -58,14 +58,17 @@ class TestTrendMetrics:
         assert trend_metrics(_frame([])) is None
 
 
-class TestBenchmarkExcess:
-    def test_excess_is_measured_against_the_better_of_spy_and_qqq(self):
+class TestQqqExcess:
+    def test_excess_is_measured_against_qqq_only(self):
         perf = {"1m": 10.0, "3m": 30.0, "6m": None}
-        bench = {"SPY": {"1m": 2.0, "3m": 5.0, "6m": 9.0}, "QQQ": {"1m": 4.0, "3m": 3.0, "6m": 12.0}}
-        assert benchmark_excess(perf, bench) == {"1m": 6.0, "3m": 25.0, "6m": None}
+        qqq = {"1m": 4.0, "3m": 3.0, "6m": 12.0}
+        assert qqq_excess(perf, qqq) == {"1m": 6.0, "3m": 27.0, "6m": None}
 
-    def test_no_benchmarks_gives_no_excess(self):
-        assert benchmark_excess({"1m": 5.0, "3m": 5.0, "6m": 5.0}, {}) == {"1m": None, "3m": None, "6m": None}
+    def test_a_missing_qqq_period_gives_no_excess_for_it(self):
+        assert qqq_excess({"1m": 5.0, "3m": 5.0, "6m": 5.0}, {"1m": 1.0, "3m": None}) == {"1m": 4.0, "3m": None, "6m": None}
+
+    def test_no_qqq_gives_no_excess(self):
+        assert qqq_excess({"1m": 5.0, "3m": 5.0, "6m": 5.0}, None) == {"1m": None, "3m": None, "6m": None}
 
 
 class TestBreakdown:

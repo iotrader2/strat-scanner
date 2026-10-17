@@ -1,9 +1,9 @@
 """Leadership-first score for the Stock Scanner (0-100, higher is better).
 
-Leadership comes first: relative strength of the 1M/3M/6M returns (against the peer group and against SPY/QQQ),
-theme strength and trend quality are 80% of the points. The weekly Strat setup is a timing overlay worth at most
+Leadership comes first: relative strength of the 1M/3M/6M returns (against the peer group and against QQQ),
+theme strength and trend (price above a rising 10- and 20-day average) are 80% of the points. The weekly Strat setup is a timing overlay worth at most
 15 points. It is never a gate, and a name with no setup still scores on its leadership. A leader that is losing its
-trend (lost moving averages, a deep drawdown, 1M momentum turning negative) is demoted by a breakdown penalty.
+trend (lost moving averages, a deep drawdown from the high, 1M momentum turning negative) is demoted by a breakdown penalty.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from .candles import TWO_UP, TimeframeState
 from .leadership import (
     BROKEN,
     FULL_EXCESS_PCT,
-    MA_PERIODS,
     WARNING,
     Breakdown,
     Trend,
@@ -46,10 +45,9 @@ __all__ = ["ThemeStrength", "Score", "score_symbol", "trigger_distance_pct", "li
 
 # Leadership (80 of 100, plus 5 for liquidity)
 RS_POINTS = 32.0  # blended 1M/3M/6M return percentile within the peer group
-BENCH_POINTS = 15.0  # outperformance over the better of SPY and QQQ
-THEME_POINTS = 10.0  # rank of the stock's primary theme on the Themes page
-MA_POINTS = 12.0  # above rising 10/20/50-day averages
-HIGHS_POINTS = 11.0  # near the 52-week and 6-month highs
+QQQ_POINTS = 15.0  # outperformance over QQQ
+THEME_POINTS = 20.0  # rank of the stock's primary theme on the Themes page
+TREND_POINTS = 13.0  # price above a rising 10-day and a rising 20-day average
 LIQUIDITY_POINTS = 5.0
 
 # Strat timing overlay (15 of 100)
@@ -61,13 +59,18 @@ MONTHLY_2U_POINTS = 2.0
 CONTINUITY_MAX = sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS
 STRAT_OVERLAY_MAX = SETUP_OVERLAY_POINTS + PROXIMITY_OVERLAY_POINTS + CONTINUITY_MAX + MONTHLY_2U_POINTS
 
-MA_ABOVE_POINTS = 2.5  # per average the price is above (10, 20, 50)
-MA_RISING_POINTS = 1.0  # per average that is rising
-MA_STACKED_POINTS = 1.5  # 10 > 20 > 50
-HIGH_52W_POINTS = 6.0
-HIGH_52W_WINDOW_PCT = 25.0  # full credit at the high, none 25% or more below it
-HIGH_6M_POINTS = 5.0
-HIGH_6M_WINDOW_PCT = 15.0
+TREND_PERIODS = (10, 20)  # only these averages score; the 50-day and the highs only feed the breakdown rules
+TREND_ABOVE_POINTS = 4.0  # per average the price is above
+TREND_RISING_POINTS = 2.5  # per average that is rising (above its value 5 bars ago)
+TREND_PER_MA_POINTS = TREND_ABOVE_POINTS + TREND_RISING_POINTS
+TREND_SUB_WEIGHTS = [
+    f"10-day {TREND_PER_MA_POINTS:g} pts · 20-day {TREND_PER_MA_POINTS:g} pts",
+    f"each: price above {TREND_ABOVE_POINTS:g} + average rising {TREND_RISING_POINTS:g}",
+]
+CONTINUITY_SUB_WEIGHTS = [
+    "Monthly " + f"{CONTINUITY_POINTS['M']:g}", "Weekly " + f"{CONTINUITY_POINTS['W']:g}",
+    "Daily " + f"{CONTINUITY_POINTS['D']:g}", f"all three +{FULL_CONTINUITY_BONUS:g}",
+]
 
 # Breakdown: share of the score that is kept.
 BROKEN_FACTOR = 0.5
@@ -75,7 +78,7 @@ WARNING_FACTOR = 0.9
 
 # ETFs belong to no theme and themes are not traded, so they are scored without those components on a smaller scale.
 STOCK_MAX_RAW_POINTS = (
-    RS_POINTS + BENCH_POINTS + THEME_POINTS + MA_POINTS + HIGHS_POINTS + STRAT_OVERLAY_MAX + LIQUIDITY_POINTS
+    RS_POINTS + QQQ_POINTS + THEME_POINTS + TREND_POINTS + STRAT_OVERLAY_MAX + LIQUIDITY_POINTS
 )
 ETF_MAX_RAW_POINTS = STOCK_MAX_RAW_POINTS - THEME_POINTS
 THEME_MAX_RAW_POINTS = ETF_MAX_RAW_POINTS - LIQUIDITY_POINTS
@@ -125,8 +128,8 @@ def relative_strength_points(momentum: Optional[Momentum]) -> float:
     return RS_POINTS * min(1.0, max(0.0, momentum.blended))
 
 
-def benchmark_points(excess: Optional[Mapping[str, Optional[float]]]) -> float:
-    """Weighted credit for beating the better of SPY/QQQ: full at +15 / +40 / +70 points over 1M / 3M / 6M."""
+def qqq_points(excess: Optional[Mapping[str, Optional[float]]]) -> float:
+    """Weighted credit for beating QQQ: full at +15 / +40 / +70 points over 1M / 3M / 6M."""
     if not excess:
         return 0.0
     have = {p: excess.get(p) for p in PERIODS if excess.get(p) is not None}
@@ -134,26 +137,17 @@ def benchmark_points(excess: Optional[Mapping[str, Optional[float]]]) -> float:
     if not total:
         return 0.0
     frac = sum(MOMENTUM_WEIGHTS[p] * min(1.0, max(0.0, v / FULL_EXCESS_PCT[p])) for p, v in have.items()) / total
-    return BENCH_POINTS * frac
+    return QQQ_POINTS * frac
 
 
-def ma_points(trend: Optional[Trend]) -> float:
+def trend_points(trend: Optional[Trend]) -> float:
+    """Price above a rising 10-day and a rising 20-day average: 4 for being above plus 2.5 for rising, each."""
     if trend is None:
         return 0.0
-    pts = sum(MA_ABOVE_POINTS for p in MA_PERIODS if trend.above(p))
-    pts += sum(MA_RISING_POINTS for p in MA_PERIODS if trend.rising.get(p))
-    return pts + (MA_STACKED_POINTS if trend.stacked else 0.0)
-
-
-def highs_points(trend: Optional[Trend]) -> float:
-    if trend is None:
-        return 0.0
-    pts = 0.0
-    if trend.off_52w_high_pct is not None:
-        pts += HIGH_52W_POINTS * max(0.0, 1.0 - trend.off_52w_high_pct / HIGH_52W_WINDOW_PCT)
-    if trend.off_6m_high_pct is not None:
-        pts += HIGH_6M_POINTS * max(0.0, 1.0 - trend.off_6m_high_pct / HIGH_6M_WINDOW_PCT)
-    return pts
+    return sum(
+        (TREND_ABOVE_POINTS if trend.above(p) else 0.0) + (TREND_RISING_POINTS if trend.rising.get(p) else 0.0)
+        for p in TREND_PERIODS
+    )
 
 
 def score_symbol(
@@ -172,18 +166,17 @@ def score_symbol(
     """Score one symbol.
 
     ``momentum`` holds its 1M/3M/6M returns and their percentile ranks within the peer group; ``excess`` is each
-    return minus the better of SPY/QQQ; ``trend`` the moving-average and high structure; ``trend_break`` whether the
+    return minus QQQ; ``trend`` the moving-average and high structure; ``trend_break`` whether the
     leader is losing that trend. Stocks also get Theme strength from their primary theme (``theme``).
     """
     trend_break = trend_break or Breakdown("none")
     parts: list[Component] = []
 
     parts.append(_rs_component(momentum))
-    parts.append(_bench_component(excess))
+    parts.append(_qqq_component(excess))
     if kind == "stock":
         parts.append(_theme_component(theme, theme_name))
-    parts.append(_ma_component(trend))
-    parts.append(_highs_component(trend))
+    parts.append(_trend_component(trend))
 
     weekly = states.get(SETUP_TF)
     scored = [
@@ -226,7 +219,9 @@ def score_symbol(
     cont_detail = " ".join(f"{tf} +{CONTINUITY_POINTS[tf]:g}" for tf in green) or "no timeframe green"
     if full:
         cont_detail += f", full M+W+D bonus +{FULL_CONTINUITY_BONUS:g}"
-    parts.append(Component("continuity", "Strat timing · continuity", cont, CONTINUITY_MAX, cont_detail))
+    parts.append(
+        Component("continuity", "Strat timing · continuity", cont, CONTINUITY_MAX, cont_detail, sub_weights=CONTINUITY_SUB_WEIGHTS)
+    )
 
     monthly = states.get("M")
     monthly_2u = bool(monthly and monthly.strat == TWO_UP)
@@ -245,6 +240,10 @@ def score_symbol(
                 f"avg ${avg_dollar_volume / 1e6:,.0f}M/day (log scale, 0 at $50M, max at $5B)",
             )
         )
+
+    max_raw = max_raw_points(kind)
+    for c in parts:
+        c.weight_pct = round(c.max_points / max_raw * 100.0, 1)
 
     raw = sum(c.points for c in parts)
     if trend_break.level in (BROKEN, WARNING):
@@ -282,7 +281,6 @@ def score_symbol(
         reasons.append(f"Very low volatility (avg range {atr_pct:.2f}%), possibly pinned by a deal")
 
     rs = momentum.blended if momentum else None
-    max_raw = max_raw_points(kind)
     return Score(
         score=round(max(0.0, min(100.0, raw * 100.0 / max_raw)), 1),
         raw=round(raw, 2),
@@ -305,9 +303,16 @@ def _peer_label(momentum: Momentum) -> str:
     return {"stock": "stocks", "etf": "ETFs", "theme": "themes"}.get(momentum.group, "peers")
 
 
+def _rs_sub_weights() -> list[str]:
+    return [f"{PERIOD_LABELS[p]} {MOMENTUM_WEIGHTS[p] * 100:.0f}%" for p in PERIODS]
+
+
 def _rs_component(momentum: Optional[Momentum]) -> Component:
     if momentum is None or momentum.blended is None:
-        return Component("rs", "Relative strength", 0.0, RS_POINTS, "not enough price history for a 1M/3M/6M return")
+        return Component(
+            "rs", "Relative strength", 0.0, RS_POINTS, "not enough price history for a 1M/3M/6M return",
+            sub_weights=_rs_sub_weights(),
+        )
     parts = []
     for p in PERIODS:
         ret, pct = momentum.returns[p], momentum.percentiles[p]
@@ -320,21 +325,27 @@ def _rs_component(momentum: Optional[Momentum]) -> Component:
         f"{' · '.join(parts)}; percentile among {n} {_peer_label(momentum)}, weighted {weights} (1M/3M/6M) "
         f"= P{momentum.blended * 100:.0f}; {RS_POINTS:g} × {momentum.blended:.2f}"
     )
-    return Component("rs", f"Relative strength · P{momentum.blended * 100:.0f}", relative_strength_points(momentum), RS_POINTS, detail)
+    return Component(
+        "rs", f"Relative strength · P{momentum.blended * 100:.0f}", relative_strength_points(momentum), RS_POINTS, detail,
+        sub_weights=_rs_sub_weights(),
+    )
 
 
-def _bench_component(excess: Optional[Mapping[str, Optional[float]]]) -> Component:
-    label = "Vs SPY / QQQ"
+def _qqq_component(excess: Optional[Mapping[str, Optional[float]]]) -> Component:
+    label = "Vs QQQ"
+    subs = [
+        f"{PERIOD_LABELS[p]} {MOMENTUM_WEIGHTS[p] * 100:.0f}% (full at +{FULL_EXCESS_PCT[p]:g} pts)" for p in PERIODS
+    ]
     if not excess or all(excess.get(p) is None for p in PERIODS):
-        return Component("bench", label, 0.0, BENCH_POINTS, "no SPY/QQQ comparison available")
+        return Component("qqq", label, 0.0, QQQ_POINTS, "no QQQ comparison available", sub_weights=subs)
     bits = [
         f"{PERIOD_LABELS[p]} {excess[p]:+.1f} pts (full at +{FULL_EXCESS_PCT[p]:g})"
         for p in PERIODS
         if excess.get(p) is not None
     ]
     return Component(
-        "bench", label, benchmark_points(excess), BENCH_POINTS,
-        "return minus the better of SPY/QQQ: " + " · ".join(bits),
+        "qqq", label, qqq_points(excess), QQQ_POINTS,
+        "return minus QQQ: " + " · ".join(bits), sub_weights=subs,
     )
 
 
@@ -353,29 +364,15 @@ def _theme_component(theme: Optional[ThemeStrength], theme_name: str) -> Compone
     )
 
 
-def _ma_component(trend: Optional[Trend]) -> Component:
-    label = "Trend · moving averages"
+def _trend_component(trend: Optional[Trend]) -> Component:
+    label = "Trend"
     if trend is None:
-        return Component("trend_ma", label, 0.0, MA_POINTS, "not enough price history")
+        return Component("trend", label, 0.0, TREND_POINTS, "not enough price history", sub_weights=TREND_SUB_WEIGHTS)
     bits = []
-    for p in MA_PERIODS:
+    for p in TREND_PERIODS:
         above = trend.above(p)
         if above is None:
-            bits.append(f"{p}d n/a")
+            bits.append(f"{p}-day n/a")
         else:
-            bits.append(f"{p}d {'above' if above else 'below'}{' & rising' if trend.rising.get(p) else ''}")
-    if trend.stacked:
-        bits.append("10 > 20 > 50")
-    return Component("trend_ma", label, ma_points(trend), MA_POINTS, "; ".join(bits))
-
-
-def _highs_component(trend: Optional[Trend]) -> Component:
-    label = "Trend · near highs"
-    if trend is None or (trend.off_52w_high_pct is None and trend.off_6m_high_pct is None):
-        return Component("trend_highs", label, 0.0, HIGHS_POINTS, "not enough price history")
-    bits = []
-    if trend.off_52w_high_pct is not None:
-        bits.append(f"{trend.off_52w_high_pct:.1f}% below the 52-week high")
-    if trend.off_6m_high_pct is not None:
-        bits.append(f"{trend.off_6m_high_pct:.1f}% below the 6-month high")
-    return Component("trend_highs", label, highs_points(trend), HIGHS_POINTS, "; ".join(bits) + " (full credit at the high, none 25% / 15% below)")
+            bits.append(f"{p}-day {'above' if above else 'below'}{' & rising' if trend.rising.get(p) else ''}")
+    return Component("trend", label, trend_points(trend), TREND_POINTS, "; ".join(bits), sub_weights=TREND_SUB_WEIGHTS)

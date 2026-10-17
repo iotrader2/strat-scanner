@@ -12,9 +12,9 @@ from .candles import Candle, TimeframeState, classify_series, is_hammer, timefra
 from .data import resample
 from . import legacy_scoring, scoring
 from .leadership import (
-    BENCHMARKS,
+    BENCHMARK,
     assess_breakdown,
-    benchmark_excess,
+    qqq_excess,
     leader_status,
     long_term_rs,
     nearest_trigger,
@@ -68,12 +68,12 @@ def scan_symbol(
     strengths: Optional[Mapping[str, ThemeStrength]] = None,
     ranks: Optional[MomentumRanks] = None,
     themes: Optional[ThemeMap] = None,
-    benchmarks: Optional[Mapping[str, Perf]] = None,
+    qqq: Optional[Perf] = None,
     method: str = LEADERS,
 ) -> Optional[dict]:
     """Scan one symbol.
 
-    ``ranks`` supplies the peer distributions for relative strength and ``benchmarks`` the SPY/QQQ returns; stocks
+    ``ranks`` supplies the peer distributions for relative strength and ``qqq`` the QQQ returns; stocks
     also get Theme strength from ``strengths`` (see ``theme_strengths``) for their primary theme in ``themes``.
     ``method`` is ``"leaders"`` (the leadership-first score) or ``"legacy"`` (the old Strat-first score).
     """
@@ -96,7 +96,7 @@ def scan_symbol(
     secondary = themes.secondary.get(member.symbol, []) if themes and member.kind == "stock" else []
     secondary_names = [themes.by_id(t).name for t in secondary] if themes else []
     trend = trend_metrics(daily)
-    excess = benchmark_excess(perf, benchmarks or {})
+    excess = qqq_excess(perf, qqq)
     long_rs = long_term_rs(momentum.percentiles) if momentum else None
     trend_break = assess_breakdown(trend, perf, long_rs)
     if method == LEGACY:
@@ -173,6 +173,8 @@ def scan_symbol(
                 "label": c.label,
                 "points": round(c.points, 2),
                 "max_points": c.max_points,
+                "weight_pct": c.weight_pct,
+                "sub_weights": c.sub_weights,
                 "detail": c.detail,
             }
             for c in sc.breakdown
@@ -206,7 +208,7 @@ class ScanResult:
     strengths: dict[str, ThemeStrength] = field(default_factory=dict)
     ranks: MomentumRanks = field(default_factory=lambda: MomentumRanks({}))
     themes: Optional[ThemeMap] = None
-    benchmarks: dict[str, Perf] = field(default_factory=dict)  # SPY / QQQ returns
+    qqq: dict[str, Optional[float]] = field(default_factory=dict)  # QQQ returns
     method: str = LEADERS
 
 
@@ -235,16 +237,13 @@ def scan_all(
             theme_daily[theme.id] = index
             perf_by_group["theme"][theme.id] = period_returns(index.close)
     ranks = MomentumRanks.from_perf(perf_by_group)
-    benchmarks = {
-        sym: period_returns(daily_by_symbol[sym].close)
-        for sym in BENCHMARKS
-        if daily_by_symbol.get(sym) is not None and len(daily_by_symbol[sym]) >= 30
-    }
+    bench_daily = daily_by_symbol.get(BENCHMARK)
+    qqq = period_returns(bench_daily.close) if bench_daily is not None and len(bench_daily) >= 30 else {}
 
     theme_rows = {}
     for theme in themes.themes if themes else []:
         if theme.id in theme_daily:
-            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks, benchmarks=benchmarks, method=method)
+            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks, qqq=qqq, method=method)
             if row:
                 theme_rows[theme.id] = row
     strengths = theme_strengths(theme_rows, themes)
@@ -252,11 +251,11 @@ def scan_all(
     rows = []
     for m in members:
         if m.kind != "theme":
-            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, benchmarks, method)
+            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method)
             if row:
                 rows.append(row)
     rows.sort(key=lambda r: r["score"], reverse=True)
-    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes, benchmarks, method)
+    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes, qqq, method)
 
 
 def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:

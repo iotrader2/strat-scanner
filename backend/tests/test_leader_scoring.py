@@ -2,26 +2,24 @@ import pandas as pd
 import pytest
 
 from strat.candles import Candle, timeframe_state
-from strat.leadership import Breakdown, benchmark_excess, trend_metrics
+from strat.leadership import Breakdown, Trend, qqq_excess, trend_metrics
 from strat.perf import MomentumRanks
 from strat.scanner import LEGACY, scan_all, scan_symbol
 from strat.scoring import (
-    BENCH_POINTS,
+    QQQ_POINTS,
     BROKEN_FACTOR,
     ETF_MAX_RAW_POINTS,
-    HIGHS_POINTS,
-    MA_POINTS,
     MAX_RAW_POINTS,
     RS_POINTS,
     STRAT_OVERLAY_MAX,
     THEME_MAX_RAW_POINTS,
     THEME_POINTS,
+    TREND_POINTS,
     WARNING_FACTOR,
     ThemeStrength,
-    benchmark_points,
-    highs_points,
-    ma_points,
+    qqq_points,
     score_symbol,
+    trend_points,
 )
 from strat.themes import parse_themes
 from strat.universe import Member
@@ -32,7 +30,7 @@ PEERS = {
 RANKS = MomentumRanks.from_perf(PEERS)
 LEADER_PERF = {"1m": 95.0, "3m": 95.0, "6m": 95.0}  # P96
 LAGGARD_PERF = {"1m": 10.0, "3m": 10.0, "6m": 10.0}  # P10
-BENCH = {"SPY": {"1m": 1.0, "3m": 3.0, "6m": 6.0}, "QQQ": {"1m": 2.0, "3m": 4.0, "6m": 8.0}}
+QQQ = {"1m": 2.0, "3m": 4.0, "6m": 8.0}
 
 
 def _states(m, w, d):
@@ -61,7 +59,7 @@ WEAK_TREND = trend_metrics(_frame([250 - i * 0.5 for i in range(300)]))
 def _score(states, perf, trend=STRONG_TREND, trend_break=None, kind="stock", theme=None, **kw):
     return score_symbol(
         states, 105.0, 1e9, kind=kind, momentum=RANKS.momentum(kind, perf), trend=trend,
-        excess=benchmark_excess({"1m": perf["1m"], "3m": perf["3m"], "6m": perf["6m"]}, BENCH),
+        excess=qqq_excess({"1m": perf["1m"], "3m": perf["3m"], "6m": perf["6m"]}, QQQ),
         trend_break=trend_break, theme=theme, **kw,
     )
 
@@ -72,7 +70,7 @@ TOP_THEME = ThemeStrength("memory", "Memory", 90.0, 1, 40, "memory", 90.0, "Memo
 class TestScale:
     def test_components_add_up_to_exactly_100_for_stocks(self):
         assert MAX_RAW_POINTS == 100
-        assert RS_POINTS + BENCH_POINTS + THEME_POINTS + MA_POINTS + HIGHS_POINTS + STRAT_OVERLAY_MAX + 5 == 100
+        assert RS_POINTS + QQQ_POINTS + THEME_POINTS + TREND_POINTS + STRAT_OVERLAY_MAX + 5 == 100
 
     def test_etfs_and_themes_drop_the_components_they_cannot_have(self):
         assert ETF_MAX_RAW_POINTS == 100 - THEME_POINTS
@@ -83,14 +81,43 @@ class TestScale:
         assert STRAT_OVERLAY_MAX / MAX_RAW_POINTS <= 0.15
 
     def test_leadership_is_most_of_the_score(self):
-        assert (RS_POINTS + BENCH_POINTS + THEME_POINTS + MA_POINTS + HIGHS_POINTS) >= 0.75 * MAX_RAW_POINTS
+        assert (RS_POINTS + QQQ_POINTS + THEME_POINTS + TREND_POINTS) >= 0.75 * MAX_RAW_POINTS
 
     def test_a_perfect_name_scores_100(self):
         s = _score(
             _states(GREEN_UP, INSIDE_GREEN, GREEN_UP), {"1m": 99.0, "3m": 99.0, "6m": 99.0}, theme=TOP_THEME,
         )
         assert s.score <= 100.0
-        assert [c.key for c in s.breakdown][:5] == ["rs", "bench", "theme_strength", "trend_ma", "trend_highs"]
+        assert [c.key for c in s.breakdown][:4] == ["rs", "qqq", "theme_strength", "trend"]
+
+
+class TestWeights:
+    def test_stock_weights_are_the_max_points_and_add_up_to_100(self):
+        s = _score(NO_SETUP, LEADER_PERF, theme=TOP_THEME, theme_name="Memory")
+        by = {c.key: c for c in s.breakdown}
+        assert by["rs"].weight_pct == 32 and by["qqq"].weight_pct == 15 and by["theme_strength"].weight_pct == 20
+        assert by["trend"].weight_pct == 13 and by["liquidity"].weight_pct == 5
+        assert sum(c.weight_pct for c in s.breakdown) == pytest.approx(100.0, abs=0.2)
+
+    def test_etf_weights_are_rescaled_to_100(self):
+        s = _score(NO_SETUP, LEADER_PERF, kind="etf")
+        assert "theme_strength" not in {c.key for c in s.breakdown}
+        assert sum(c.weight_pct for c in s.breakdown) == pytest.approx(100.0, abs=0.2)
+        assert {c.key: c.weight_pct for c in s.breakdown}["rs"] == pytest.approx(32 / 80 * 100, abs=0.05)
+
+    def test_penalties_have_no_weight(self):
+        s = _score(NO_SETUP, LEADER_PERF, trend_break=Breakdown("broken", ["below the 50-day average"]))
+        assert {c.key: c.weight_pct for c in s.breakdown}["breakdown"] == 0
+
+    def test_sub_weights_are_listed(self):
+        by = {c.key: c for c in _score(NO_SETUP, LEADER_PERF).breakdown}
+        assert by["rs"].sub_weights == ["1M 20%", "3M 40%", "6M 40%"]
+        assert by["qqq"].sub_weights == [
+            "1M 20% (full at +15 pts)", "3M 40% (full at +40 pts)", "6M 40% (full at +70 pts)",
+        ]
+        assert by["trend"].sub_weights[0] == "10-day 6.5 pts · 20-day 6.5 pts"
+        assert "above 4" in by["trend"].sub_weights[1] and "rising 2.5" in by["trend"].sub_weights[1]
+        assert by["continuity"].sub_weights[-1] == "all three +0.5"
 
 
 class TestLeadershipComesFirst:
@@ -126,41 +153,50 @@ class TestLeadershipComesFirst:
 
 
 class TestComponents:
-    def test_moving_average_points(self):
-        assert ma_points(STRONG_TREND) == pytest.approx(3 * 2.5 + 3 * 1 + 1.5) == MA_POINTS
-        assert ma_points(WEAK_TREND) == 0
-        assert ma_points(None) == 0
+    def test_trend_points_use_only_the_rising_10_and_20_day_averages(self):
+        assert trend_points(STRONG_TREND) == pytest.approx(TREND_POINTS) == 13
+        assert trend_points(WEAK_TREND) == 0
+        assert trend_points(None) == 0
 
-    def test_near_high_points_fall_to_zero_far_from_the_highs(self):
-        assert highs_points(STRONG_TREND) == pytest.approx(HIGHS_POINTS)
-        assert highs_points(WEAK_TREND) == 0
-        assert highs_points(None) == 0
+    def test_trend_gives_partial_credit_for_above_or_rising_alone(self):
+        def trend(above10, rising10, above20, rising20):
+            # one shared price of 101: an average of 100 is under it (above), 102 is over it (below)
+            sma = {10: 100.0 if above10 else 102.0, 20: 100.0 if above20 else 102.0, 50: 0.0}
+            return Trend(101.0, sma, {10: rising10, 20: rising20, 50: False}, 0.0, 0.0, 300)
 
-    def test_benchmark_points_scale_with_outperformance(self):
+        assert trend_points(trend(True, True, True, True)) == 13
+        assert trend_points(trend(True, False, True, False)) == pytest.approx(8.0)
+        assert trend_points(trend(False, True, False, True)) == pytest.approx(5.0)
+        assert trend_points(trend(True, True, False, False)) == pytest.approx(6.5)
+
+    def test_the_50_day_and_the_highs_no_longer_score(self):
+        far_below_highs = Trend(101.0, {10: 100.0, 20: 100.0, 50: 200.0}, {10: True, 20: True, 50: False}, 60.0, 40.0, 300)
+        assert trend_points(far_below_highs) == 13
+
+    def test_qqq_points_scale_with_outperformance(self):
         full = {"1m": 15.0, "3m": 40.0, "6m": 70.0}
         half = {p: v / 2 for p, v in full.items()}
-        assert benchmark_points(full) == pytest.approx(BENCH_POINTS)
-        assert benchmark_points(half) == pytest.approx(BENCH_POINTS / 2)
-        assert benchmark_points({"1m": -5.0, "3m": -5.0, "6m": -5.0}) == 0
-        assert benchmark_points({"1m": None, "3m": None, "6m": None}) == 0
-        assert benchmark_points(None) == 0
+        assert qqq_points(full) == pytest.approx(QQQ_POINTS)
+        assert qqq_points(half) == pytest.approx(QQQ_POINTS / 2)
+        assert qqq_points({"1m": -5.0, "3m": -5.0, "6m": -5.0}) == 0
+        assert qqq_points({"1m": None, "3m": None, "6m": None}) == 0
+        assert qqq_points(None) == 0
         only_6m = {"1m": None, "3m": None, "6m": 70.0}
-        assert benchmark_points(only_6m) == pytest.approx(BENCH_POINTS)  # weights are renormalised
+        assert qqq_points(only_6m) == pytest.approx(QQQ_POINTS)  # weights are renormalised
 
     def test_tooltip_details_name_the_inputs(self):
         s = _score(NO_SETUP, LEADER_PERF, theme=TOP_THEME, theme_name="Memory")
         by = {c.key: c for c in s.breakdown}
         assert "P96" in by["rs"].label and "percentile among 100 stocks" in by["rs"].detail
-        assert "SPY/QQQ" in by["bench"].detail
+        assert "minus QQQ" in by["qqq"].detail and by["qqq"].label == "Vs QQQ"
         assert "#1 of 40" in by["theme_strength"].label
-        assert "10d above" in by["trend_ma"].detail and "10 > 20 > 50" in by["trend_ma"].detail
-        assert "52-week high" in by["trend_highs"].detail
+        assert by["trend"].detail == "10-day above & rising; 20-day above & rising"
 
     def test_missing_inputs_score_zero_with_a_reason(self):
         s = score_symbol(NO_SETUP, 105.0, 1e9)
         by = {c.key: c for c in s.breakdown}
         assert by["rs"].points == 0 and "not enough price history" in by["rs"].detail
-        assert by["trend_ma"].points == 0 and by["bench"].points == 0
+        assert by["trend"].points == 0 and by["qqq"].points == 0
         assert s.rs is None and s.status == "laggard"
 
 
@@ -271,7 +307,7 @@ class TestScan:
         for r in scan_all(members, hist, MAP).rows:
             assert 0 <= r["score"] <= 100
             keys = [c["key"] for c in r["score_breakdown"]]
-            assert keys[:2] == ["rs", "bench"] and {"trend_ma", "trend_highs", "weekly_setup", "proximity"} <= set(keys)
+            assert keys[:2] == ["rs", "qqq"] and {"trend", "weekly_setup", "proximity"} <= set(keys)
             assert sum(c["points"] for c in r["score_breakdown"]) == pytest.approx(r["score_raw"], abs=0.1)
 
     def test_theme_strength_comes_from_the_themes_leadership_rank(self):

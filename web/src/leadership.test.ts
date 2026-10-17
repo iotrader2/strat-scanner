@@ -4,6 +4,7 @@ import {
   LEADER_RS,
   NO_SETUP_LEADER,
   fmtRs,
+  formatWeight,
   matchesLeadership,
   noSetupLabel,
   triggerHint,
@@ -96,5 +97,13 @@ describe("triggerHint", () => {
 
   it("has nothing to show for a name at its highs with no setup", () => {
     expect(triggerHint(base)).toBeNull();
+  });
+});
+
+describe("formatWeight", () => {
+  it("shows whole weights without decimals and keeps one decimal otherwise", () => {
+    expect(formatWeight(32)).toBe("32%");
+    expect(formatWeight(15.0)).toBe("15%");
+    expect(formatWeight(35.555)).toBe("35.6%");
   });
 });

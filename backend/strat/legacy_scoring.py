@@ -4,7 +4,7 @@ the scanner ranks with ``scoring.py``."""
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping, Optional
 
 from .candles import TWO_UP, Setup, TimeframeState
@@ -99,6 +99,8 @@ class Component:
     points: float
     max_points: float
     detail: str
+    weight_pct: float = 0.0  # share of the total score this line is worth (max points / max raw points)
+    sub_weights: list[str] = field(default_factory=list)  # internal weighting, e.g. "1M 20%"
 
 
 @dataclass

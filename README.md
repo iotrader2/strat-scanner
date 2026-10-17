@@ -150,21 +150,25 @@ leader (85 points) and whether the Strat says now is a good time to act on it (1
 
 ```
 score = raw × breakdown factor × 100 / max        (capped at 0–100, rounded to 0.1)
-max: 100 for stocks · 90 for ETFs (no Theme strength) · 85 for themes (no Theme strength, no Liquidity)
+max: 100 for stocks · 80 for ETFs (no Theme strength) · 75 for themes (no Theme strength, no Liquidity)
 ```
 
-| Component | Max | How it is computed |
-| --- | --- | --- |
-| **Relative strength** | 32 | `32 × blended percentile` of the 1M / 3M / 6M price returns within the peer group (stocks vs stocks, ETFs vs ETFs, themes vs themes). Weights 1M 20% / 3M 40% / 6M 40%. |
-| **Vs SPY / QQQ** | 15 | Return minus the **better of SPY and QQQ**, per period, credited linearly up to **+15 / +40 / +70 points** (1M / 3M / 6M) and weighted 20/40/40. A name that only keeps up with the index earns nothing. Gives the magnitude that percentiles hide. |
-| **Theme strength** | 10 | Stocks only. `10 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 10). Themes are now ranked by their own leadership score. 0 for a stock in no theme. |
-| **Trend · moving averages** | 12 | Price above the 10 / 20 / 50-day average +2.5 each, each average rising (above its value 5 bars ago) +1 each, and 10 > 20 > 50 +1.5. |
-| **Trend · near highs** | 11 | 52-week high: `6 × (1 − d / 25%)`; 6-month high: `5 × (1 − d / 15%)`, where `d` is how far (in %) the close is below the high (intraday highs). 0 at 25% / 15% or more below. |
-| **Strat timing · weekly setup** | 6 | `6 × setup points / 25`: the strongest weekly setup plus 25% of the others, capped at 25 setup points (2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8). 0 with no setup. |
-| **Strat timing · distance to trigger** | 4 | `4 × (1 − d / 5%)` for how far price is below the weekly trigger (0 at 5% or more below). An already triggered setup gets half credit (2). |
-| **Strat timing · continuity** | 3 | Price above the period open: Monthly +1, Weekly +1, Daily +0.5, plus +0.5 when all three are green. |
-| **Strat timing · Monthly 2U** | 2 | +2 when the current monthly candle is a 2U. |
-| **Liquidity** | 5 | `5 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 5 at $5B or more. Not used for themes. |
+**Weights.** A line's *weight* is its share of the 100-point stock score (max points ÷ 100 for stocks; for ETFs and themes the
+same points are rescaled by their smaller max of 80 / 75, e.g. relative strength is 32/80 = 40% of an ETF's score). The tooltip
+shows the weight next to each label (`Relative strength · P95 (32%)  +30.4 / 32`) and the sub-weights under it.
+
+| Component | Max points | Weight (stock) | Sub-weights | How it is computed |
+| --- | ---: | ---: | --- | --- |
+| **Relative strength** | 32 | 32% | 1M 20% · 3M 40% · 6M 40% | `32 × blended percentile` of the 1M / 3M / 6M price returns within the peer group (stocks vs stocks, ETFs vs ETFs, themes vs themes). |
+| **Vs QQQ** | 15 | 15% | 1M 20% · 3M 40% · 6M 40%; full credit at +15 / +40 / +70 pts | Return minus **QQQ's return** over the same period, credited linearly up to **+15 / +40 / +70 points** (1M / 3M / 6M) and weighted 20/40/40. A name that only keeps up with QQQ earns nothing. Gives the magnitude that percentiles hide. |
+| **Theme strength** | 20 | 20% | none | Stocks only. `20 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 20). Themes are ranked by their own leadership score. 0 for a stock in no theme. |
+| **Trend** | 13 | 13% | 10-day 6.5 pts · 20-day 6.5 pts; each = price above the average 4 + average rising 2.5 | Only the **10-day and 20-day** averages score. For each: +4 when the close is above it and +2.5 when it is rising (above its value 5 bars ago), so a name above a rising 10-day and a rising 20-day gets all 13, and one that is above but not rising gets 4 per average. The 50-day average and the distance from the highs no longer score; they only feed the breakdown rules below. |
+| **Strat timing · weekly setup** | 6 | 6% | none | `6 × setup points / 25`: the strongest weekly setup plus 25% of the others, capped at 25 setup points (2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8). 0 with no setup. |
+| **Strat timing · distance to trigger** | 4 | 4% | none | `4 × (1 − d / 5%)` for how far price is below the weekly trigger (0 at 5% or more below). An already triggered setup gets half credit (2). |
+| **Strat timing · continuity** | 3 | 3% | Monthly 1 · Weekly 1 · Daily 0.5 · all three +0.5 | Price above the period open on each timeframe, plus a bonus when all three are green. |
+| **Strat timing · Monthly 2U** | 2 | 2% | none | +2 when the current monthly candle is a 2U. |
+| **Liquidity** | 5 | 5% | none | `5 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 5 at $5B or more. Not used for themes. |
+| **Total** | **100** | **100%** | | Leadership 85% (RS 32 + Vs QQQ 15 + Theme 20 + Trend 13 + liquidity 5) and the Strat overlay 15% (6 + 4 + 3 + 2). |
 
 The Strat overlay is **at most 15 points** (6 + 4 + 3 + 2), so a perfect setup cannot lift a non-leader, and the same
 leader scores at most 15 points higher with the best setup than with none.
@@ -197,7 +201,7 @@ no weekly setup is needed. Every leader row carries an **RS chip** (`RS 97`, wit
   back that far. For a theme it is the equal-weight theme index return.
 - **Percentile rank** within the peer group, per period: `(names below + ½ × names tied) / names with a return`, from 0
   (worst) to 1 (best). If a period is missing, the remaining weights are renormalized. The weights are `MOMENTUM_WEIGHTS` in
-  `backend/strat/perf.py`; the benchmark caps and breakdown thresholds are constants in `backend/strat/leadership.py`.
+  `backend/strat/perf.py`; the QQQ caps and breakdown thresholds are constants in `backend/strat/leadership.py`.
 - The label shows the blended percentile, e.g. `Relative strength · P97`; the hover/detail text shows each return with its
   percentile, the number of peers and the weights.
 
@@ -217,21 +221,20 @@ and closeness, with a small preference for setups that have not triggered yet.
 | Component | Points | Why |
 | --- | ---: | --- |
 | Relative strength | 31.02 / 32 | 1M +15.8% (P86), 3M +102.8% (P100), 6M +320.9% (P100) among 618 stocks: `0.20×0.86 + 0.40×1.00 + 0.40×1.00 = 0.97` |
-| Vs SPY / QQQ | 14.39 / 15 | +11.9 / +98.0 / +299.3 points over the better of SPY/QQQ |
-| Theme strength | 9.76 / 10 | AI hardware & servers, #3 of 82 themes |
-| Trend · moving averages | 12 / 12 | above rising 10/20/50-day averages, 10 > 20 > 50 |
-| Trend · near highs | 8.83 / 11 | 3.8% below the 52-week and 6-month highs |
+| Vs QQQ | 14.58 / 15 | +12.9 / +100.3 / +299.3 points over QQQ (full credit at +15 / +40 / +70) |
+| Theme strength | 19.76 / 20 | AI hardware & servers, #2 of 82 themes |
+| Trend | 13 / 13 | above a rising 10-day (6.5) and a rising 20-day (6.5) average |
 | Strat timing | 4 / 15 | no weekly setup (0), Monthly and Weekly green (2), Monthly 2U (2) |
 | Liquidity | 4.29 / 5 | $2.6B/day |
-| **Raw total** | **84.29 / 100** | score 84.3; nearest trigger 514.00 (+3.9%, this week's high) |
+| **Raw total** | **86.66 / 100** | score 86.7; nearest trigger 514.00 (+3.9%, this week's high) |
 
 **The same name after its breakdown (HPE, Oct 16 2026):** RS fell to P83 (1M -2.7%), the close is below the 50-day average
-and 25% under the 6-month high, so the raw 49.4 is multiplied by 0.5 (a −24.72 *Breakdown penalty*) for a score of 24.7, and
+and 25% under the 6-month high, so the raw 52.3 is multiplied by 0.5 (a −26.14 *Breakdown penalty*) for a score of 26.1, and
 it is no longer a leader.
 
 In the app, hover (or keyboard-focus) any score pill in the Stock Scanner, Watchlist or Positions table or on a
 Themes or State of the Market card to see this breakdown.
-The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component.
+The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component. Each line shows its weight and sub-weights.
 
 **Performance columns.** The Stock Scanner, Watchlist and Positions tables, every theme card and every State of the
 Market card show the **1M / 3M / 6M** price returns, green for gains and red for losses. In the tables they are sortable
@@ -373,7 +376,7 @@ are in the pull request that introduced the scoring.
 backend/
   strat/candles.py    Strat classification, continuity, hammer, long setups (pure, unit tested)
   strat/scoring.py    leadership-first score (relative strength, benchmarks, theme, trend; Strat timing overlay; breakdown penalty)
-  strat/leadership.py trend structure, SPY/QQQ excess, breakdown detection, leader cut, nearest trigger
+  strat/leadership.py trend structure, QQQ excess, breakdown detection, leader cut, nearest trigger
   strat/legacy_scoring.py  the previous Strat-first score, kept only for the backtest comparison
   strat/backtest.py   old vs new scoring over historical cut-offs (`npm run backtest:leaders`)
   strat/perf.py       1M/3M/6M returns, percentile ranks and the relative-strength blend

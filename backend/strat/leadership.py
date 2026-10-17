@@ -1,4 +1,4 @@
-"""Leadership: trend quality, relative strength versus the benchmarks, and breakdown detection.
+"""Leadership: trend quality, relative strength versus QQQ, and breakdown detection.
 
 These are the inputs of the leadership-first score (see ``scoring.py``). Everything here is a pure function of daily
 closes/highs and the 1M/3M/6M returns, so it works on a history cut off at any date (used by the backtest).
@@ -19,10 +19,10 @@ HIGH_52W_BARS = 252
 HIGH_6M_BARS = 126
 MIN_HIGH_BARS = 60  # fewer bars than this and the "near highs" measures are skipped
 
-# Relative strength versus the benchmark: the outperformance (percentage points over the better of SPY and QQQ)
-# that earns full credit, per period.
+# Relative strength versus QQQ: the outperformance (percentage points over QQQ's return) that earns full credit,
+# per period.
 FULL_EXCESS_PCT = {"1m": 15.0, "3m": 40.0, "6m": 70.0}
-BENCHMARKS = ("SPY", "QQQ")
+BENCHMARK = "QQQ"
 
 # A leader needs at least this blended 1M/3M/6M return percentile among its peers (stocks vs stocks, ETFs vs ETFs):
 # the top decile. The backtest favours this over P80 (see README).
@@ -90,13 +90,12 @@ def trend_metrics(daily: pd.DataFrame) -> Optional[Trend]:
     return Trend(price, sma, rising, off_high(HIGH_52W_BARS), off_high(HIGH_6M_BARS), n)
 
 
-def benchmark_excess(perf: Perf, benchmarks: Mapping[str, Perf]) -> dict[str, Optional[float]]:
-    """Return minus the better of SPY and QQQ, per period (None when either side is missing)."""
-    out: dict[str, Optional[float]] = {}
-    for p in PERIODS:
-        ref = [b.get(p) for b in benchmarks.values() if b.get(p) is not None]
-        out[p] = None if perf.get(p) is None or not ref else round(perf[p] - max(ref), 2)
-    return out
+def qqq_excess(perf: Perf, qqq: Optional[Perf]) -> dict[str, Optional[float]]:
+    """Return minus QQQ's return, per period, in percentage points (None when either side is missing)."""
+    qqq = qqq or {}
+    return {
+        p: None if perf.get(p) is None or qqq.get(p) is None else round(perf[p] - qqq[p], 2) for p in PERIODS
+    }
 
 
 def long_term_rs(percentiles: Mapping[str, Optional[float]]) -> Optional[float]:

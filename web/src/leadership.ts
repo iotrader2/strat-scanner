@@ -61,3 +61,6 @@ export const NO_SETUP_LEADER = "No setup / leader";
 export function noSetupLabel(r: LeaderFields): string {
   return rsAtLeast(r, LEADER_RS) && !isBroken(r) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
 }
+
+/** A score line's weight as shown in the breakdown, e.g. 32 -> "32%", 35.6 -> "35.6%". */
+export const formatWeight = (pct: number): string => `${Number(pct.toFixed(1))}%`;
