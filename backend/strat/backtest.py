@@ -124,6 +124,7 @@ def slim_row(row: dict, daily: pd.DataFrame, ts: pd.Timestamp, listed: bool) -> 
         "has_setup": row["has_setup"],
         "listed": listed,
         "breakout": row.get("breakout"),
+        "failed": row.get("failed_breakout"),
         "fwd1": forward_return(daily, ts),
         "fwd3": forward_return(daily, ts, months=3),
     }
@@ -295,7 +296,7 @@ def lag_summary(runs: Sequence[RunLag]) -> dict:
 
 def is_breakout_pick(row: dict) -> bool:
     """What the scanner's Recent breakouts view lists: a breakout, RS at least P50 and an unbroken trend."""
-    return bool(row.get("breakout")) and (row.get("rs") or 0) >= 0.5 and row.get("status") != "broken"
+    return bool(row.get("breakout")) and not row.get("failed") and (row.get("rs") or 0) >= 0.5 and row.get("status") != "broken"
 
 
 @dataclass
@@ -563,6 +564,19 @@ def is_setup_pick(row: dict, min_rs: float = 0.9) -> bool:
     return bool(row.get("has_setup")) and (row.get("rs") or 0) >= min_rs and row.get("status") != "broken"
 
 
+def is_failed_pick(row: dict) -> bool:
+    """What the scanner's Failed breakouts view lists: a breakout of the last 8 weeks that lost its level, RS at least P50."""
+    return bool(row.get("failed")) and (row.get("rs") or 0) >= 0.5
+
+
+FRESH_FAILURE_SESSIONS = 10
+
+
+def is_fresh_failed_pick(row: dict) -> bool:
+    """A failed breakout that lost its level within the last 10 sessions (the warning is still new)."""
+    return is_failed_pick(row) and row["failed"]["sessions_below"] <= FRESH_FAILURE_SESSIONS
+
+
 def is_leader_pick(row: dict, min_rs: float = 0.9) -> bool:
     return (row.get("rs") or 0) >= min_rs and row.get("status") != "broken"
 
@@ -658,6 +672,41 @@ def render_setups(
     return "\n".join(out)
 
 
+def render_failed(
+    by_date: Mapping[str, Sequence[dict]],
+    benchmark: Mapping[str, tuple[Optional[float], Optional[float]]],
+    test_start: str = TEST_START,
+) -> str:
+    out = [
+        "### Failed breakouts: a warning signal?\n",
+        "Failed breakout = a breakout (same detection as Recent breakouts) from the last 8 weeks whose base high the stock "
+        "has since closed below (RS at least P50, any trend). *Fresh* = it lost the level within the last 10 sessions. "
+        "Pooled over every cut-off: forward 1M / 3M return minus the median liquid stock of the date and minus QQQ. "
+        "Negative numbers mean the names lagged, which is what a warning signal should show.\n",
+        "| Period | List | Picks / date | Fwd 1M vs median (pts) | Fwd 3M vs median (pts) | Fwd 1M vs QQQ (pts) | Fwd 3M vs QQQ (pts) | Beat QQQ 3M |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    ordered = sorted(by_date)
+    periods = {
+        "Train": [d for d in ordered if d < test_start],
+        "Test": [d for d in ordered if d >= test_start],
+        "All": ordered,
+    }
+    lists = {
+        "Failed breakouts": is_failed_pick,
+        "Fresh failures": is_fresh_failed_pick,
+        "Recent breakouts": is_breakout_pick,
+    }
+    for period, ds in periods.items():
+        for name, pick in lists.items():
+            s = setup_stats(by_date, benchmark, pick, ds)
+            out.append(
+                f"| {period} | {name} | {'—' if s.per_date is None else f'{s.per_date:.1f}'} | {_pct(s.fwd1_median)} | "
+                f"{_pct(s.fwd3_median)} | {_pct(s.fwd1_qqq)} | {_pct(s.fwd3_qqq)} | {_share(s.beat_qqq_3m)} |"
+            )
+    return "\n".join(out)
+
+
 def render_report(
     variants: Mapping[str, Sequence[DateRank]],
     breakouts: Optional[Mapping[str, Sequence[dict]]] = None,
@@ -670,6 +719,7 @@ def render_report(
         parts.append(render_breakouts(breakouts, breakout_examples(breakouts, reference), test_start))
         if benchmark is not None:
             parts.append(render_setups(breakouts, benchmark, test_start))
+            parts.append(render_failed(breakouts, benchmark, test_start))
     return "\n\n".join(parts)
 
 

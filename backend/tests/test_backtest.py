@@ -223,6 +223,71 @@ class TestWeeklySetupsBacktest:
         assert "Weekly setups" in text and "Leaders, no setup" in text and "| Test |" in text and "| Train |" in text
 
 
+class TestFailedBreakoutsBacktest:
+    @staticmethod
+    def _failed(sessions=3):
+        return {"week": "2026-09-14", "failed_on": "2026-10-01", "sessions_below": sessions, "below_pct": -4.0}
+
+    def _by_date(self):
+        dates = ["2026-01-02", "2026-01-16", "2026-01-30"]
+        out = {}
+        for d in dates:
+            rows = [dict(symbol=f"M{j}", score=1.0, rs=0.5, status="laggard", has_setup=False, listed=False,
+                         breakout=None, failed=None, fwd1=1.0, fwd3=3.0) for j in range(10)]
+            rows += [
+                dict(symbol="FAIL", score=1.0, rs=0.7, status="warning", has_setup=False, listed=False, breakout=None,
+                     failed=self._failed(3), fwd1=-9.0, fwd3=-19.0),
+                dict(symbol="OLD", score=1.0, rs=0.6, status="broken", has_setup=False, listed=False, breakout=None,
+                     failed=self._failed(30), fwd1=-5.0, fwd3=-7.0),
+                dict(symbol="WEAK", score=1.0, rs=0.3, status="laggard", has_setup=False, listed=False, breakout=None,
+                     failed=self._failed(3), fwd1=-30.0, fwd3=-30.0),
+            ]
+            out[d] = rows
+        return out, dates
+
+    def test_pick_needs_a_failed_breakout_and_rs_of_p50(self):
+        base = dict(failed=self._failed(), rs=0.5)
+        assert bt.is_failed_pick(base)
+        assert not bt.is_failed_pick({**base, "rs": 0.49})
+        assert not bt.is_failed_pick({**base, "rs": None})
+        assert not bt.is_failed_pick({**base, "failed": None})
+        assert bt.is_failed_pick({**base, "status": "broken"})  # any trend
+
+    def test_fresh_failures_lost_the_level_within_ten_sessions(self):
+        base = dict(rs=0.8)
+        assert bt.is_fresh_failed_pick({**base, "failed": self._failed(10)})
+        assert not bt.is_fresh_failed_pick({**base, "failed": self._failed(11)})
+        assert not bt.is_fresh_failed_pick({**base, "failed": None})
+
+    def test_a_failed_breakout_is_not_a_recent_breakout_pick(self):
+        row = dict(breakout={"week": "w"}, rs=0.6, status="laggard")
+        assert bt.is_breakout_pick(row)
+        assert not bt.is_breakout_pick({**row, "failed": self._failed()})
+
+    def test_returns_are_versus_the_median_and_qqq(self):
+        by_date, dates = self._by_date()
+        bench = {d: (2.0, 4.0) for d in dates}
+        s = bt.setup_stats(by_date, bench, bt.is_failed_pick)
+        assert s.names == 6 and s.per_date == 2.0
+        assert s.fwd1_median == pytest.approx(((-9 - 1) + (-5 - 1)) / 2)
+        assert s.fwd3_qqq == pytest.approx(((-19 - 4) + (-7 - 4)) / 2)
+        assert s.beat_qqq_3m == 0.0
+        fresh = bt.setup_stats(by_date, bench, bt.is_fresh_failed_pick)
+        assert fresh.per_date == 1.0 and fresh.fwd1_median == pytest.approx(-10.0)
+
+    def test_section_renders(self):
+        by_date, dates = self._by_date()
+        text = bt.render_failed(by_date, {d: (2.0, 4.0) for d in dates}, test_start=dates[1])
+        assert "Failed breakouts" in text and "Fresh failures" in text and "Recent breakouts" in text
+        assert "| Test |" in text and "| Train |" in text
+
+    def test_slim_rows_keep_the_failed_breakout(self):
+        df = _history(1.0)
+        row = dict(symbol="X", score=1.0, rs=0.7, has_setup=False, failed_breakout=self._failed())
+        slim = bt.slim_row(row, df, df.index[100], False)
+        assert slim["failed"] == self._failed()
+
+
 class TestReport:
     def _variants(self):
         return {"Old": bt.rank_all({"2026-01-02": _rows(), "2026-01-16": _rows()}),

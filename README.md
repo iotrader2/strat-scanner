@@ -216,10 +216,10 @@ halved again; this shows as a negative "Pinned penalty" line.
 **Who counts as a leader.** The scanner **filters** rather than just ranking lower. A name is a *leader* when its blended
 1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
 `LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Leadership**
-filter has six options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly setups · awaiting
-trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Broken leaders* and *All names*. The hero chips are
+filter has seven options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly setups · awaiting
+trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips are
 full-universe totals for those categories (not the current filters); click a chip or pick a Leadership option to dig in. The Min RS slider
-applies to *Leaders* and both *Weekly setups* views; *Recent breakouts* and *Broken leaders* ignore it. The slider is saved
+applies to *Leaders* and both *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
 (default true) and `min_rs`. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
 **RS chip** (`RS 97`, with *weakening* / *broken* / *kill candle* flags).
@@ -245,10 +245,31 @@ and uses an RS floor of **P50** (`MIN_RS` in `backend/strat/breakout.py`) plus a
   before the base, and it is at most 15% deep (high to low);
 - a **breakout**: one of the last 3 weekly candles closes above the base high, on weekly volume of at least **2× the
   10-week average** (a part-finished week is scaled to five sessions), closing in the upper 35% of its range;
-- **no active kill candle** since.
+- **no active kill candle** since;
+- and it has **not failed**: a breakout whose base high price has since closed below is listed under *Failed breakouts* instead.
 
 Rows get a **Breakout** badge (`Breakout 2026-10-05 · 8-week base`) and are ranked by the normal score. The volume and depth
 thresholds were picked on the train dates and checked on the test dates (see the [breakout study](#recent-breakouts-backtest)).
+
+**Failed breakouts (a warning, the opposite of Recent breakouts).** Names that broke out and then lost the breakout. It
+reuses the Recent breakouts detection (`_breakout_at` in `backend/strat/breakout.py`, so the same tight 3–10 week base,
+2× volume and upper-35% close), but looks further back and checks what price did afterwards (`find_failed_breakout`):
+
+- the breakout week is one of the weekly candles **1 to 8 weeks back** (`FAILED_LOOKBACK_WEEKS`; the current week cannot have
+  failed yet). If there are several, the most recent breakout is the one that counts;
+- it has **failed** when the latest daily close is **below the base high** the breakout cleared (the *breakout level*; a close
+  exactly at the level still holds). The failure date is the first close below the level in the current run below it, so a
+  dip that was reclaimed does not count and a second dip is dated by the second dip;
+- no trend or kill-candle condition (a wide heavy down day is what a failure looks like), and **RS at P50 or better**, the same
+  floor as Recent breakouts. The Leadership option ignores the Min RS slider.
+
+Rows get a red **Failed breakout** badge (`Failed breakout 2026-10-05 · 1.9% below`, the tooltip adds the level, volume and failure date), the table shows
+**Broke out**, **Level**, **Below level** (latest close vs the level; the tooltip has the deepest close since) and **Failed**
+(date, tooltip: sessions below) columns, and is ordered by the **most recent failure**; click *Below level* to order by
+severity instead. A failed breakout is **no longer listed under Recent breakouts**, so the two options never overlap. The
+rows come from the same scan, so `STRAT_AS_OF` works (the history after the cut-off is hidden, so the failure appears only
+once the close below the level is on or before the cut-off). It is a warning or avoid signal, not a buy signal; the
+*Failed breakouts backtest* section below shows what such names did next. Scoring is unchanged.
 
 **Relative strength details**
 
@@ -333,14 +354,14 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     cards by Score, 1M, 3M or 6M. Cards load 24 at a time.
   - The Monthly / Weekly / Daily toggle and the sort are saved separately from the other tabs.
 - **Stock Scanner** (`/`): ranked, sortable and filterable table of market leaders, with their weekly setup (if any) as timing.
-  - Filters: search, **Leadership** (*Leaders* by default, plus *Weekly setups · awaiting trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs, using
+  - Filters: search, **Leadership** (*Leaders* by default, plus *Weekly setups · awaiting trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs, using
     a custom dropdown (arrow keys, Home/End, type-to-jump, Enter/Space to pick, Esc or an outside click to close).
     The Setup filter has **Any**, **Awaiting trigger** (a trigger above price that has not traded yet), **Already
     triggered** (only rows whose weekly setup carries the TRIGGERED chip: 2-1-2 / 3-1-2 bullish, 2D-2U reversal, 1-2-2
     RevStrat and Hammer triggered), **Inside week** and **Weekly hammer**. The
     "To trigger" column is sortable by closeness to the weekly trigger.
   - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders* and both
-    *Weekly setups* views; *Recent breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
+    *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
     - **min price**: $1–$1,000, default $10 (`STRAT_MIN_PRICE`).
     - **min average dollar volume**: $10M–$5B.
@@ -429,7 +450,7 @@ happened next, over the liquid stocks (price >= $10, 20-day average dollar volum
   cut-off to the first time the name stood in the top 10;
 - the **rank of the reference names** (SNDK, MU, NBIS, AMD, DELL, HPE, ARM, PLTR) on every cut-off from 2025-11-01, with
   their RS percentile (SNDK's run is the main check);
-- **Recent breakouts** and **Weekly setups**: see below.
+- **Recent breakouts**, **Weekly setups** and **Failed breakouts**: see below.
 
 Cut-offs before 2025-10-01 are the **train** period (where weights and thresholds were tuned) and the rest is the **test**
 period; both are reported.
@@ -445,6 +466,11 @@ view and when it first became a leader.
 unbroken, a long-side weekly setup) minus the median liquid stock and minus QQQ, next to all Leaders without a setup and all
 Leaders. In the cache the setup filter did **not** beat plain Leaders (see the pull request for the table), so the Strat
 setup works as a timing view on top of leadership, not as a stock-selection edge.
+
+**Failed breakouts backtest.** Pooled over every date, the forward 1M / 3M return of the Failed breakouts names (and of the
+*fresh* ones, which lost the level within the last 10 sessions) minus the median liquid stock and minus QQQ, next to
+Recent breakouts. The numbers are in the pull request. Because the detection is strict (a heavy-volume close above a tight
+base), only a handful of names qualify on any date, so the sample is small and noisy.
 
 Caveats: the universe is today's S&P 500 + Nasdaq-100 (survivorship bias), the market only has a few distinct regimes in the
 cache, forward 3M windows overlap between neighbouring dates, and the test period is short. Treat the numbers as evidence
