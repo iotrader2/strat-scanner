@@ -8,6 +8,7 @@ import {
   breakoutLabel,
   fmtRs,
   formatWeight,
+  leadershipUsesMinRs,
   matchesLeadership,
   migrateLeadership,
   noSetupLabel,
@@ -32,11 +33,13 @@ const row = (
   breakdown: "none" | "warning" | "broken" = "none",
   breakout: Breakout | null = null,
   has_setup = false,
+  triggered: boolean | null = false,
 ) => ({
   rs,
   leadership: { breakdown },
   breakout,
   has_setup,
+  triggered,
 });
 
 const leader = row(0.97);
@@ -65,9 +68,18 @@ describe("matchesLeadership", () => {
     expect(pick("leaders", sliderToRs(60))).toEqual([leader, weakening, midLeader, midBreakout]);
   });
 
-  it("the slider also applies to broken leaders", () => {
-    expect(pick("broken")).toEqual([brokenLeader]);
-    expect(pick("broken", sliderToRs(80))).toEqual([brokenLeader, brokenMid]);
+  it("Broken leaders ignores the Min RS slider and lists every broken trend", () => {
+    expect(pick("broken")).toEqual([brokenLeader, brokenMid, brokenBreakout]);
+    expect(pick("broken", sliderToRs(99))).toEqual([brokenLeader, brokenMid, brokenBreakout]);
+  });
+
+  it("only Leaders and Weekly setups use the Min RS slider", () => {
+    expect(leadershipUsesMinRs("leaders")).toBe(true);
+    expect(leadershipUsesMinRs("setups_pending")).toBe(true);
+    expect(leadershipUsesMinRs("setups_triggered")).toBe(true);
+    expect(leadershipUsesMinRs("breakouts")).toBe(false);
+    expect(leadershipUsesMinRs("broken")).toBe(false);
+    expect(leadershipUsesMinRs("all")).toBe(false);
   });
 
   it("all names shows everything, including names with no history", () => {
@@ -88,39 +100,61 @@ describe("matchesLeadership", () => {
 });
 
 describe("Weekly setups", () => {
-  const setupLeader = row(0.96, "none", null, true);
-  const setupWarning = row(0.92, "warning", null, true);
-  const setupMid = row(0.84, "none", null, true);
-  const setupBroken = row(0.97, "broken", null, true);
-  const setupLaggard = row(0.3, "none", null, true);
-  const setupNoRs = row(null, "none", null, true);
-  const all = [setupLeader, setupWarning, setupMid, setupBroken, setupLaggard, setupNoRs, leader, midLeader];
-  const setups = (minRs?: number) => all.filter((r) => matchesLeadership(r, "setups", minRs));
+  const pendingLeader = row(0.96, "none", null, true, false);
+  const pendingWarning = row(0.92, "warning", null, true, false);
+  const pendingMid = row(0.84, "none", null, true, false);
+  const triggeredLeader = row(0.95, "none", null, true, true);
+  const triggeredMid = row(0.83, "none", null, true, true);
+  const setupBroken = row(0.97, "broken", null, true, false);
+  const setupLaggard = row(0.3, "none", null, true, true);
+  const setupNoRs = row(null, "none", null, true, false);
+  const all = [
+    pendingLeader,
+    pendingWarning,
+    pendingMid,
+    triggeredLeader,
+    triggeredMid,
+    setupBroken,
+    setupLaggard,
+    setupNoRs,
+    leader,
+    midLeader,
+  ];
+  const pending = (minRs?: number) => all.filter((r) => matchesLeadership(r, "setups_pending", minRs));
+  const triggered = (minRs?: number) => all.filter((r) => matchesLeadership(r, "setups_triggered", minRs));
 
-  it("lists leaders with a weekly setup, never a broken trend or a name without RS", () => {
-    expect(setups()).toEqual([setupLeader, setupWarning]);
+  it("awaiting trigger lists leaders with a pending weekly setup", () => {
+    expect(pending()).toEqual([pendingLeader, pendingWarning]);
+    expect(pending()).not.toContain(triggeredLeader);
+  });
+
+  it("triggered lists leaders whose weekly setup has already fired", () => {
+    expect(triggered()).toEqual([triggeredLeader]);
+    expect(triggered()).not.toContain(pendingLeader);
   });
 
   it("drops leaders that have no weekly setup", () => {
-    expect(setups()).not.toContain(leader);
-    expect(setups(sliderToRs(50))).not.toContain(leader);
+    expect(pending()).not.toContain(leader);
+    expect(triggered(sliderToRs(50))).not.toContain(leader);
   });
 
-  it("reuses the Min RS slider", () => {
-    expect(setups(sliderToRs(80))).toEqual([setupLeader, setupWarning, setupMid]);
-    expect(setups(sliderToRs(95))).toEqual([setupLeader]);
-    expect(setups(sliderToRs(50))).not.toContain(setupNoRs);
+  it("reuses the Min RS slider for both setup views", () => {
+    expect(pending(sliderToRs(80))).toEqual([pendingLeader, pendingWarning, pendingMid]);
+    expect(triggered(sliderToRs(80))).toEqual([triggeredLeader, triggeredMid]);
+    expect(pending(sliderToRs(95))).toEqual([pendingLeader]);
+    expect(triggered(sliderToRs(50))).not.toContain(setupNoRs);
   });
 
-  it("is a subset of Leaders at the same slider position", () => {
+  it("each setup view is a subset of Leaders at the same slider position", () => {
     for (const v of [50, 80, 90, 99]) {
       const leaders = all.filter((r) => matchesLeadership(r, "leaders", sliderToRs(v)));
-      for (const r of setups(sliderToRs(v))) expect(leaders).toContain(r);
+      for (const r of [...pending(sliderToRs(v)), ...triggered(sliderToRs(v))]) expect(leaders).toContain(r);
     }
   });
 
   it("treats a row with no has_setup field as having no setup", () => {
-    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" } }, "setups")).toBe(false);
+    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" } }, "setups_pending")).toBe(false);
+    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" }, has_setup: true }, "setups_triggered")).toBe(false);
   });
 });
 
@@ -133,7 +167,9 @@ describe("migrateLeadership", () => {
   it("keeps current options and falls back to Leaders", () => {
     expect(migrateLeadership("broken")).toEqual({ filter: "broken", minRs: null });
     expect(migrateLeadership("breakouts")).toEqual({ filter: "breakouts", minRs: null });
-    expect(migrateLeadership("setups")).toEqual({ filter: "setups", minRs: null });
+    expect(migrateLeadership("setups")).toEqual({ filter: "setups_pending", minRs: null });
+    expect(migrateLeadership("setups_pending")).toEqual({ filter: "setups_pending", minRs: null });
+    expect(migrateLeadership("setups_triggered")).toEqual({ filter: "setups_triggered", minRs: null });
     expect(migrateLeadership(null)).toEqual({ filter: "leaders", minRs: null });
     expect(migrateLeadership("nonsense")).toEqual({ filter: "leaders", minRs: null });
   });

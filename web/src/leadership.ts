@@ -1,8 +1,14 @@
 import type { ScanRow } from "./api";
 import { NO_SETUP_LABEL } from "./watchlist";
 
-/** Leadership filter of the Stock Scanner. Leaders, Weekly setups and Broken leaders use the Min RS slider; Recent breakouts has its own floor. */
-export type LeadershipFilter = "leaders" | "setups" | "breakouts" | "broken" | "all";
+/** Leadership filter of the Stock Scanner. Leaders and Weekly setups use the Min RS slider; Recent breakouts and Broken leaders ignore it. */
+export type LeadershipFilter =
+  | "leaders"
+  | "setups_pending"
+  | "setups_triggered"
+  | "breakouts"
+  | "broken"
+  | "all";
 
 export const LEADER_RS = 0.9;
 export const MIN_RS_RANGE = { min: 50, max: 99, default: 90 };
@@ -11,27 +17,37 @@ export const BREAKOUT_MIN_RS = 0.5;
 
 type LeaderFields = Pick<ScanRow, "rs"> & {
   has_setup?: boolean;
+  triggered?: boolean | null;
   leadership?: Pick<ScanRow["leadership"], "breakdown">;
   breakout?: ScanRow["breakout"];
 };
 
 const rsAtLeast = (r: LeaderFields, min: number) => r.rs !== null && r.rs !== undefined && r.rs >= min;
 const isBroken = (r: LeaderFields) => r.leadership?.breakdown === "broken";
+const isSetupLeader = (r: LeaderFields, minRs: number) => rsAtLeast(r, minRs) && !isBroken(r) && !!r.has_setup;
+
+/** True when the Min RS slider applies to this Leadership option (Leaders and both Weekly setups views). */
+export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
+  return filter === "leaders" || filter === "setups_pending" || filter === "setups_triggered";
+}
 
 /**
  * Whether a scan row passes the Stock Scanner "Leadership" filter. `minRs` is the slider as a 0..1 percentile. Broken
  * trends are never listed as leaders. Weekly setups is Leaders that also have a long-side weekly Strat setup on the latest
- * weekly candle (`has_setup`, from the backend's `find_long_setups`). Recent breakouts ignores the slider: it needs a
- * tight-base breakout and RS >= P50.
+ * weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger vs already triggered.
+ * Recent breakouts ignores the slider: it needs a tight-base breakout and RS >= P50. Broken leaders ignores the slider:
+ * any name whose trend is broken (same flag as the RS chip).
  */
 export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, minRs: number = LEADER_RS): boolean {
   switch (filter) {
     case "leaders":
       return rsAtLeast(r, minRs) && !isBroken(r);
-    case "setups":
-      return rsAtLeast(r, minRs) && !isBroken(r) && !!r.has_setup;
+    case "setups_pending":
+      return isSetupLeader(r, minRs) && !r.triggered;
+    case "setups_triggered":
+      return isSetupLeader(r, minRs) && r.triggered === true;
     case "broken":
-      return rsAtLeast(r, minRs) && isBroken(r);
+      return isBroken(r);
     case "breakouts":
       return !!r.breakout && rsAtLeast(r, BREAKOUT_MIN_RS) && !isBroken(r);
     default:
@@ -49,8 +65,12 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
       return { filter: "leaders", minRs: 90 };
     case "p80":
       return { filter: "leaders", minRs: 80 };
-    case "leaders":
     case "setups":
+      // Old combined Weekly setups option → the actionable awaiting-trigger view.
+      return { filter: "setups_pending", minRs: null };
+    case "leaders":
+    case "setups_pending":
+    case "setups_triggered":
     case "breakouts":
     case "broken":
     case "all":

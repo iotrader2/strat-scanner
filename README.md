@@ -216,25 +216,27 @@ halved again; this shows as a negative "Pinned penalty" line.
 **Who counts as a leader.** The scanner **filters** rather than just ranking lower. A name is a *leader* when its blended
 1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
 `LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Leadership**
-filter has five options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly setups*,
-*Recent breakouts*, *Broken leaders (trend lost)* (the demoted ones; also uses the slider) and *All names*. The slider is saved like the other
-filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only` (default true)
-and `min_rs`. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an **RS chip**
-(`RS 97`, with *weakening* / *broken* / *kill candle* flags).
+filter has six options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly setups · awaiting
+trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Broken leaders* and *All names*. The hero chips are
+full-universe totals for those categories (not the current filters); click a chip or pick a Leadership option to dig in. The Min RS slider
+applies to *Leaders* and both *Weekly setups* views; *Recent breakouts* and *Broken leaders* ignore it. The slider is saved
+like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
+(default true) and `min_rs`. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
+**RS chip** (`RS 97`, with *weakening* / *broken* / *kill candle* flags).
 
 **Weekly setups (leaders you can act on now).** *Leaders* that also have a **long-side weekly Strat setup on the last weekly
 candle**: RS at or above the Min RS slider (default P90), trend not broken (a *weakening* name stays; a *broken* one never
-does) and `has_setup`. The setups are the ones the scanner already classifies, nothing is duplicated
+does) and `has_setup`. The Leadership filter splits them into **awaiting trigger** (`triggered` is false) and **triggered**
+(`triggered` is true). The setups are the ones the scanner already classifies, nothing is duplicated
 (`find_long_setups` in `backend/strat/candles.py`): an **inside week** (1), **2-1-2** and **3-1-2** in progress (the inside
 bar is done and price has not yet broken its high), **2-1-2 / 3-1-2 / 1-2-2 / 2D-2U** already triggered (the chip says
 TRIGGERED), and a **weekly hammer** (pending below its own high, or triggered above the prior high). Each row shows the
 **trigger** (the weekly high for longs; the prior high once triggered) and **To trigger**, the distance from price (positive =
-still below the trigger, negative = already through it), and the rows keep the normal score order. The Setup filter
-narrows it further (for example *Awaiting trigger*). It uses the same slider as *Leaders*, so it is always a subset of
-Leaders at the same Min RS. "Last weekly candle" is the latest weekly bar in the data: complete on a Friday, Saturday or
-Sunday, partial for a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday 2026-08-13 uses the week in progress), exactly as the
-rest of the scanner reads it. Hover the option in the dropdown for the same definition. See the
-*Weekly setups backtest* below for how the filter did.
+still below the trigger, negative = already through it), and the rows keep the normal score order. It uses the same slider
+as *Leaders*, so each setup view is always a subset of Leaders at the same Min RS. "Last weekly candle" is the latest weekly
+bar in the data: complete on a Friday, Saturday or Sunday, partial for a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday
+2026-08-13 uses the week in progress), exactly as the rest of the scanner reads it. Hover the option in the dropdown for the
+same definition. See the *Weekly setups backtest* below for how the combined filter did.
 
 **Recent breakouts (future leaders, early).** Meant to surface names before they are leaders, so it ignores the slider
 and uses an RS floor of **P50** (`MIN_RS` in `backend/strat/breakout.py`) plus an unbroken trend. On the weekly chart:
@@ -331,14 +333,14 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     cards by Score, 1M, 3M or 6M. Cards load 24 at a time.
   - The Monthly / Weekly / Daily toggle and the sort are saved separately from the other tabs.
 - **Stock Scanner** (`/`): ranked, sortable and filterable table of market leaders, with their weekly setup (if any) as timing.
-  - Filters: search, **Leadership** (*Leaders* by default, plus *Weekly setups*, *Recent breakouts*, *Broken leaders (trend lost)* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs, using
+  - Filters: search, **Leadership** (*Leaders* by default, plus *Weekly setups · awaiting trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs, using
     a custom dropdown (arrow keys, Home/End, type-to-jump, Enter/Space to pick, Esc or an outside click to close).
     The Setup filter has **Any**, **Awaiting trigger** (a trigger above price that has not traded yet), **Already
     triggered** (only rows whose weekly setup carries the TRIGGERED chip: 2-1-2 / 3-1-2 bullish, 2D-2U reversal, 1-2-2
     RevStrat and Hammer triggered), **Inside week** and **Weekly hammer**. The
     "To trigger" column is sortable by closeness to the weekly trigger.
-  - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders*, *Weekly
-    setups* and *Broken leaders*; *Recent breakouts* ignores it.
+  - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders* and both
+    *Weekly setups* views; *Recent breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
     - **min price**: $1–$1,000, default $10 (`STRAT_MIN_PRICE`).
     - **min average dollar volume**: $10M–$5B.
