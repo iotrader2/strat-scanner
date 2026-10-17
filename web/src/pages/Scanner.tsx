@@ -8,7 +8,7 @@ import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
-import { matchesLeadership, MIN_RS_RANGE, migrateLeadership, sliderToRs, type LeadershipFilter } from "../leadership";
+import { LEADER_RS, matchesLeadership, MIN_RS_RANGE, migrateLeadership, sliderToRs, type LeadershipFilter } from "../leadership";
 import { RsSlider } from "../components/RsSlider";
 import { matchesSetup, type SetupFilter } from "../setupFilter";
 import { matchesTheme, themeName, themeOptions } from "../themes";
@@ -34,13 +34,6 @@ const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "broken", label: "Broken leaders (trend lost)", hint: "Relative strength at or above the Min RS slider, but the trend has broken down." },
   { value: "all", label: "All names" },
 ];
-const LEADERSHIP_COUNT_LABEL: Record<LeadershipFilter, string> = {
-  leaders: "leaders",
-  setups: "weekly setups",
-  breakouts: "recent breakouts",
-  broken: "broken leaders",
-  all: "names",
-};
 const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
   { value: "any", label: "Any" },
   { value: "mw", label: "M + W green" },
@@ -121,15 +114,16 @@ export default function Scanner({ version }: { version: string | null }) {
     return out;
   }, [liquid, query, theme, kind, continuity, setupFilter, leadership, minRs]);
 
-  const stats = useMemo(() => {
-    const leaders = liquid.filter((r) => matchesLeadership(r, leadership, minRs));
-    return {
-      leaders: leaders.length,
-      withSetup: leaders.filter((r) => r.has_setup).length,
-      noSetup: leaders.filter((r) => !r.has_setup).length,
-      pending: leaders.filter((r) => r.trigger !== null && !r.triggered).length,
-    };
-  }, [liquid, leadership, minRs]);
+  /** Universe tallies for the hero chips: fixed leadership categories, ignoring the dropdown and other filters. */
+  const stats = useMemo(
+    () => ({
+      leaders: rows.filter((r) => matchesLeadership(r, "leaders", LEADER_RS)).length,
+      setups: rows.filter((r) => matchesLeadership(r, "setups", LEADER_RS)).length,
+      breakouts: rows.filter((r) => matchesLeadership(r, "breakouts")).length,
+      broken: rows.filter((r) => matchesLeadership(r, "broken", LEADER_RS)).length,
+    }),
+    [rows],
+  );
 
   const themeChoices = useMemo<DropdownOption<string>[]>(() => themeOptions(config?.themes ?? []), [config]);
 
@@ -154,19 +148,19 @@ export default function Scanner({ version }: { version: string | null }) {
         <div className="stat-cards">
           <div className="stat-card">
             <span className="stat-value green-text">{stats.leaders}</span>
-            <span className="stat-label">{LEADERSHIP_COUNT_LABEL[leadership]}</span>
+            <span className="stat-label">leaders</span>
           </div>
           <div className="stat-card">
-            <span className="stat-value green-text">{stats.withSetup}</span>
-            <span className="stat-label">with a weekly setup</span>
+            <span className="stat-value green-text">{stats.setups}</span>
+            <span className="stat-label">weekly setups</span>
           </div>
           <div className="stat-card">
-            <span className="stat-value">{stats.noSetup}</span>
-            <span className="stat-label">no setup / leader</span>
+            <span className="stat-value green-text">{stats.breakouts}</span>
+            <span className="stat-label">recent breakouts</span>
           </div>
           <div className="stat-card">
-            <span className="stat-value accent-text">{stats.pending}</span>
-            <span className="stat-label">awaiting trigger</span>
+            <span className="stat-value red-text">{stats.broken}</span>
+            <span className="stat-label">broken leaders</span>
           </div>
         </div>
       </section>
