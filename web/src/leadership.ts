@@ -1,29 +1,62 @@
 import type { ScanRow } from "./api";
 import { NO_SETUP_LABEL } from "./watchlist";
 
-/** Leaders-only filter of the Stock Scanner: how strong the relative strength must be, and whether broken trends show. */
-export type LeadershipFilter = "p90" | "p80" | "broken" | "all";
+/** Leadership filter of the Stock Scanner. Leaders and Broken leaders use the Min RS slider; Recent breakouts has its own floor. */
+export type LeadershipFilter = "leaders" | "breakouts" | "broken" | "all";
 
 export const LEADER_RS = 0.9;
-export const BROAD_RS = 0.8;
+export const MIN_RS_RANGE = { min: 50, max: 99, default: 90 };
+/** Relative-strength floor for Recent breakouts (future leaders may still be mid-pack); matches the backend `MIN_RS`. */
+export const BREAKOUT_MIN_RS = 0.5;
 
-type LeaderFields = Pick<ScanRow, "rs"> & { leadership?: Pick<ScanRow["leadership"], "breakdown"> };
+type LeaderFields = Pick<ScanRow, "rs"> & {
+  leadership?: Pick<ScanRow["leadership"], "breakdown">;
+  breakout?: ScanRow["breakout"];
+};
 
 const rsAtLeast = (r: LeaderFields, min: number) => r.rs !== null && r.rs !== undefined && r.rs >= min;
 const isBroken = (r: LeaderFields) => r.leadership?.breakdown === "broken";
 
-/** Whether a scan row passes the Stock Scanner "Leadership" filter. Broken trends are never listed as leaders. */
-export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter): boolean {
+/**
+ * Whether a scan row passes the Stock Scanner "Leadership" filter. `minRs` is the slider as a 0..1 percentile. Broken
+ * trends are never listed as leaders. Recent breakouts ignores the slider: it needs a tight-base breakout and RS >= P50.
+ */
+export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, minRs: number = LEADER_RS): boolean {
   switch (filter) {
-    case "p90":
-      return rsAtLeast(r, LEADER_RS) && !isBroken(r);
-    case "p80":
-      return rsAtLeast(r, BROAD_RS) && !isBroken(r);
+    case "leaders":
+      return rsAtLeast(r, minRs) && !isBroken(r);
     case "broken":
-      return rsAtLeast(r, BROAD_RS) && isBroken(r);
+      return rsAtLeast(r, minRs) && isBroken(r);
+    case "breakouts":
+      return !!r.breakout && rsAtLeast(r, BREAKOUT_MIN_RS) && !isBroken(r);
     default:
       return true;
   }
+}
+
+/** The slider (50-99) as a 0..1 percentile. */
+export const sliderToRs = (v: number): number => v / 100;
+
+/** Saved filters from before "Leaders" and "Broad leaders" were merged: P80 becomes Leaders at Min RS 80. */
+export function migrateLeadership(saved: string | null | undefined): { filter: LeadershipFilter; minRs: number | null } {
+  switch (saved) {
+    case "p90":
+      return { filter: "leaders", minRs: 90 };
+    case "p80":
+      return { filter: "leaders", minRs: 80 };
+    case "leaders":
+    case "breakouts":
+    case "broken":
+    case "all":
+      return { filter: saved, minRs: null };
+    default:
+      return { filter: "leaders", minRs: null };
+  }
+}
+
+/** "Breakout 2026-09-14 · 6-week base" text for the badge. */
+export function breakoutLabel(b: NonNullable<ScanRow["breakout"]>): string {
+  return `Breakout ${b.week} · ${b.base_weeks}-week base`;
 }
 
 /** "P97" style label for a 0..1 relative-strength percentile. */
@@ -58,8 +91,8 @@ export function triggerHint(
 export const NO_SETUP_LEADER = "No setup / leader";
 
 /** Label for the setup cell of a row without a weekly setup. */
-export function noSetupLabel(r: LeaderFields): string {
-  return rsAtLeast(r, LEADER_RS) && !isBroken(r) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
+export function noSetupLabel(r: LeaderFields, minRs: number = LEADER_RS): string {
+  return rsAtLeast(r, minRs) && !isBroken(r) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
 }
 
 /** A score line's weight as shown in the breakdown, e.g. 32 -> "32%", 35.6 -> "35.6%". */

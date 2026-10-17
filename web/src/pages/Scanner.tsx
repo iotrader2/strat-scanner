@@ -6,9 +6,10 @@ import { ScanTable } from "../components/ScanTable";
 import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
-import { usePersisted } from "../persist";
+import { readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
-import { matchesLeadership, type LeadershipFilter } from "../leadership";
+import { matchesLeadership, MIN_RS_RANGE, migrateLeadership, sliderToRs, type LeadershipFilter } from "../leadership";
+import { RsSlider } from "../components/RsSlider";
 import { matchesSetup, type SetupFilter } from "../setupFilter";
 import { matchesTheme, themeName, themeOptions } from "../themes";
 
@@ -18,8 +19,8 @@ type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
 
 const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
-  { value: "p90", label: "Leaders (RS ≥ P90)" },
-  { value: "p80", label: "Broad leaders (RS ≥ P80)" },
+  { value: "leaders", label: "Leaders" },
+  { value: "breakouts", label: "Recent breakouts" },
   { value: "broken", label: "Broken leaders (trend lost)" },
   { value: "all", label: "All names" },
 ];
@@ -55,7 +56,11 @@ export default function Scanner({ version }: { version: string | null }) {
   const [minDvM, setMinDvM] = usePersisted<number | null>("minDvM", null);
   // Continuity was a default gate (M+W green) when the scanner ranked setups; it is a timing option now, so it has a new key.
   const [continuity, setContinuity] = usePersisted<Continuity>("continuityFilter", "any");
-  const [leadership, setLeadership] = usePersisted<LeadershipFilter>("leadership", "p90");
+  const [savedLeadership] = useState(() => migrateLeadership(readPersisted<string | null>("leadership", null)));
+  const [leadership, setLeadership] = usePersisted<LeadershipFilter>("leadership", savedLeadership.filter);
+  const [minRsSlider, setMinRs] = usePersisted<number | null>("minRs", null);
+  const minRsPct = minRsSlider ?? savedLeadership.minRs ?? MIN_RS_RANGE.default;
+  const minRs = sliderToRs(minRsPct);
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
   const [kind, setKind] = usePersisted<Kind>("kind", "all");
   const [query, setQuery] = useState("");
@@ -88,7 +93,7 @@ export default function Scanner({ version }: { version: string | null }) {
     const q = query.trim().toUpperCase();
     const out = liquid.filter((r) => {
       if (q && !r.symbol.includes(q) && !r.name.toUpperCase().includes(q)) return false;
-      if (!matchesLeadership(r, leadership)) return false;
+      if (!matchesLeadership(r, leadership, minRs)) return false;
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
       if (continuity === "mw" && !r.mw_green) return false;
@@ -97,17 +102,17 @@ export default function Scanner({ version }: { version: string | null }) {
       return matchesSetup(r, setupFilter);
     });
     return out;
-  }, [liquid, query, theme, kind, continuity, setupFilter, leadership]);
+  }, [liquid, query, theme, kind, continuity, setupFilter, leadership, minRs]);
 
   const stats = useMemo(() => {
-    const leaders = liquid.filter((r) => matchesLeadership(r, leadership));
+    const leaders = liquid.filter((r) => matchesLeadership(r, leadership, minRs));
     return {
       leaders: leaders.length,
       withSetup: leaders.filter((r) => r.has_setup).length,
       noSetup: leaders.filter((r) => !r.has_setup).length,
       pending: leaders.filter((r) => r.trigger !== null && !r.triggered).length,
     };
-  }, [liquid, leadership]);
+  }, [liquid, leadership, minRs]);
 
   const themeChoices = useMemo<DropdownOption<string>[]>(() => themeOptions(config?.themes ?? []), [config]);
 
@@ -168,6 +173,7 @@ export default function Scanner({ version }: { version: string | null }) {
         />
         <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
         <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
+        <RsSlider value={minRsPct} min={MIN_RS_RANGE.min} max={MIN_RS_RANGE.max} onChange={setMinRs} />
         <LogSlider
           label="Min price"
           value={effPrice}
@@ -205,7 +211,7 @@ export default function Scanner({ version }: { version: string | null }) {
       {loading && rows.length === 0 ? (
         <SkeletonTable rows={10} cols={16} label="Scanning for leaders…" />
       ) : (
-        <ScanTable rows={filtered} onTheme={setTheme} />
+        <ScanTable rows={filtered} onTheme={setTheme} minRs={minRs} />
       )}
     </div>
   );

@@ -37,6 +37,36 @@ export interface Leadership {
   breakdown_reasons: string[];
 }
 
+export interface KillCandleInfo {
+  date: string;
+  age: number;
+  range_x_atr: number;
+  volume_x: number;
+  close_position: number;
+  reclaimed: boolean;
+  /** Share of the score removed now (after fading); 0 once price has reclaimed the candle's high. */
+  penalty: number;
+}
+
+export interface BreakoutInfo {
+  /** First trading day of the breakout week. */
+  week: string;
+  weeks_ago: number;
+  base_weeks: number;
+  base_high: number;
+  volume_x: number;
+  close_position: number;
+  close: number;
+}
+
+export interface TightnessInfo {
+  range10_pct: number;
+  range50_pct: number;
+  ratio: number;
+  contraction: number;
+  fraction: number;
+}
+
 export interface ScoreComponent {
   key: string;
   label: string;
@@ -71,6 +101,10 @@ export interface ScanRow {
   leader_status: LeaderStatus;
   is_leader: boolean;
   leadership: Leadership;
+  tightness: TightnessInfo | null;
+  kill_candle: KillCandleInfo | null;
+  /** A recent weekly breakout of a tight base on heavy volume (null when there is none). */
+  breakout: BreakoutInfo | null;
   kind: "stock" | "etf" | "theme";
   indexes: string;
   in_universe: boolean;

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
 import { fmtCompact } from "../logScale";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
-import { fmtRs, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
+import { breakoutLabel, fmtRs, LEADER_RS, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
@@ -12,7 +12,8 @@ import { WatchButton } from "./Watch";
 function RsChip({ row }: { row: ScanRow }) {
   if (row.rs === null || row.rs === undefined) return null;
   const level = row.leadership?.breakdown ?? "none";
-  const flag = level === "broken" ? " · broken" : level === "warning" ? " · weakening" : "";
+  const kill = row.kill_candle && row.kill_candle.penalty > 0 ? ` · kill candle ${row.kill_candle.date.slice(5)}` : "";
+  const flag = (level === "broken" ? " · broken" : level === "warning" ? " · weakening" : "") + kill;
   const reasons = row.leadership?.breakdown_reasons ?? [];
   const title = `Relative strength ${fmtRs(row.rs)}: blended 1M/3M/6M return percentile${reasons.length ? `. ${reasons.join("; ")}` : ""}`;
   return (
@@ -113,6 +114,8 @@ interface Props {
   /** Trailing per-row action cell. */
   actions?: (r: ScanRow) => ReactNode;
   actionsLabel?: string;
+  /** The Min RS slider as a 0..1 percentile, used to label leaders that have no weekly setup. */
+  minRs?: number;
 }
 
 export function ScanTable({
@@ -124,6 +127,7 @@ export function ScanTable({
   extraColumns = [],
   actions,
   actionsLabel = "Actions",
+  minRs = LEADER_RS,
 }: Props) {
   const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "score", dir: -1 });
@@ -224,6 +228,14 @@ export function ScanTable({
                 <TfBadges tf={r.tf} />
               </td>
               <td className="setup-cell">
+                {r.breakout && (
+                  <span
+                    className="breakout-badge"
+                    title={`Weekly close ${r.breakout.close.toFixed(2)} above the ${r.breakout.base_high.toFixed(2)} base high on ${r.breakout.volume_x.toFixed(1)}x average weekly volume, closing ${Math.round(r.breakout.close_position * 100)}% up the week's range`}
+                  >
+                    {breakoutLabel(r.breakout)}
+                  </span>
+                )}
                 {r.has_setup && r.setup ? (
                   <>
                     <div className={r.triggered ? "setup triggered" : "setup"}>
@@ -236,7 +248,7 @@ export function ScanTable({
                   </>
                 ) : (
                   <>
-                    <span className={noSetupLabel(r) === NO_SETUP_LEADER ? "no-setup leader" : "no-setup"}>{noSetupLabel(r)}</span>
+                    <span className={noSetupLabel(r, minRs) === NO_SETUP_LEADER ? "no-setup leader" : "no-setup"}>{noSetupLabel(r, minRs)}</span>
                     <div className="sub muted reason" title={r.reason}>
                       {r.reason.split(" · ").filter((s) => !s.startsWith("No weekly")).join(" · ")}
                     </div>
