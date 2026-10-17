@@ -366,39 +366,52 @@ def breakout_stats(
 @dataclass
 class BreakoutExample:
     symbol: str
-    first_breakout: Optional[str]
-    breakout_week: Optional[str]
-    rs_then: Optional[float]
-    first_leader: Optional[str]
-    fwd3_after: Optional[float]
+    breakouts: list[str]  # cut-offs at which it was listed in Recent breakouts
+    leader_entries: list[str]  # cut-offs at which it turned from not-a-leader into a leader
+    caught: list[tuple[str, str]]  # (breakout cut-off, leader entry within 4-8 weeks after) pairs
+    fwd3_after: Optional[float]  # forward 3M return from the first caught breakout
 
 
-def breakout_examples(by_date: Mapping[str, Sequence[dict]], symbols: Sequence[str]) -> list[BreakoutExample]:
-    """When each name first showed up in Recent breakouts, and when it first became a leader."""
+def breakout_examples(
+    by_date: Mapping[str, Sequence[dict]], symbols: Sequence[str], steps: Sequence[int] = BECAME_LEADER_STEPS
+) -> list[BreakoutExample]:
+    """When each name showed up in Recent breakouts, when it turned into a leader, and the breakouts that preceded a
+    leader entry by 4 to 8 weeks."""
     ordered = sorted(by_date)
+    index = {d: {r["symbol"]: r for r in by_date[d]} for d in ordered}
     out = []
     for sym in symbols:
-        first = next(
-            (
-                (d, r)
-                for d in ordered
-                for r in by_date[d]
-                if r["symbol"] == sym and is_breakout_pick(r)
-            ),
-            None,
-        )
-        leader = next((d for d in ordered for r in by_date[d] if r["symbol"] == sym and r["status"] == "leader"), None)
-        out.append(
-            BreakoutExample(
-                sym,
-                first[0] if first else None,
-                first[1]["breakout"]["week"] if first else None,
-                first[1]["rs"] if first else None,
-                leader,
-                first[1]["fwd3"] if first else None,
-            )
-        )
+        rows = [index[d].get(sym) for d in ordered]
+        breakouts = [d for d, r in zip(ordered, rows) if r and is_breakout_pick(r)]
+        entries = [
+            d
+            for i, (d, r) in enumerate(zip(ordered, rows))
+            if r and r["status"] == "leader" and (i == 0 or not rows[i - 1] or rows[i - 1]["status"] != "leader")
+        ]
+        caught = []
+        for d in breakouts:
+            i = ordered.index(d)
+            if rows[i]["status"] == "leader":
+                continue
+            later = [ordered[i + k] for k in steps if i + k < len(ordered)]
+            hit = next((e for e in later if index[e].get(sym) and index[e][sym]["status"] == "leader"), None)
+            if hit:
+                caught.append((d, hit))
+        fwd3 = rows[ordered.index(caught[0][0])]["fwd3"] if caught else None
+        out.append(BreakoutExample(sym, breakouts, entries, caught, fwd3))
     return out
+
+
+def caught_leaders(by_date: Mapping[str, Sequence[dict]], limit: int = 10) -> list[tuple[str, str, str, float, float]]:
+    """The biggest winners among breakouts that became leaders: (symbol, breakout cut-off, RS then, leader entry, fwd 3M)."""
+    symbols = sorted({r["symbol"] for rows in by_date.values() for r in rows if is_breakout_pick(r)})
+    best = []
+    for e in breakout_examples(by_date, symbols):
+        for d, entry in e.caught:
+            row = next(r for r in by_date[d] if r["symbol"] == e.symbol)
+            if row["fwd3"] is not None:
+                best.append((e.symbol, d, f"P{(row['rs'] or 0) * 100:.0f}", entry, row["fwd3"]))
+    return sorted(best, key=lambda t: -t[4])[:limit]
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -524,14 +537,19 @@ def render_breakouts(
             f"| {label} | {s.events} | {_pct(s.fwd1)} | {_share(s.beat_1m)} | {_pct(s.fwd3)} | {_share(s.beat_3m)} | "
             f"{_share(s.became_leader)} | {_share(s.baseline_became_leader)} |"
         )
-    out.append("\n| Name | First Recent breakout (cut-off) | Breakout week | RS then | First became a leader | Fwd 3M after |")
-    out.append("|---|---|---|---|---|---|")
+    out.append("\n| Name | Listed in Recent breakouts (cut-offs) | Turned into a leader (cut-offs) | Breakouts that preceded a leader entry by 4-8 weeks |")
+    out.append("|---|---|---|---|")
+    shown = lambda xs: ", ".join(xs[:4]) + (f" (+{len(xs) - 4})" if len(xs) > 4 else "") if xs else "never"  # noqa: E731
     for e in examples:
-        rs = "—" if e.rs_then is None else f"P{e.rs_then * 100:.0f}"
-        out.append(
-            f"| {e.symbol} | {e.first_breakout or 'never'} | {e.breakout_week or '—'} | {rs} | "
-            f"{e.first_leader or 'never'} | {_pct(e.fwd3_after)}% |"
-        )
+        pairs = "; ".join(f"{d} → {entry}" for d, entry in e.caught[:3]) or "none"
+        out.append(f"| {e.symbol} | {shown(e.breakouts)} | {shown(e.leader_entries)} | {pairs} |")
+    best = caught_leaders(by_date)
+    if best:
+        out.append("\nBiggest winners among breakouts that went on to become leaders:\n")
+        out.append("| Name | Breakout cut-off | RS then | Became a leader | Forward 3M from the breakout |")
+        out.append("|---|---|---|---|---|")
+        for sym, d, rs, entry, f3 in best:
+            out.append(f"| {sym} | {d} | {rs} | {entry} | {_pct(f3)}% |")
     return "\n".join(out)
 
 

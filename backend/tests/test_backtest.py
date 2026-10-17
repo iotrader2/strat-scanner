@@ -157,13 +157,15 @@ class TestBreakoutBacktest:
     def test_examples_name_the_first_breakout_and_the_first_leader_date(self):
         by_date, dates = self._by_date()
         ex = bt.breakout_examples(by_date, ["B", "M1"])
-        assert ex[0].first_breakout == dates[0] and ex[0].first_leader == dates[3] and ex[0].breakout_week == "2026-01-05"
-        assert ex[1].first_breakout is None and ex[1].first_leader is None
+        assert ex[0].breakouts == [dates[0]] and ex[0].leader_entries == [dates[3]]
+        assert ex[0].caught == [(dates[0], dates[3])] and ex[0].fwd3_after == 30.0
+        assert ex[1].breakouts == [] and ex[1].leader_entries == [] and ex[1].caught == []
+        assert bt.caught_leaders(by_date)[0][:2] == ("B", dates[0])
 
     def test_breakout_section_renders(self):
         by_date, dates = self._by_date()
         text = bt.render_breakouts(by_date, bt.breakout_examples(by_date, ["B"]), test_start=dates[4])
-        assert "Recent breakouts" in text and "Became leader" in text and "| B |" in text
+        assert "Recent breakouts" in text and "Became leader" in text and "| B |" in text and "Biggest winners" in text
 
 
 class TestReport:
