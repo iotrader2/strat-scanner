@@ -12,12 +12,16 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import config, data, earnings
-from .scanner import chart_payload, etf_cards, scan_all, scan_symbol, sector_entries, sector_strengths
+from .breadth import fetch_breadth
+from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
-from .universe import MARKET_ETFS, SECTOR_ETF, SECTOR_ETFS, Member, load_universe, to_yahoo
+from .perf import MomentumRanks
+from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol, theme_cards
+from .themes import ThemeError, ThemeMap, load_themes
+from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
 
 log = logging.getLogger(__name__)
-app = FastAPI(title="Strat Scanner (local)")
+app = FastAPI(title="TiltKiller (local)")
 
 CHART_LIMITS = {"M": 60, "W": 156, "D": 260}
 
@@ -30,6 +34,10 @@ class State:
     scan: list[dict] = []
     scan_key: Optional[str] = None
     daily: dict = {}
+    result: Optional[ScanResult] = None
+    strengths: dict = {}
+    ranks: MomentumRanks = MomentumRanks({})
+    theme_map: Optional[ThemeMap] = None
 
 
 def _universe() -> list[Member]:
@@ -42,15 +50,23 @@ def _find_member(symbol: str) -> Optional[Member]:
     return next((m for m in base + extra_members(only_tracked=False, base=base) if m.symbol == symbol), None)
 
 
-def _sectors():
-    """Current sector/industry ETF ranking used for each stock's Sector strength points."""
-    return sector_strengths(State.scan)
+def _load_theme_map() -> Optional[ThemeMap]:
+    try:
+        return load_themes()
+    except (OSError, ThemeError):
+        log.exception("could not load data/themes.yaml; scanning without themes")
+        return None
+
+
+def _scan_one(member: Member, daily) -> Optional[dict]:
+    """Scan one symbol against the current theme ranking and momentum distributions."""
+    return scan_symbol(member, daily, State.strengths, State.ranks, State.theme_map)
 
 
 def _rescan_symbol(member: Member) -> None:
     daily = data.load_daily(member.symbol)
     State.daily = {**State.daily, member.symbol: daily}
-    row = scan_symbol(member, daily, _sectors())
+    row = _scan_one(member, daily)
     rows = [r for r in State.scan if r["symbol"] != member.symbol] + ([row] if row else [])
     State.scan = sorted(rows, key=lambda r: r["score"], reverse=True)
 
@@ -103,7 +119,10 @@ def _ensure_scan(force: bool = False) -> list[dict]:
     if force or key != State.scan_key or not State.scan:
         daily = data.load_all_daily()
         State.daily = daily
-        State.scan = scan_all(_universe(), daily)
+        State.theme_map = _load_theme_map()
+        result = scan_all(_universe(), daily, State.theme_map)
+        State.result, State.scan = result, result.rows
+        State.strengths, State.ranks = result.strengths, result.ranks
         State.scan_key = key
     return State.scan
 
@@ -140,8 +159,10 @@ def get_config():
     return {
         "min_price": config.MIN_PRICE,
         "min_dollar_volume": config.MIN_DOLLAR_VOLUME,
-        "sectors": sorted(SECTOR_ETF),
-        "sector_etfs": SECTOR_ETF,
+        "themes": [
+            {"id": t.id, "name": t.name, "count": len(t.everyone)}
+            for t in sorted((State.theme_map or _load_theme_map() or ThemeMap(0, [])).themes, key=lambda t: t.name)
+        ],
     }
 
 
@@ -172,7 +193,7 @@ def symbol_detail(symbol: str):
     daily = State.daily.get(symbol)
     if member is None or daily is None or daily.empty:
         raise HTTPException(404, f"{symbol} is not in the cache")
-    row = next((r for r in State.scan if r["symbol"] == symbol), None) or scan_symbol(member, daily, _sectors())
+    row = next((r for r in State.scan if r["symbol"] == symbol), None) or _scan_one(member, daily)
     if row is None:
         raise HTTPException(404, f"{symbol} does not have enough price history yet")
     return {
@@ -315,7 +336,7 @@ def add_position(req: PositionRequest):
     if entry_price is None:
         member = _find_member(symbol)
         daily = data.load_daily(symbol) if member else None
-        row = _rows_by_symbol().get(symbol) or (scan_symbol(member, daily, _sectors()) if member else None)
+        row = _rows_by_symbol().get(symbol) or (_scan_one(member, daily) if member else None)
         if row is None:
             raise HTTPException(422, f"No price for {symbol} yet; enter an entry price")
         entry_price = row["price"]
@@ -353,12 +374,19 @@ def position_to_watchlist(symbol: str):
     return _positions_payload()
 
 
-@app.get("/api/sectors")
-def sectors(tf: str = Query("D", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
+@app.get("/api/themes")
+def themes(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
+    """Theme cards, strongest first: equal-weight index candles, score row and member chips."""
     _ensure_scan()
     by_symbol = {r["symbol"]: r for r in State.scan}
-    out = sector_entries(SECTOR_ETFS, by_symbol, State.daily, tf, bars)
-    return {"tf": tf, "as_of": State.scan_key, "etfs": out}
+    result = State.result or ScanResult(State.scan)
+    return {"tf": tf, "as_of": State.scan_key, "themes": theme_cards(result, by_symbol, tf, bars)}
+
+
+@app.get("/api/breadth")
+def breadth():
+    """$NASI, CNN Fear & Greed and Nasdaq/NYSE advancers vs decliners for State of the Market."""
+    return fetch_breadth()
 
 
 @app.get("/api/market")
@@ -367,4 +395,4 @@ def market(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10,
     _ensure_scan()
     by_symbol = {r["symbol"]: r for r in State.scan}
     out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars)
-    return {"tf": tf, "as_of": State.scan_key, "etfs": out}
+    return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily)}

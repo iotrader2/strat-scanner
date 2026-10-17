@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Optional
+from dataclasses import asdict, dataclass, field
+from typing import Mapping, Optional
 
 import pandas as pd
 
 from . import config
 from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
 from .data import resample
-from .scoring import TF_NAMES, SectorStrength, score_symbol, sector_strength_points
-from .universe import SECTOR_ETFS, Member
+from .perf import MomentumRanks, Perf, period_returns
+from .scoring import TF_NAMES, ThemeStrength, score_symbol, theme_strength_points
+from .themes import Theme, ThemeMap, build_theme_index
+from .universe import Member
 
 TIMEFRAMES = ("M", "W", "D")
 
@@ -28,22 +30,38 @@ def _tf_payload(st: Optional[TimeframeState]) -> Optional[dict]:
     return d
 
 
-def sector_strengths(rows: list[dict]) -> dict[str, SectorStrength]:
-    """Rank the sector and industry ETFs (not benchmarks) by score, as on the Sectors page."""
-    by_symbol = {r["symbol"]: r for r in rows}
-    candidates = [(by_symbol[sym], name) for sym, name, _, _ in SECTOR_ETFS if sym in by_symbol]
-    ranked = sorted(candidates, key=lambda rn: (-rn[0]["score"], rn[0]["symbol"]))
+def theme_strengths(theme_rows: Mapping[str, dict], themes: Optional[ThemeMap] = None) -> dict[str, ThemeStrength]:
+    """Rank the themes by score (ties by name), as on the Themes page; rank 1 is the strongest."""
+    names = {t.id: t.name for t in themes.themes} if themes else {}
+    ranked = sorted(theme_rows.values(), key=lambda r: (-r["score"], r["name"]))
     if not ranked:
         return {}
-    top = ranked[0][0]
+    top = ranked[0]
     return {
-        r["symbol"]: SectorStrength(r["symbol"], name, r["score"], i, len(ranked), top["symbol"], top["score"])
-        for i, (r, name) in enumerate(ranked, start=1)
+        r["symbol"]: ThemeStrength(
+            r["symbol"], names.get(r["symbol"], r["name"]), r["score"], i, len(ranked), top["symbol"], top["score"], top["name"]
+        )
+        for i, r in enumerate(ranked, start=1)
     }
 
 
-def scan_symbol(member: Member, daily: pd.DataFrame, sectors: Optional[dict[str, SectorStrength]] = None) -> Optional[dict]:
-    """Scan one symbol; stocks get Sector strength from ``sectors`` (see ``sector_strengths``)."""
+def theme_member(theme: Theme) -> Member:
+    """The scan identity of a theme's equal-weight index (kind "theme", symbol = theme id)."""
+    return Member(theme.id, theme.name, "Theme", "theme", "THEME")
+
+
+def scan_symbol(
+    member: Member,
+    daily: pd.DataFrame,
+    strengths: Optional[Mapping[str, ThemeStrength]] = None,
+    ranks: Optional[MomentumRanks] = None,
+    themes: Optional[ThemeMap] = None,
+) -> Optional[dict]:
+    """Scan one symbol.
+
+    ``ranks`` supplies the peer distributions for Relative momentum; stocks also get Theme strength from ``strengths``
+    (see ``theme_strengths``) for their primary theme in ``themes``.
+    """
     if daily is None or len(daily) < 30:
         return None
     states = {tf: timeframe_state(tf, to_candles(resample(daily, tf))) for tf in TIMEFRAMES}
@@ -55,9 +73,16 @@ def scan_symbol(member: Member, daily: pd.DataFrame, sectors: Optional[dict[str,
     atr_pct = float(((recent.high - recent.low) / recent.close).mean() * 100)
     prev_close = float(daily.close.iloc[-2]) if len(daily) > 1 else price
 
-    strength_etf = member.strength_etf
-    strength = (sectors or {}).get(strength_etf)
-    sc = score_symbol(states, price, adv, atr_pct, kind=member.kind, sector=strength, sector_etf=strength_etf)
+    perf = period_returns(daily.close)
+    momentum = ranks.momentum(member.kind, perf) if ranks else None
+    theme = themes.theme_of(member.symbol) if themes and member.kind == "stock" else None
+    strength = (strengths or {}).get(theme.id) if theme else None
+    secondary = themes.secondary.get(member.symbol, []) if themes and member.kind == "stock" else []
+    secondary_names = [themes.by_id(t).name for t in secondary] if themes else []
+    sc = score_symbol(
+        states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
+        theme_name=theme.name if theme else "",
+    )
     primary = sc.primary
     return {
         "symbol": member.symbol,
@@ -65,19 +90,23 @@ def scan_symbol(member: Member, daily: pd.DataFrame, sectors: Optional[dict[str,
         "sector": member.sector,
         "sector_etf": member.sector_etf,
         "industry": member.industry,
-        "strength_etf": strength_etf or None,
-        "sector_strength": (
+        "theme": theme.id if theme else None,
+        "theme_name": theme.name if theme else None,
+        "secondary_themes": secondary,
+        "secondary_theme_names": secondary_names,
+        "theme_strength": (
             {
-                "etf": strength.etf,
+                "theme": strength.theme,
                 "name": strength.name,
                 "score": strength.score,
                 "rank": strength.rank,
                 "total": strength.total,
-                "points": round(sector_strength_points(strength), 2),
+                "points": round(theme_strength_points(strength), 2),
             }
             if strength
             else None
         ),
+        "perf": perf,
         "kind": member.kind,
         "indexes": member.indexes,
         "in_universe": member.in_universe,
@@ -118,18 +147,53 @@ def scan_symbol(member: Member, daily: pd.DataFrame, sectors: Optional[dict[str,
     }
 
 
-def scan_all(members: list[Member], daily_by_symbol: dict[str, pd.DataFrame]) -> list[dict]:
-    """Scan ETFs first so their scores can rank the sectors that feed each stock's Sector strength."""
-    etf_rows = [scan_symbol(m, daily_by_symbol.get(m.symbol)) for m in members if m.kind == "etf"]
-    rows = [r for r in etf_rows if r]
-    sectors = sector_strengths(rows)
+@dataclass
+class ScanResult:
+    rows: list[dict]  # stocks and ETFs, strongest first
+    theme_rows: dict[str, dict] = field(default_factory=dict)  # theme id -> scan row of its equal-weight index
+    theme_daily: dict[str, pd.DataFrame] = field(default_factory=dict)  # theme id -> index OHLC
+    strengths: dict[str, ThemeStrength] = field(default_factory=dict)
+    ranks: MomentumRanks = field(default_factory=lambda: MomentumRanks({}))
+    themes: Optional[ThemeMap] = None
+
+
+MIN_THEME_MEMBERS_WITH_DATA = 2
+
+
+def scan_all(members: list[Member], daily_by_symbol: dict[str, pd.DataFrame], themes: Optional[ThemeMap] = None) -> ScanResult:
+    """Scan everything. Order matters: returns are ranked first (momentum), then the themes are scored and ranked, and
+    only then the stocks, whose Theme strength comes from their theme's rank."""
+    perf_by_group: dict[str, dict[str, Perf]] = {"stock": {}, "etf": {}, "theme": {}}
     for m in members:
-        if m.kind != "etf":
-            row = scan_symbol(m, daily_by_symbol.get(m.symbol), sectors)
+        daily = daily_by_symbol.get(m.symbol)
+        if m.kind in perf_by_group and daily is not None and len(daily) >= 30:
+            perf_by_group[m.kind][m.symbol] = period_returns(daily.close)
+
+    theme_daily: dict[str, pd.DataFrame] = {}
+    for theme in themes.themes if themes else []:
+        have = [s for s in theme.members if daily_by_symbol.get(s) is not None]
+        index = build_theme_index(daily_by_symbol, have) if len(have) >= MIN_THEME_MEMBERS_WITH_DATA else None
+        if index is not None and len(index) >= 30:
+            theme_daily[theme.id] = index
+            perf_by_group["theme"][theme.id] = period_returns(index.close)
+    ranks = MomentumRanks.from_perf(perf_by_group)
+
+    theme_rows = {}
+    for theme in themes.themes if themes else []:
+        if theme.id in theme_daily:
+            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks)
+            if row:
+                theme_rows[theme.id] = row
+    strengths = theme_strengths(theme_rows, themes)
+
+    rows = []
+    for m in members:
+        if m.kind != "theme":
+            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes)
             if row:
                 rows.append(row)
     rows.sort(key=lambda r: r["score"], reverse=True)
-    return rows
+    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes)
 
 
 def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:
@@ -154,16 +218,43 @@ def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:
     return out[-limit:]
 
 
-def sector_entries(
-    etfs: list[tuple[str, str, str, str]],
-    rows_by_symbol: dict[str, dict],
-    daily_by_symbol: dict[str, pd.DataFrame],
-    tf: str,
-    bars: int,
-) -> list[dict]:
-    """Sector ETF cards for one timeframe, strongest score first (ties by symbol)."""
-    out = etf_cards(etfs, rows_by_symbol, daily_by_symbol, tf, bars)
-    out.sort(key=lambda e: (-e["row"]["score"], e["symbol"]))
+def _chip(row: dict, also: bool) -> dict:
+    return {
+        "symbol": row["symbol"],
+        "name": row["name"],
+        "change_pct": row["change_pct"],
+        "perf": row["perf"],
+        "score": row["score"],
+        "mw_green": row["mw_green"],
+        "has_setup": row["has_setup"],
+        "also": also,
+    }
+
+
+def theme_cards(result: ScanResult, rows_by_symbol: Mapping[str, dict], tf: str, bars: int) -> list[dict]:
+    """One card per theme for a timeframe, strongest score first: index candles, scan row and member chips."""
+    out = []
+    for theme in result.themes.themes if result.themes else []:
+        row = result.theme_rows.get(theme.id)
+        if row is None:
+            continue
+        primary = [_chip(rows_by_symbol[s], False) for s in theme.members if s in rows_by_symbol]
+        also = [_chip(rows_by_symbol[s], True) for s in theme.also if s in rows_by_symbol]
+        primary.sort(key=lambda c: (-c["score"], c["symbol"]))
+        also.sort(key=lambda c: (-c["score"], c["symbol"]))
+        out.append(
+            {
+                "id": theme.id,
+                "name": theme.name,
+                "description": theme.description,
+                "count": len(primary),
+                "members": primary,
+                "also": also,
+                "row": row,
+                "candles": chart_payload(result.theme_daily[theme.id], tf, bars),
+            }
+        )
+    out.sort(key=lambda c: (-c["row"]["score"], c["name"]))
     return out
 
 

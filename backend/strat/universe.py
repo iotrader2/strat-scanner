@@ -1,4 +1,4 @@
-"""Scan universe: S&P 500 + Nasdaq-100 stocks plus sector / benchmark ETFs.
+"""Scan universe: S&P 500 + Nasdaq-100 stocks, theme-only additions (see themes.py) and ETFs.
 
 The constituent list is snapshotted to ``data/universe.csv`` so scans work
 without re-scraping; ``python -m strat.universe`` rebuilds it from Wikipedia.
@@ -63,76 +63,6 @@ YAHOO_TO_GICS = {
 }
 OTHER_SECTOR = "Other"
 
-# Industry -> industry ETF for the Sector strength score, used only where the industry ETF is a clearly better
-# benchmark than the broad SPDR sector ETF. Keys cover GICS sub-industries (S&P 500), ICB subsectors
-# (Nasdaq-100-only names) and Yahoo Finance industries (symbols added from the Watchlist/Positions).
-# Anything not listed (e.g. Pharmaceuticals, Broadline Retail, Building Products) uses its SPDR sector ETF.
-INDUSTRY_ETF = {
-    # Semiconductors -> SMH
-    "Semiconductors": "SMH",
-    "Semiconductor Materials & Equipment": "SMH",
-    "Semiconductor Equipment & Materials": "SMH",
-    # Software -> IGV
-    "Application Software": "IGV",
-    "Systems Software": "IGV",
-    "Software": "IGV",
-    "Software - Application": "IGV",
-    "Software - Infrastructure": "IGV",
-    # Biotech -> XBI
-    "Biotechnology": "XBI",
-    # Banks -> KRE (regional) / KBE (diversified)
-    "Regional Banks": "KRE",
-    "Banks - Regional": "KRE",
-    "Diversified Banks": "KBE",
-    "Banks - Diversified": "KBE",
-    # Oil & gas E&P -> XOP
-    "Oil & Gas Exploration & Production": "XOP",
-    "Oil & Gas E&P": "XOP",
-    # Homebuilders -> ITB
-    "Homebuilding": "ITB",
-    "Residential Construction": "ITB",
-    # Aerospace & defense -> ITA
-    "Aerospace & Defense": "ITA",
-    "Aerospace": "ITA",
-    "Defense": "ITA",
-    # Gold miners -> GDX
-    "Gold": "GDX",
-    # Metals & mining -> XME
-    "Steel": "XME",
-    "Copper": "XME",
-    "Aluminum": "XME",
-    "Diversified Metals & Mining": "XME",
-    "Other Industrial Metals & Mining": "XME",
-    # Transports -> IYT
-    "Rail Transportation": "IYT",
-    "Cargo Ground Transportation": "IYT",
-    "Air Freight & Logistics": "IYT",
-    "Passenger Airlines": "IYT",
-    "Railroads": "IYT",
-    "Integrated Freight & Logistics": "IYT",
-    "Trucking": "IYT",
-    "Airlines": "IYT",
-    # Specialty retail -> XRT (broadline retailers such as AMZN stay on XLY)
-    "Apparel Retail": "XRT",
-    "Automotive Retail": "XRT",
-    "Home Improvement Retail": "XRT",
-    "Other Specialty Retail": "XRT",
-    "Computer & Electronics Retail": "XRT",
-    "Homefurnishing Retail": "XRT",
-    "Specialty Retail": "XRT",
-    "Auto & Truck Dealerships": "XRT",
-}
-
-
-def normalize_industry(industry: str) -> str:
-    """Yahoo writes "Software—Application" (em dash) in some responses and "Software - Application" in others."""
-    return " - ".join(part.strip() for part in industry.replace("—", " - ").split(" - ")).strip()
-
-
-def strength_etf(sector: str, industry: str = "") -> str:
-    """ETF whose Sectors-page score drives a stock's Sector strength points ("" when there is none)."""
-    return INDUSTRY_ETF.get(normalize_industry(industry)) or SECTOR_ETF.get(sector, "")
-
 # (symbol, name, sector, group). group: "spdr" | "industry" | "benchmark"
 ETFS: list[tuple[str, str, str, str]] = [
     ("XLK", "Technology Select Sector SPDR", "Information Technology", "spdr"),
@@ -181,10 +111,6 @@ class Member:
     @property
     def sector_etf(self) -> str:
         return SECTOR_ETF.get(self.sector, "")
-
-    @property
-    def strength_etf(self) -> str:
-        return "" if self.kind == "etf" else strength_etf(self.sector, self.industry)
 
 
 def to_yahoo(symbol: str) -> str:
@@ -255,7 +181,13 @@ def write_universe(members: list[Member], path: Path = UNIVERSE_CSV) -> list[Mem
 
 
 def build_universe(path: Path = UNIVERSE_CSV) -> list[Member]:
-    return write_universe(list(_fetch_members().values()), path)
+    """Rebuild the S&P 500 / Nasdaq-100 / ETF snapshot; names added only for a theme (indexes "THEME") are kept."""
+    members = _fetch_members()
+    if path.exists():
+        for m in load_universe(path):
+            if "THEME" in m.indexes.split(";") and m.symbol not in members:
+                members[m.symbol] = m
+    return write_universe(list(members.values()), path)
 
 
 def add_industries(path: Path = UNIVERSE_CSV) -> list[Member]:

@@ -1,0 +1,132 @@
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { Link } from "react-router-dom";
+import { api, type ThemeCard as ThemeCardData, type Tf } from "../api";
+import { isTimeframe, usePersisted } from "../persist";
+import { Legend } from "../components/Badges";
+import { CARD_BARS, TfToggle } from "../components/EtfCard";
+import { LoadingIndicator, SkeletonCards } from "../components/Loading";
+import { ThemeCard } from "../components/ThemeCard";
+import { filterThemes, sortThemes, THEME_SORTS, type ThemeSort } from "../themeCards";
+
+const PAGE = 24;
+const LEADERS = 12;
+
+export default function Themes({ version }: { version: string | null }) {
+  const [storedTf, setTf] = usePersisted<Tf>("themesTf", "W");
+  const tf: Tf = isTimeframe(storedTf) ? storedTf : "W";
+  const [storedSort, setSort] = usePersisted<ThemeSort>("themesSort", "score");
+  const sort: ThemeSort = THEME_SORTS.some((s) => s.key === storedSort) ? storedSort : "score";
+  const [themes, setThemes] = useState<ThemeCardData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [shown, setShown] = useState(PAGE);
+  const [allLeaders, setAllLeaders] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    api
+      .themes(tf, CARD_BARS[tf])
+      .then((r) => {
+        setThemes(r.themes);
+        setError(null);
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, [tf, version]);
+
+  useEffect(() => setShown(PAGE), [tf]);
+
+  const ranked = useMemo(() => sortThemes(themes, "score"), [themes]);
+  const visible = useMemo(() => sortThemes(filterThemes(themes, query), sort), [themes, query, sort]);
+  const jumpTo = (e: MouseEvent<HTMLAnchorElement>, id: string) => {
+    e.preventDefault();
+    setQuery("");
+    setShown(themes.length);
+    window.setTimeout(() => document.getElementById(`theme-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
+  const leaders = allLeaders ? ranked : ranked.slice(0, LEADERS);
+
+  return (
+    <div className="page">
+      <section className="hero">
+        <div>
+          <h1>Themes</h1>
+          <p className="muted">
+            Groups of stocks that actually move together (cybersecurity, memory, regional banks, neoclouds…), from the
+            curated map in <code>backend/data/themes.yaml</code> and checked against 6-month return correlations. Each card
+            is an equal-weight index of the members with its M/W/D Strat badges, weekly setup, 1M/3M/6M return and
+            members. Use “Scan theme” to filter the Stock Scanner. The index benchmarks are on{" "}
+            <Link className="sector-link" to="/market">State of the Market</Link>.
+          </p>
+        </div>
+        <TfToggle tf={tf} onChange={setTf} />
+      </section>
+
+      <div className="card leaderboard">
+        <span className="muted small">Strongest → weakest:</span>
+        {loading && themes.length === 0 && <LoadingIndicator label="Ranking…" className="small" />}
+        {leaders.map((t, i) => (
+          <a key={t.id} href={`#theme-${t.id}`} className={`lb-item ${t.row.mw_green ? "green" : "red"}`} onClick={(e) => jumpTo(e, t.id)}>
+            <span className="muted">{i + 1}.</span> {t.name} <b>{t.row.score.toFixed(0)}</b>
+          </a>
+        ))}
+        {ranked.length > LEADERS && (
+          <button type="button" className="chip" onClick={() => setAllLeaders((v) => !v)}>
+            {allLeaders ? "show top 12" : `show all ${ranked.length}`}
+          </button>
+        )}
+      </div>
+
+      <div className="card filters theme-tools">
+        <input
+          className="input search"
+          placeholder="Find a theme or member ticker…"
+          aria-label="Find a theme"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setShown(PAGE);
+          }}
+        />
+        <div className="field">
+          <span className="field-label">Sort by</span>
+          <div className="seg" role="group" aria-label="Sort themes">
+            {THEME_SORTS.map((s) => (
+              <button key={s.key} className={s.key === sort ? "active" : ""} onClick={() => {
+                  setSort(s.key);
+                  setShown(PAGE);
+                }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <span className="muted small theme-count">
+          {query ? `${visible.length} of ${themes.length} themes` : `${themes.length} themes`}
+        </span>
+      </div>
+      <Legend />
+
+      {error && <div className="banner error">{error}</div>}
+      {loading && themes.length === 0 && <SkeletonCards count={9} label="Building theme indexes…" />}
+      <div className="sector-grid theme-grid">
+        {visible.slice(0, shown).map((t) => (
+          <div key={t.id} id={`theme-${t.id}`}>
+            <ThemeCard theme={t} />
+          </div>
+        ))}
+      </div>
+      {visible.length > shown && (
+        <div className="show-more">
+          <button className="btn" onClick={() => setShown((n) => n + PAGE)}>
+            Show {Math.min(PAGE, visible.length - shown)} more themes ({visible.length - shown} left)
+          </button>
+        </div>
+      )}
+      {!loading && themes.length > 0 && visible.length === 0 && (
+        <div className="card empty-state">No theme or member matches “{query}”.</div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,11 @@
+{
+  "name": "TiltKiller",
+  "short_name": "TiltKiller",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "background_color": "#07090d",
+  "theme_color": "#07090d",
+  "display": "standalone"
+}

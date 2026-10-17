@@ -108,10 +108,10 @@ export default function Watchlist() {
         <div className="card empty-state">
           Your watchlist is empty. Type a ticker above, or use the <span className="watch-btn inline">+</span> button on a{" "}
           <Link className="sector-link" to="/">Stock Scanner</Link> row, a stock page or a{" "}
-          <Link className="sector-link" to="/sectors">sector</Link> card to add names.
+          <Link className="sector-link" to="/themes">theme</Link> card to add names.
         </div>
       ) : data === null ? (
-        <SkeletonTable rows={5} cols={13} label="Loading watchlist…" />
+        <SkeletonTable rows={5} cols={16} label="Loading watchlist…" />
       ) : (
         <ScanTable
           rows={rows}

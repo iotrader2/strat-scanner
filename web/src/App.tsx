@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { LAST_TAB_KEY, pageTitle, readPersisted, restoreTarget, tabLocation, writePersisted } from "./persist";
 import { api, type Status } from "./api";
 import Scanner from "./pages/Scanner";
 import Detail from "./pages/Detail";
-import Sectors from "./pages/Sectors";
+import Themes from "./pages/Themes";
 import Market from "./pages/Market";
 import Watchlist from "./pages/Watchlist";
 import Positions from "./pages/Positions";
@@ -94,15 +94,14 @@ export default function App() {
           <div className="topbar-wrap">
             <header className="topbar">
               <div className="brand">
-                <span className="brand-mark">◆</span>
+                <img className="brand-logo" src="/apple-touch-icon.png" alt="" width={30} height={30} />
                 <span>
-                  Strat<span className="brand-dim">Scanner</span>
+                  Tilt<span className="brand-dim">Killer</span>
                 </span>
-                <span className="local-chip">localhost</span>
               </div>
               <nav>
                 <NavLink to="/market">State of the Market</NavLink>
-                <NavLink to="/sectors">Sectors</NavLink>
+                <NavLink to="/themes">Themes</NavLink>
                 <NavLink to="/" end>
                   Stock Scanner
                 </NavLink>
@@ -133,7 +132,8 @@ export default function App() {
               <Route path="/" element={<Scanner version={dataVersion} />} />
               <Route path="/stock/:symbol" element={<Detail version={dataVersion} />} />
               <Route path="/market" element={<Market version={dataVersion} />} />
-              <Route path="/sectors" element={<Sectors version={dataVersion} />} />
+              <Route path="/themes" element={<Themes version={dataVersion} />} />
+              <Route path="/sectors" element={<Navigate to="/themes" replace />} />
               <Route path="/watchlist" element={<Watchlist />} />
               <Route path="/positions" element={<Positions />} />
             </Routes>

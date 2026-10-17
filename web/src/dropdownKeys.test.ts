@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { listKeyAction, opensList } from "./dropdownKeys";
 
-const labels = ["All sectors", "Energy (XLE)", "Financials (XLF)", "Health Care (XLV)", "Benchmark ETFs"];
+const labels = ["All themes", "Cybersecurity", "Memory & storage", "Regional banks", "No theme (ETFs, others)"];
 
 describe("dropdown keyboard navigation", () => {
   it("moves with the arrow keys and stops at the ends", () => {
@@ -24,9 +24,10 @@ describe("dropdown keyboard navigation", () => {
   });
 
   it("jumps to the next option starting with a typed letter, wrapping around", () => {
-    expect(listKeyAction("h", 0, labels)).toEqual({ type: "move", index: 3 });
-    expect(listKeyAction("B", 0, labels)).toEqual({ type: "move", index: 4 });
-    expect(listKeyAction("e", 1, labels)).toEqual({ type: "move", index: 1 });
+    expect(listKeyAction("m", 0, labels)).toEqual({ type: "move", index: 2 });
+    expect(listKeyAction("N", 0, labels)).toEqual({ type: "move", index: 4 });
+    expect(listKeyAction("a", 3, labels)).toEqual({ type: "move", index: 0 });
+    expect(listKeyAction("c", 1, labels)).toEqual({ type: "move", index: 1 });
     expect(listKeyAction("z", 1, labels)).toEqual({ type: "none" });
   });
 

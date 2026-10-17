@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
 import { fmtCompact } from "../logScale";
+import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
 import { NO_SETUP_LABEL } from "../watchlist";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
@@ -15,11 +16,16 @@ export type SortKey =
   | "trigger_distance_pct"
   | "avg_dollar_volume"
   | "avg_volume"
-  | "sector";
+  | "theme"
+  | PerfSort;
 
 export function sortRows(rows: ScanRow[], key: SortKey, dir: 1 | -1): ScanRow[] {
   // Distance sorts by closeness to the trigger, whichever side of it price is on.
-  return sortBy(rows, (r) => (key === "trigger_distance_pct" && r.trigger_distance_pct !== null ? Math.abs(r.trigger_distance_pct) : r[key]), dir);
+  return sortBy(rows, (r) => {
+    if (isPerfSort(key)) return perfSortValue(r, key);
+    if (key === "theme") return r.theme_name ?? null;
+    return key === "trigger_distance_pct" && r.trigger_distance_pct !== null ? Math.abs(r.trigger_distance_pct) : r[key];
+  }, dir);
 }
 
 /** Sort by any value; null/undefined values always go last. */
@@ -34,7 +40,7 @@ export function sortBy(rows: ScanRow[], value: (r: ScanRow) => unknown, dir: 1 |
   });
 }
 
-const ASCENDING_FIRST: SortKey[] = ["symbol", "sector", "trigger_distance_pct"];
+const ASCENDING_FIRST: SortKey[] = ["symbol", "theme", "trigger_distance_pct"];
 
 /** Extra sortable column (e.g. a position's entry price or P/L). */
 export interface ExtraColumn {
@@ -49,7 +55,8 @@ export interface ExtraColumn {
 
 interface Props {
   rows: ScanRow[];
-  onSector?: (sector: string) => void;
+  /** Makes the Theme cell a link that filters by that theme id. */
+  onTheme?: (theme: string) => void;
   /** First-column +/✓ watchlist toggle (off on Positions, where the row menu handles moves). */
   watchColumn?: boolean;
   priceLabel?: string;
@@ -64,7 +71,7 @@ interface Props {
 
 export function ScanTable({
   rows,
-  onSector,
+  onTheme,
   watchColumn = true,
   priceLabel = "Price",
   leadColumns = [],
@@ -102,11 +109,12 @@ export function ScanTable({
             {watchColumn && <th className="watch-col" aria-label="Watchlist" />}
             <th className="rank">#</th>
             {header("symbol", "Symbol")}
-            {header("sector", "Sector")}
+            {header("theme", "Theme")}
             {leadColumns.map((c) => header(c.key, c.label, c.className))}
             {header("price", priceLabel, "num")}
             {extraColumns.map((c) => header(c.key, c.label, c.className))}
             {header("change_pct", "Day", "num")}
+            {PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
             <th>M · W · D</th>
             <th>Weekly setup</th>
             <th className="num">Trigger</th>
@@ -135,13 +143,17 @@ export function ScanTable({
                 </div>
                 <div className="sub muted">{r.name}</div>
               </td>
-              <td className="muted small">
-                {onSector ? (
-                  <span className="sector-link" onClick={(e) => { e.stopPropagation(); onSector(r.sector); }}>
-                    {r.sector}
-                  </span>
+              <td className="muted small theme-cell">
+                {r.theme && r.theme_name ? (
+                  onTheme ? (
+                    <span className="sector-link" title={`Scan ${r.theme_name}`} onClick={(e) => { e.stopPropagation(); onTheme(r.theme!); }}>
+                      {r.theme_name}
+                    </span>
+                  ) : (
+                    r.theme_name
+                  )
                 ) : (
-                  r.sector
+                  "—"
                 )}
               </td>
               {leadColumns.map((c) => (
@@ -156,6 +168,11 @@ export function ScanTable({
                 </td>
               ))}
               <td className={`num ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</td>
+              {PERF_PERIODS.map((p) => (
+                <td key={p.key} className={`num perf-col ${perfClass(r.perf?.[p.key])}`}>
+                  {fmtPerf(r.perf?.[p.key])}
+                </td>
+              ))}
               <td>
                 <TfBadges tf={r.tf} />
               </td>

@@ -7,11 +7,11 @@ import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { usePersisted } from "../persist";
-import { LoadingIndicator, SkeletonTable } from "../components/Loading";
+import { SkeletonTable } from "../components/Loading";
 import { matchesSetup, type SetupFilter } from "../setupFilter";
+import { matchesTheme, themeName, themeOptions } from "../themes";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
-const AVG_VOL_RANGE = { min: 100_000, max: 50_000_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
@@ -37,7 +37,7 @@ const KIND_OPTIONS: DropdownOption<Kind>[] = [
 
 export default function Scanner({ version }: { version: string | null }) {
   const [params, setParams] = useSearchParams();
-  const sector = params.get("sector") ?? "";
+  const theme = params.get("theme") ?? "";
 
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [rows, setRows] = useState<ScanRow[]>([]);
@@ -46,7 +46,6 @@ export default function Scanner({ version }: { version: string | null }) {
 
   const [minPrice, setMinPrice] = usePersisted<number | null>("minPrice", null);
   const [minDvM, setMinDvM] = usePersisted<number | null>("minDvM", null);
-  const [minAvgVol, setMinAvgVol] = usePersisted<number>("minAvgVol", AVG_VOL_RANGE.min);
   const [continuity, setContinuity] = usePersisted<Continuity>("continuity", "mw");
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
   const [kind, setKind] = usePersisted<Kind>("kind", "all");
@@ -72,15 +71,15 @@ export default function Scanner({ version }: { version: string | null }) {
   }, [version]);
 
   const liquid = useMemo(
-    () => rows.filter((r) => passesLiquidity(r, { minPrice: effPrice, minDollarVolume: effDv, minAvgVolume: minAvgVol })),
-    [rows, effPrice, effDv, minAvgVol],
+    () => rows.filter((r) => passesLiquidity(r, { minPrice: effPrice, minDollarVolume: effDv })),
+    [rows, effPrice, effDv],
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toUpperCase();
     const out = liquid.filter((r) => {
       if (q && !r.symbol.includes(q) && !r.name.toUpperCase().includes(q)) return false;
-      if (sector && r.sector !== sector) return false;
+      if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
       if (continuity === "mw" && !r.mw_green) return false;
       if (continuity === "full" && !r.full_continuity) return false;
@@ -88,7 +87,7 @@ export default function Scanner({ version }: { version: string | null }) {
       return matchesSetup(r, setupFilter);
     });
     return out;
-  }, [liquid, query, sector, kind, continuity, setupFilter]);
+  }, [liquid, query, theme, kind, continuity, setupFilter]);
 
   const stats = useMemo(
     () => ({
@@ -99,19 +98,12 @@ export default function Scanner({ version }: { version: string | null }) {
     [liquid],
   );
 
-  const sectorOptions = useMemo<DropdownOption<string>[]>(
-    () => [
-      { value: "", label: "All sectors" },
-      ...(config?.sectors ?? []).map((s) => ({ value: s, label: `${s} (${config?.sector_etfs[s]})` })),
-      { value: "Benchmark", label: "Benchmark ETFs" },
-    ],
-    [config],
-  );
+  const themeChoices = useMemo<DropdownOption<string>[]>(() => themeOptions(config?.themes ?? []), [config]);
 
-  const setSector = (s: string) => {
+  const setTheme = (t: string) => {
     const next = new URLSearchParams(params);
-    if (s) next.set("sector", s);
-    else next.delete("sector");
+    if (t) next.set("theme", t);
+    else next.delete("theme");
     setParams(next);
   };
 
@@ -121,13 +113,13 @@ export default function Scanner({ version }: { version: string | null }) {
         <div>
           <h1>Stock Scanner</h1>
           <p className="muted">
-            Long setups on the weekly chart only (S&amp;P 500 + Nasdaq-100 + sector ETFs), ranked by actionability:
-            Monthly 2U, M/W/D continuity, distance to the weekly trigger and liquidity.
+            Long setups on the weekly chart only (S&amp;P 500 + Nasdaq-100 + theme additions + sector ETFs), ranked by actionability:
+            Monthly 2U, M/W/D continuity, distance to the weekly trigger, liquidity, relative momentum and theme strength.
           </p>
         </div>
         <div className="stat-cards">
           <div className="stat-card">
-            <span className="stat-value">{liquid.length}</span>
+            <span className="stat-value green-text">{liquid.length}</span>
             <span className="stat-label">weekly setups</span>
           </div>
           <div className="stat-card">
@@ -148,11 +140,11 @@ export default function Scanner({ version }: { version: string | null }) {
       <section className="card filters">
         <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
         <Dropdown
-          label="Sector"
-          header="Filter by sector"
-          value={sector}
-          options={sectorOptions}
-          onChange={setSector}
+          label="Theme"
+          header="Filter by theme"
+          value={theme}
+          options={themeChoices}
+          onChange={setTheme}
         />
         <Dropdown
           label="Continuity"
@@ -179,22 +171,14 @@ export default function Scanner({ version }: { version: string | null }) {
           format={(v) => `$${fmtCompact(v)}`}
           onChange={(v) => setMinDvM(v / 1e6)}
         />
-        <LogSlider
-          label="Min avg volume (shares)"
-          value={minAvgVol}
-          min={AVG_VOL_RANGE.min}
-          max={AVG_VOL_RANGE.max}
-          format={fmtCompact}
-          onChange={setMinAvgVol}
-        />
       </section>
 
       <div className="table-meta">
         <span className="muted">
-          {loading ? <LoadingIndicator label="Loading weekly setups…" /> : `${filtered.length} of ${rows.length} weekly setups shown`}
-          {sector && (
-            <button className="chip" onClick={() => setSector("")}>
-              {sector} ✕
+          {!loading && `${filtered.length} of ${rows.length} weekly setups shown`}
+          {theme && (
+            <button className="chip" onClick={() => setTheme("")}>
+              {themeName(config?.themes ?? [], theme)} ✕
             </button>
           )}
         </span>
@@ -206,9 +190,9 @@ export default function Scanner({ version }: { version: string | null }) {
       )}
 
       {loading && rows.length === 0 ? (
-        <SkeletonTable rows={10} cols={13} label="Scanning weekly setups…" />
+        <SkeletonTable rows={10} cols={16} label="Scanning weekly setups…" />
       ) : (
-        <ScanTable rows={filtered} onSector={setSector} />
+        <ScanTable rows={filtered} onTheme={setTheme} />
       )}
     </div>
   );

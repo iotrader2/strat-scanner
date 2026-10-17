@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional
 
 from .candles import TWO_UP, Setup, TimeframeState
+from .perf import MOMENTUM_WEIGHTS, PERIOD_LABELS, PERIODS, Momentum
 
 TF_NAMES = {"M": "Monthly", "W": "Weekly", "D": "Daily"}
 
@@ -37,42 +38,50 @@ LIQUIDITY_POINTS = 10.0
 MIN_ATR_PCT = 0.5
 PINNED_PENALTY = 0.5
 
-SECTOR_STRENGTH_POINTS = 15.0
+THEME_STRENGTH_POINTS = 40.0
+MOMENTUM_POINTS = 15.0
 
-# ETFs are what the sector ranking is built from, so they are scored without the Sector strength component.
-ETF_MAX_RAW_POINTS = (
-    MONTHLY_2U_POINTS
-    + sum(CONTINUITY_POINTS.values())
-    + FULL_CONTINUITY_BONUS
-    + MAX_SETUP_POINTS
-    + PROXIMITY_POINTS
-    + LIQUIDITY_POINTS
+# Core components shared by every kind of row (Monthly 2U, continuity, weekly setup, distance to trigger).
+CORE_MAX_RAW_POINTS = (
+    MONTHLY_2U_POINTS + sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS + MAX_SETUP_POINTS + PROXIMITY_POINTS
 )
-MAX_RAW_POINTS = ETF_MAX_RAW_POINTS + SECTOR_STRENGTH_POINTS
+# ETFs belong to no theme, so they are scored without Theme strength. A theme's equal-weight index has no tradable
+# volume of its own, so themes are scored without Liquidity (and without Theme strength, being the thing ranked).
+THEME_MAX_RAW_POINTS = CORE_MAX_RAW_POINTS + MOMENTUM_POINTS
+ETF_MAX_RAW_POINTS = CORE_MAX_RAW_POINTS + LIQUIDITY_POINTS + MOMENTUM_POINTS
+MAX_RAW_POINTS = ETF_MAX_RAW_POINTS + THEME_STRENGTH_POINTS
 
 
 @dataclass(frozen=True)
-class SectorStrength:
-    """A sector/industry ETF's standing on the Sectors page."""
+class ThemeStrength:
+    """A theme's standing on the Themes page (its score and rank among all themes)."""
 
-    etf: str
+    theme: str
     name: str
     score: float
     rank: int  # 1 = strongest
     total: int
-    top_etf: str
+    top_theme: str
     top_score: float
+    top_name: str = ""
 
 
-def sector_strength_points(strength: Optional[SectorStrength]) -> float:
-    """Up to 15 points in proportion to the ETF's score relative to the top-ranked ETF's (which gets all 15)."""
+def theme_strength_points(strength: Optional[ThemeStrength]) -> float:
+    """Up to THEME_STRENGTH_POINTS in proportion to the theme's score relative to the top-ranked theme's."""
     if strength is None or strength.top_score <= 0:
         return 0.0
-    return SECTOR_STRENGTH_POINTS * min(1.0, max(0.0, strength.score) / strength.top_score)
+    return THEME_STRENGTH_POINTS * min(1.0, max(0.0, strength.score) / strength.top_score)
+
+
+def momentum_points(momentum: Optional[Momentum]) -> float:
+    """Up to 15 points: the weighted blend of the 1M/3M/6M return percentiles within the peer group."""
+    if momentum is None or momentum.blended is None:
+        return 0.0
+    return MOMENTUM_POINTS * min(1.0, max(0.0, momentum.blended))
 
 
 def max_raw_points(kind: str) -> float:
-    return ETF_MAX_RAW_POINTS if kind == "etf" else MAX_RAW_POINTS
+    return {"etf": ETF_MAX_RAW_POINTS, "theme": THEME_MAX_RAW_POINTS}.get(kind, MAX_RAW_POINTS)
 
 
 @dataclass
@@ -136,10 +145,15 @@ def score_symbol(
     avg_dollar_volume: float,
     atr_pct: Optional[float] = None,
     kind: str = "stock",
-    sector: Optional[SectorStrength] = None,
-    sector_etf: str = "",
+    theme: Optional[ThemeStrength] = None,
+    momentum: Optional[Momentum] = None,
+    theme_name: str = "",
 ) -> Score:
-    """Score one symbol. Stocks also get Sector strength from ``sector`` (the standing of ``sector_etf``)."""
+    """Score one symbol.
+
+    ``momentum`` is its Relative momentum (percentile ranks of its 1M/3M/6M returns). Stocks also get Theme strength
+    from ``theme`` (the standing of their primary theme, ``theme_name``). Themes have no Liquidity component.
+    """
     reasons: list[str] = []
     parts: list[Component] = []
 
@@ -155,7 +169,7 @@ def score_symbol(
     monthly_2u = bool(monthly and monthly.strat == TWO_UP)
     parts.append(
         Component(
-            "monthly_2u", "Monthly 2U", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
+            "monthly_2u", "Monthly setup", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
             "current month is 2U" if monthly_2u else f"current month is {monthly.strat if monthly else 'n/a'}",
         )
     )
@@ -200,16 +214,19 @@ def score_symbol(
         )
     parts.append(Component("proximity", "Distance to trigger", prox, PROXIMITY_POINTS, prox_detail))
 
-    liq = liquidity_points(avg_dollar_volume)
-    parts.append(
-        Component(
-            "liquidity", "Liquidity", liq, LIQUIDITY_POINTS,
-            f"avg ${avg_dollar_volume / 1e6:,.0f}M/day (log scale, 0 at $50M, max at $5B)",
+    if kind != "theme":
+        liq = liquidity_points(avg_dollar_volume)
+        parts.append(
+            Component(
+                "liquidity", "Liquidity", liq, LIQUIDITY_POINTS,
+                f"avg ${avg_dollar_volume / 1e6:,.0f}M/day (log scale, 0 at $50M, max at $5B)",
+            )
         )
-    )
 
-    if kind != "etf":
-        parts.append(_sector_component(sector, sector_etf))
+    parts.append(_momentum_component(momentum))
+
+    if kind == "stock":
+        parts.append(_theme_component(theme, theme_name))
 
     raw = sum(c.points for c in parts)
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
@@ -253,22 +270,43 @@ def score_symbol(
     )
 
 
-def _sector_component(sector: Optional[SectorStrength], sector_etf: str) -> Component:
-    if sector is None:
-        detail = f"no Sectors-page score for {sector_etf} yet" if sector_etf else "no sector ETF for this sector"
-        return Component("sector_strength", "Sector strength", 0.0, SECTOR_STRENGTH_POINTS, detail)
-    pts = sector_strength_points(sector)
-    rank = f"#{sector.rank} of {sector.total}"
-    if sector.etf == sector.top_etf:
-        how = "top-ranked sector/industry ETF, full credit"
+def _momentum_component(momentum: Optional[Momentum]) -> Component:
+    label = "Relative momentum"
+    if momentum is None or momentum.blended is None:
+        return Component("momentum", label, 0.0, MOMENTUM_POINTS, "not enough price history for a 1M/3M/6M return")
+    peers = {"stock": "stocks", "etf": "ETFs", "theme": "themes"}.get(momentum.group, "peers")
+    parts = []
+    for p in PERIODS:
+        ret, pct = momentum.returns[p], momentum.percentiles[p]
+        parts.append(
+            f"{PERIOD_LABELS[p]} n/a" if ret is None or pct is None else f"{PERIOD_LABELS[p]} {ret:+.1f}% (P{pct * 100:.0f})"
+        )
+    weights = "/".join(f"{MOMENTUM_WEIGHTS[p] * 100:.0f}" for p in PERIODS)
+    n = max(momentum.peers.values(), default=0)
+    detail = (
+        f"{' · '.join(parts)}; percentile among {n} {peers}, weighted {weights} (1M/3M/6M) "
+        f"= P{momentum.blended * 100:.0f}; {MOMENTUM_POINTS:g} × {momentum.blended:.2f}"
+    )
+    return Component("momentum", f"{label} · P{momentum.blended * 100:.0f}", momentum_points(momentum), MOMENTUM_POINTS, detail)
+
+
+def _theme_component(theme: Optional[ThemeStrength], theme_name: str) -> Component:
+    label = "Theme strength"
+    if theme is None:
+        detail = f"no Themes-page score for {theme_name} yet" if theme_name else "not in any theme"
+        return Component("theme_strength", label, 0.0, THEME_STRENGTH_POINTS, detail)
+    pts = theme_strength_points(theme)
+    rank = f"#{theme.rank} of {theme.total}"
+    if theme.theme == theme.top_theme:
+        how = "top-ranked theme, full credit"
     else:
-        how = f"{SECTOR_STRENGTH_POINTS:g} × {sector.score:.1f} / {sector.top_score:.1f} (top: {sector.top_etf})"
+        how = f"{THEME_STRENGTH_POINTS:g} × {theme.score:.1f} / {theme.top_score:.1f} (top: {theme.top_name or theme.top_theme})"
     return Component(
-        "sector_strength",
-        f"Sector strength · {sector.etf} {sector.score:.0f} ({rank})",
+        "theme_strength",
+        f"{label} · {theme.name} {theme.score:.0f} ({rank})",
         pts,
-        SECTOR_STRENGTH_POINTS,
-        f"{sector.etf} {sector.name}: score {sector.score:.1f}, {rank} sector/industry ETFs; {how}",
+        THEME_STRENGTH_POINTS,
+        f"{theme.name}: theme score {theme.score:.1f}, {rank} themes; {how}",
     )
 
 

@@ -23,14 +23,17 @@ export function usePersisted<T>(key: string, initial: T) {
 }
 
 export const LAST_TAB_KEY = "lastTab";
-const TABS = ["/", "/market", "/sectors", "/watchlist", "/positions"];
+const TABS = ["/", "/market", "/themes", "/watchlist", "/positions"];
 
-/** Top-level tab (State of the Market, Sectors, Stock Scanner, Watchlist or Positions) for a location, including its query string, or null for other pages. */
+/** Saved locations from before Sectors became Themes. */
+const LEGACY_TABS: Record<string, string> = { "/sectors": "/themes" };
+
+/** Top-level tab (State of the Market, Themes, Stock Scanner, Watchlist or Positions) for a location, including its query string, or null for other pages. */
 export function tabLocation(pathname: string, search: string): string | null {
   return TABS.includes(pathname) ? pathname + search : null;
 }
 
-/** Tab for first-time visitors: the market first, then Sectors, then drill into the Stock Scanner. */
+/** Tab for first-time visitors: the market first, then Themes, then drill into the Stock Scanner. */
 export const DEFAULT_TAB = "/market";
 
 /**
@@ -39,17 +42,18 @@ export const DEFAULT_TAB = "/market";
  */
 export function restoreTarget(pathname: string, search: string, lastTab: string | null): string | null {
   if (pathname !== "/" || search !== "") return null;
-  const saved = lastTab && TABS.includes(lastTab.split("?")[0]) ? lastTab : DEFAULT_TAB;
+  const remembered = lastTab ? (LEGACY_TABS[lastTab.split("?")[0]] ?? lastTab) : null;
+  const saved = remembered && TABS.includes(remembered.split("?")[0]) ? remembered : DEFAULT_TAB;
   return saved === "/" ? null : saved;
 }
 
-const TITLES: Record<string, string> = { "/": "Stock Scanner", "/market": "State of the Market", "/sectors": "Sectors", "/watchlist": "Watchlist", "/positions": "Positions" };
+const TITLES: Record<string, string> = { "/": "Stock Scanner", "/market": "State of the Market", "/themes": "Themes", "/watchlist": "Watchlist", "/positions": "Positions" };
 
 /** Browser tab title for a route. */
 export function pageTitle(pathname: string): string {
   const stock = pathname.match(/^\/stock\/([^/]+)/);
   const name = stock ? decodeURIComponent(stock[1]).toUpperCase() : TITLES[pathname];
-  return name ? `${name} · Strat Scanner` : "Strat Scanner";
+  return name ? `${name} · TiltKiller` : "TiltKiller";
 }
 
 export const TIMEFRAMES = ["M", "W", "D"] as const;
