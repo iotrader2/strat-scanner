@@ -553,15 +553,123 @@ def render_breakouts(
     return "\n".join(out)
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Weekly setups
+# --------------------------------------------------------------------------------------------------------------------
+
+
+def is_setup_pick(row: dict, min_rs: float = 0.9) -> bool:
+    """What the scanner's Weekly setups view lists: a leader (RS at least ``min_rs``, unbroken trend) with a weekly setup."""
+    return bool(row.get("has_setup")) and (row.get("rs") or 0) >= min_rs and row.get("status") != "broken"
+
+
+def is_leader_pick(row: dict, min_rs: float = 0.9) -> bool:
+    return (row.get("rs") or 0) >= min_rs and row.get("status") != "broken"
+
+
+@dataclass
+class SetupStats:
+    names: int  # pooled (date, name) picks
+    per_date: Optional[float]  # mean number of picks per cut-off
+    fwd1_median: Optional[float]  # mean forward 1M return minus the date's median liquid stock
+    fwd3_median: Optional[float]
+    fwd1_qqq: Optional[float]  # mean forward 1M return minus QQQ's over the same window
+    fwd3_qqq: Optional[float]
+    beat_qqq_1m: Optional[float]
+    beat_qqq_3m: Optional[float]
+
+
+def setup_stats(
+    by_date: Mapping[str, Sequence[dict]],
+    benchmark: Mapping[str, tuple[Optional[float], Optional[float]]],
+    pick=is_setup_pick,
+    dates: Optional[Sequence[str]] = None,
+) -> SetupStats:
+    """Pooled over the dates: forward 1M/3M return of the rows ``pick`` selects, minus the date's median stock and minus
+    QQQ. ``benchmark`` maps a cut-off to QQQ's forward (1M, 3M) return."""
+    wanted = set(dates) if dates is not None else set(by_date)
+    m1: list[float] = []
+    m3: list[float] = []
+    q1: list[float] = []
+    q3: list[float] = []
+    names = 0
+    n_dates = 0
+    for d in sorted(by_date):
+        if d not in wanted:
+            continue
+        rows = by_date[d]
+        n_dates += 1
+        med1 = _median(r["fwd1"] for r in rows if r["fwd1"] is not None)
+        med3 = _median(r["fwd3"] for r in rows if r["fwd3"] is not None)
+        b1, b3 = benchmark.get(d, (None, None))
+        for r in rows:
+            if not pick(r):
+                continue
+            names += 1
+            if r["fwd1"] is not None and med1 is not None:
+                m1.append(r["fwd1"] - med1)
+            if r["fwd3"] is not None and med3 is not None:
+                m3.append(r["fwd3"] - med3)
+            if r["fwd1"] is not None and b1 is not None:
+                q1.append(r["fwd1"] - b1)
+            if r["fwd3"] is not None and b3 is not None:
+                q3.append(r["fwd3"] - b3)
+    mean = lambda xs: statistics.fmean(xs) if xs else None  # noqa: E731
+    share = lambda xs: sum(x > 0 for x in xs) / len(xs) if xs else None  # noqa: E731
+    return SetupStats(names, names / n_dates if n_dates else None, mean(m1), mean(m3), mean(q1), mean(q3), share(q1), share(q3))
+
+
+def benchmark_returns(daily: pd.DataFrame, dates: Sequence[str]) -> dict[str, tuple[Optional[float], Optional[float]]]:
+    """QQQ's forward 1M and 3M return from every cut-off date."""
+    return {d: (forward_return(daily, pd.Timestamp(d)), forward_return(daily, pd.Timestamp(d), months=3)) for d in dates}
+
+
+def render_setups(
+    by_date: Mapping[str, Sequence[dict]],
+    benchmark: Mapping[str, tuple[Optional[float], Optional[float]]],
+    test_start: str = TEST_START,
+) -> str:
+    out = [
+        "### Weekly setups: leaders with a long-side weekly Strat setup\n",
+        "Pooled over every cut-off: the forward 1M / 3M return of the names in the Weekly setups view (RS >= P90, unbroken "
+        "trend, a long-side weekly setup on the latest weekly candle) minus the median liquid stock and minus QQQ, against "
+        "all Leaders without a setup and all Leaders (the same names with or without a setup).\n",
+        "| Period | List | Picks / date | Fwd 1M vs median (pts) | Fwd 3M vs median (pts) | Fwd 1M vs QQQ (pts) | Fwd 3M vs QQQ (pts) | Beat QQQ 3M |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    ordered = sorted(by_date)
+    periods = {
+        "Train": [d for d in ordered if d < test_start],
+        "Test": [d for d in ordered if d >= test_start],
+        "All": ordered,
+    }
+    lists = {
+        "Weekly setups": is_setup_pick,
+        "Leaders, no setup": lambda r: is_leader_pick(r) and not r.get("has_setup"),
+        "Leaders": is_leader_pick,
+    }
+    for period, ds in periods.items():
+        for name, pick in lists.items():
+            s = setup_stats(by_date, benchmark, pick, ds)
+            out.append(
+                f"| {period} | {name} | {"—" if s.per_date is None else f"{s.per_date:.1f}"} | {_pct(s.fwd1_median)} | {_pct(s.fwd3_median)} | "
+                f"{_pct(s.fwd1_qqq)} | {_pct(s.fwd3_qqq)} | {_share(s.beat_qqq_3m)} |"
+            )
+    return "\n".join(out)
+
+
 def render_report(
     variants: Mapping[str, Sequence[DateRank]],
     breakouts: Optional[Mapping[str, Sequence[dict]]] = None,
     reference: Sequence[str] = REFERENCE,
     test_start: str = TEST_START,
+    benchmark: Optional[Mapping[str, tuple[Optional[float], Optional[float]]]] = None,
 ) -> str:
     parts = [render_rank_quality(variants, test_start), render_reference(variants, reference)]
     if breakouts:
         parts.append(render_breakouts(breakouts, breakout_examples(breakouts, reference), test_start))
+        if benchmark is not None:
+            parts.append(render_setups(breakouts, benchmark, test_start))
     return "\n\n".join(parts)
 
 
@@ -673,7 +781,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.no_old:
         variants["Old"] = rank_all(collect(daily, members, themes, dates, LEGACY, progress=True))
     variants["New"] = rank_all(new_rows)
-    print(render_report(variants, new_rows, tuple(args.reference), args.test_start))
+    print(render_report(variants, new_rows, tuple(args.reference), args.test_start, benchmark_returns(daily["QQQ"], dates)))
     if args.timeline:
         print()
         series = run_timeline(daily, members, themes, args.timeline_start, args.timeline_end, tuple(args.reference))

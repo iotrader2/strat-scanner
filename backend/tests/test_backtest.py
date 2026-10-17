@@ -168,6 +168,61 @@ class TestBreakoutBacktest:
         assert "Recent breakouts" in text and "Became leader" in text and "| B |" in text and "Biggest winners" in text
 
 
+class TestWeeklySetupsBacktest:
+    def _by_date(self):
+        dates = ["2026-01-02", "2026-01-16", "2026-01-30"]
+        out = {}
+        for d in dates:
+            rows = [dict(symbol=f"M{j}", score=1.0, rs=0.5, status="laggard", has_setup=False, listed=False,
+                         breakout=None, fwd1=1.0, fwd3=3.0) for j in range(10)]
+            rows += [
+                dict(symbol="SET", score=9.0, rs=0.95, status="leader", has_setup=True, listed=True, breakout=None, fwd1=11.0, fwd3=33.0),
+                dict(symbol="NOSET", score=8.0, rs=0.96, status="leader", has_setup=False, listed=True, breakout=None, fwd1=5.0, fwd3=13.0),
+                dict(symbol="BRK", score=7.0, rs=0.97, status="broken", has_setup=True, listed=False, breakout=None, fwd1=-9.0, fwd3=-9.0),
+                dict(symbol="WEAK", score=1.0, rs=0.6, status="laggard", has_setup=True, listed=False, breakout=None, fwd1=-9.0, fwd3=-9.0),
+            ]
+            out[d] = rows
+        return out, dates
+
+    def test_pick_is_a_leader_with_a_setup_and_an_unbroken_trend(self):
+        base = dict(has_setup=True, rs=0.9, status="leader")
+        assert bt.is_setup_pick(base)
+        assert not bt.is_setup_pick({**base, "has_setup": False})
+        assert not bt.is_setup_pick({**base, "rs": 0.89})
+        assert not bt.is_setup_pick({**base, "status": "broken"})
+        assert not bt.is_setup_pick({**base, "rs": None})
+        assert bt.is_setup_pick({**base, "rs": 0.8}, min_rs=0.8)
+
+    def test_returns_are_versus_the_median_and_qqq(self):
+        by_date, dates = self._by_date()
+        bench = {d: (2.0, 4.0) for d in dates}
+        s = bt.setup_stats(by_date, bench)
+        assert s.names == 3 and s.per_date == 1.0
+        assert s.fwd1_median == pytest.approx(10.0) and s.fwd3_median == pytest.approx(30.0)
+        assert s.fwd1_qqq == pytest.approx(9.0) and s.fwd3_qqq == pytest.approx(29.0)
+        assert s.beat_qqq_1m == 1.0 and s.beat_qqq_3m == 1.0
+
+    def test_leaders_without_a_setup_are_the_comparison(self):
+        by_date, dates = self._by_date()
+        s = bt.setup_stats(by_date, {d: (2.0, 4.0) for d in dates}, lambda r: bt.is_leader_pick(r) and not r["has_setup"])
+        assert s.names == 3 and s.fwd1_median == pytest.approx(4.0)
+
+    def test_missing_benchmark_leaves_the_qqq_columns_empty(self):
+        by_date, _ = self._by_date()
+        s = bt.setup_stats(by_date, {})
+        assert s.fwd1_qqq is None and s.fwd3_median is not None
+
+    def test_benchmark_returns_cover_every_date(self):
+        df = _history(1.0)
+        d = df.index[100].strftime("%Y-%m-%d")
+        assert bt.benchmark_returns(df, [d])[d][0] == bt.forward_return(df, df.index[100])
+
+    def test_section_renders(self):
+        by_date, dates = self._by_date()
+        text = bt.render_setups(by_date, {d: (2.0, 4.0) for d in dates}, test_start=dates[1])
+        assert "Weekly setups" in text and "Leaders, no setup" in text and "| Test |" in text and "| Train |" in text
+
+
 class TestReport:
     def _variants(self):
         return {"Old": bt.rank_all({"2026-01-02": _rows(), "2026-01-16": _rows()}),

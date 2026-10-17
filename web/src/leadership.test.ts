@@ -27,10 +27,16 @@ const breakoutInfo: Breakout = {
   close_position: 0.9,
 } as Breakout;
 
-const row = (rs: number | null, breakdown: "none" | "warning" | "broken" = "none", breakout: Breakout | null = null) => ({
+const row = (
+  rs: number | null,
+  breakdown: "none" | "warning" | "broken" = "none",
+  breakout: Breakout | null = null,
+  has_setup = false,
+) => ({
   rs,
   leadership: { breakdown },
   breakout,
+  has_setup,
 });
 
 const leader = row(0.97);
@@ -81,6 +87,43 @@ describe("matchesLeadership", () => {
   });
 });
 
+describe("Weekly setups", () => {
+  const setupLeader = row(0.96, "none", null, true);
+  const setupWarning = row(0.92, "warning", null, true);
+  const setupMid = row(0.84, "none", null, true);
+  const setupBroken = row(0.97, "broken", null, true);
+  const setupLaggard = row(0.3, "none", null, true);
+  const setupNoRs = row(null, "none", null, true);
+  const all = [setupLeader, setupWarning, setupMid, setupBroken, setupLaggard, setupNoRs, leader, midLeader];
+  const setups = (minRs?: number) => all.filter((r) => matchesLeadership(r, "setups", minRs));
+
+  it("lists leaders with a weekly setup, never a broken trend or a name without RS", () => {
+    expect(setups()).toEqual([setupLeader, setupWarning]);
+  });
+
+  it("drops leaders that have no weekly setup", () => {
+    expect(setups()).not.toContain(leader);
+    expect(setups(sliderToRs(50))).not.toContain(leader);
+  });
+
+  it("reuses the Min RS slider", () => {
+    expect(setups(sliderToRs(80))).toEqual([setupLeader, setupWarning, setupMid]);
+    expect(setups(sliderToRs(95))).toEqual([setupLeader]);
+    expect(setups(sliderToRs(50))).not.toContain(setupNoRs);
+  });
+
+  it("is a subset of Leaders at the same slider position", () => {
+    for (const v of [50, 80, 90, 99]) {
+      const leaders = all.filter((r) => matchesLeadership(r, "leaders", sliderToRs(v)));
+      for (const r of setups(sliderToRs(v))) expect(leaders).toContain(r);
+    }
+  });
+
+  it("treats a row with no has_setup field as having no setup", () => {
+    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" } }, "setups")).toBe(false);
+  });
+});
+
 describe("migrateLeadership", () => {
   it("maps the old Leaders and Broad leaders options onto Leaders plus a Min RS value", () => {
     expect(migrateLeadership("p90")).toEqual({ filter: "leaders", minRs: 90 });
@@ -90,6 +133,7 @@ describe("migrateLeadership", () => {
   it("keeps current options and falls back to Leaders", () => {
     expect(migrateLeadership("broken")).toEqual({ filter: "broken", minRs: null });
     expect(migrateLeadership("breakouts")).toEqual({ filter: "breakouts", minRs: null });
+    expect(migrateLeadership("setups")).toEqual({ filter: "setups", minRs: null });
     expect(migrateLeadership(null)).toEqual({ filter: "leaders", minRs: null });
     expect(migrateLeadership("nonsense")).toEqual({ filter: "leaders", minRs: null });
   });

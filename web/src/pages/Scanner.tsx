@@ -19,13 +19,24 @@ type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
 
 const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
-  { value: "leaders", label: "Leaders" },
-  { value: "breakouts", label: "Recent breakouts" },
-  { value: "broken", label: "Broken leaders (trend lost)" },
+  { value: "leaders", label: "Leaders", hint: "Relative strength at or above the Min RS slider, trend not broken." },
+  {
+    value: "setups",
+    label: "Weekly setups",
+    hint:
+      "Leaders (Min RS slider, trend not broken) with a long-side weekly Strat setup on the latest weekly candle: inside week, 2-1-2 / 3-1-2 in progress, 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer. Shows the trigger (weekly high) and distance to it. Sorted by score.",
+  },
+  {
+    value: "breakouts",
+    label: "Recent breakouts",
+    hint: "Tight-base weekly breakout (volume surge) in the last 3 weekly candles, RS at P50 or better. Ignores the Min RS slider.",
+  },
+  { value: "broken", label: "Broken leaders (trend lost)", hint: "Relative strength at or above the Min RS slider, but the trend has broken down." },
   { value: "all", label: "All names" },
 ];
 const LEADERSHIP_COUNT_LABEL: Record<LeadershipFilter, string> = {
   leaders: "leaders",
+  setups: "weekly setups",
   breakouts: "recent breakouts",
   broken: "broken leaders",
   all: "names",

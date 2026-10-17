@@ -1,8 +1,8 @@
 import type { ScanRow } from "./api";
 import { NO_SETUP_LABEL } from "./watchlist";
 
-/** Leadership filter of the Stock Scanner. Leaders and Broken leaders use the Min RS slider; Recent breakouts has its own floor. */
-export type LeadershipFilter = "leaders" | "breakouts" | "broken" | "all";
+/** Leadership filter of the Stock Scanner. Leaders, Weekly setups and Broken leaders use the Min RS slider; Recent breakouts has its own floor. */
+export type LeadershipFilter = "leaders" | "setups" | "breakouts" | "broken" | "all";
 
 export const LEADER_RS = 0.9;
 export const MIN_RS_RANGE = { min: 50, max: 99, default: 90 };
@@ -10,6 +10,7 @@ export const MIN_RS_RANGE = { min: 50, max: 99, default: 90 };
 export const BREAKOUT_MIN_RS = 0.5;
 
 type LeaderFields = Pick<ScanRow, "rs"> & {
+  has_setup?: boolean;
   leadership?: Pick<ScanRow["leadership"], "breakdown">;
   breakout?: ScanRow["breakout"];
 };
@@ -19,12 +20,16 @@ const isBroken = (r: LeaderFields) => r.leadership?.breakdown === "broken";
 
 /**
  * Whether a scan row passes the Stock Scanner "Leadership" filter. `minRs` is the slider as a 0..1 percentile. Broken
- * trends are never listed as leaders. Recent breakouts ignores the slider: it needs a tight-base breakout and RS >= P50.
+ * trends are never listed as leaders. Weekly setups is Leaders that also have a long-side weekly Strat setup on the latest
+ * weekly candle (`has_setup`, from the backend's `find_long_setups`). Recent breakouts ignores the slider: it needs a
+ * tight-base breakout and RS >= P50.
  */
 export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, minRs: number = LEADER_RS): boolean {
   switch (filter) {
     case "leaders":
       return rsAtLeast(r, minRs) && !isBroken(r);
+    case "setups":
+      return rsAtLeast(r, minRs) && !isBroken(r) && !!r.has_setup;
     case "broken":
       return rsAtLeast(r, minRs) && isBroken(r);
     case "breakouts":
@@ -45,6 +50,7 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
     case "p80":
       return { filter: "leaders", minRs: 80 };
     case "leaders":
+    case "setups":
     case "breakouts":
     case "broken":
     case "all":

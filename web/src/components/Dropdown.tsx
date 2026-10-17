@@ -4,6 +4,8 @@ import { listKeyAction, opensList } from "../dropdownKeys";
 export interface DropdownOption<T extends string> {
   value: T;
   label: string;
+  /** Hover text for the option. */
+  hint?: string;
 }
 
 interface Props<T extends string> {
@@ -114,6 +116,7 @@ export function Dropdown<T extends string>({ label, header, value, options, onCh
                 id={`${id}-opt-${i}`}
                 data-index={i}
                 role="option"
+                title={o.hint}
                 aria-selected={o.value === value}
                 className={`${o.value === value ? "selected" : ""} ${i === active ? "active" : ""}`}
                 onMouseEnter={() => setActive(i)}
