@@ -20,6 +20,30 @@ def test_avg_volume_is_20_day_mean_of_shares():
 
 def test_row_carries_score_breakdown():
     row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), _daily())
-    assert row["score_max_raw"] == 163
+    assert row["score_max_raw"] == 100
     assert abs(sum(c["points"] for c in row["score_breakdown"]) - row["score_raw"]) < 0.05
     assert {"key", "label", "points", "max_points", "detail"} <= set(row["score_breakdown"][0])
+
+
+def _failed_breakout_history():
+    from tests.test_breakout import _daily as breakout_daily, _extend
+
+    return _extend(breakout_daily(40, 30, 6), [111.0] * 5 + [110.0, 109.0, 99.0, 98.0, 97.0])
+
+
+def test_row_carries_a_failed_breakout_and_it_follows_the_cut_off_date():
+    member = Member("TEST", "Test", "Industrials", "stock", "SP500")
+    df = _failed_breakout_history()
+    row = scan_symbol(member, df)
+    failed = row["failed_breakout"]
+    assert failed is not None and failed["level"] == 108.0 and failed["below_pct"] < 0
+    assert failed["failed_on"] == "2026-10-21" and failed["week"] == "2026-10-05"
+    # Hiding everything after the failure (what STRAT_AS_OF does) leaves a breakout that has not failed yet.
+    held = scan_symbol(member, df[df.index <= "2026-10-20"])
+    assert held["failed_breakout"] is None
+    assert scan_symbol(member, df[df.index <= "2026-10-21"])["failed_breakout"]["sessions_below"] == 1
+
+
+def test_etfs_have_no_failed_breakout():
+    row = scan_symbol(Member("ETF", "Etf", "Other", "etf", "SP500"), _failed_breakout_history())
+    assert row["failed_breakout"] is None

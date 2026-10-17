@@ -1,9 +1,11 @@
 # TiltKiller (formerly Strat Scanner)
 
-A **local-only** stock scanner for Rob Smith's **The Strat**, long bias only. It scans liquid US names
-(S&P 500 + Nasdaq-100 + extra theme names + sector/industry ETFs + the QQQ, SPY and IWM index ETFs) for **weekly** setups (inside weeks, weekly hammers and
-bullish weekly Strat combos) and ranks them by an *actionability* score. Monthly, Weekly and Daily candles are all
-classified and shown as context (Strat number and continuity).
+A **local-only** stock scanner for market **leaders**, with Rob Smith's **The Strat** as the timing overlay, long bias only.
+It scans liquid US names (S&P 500 + Nasdaq-100 + sector/industry ETFs + the QQQ, SPY and IWM index ETFs) and shows
+**only the true leaders**: names in the top decile of 1M/3M/6M relative strength whose trend is still intact, ranked by a
+leadership-first score. **Weekly** Strat setups (inside weeks, weekly hammers and bullish weekly combos) are a modest
+timing bonus, not a gate: a leader with no setup still appears, labelled *No setup / leader* with its nearest trigger.
+Monthly, Weekly and Daily candles are all classified and shown as context (Strat number and continuity).
 
 It runs on your machine only (API and UI bind to `127.0.0.1`). There is no deploy or hosting config.
 Data comes from Yahoo Finance via [yfinance](https://github.com/ranaroussi/yfinance) (no API key needed)
@@ -39,6 +41,7 @@ takes about a minute; the top bar shows progress. Press `Ctrl+C` to stop both se
 | `npm run themes:check` | Validate the theme file and list tickers not yet in the universe |
 | `npm test` | Run the backend (pytest) and frontend (Vitest) unit tests |
 | `npm run typecheck` | Type-check the frontend |
+| `npm run backtest:leaders` | Cut the price cache off at historical dates and compare the old and new scoring (see [Backtest](#backtest)); add `-- --timeline` for the weekly rank of the reference leaders |
 
 Each has a `make` equivalent (`make refresh`, `make test`, ...). The `refresh`/`test` npm scripts assume a
 POSIX shell; on Windows run `backend\.venv\Scripts\python -m strat.refresh` / `-m pytest` from `backend/`.
@@ -55,6 +58,7 @@ Defaults can be changed with environment variables (the UI filters can also be c
 | `STRAT_HISTORY_PERIOD` | `3y` | History fetched for new symbols / full refresh |
 | `STRAT_API_PORT` / `STRAT_WEB_PORT` | `8000` / `5173` | Local ports |
 | `STRAT_CACHE_DB` | `backend/data/cache.sqlite3` | Cache location |
+| `STRAT_AS_OF` | unset | Cut the cached history off at this date (`YYYY-MM-DD`) to see the scanner as it looked then, e.g. `STRAT_AS_OF=2026-08-13 npm run dev`. The top bar then reads *cut-off view, data through …* |
 
 Example: `STRAT_MIN_PRICE=20 STRAT_MIN_DOLLAR_VOLUME=100000000 npm run dev`.
 
@@ -70,13 +74,14 @@ current, still-forming period**, which is how The Strat is read in real time.
 - `3` outside: takes out both
 
 **Continuity**: a timeframe is green when price is above that period's open (red if below).
-The best names have Monthly **and** Weekly green; the Stock Scanner defaults to that filter.
+Monthly **and** Weekly green is a timing nuance, not a default gate: the Stock Scanner's Continuity filter defaults to **Any** (see [Backtest](#backtest) for why).
 
 **Hammer**: lower wick ≥ 2× body, small upper wick (≤ the body or ≤ 10% of the range), and a close in
 the top third of the range.
 
-**Long setups** are detected on the **weekly** timeframe only. Names without a weekly setup do not appear in the
-ranked list, even if their monthly or daily candle shows a pattern.
+**Long setups** are detected on the **weekly** timeframe only (a monthly or daily pattern is context, not a setup). A
+weekly setup is optional for the scanner: leaders without one are listed as *No setup / leader*, and the Trigger column
+shows their **nearest trigger** (the closer of this week's and last week's high above price, in muted type).
 
 | Setup | Pattern | Trigger |
 | --- | --- | --- |
@@ -92,7 +97,7 @@ ranked list, even if their monthly or daily candle shows a pattern.
 Stops are intentionally not shown: they are managed intraday (e.g. on the 5-minute chart), which is out of
 scope for this scanner.
 
-See [How scoring works](#how-scoring-works) for the actionability score.
+See [How scoring works](#how-scoring-works) for the leadership score.
 
 The chosen weekly setup supplies the **trigger** and the start of the **reason** text, followed by Monthly 2U and
 continuity context, e.g. `Weekly Inside bar — trigger 106.00 (+1.9% away) · Monthly 2U · Full continuity M+W+D green`.
@@ -140,77 +145,178 @@ Its M/W/D Strat badges, weekly setups, continuity and H/I markers are computed o
 
 ## How scoring works
 
-Every name with a weekly setup gets an **actionability score**. For stocks it is the sum of seven components (raw
-points, max **138**), rescaled to 0–100:
+**The highest scores go to the stocks that go up the most; the Strat setup is a small timing bonus.** The score is 0–100.
+Of the 100 points, 90 describe leadership and price behaviour and 10 are Strat timing. The weights were chosen with the
+[rank-quality backtest](#backtest) (not by taste): the size of a stock's outperformance over QQQ ranks the big multi-month
+winners much better than a percentile does, because a percentile saturates at P99.
 
 ```
-stocks: score = raw × 100 / 138        (capped at 100, rounded to 0.1)
-ETFs:   score = raw × 100 / 123        (no Theme strength component)
-themes: score = raw × 100 / 113        (no Liquidity or Theme strength component)
+score = raw × breakdown factor × (1 − kill-candle penalty) × 100 / max        (0–100, rounded to 0.1)
+max: 100 for stocks · 90 for ETFs (no Theme strength) · 85 for themes (no Theme strength, no Liquidity)
 ```
 
-| Component | Max | How it is computed |
+**Weights.** A line's *weight* is its share of the 100-point stock score (max points ÷ 100 for stocks; for ETFs and themes the
+same points are rescaled by their smaller max of 90 / 85, e.g. relative strength is 15/90 ≈ 16.7% of an ETF's score). The tooltip
+shows the weight next to each label (`Vs QQQ (45%)  +35.6 / 45`) and the sub-weights under it.
+
+| Component | Max points | Weight (stock) | Sub-weights | How it is computed |
+| --- | ---: | ---: | --- | --- |
+| **Relative strength** | 15 | 15% | 1M 20% · 3M 40% · 6M 40% | `15 × blended percentile` of the 1M / 3M / 6M price returns within the peer group (stocks vs stocks, ETFs vs ETFs, themes vs themes). |
+| **Vs QQQ** | 45 | 45% | 1M 20% · 3M 40% · 6M 40%; full credit at +45 / +120 / +210 pts | Return minus **QQQ's return** (QQQ only, not SPY) over the same period, credited linearly up to **+45 / +120 / +210 points** (1M / 3M / 6M) and weighted 20/40/40. A name that only keeps up with QQQ earns nothing. This is the magnitude that percentiles hide, and the biggest lever for ranking the biggest winners first. |
+| **Theme strength** | 10 | 10% | none | Stocks only. `10 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 10). Themes are ranked by their own leadership score. 0 for a stock in no theme. |
+| **Trend** | 10 | 10% | 10-day 5 pts · 20-day 5 pts; each = price above the average 3 + average rising 2 | Only the **10-day and 20-day** averages score. For each: +3 when the close is above it and +2 when it is rising (above its value 5 bars ago), so a name above a rising 10-day and a rising 20-day gets all 10. The 50-day average and the distance from the highs do not score; they only feed the breakdown rules below. |
+| **Range tightness** | 5 | 5% | last-10 vs 50-day range 60% · last-5 vs 20-day contraction 40% | Calm, contracting daily ranges score high and loose, expanding ones low. See below. |
+| **Strat timing · weekly setup** | 4 | 4% | none | `4 × setup points / 25`: the strongest weekly setup plus 25% of the others, capped at 25 setup points (2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8). 0 with no setup. |
+| **Strat timing · distance to trigger** | 2.5 | 2.5% | none | `2.5 × (1 − d / 5%)` for how far price is below the weekly trigger (0 at 5% or more below). An already triggered setup gets half credit. |
+| **Strat timing · continuity** | 2 | 2% | Monthly 0.75 · Weekly 0.75 · Daily 0.25 · all three +0.25 | Price above the period open on each timeframe, plus a bonus when all three are green. |
+| **Strat timing · Monthly 2U** | 1.5 | 1.5% | none | +1.5 when the current monthly candle is a 2U. |
+| **Liquidity** | 5 | 5% | none | `5 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 5 at $5B or more. Not used for themes. |
+| **Kill candle** | penalty | 0 (multiplier) | up to −25%, fading to 0 over 10 sessions | A multiplier on the whole score, shown in the tooltip as `Kill candle (2026-10-05)` with the points removed. See below. |
+| **Total** | **100** | **100%** | | Leadership 80% (RS 15 + Vs QQQ 45 + Theme 10 + Trend 10), range tightness 5%, liquidity 5% and the Strat overlay 10% (4 + 2.5 + 2 + 1.5). |
+
+The Strat overlay is **at most 10 points** (4 + 2.5 + 2 + 1.5), so a perfect setup cannot lift a non-leader, and the same
+leader scores at most 10 points higher with the best setup than with none.
+
+**What changed from the first version, and why (evidence in the [backtest](#backtest)).** The requested weights were
+RS 32 / Vs QQQ 15 / Theme 20 / Trend 13 / Strat 15 / Liquidity 5. The scanner at those weights (without the tightness and kill-candle rules) ranked the biggest winners worse than
+the final one on both the train and the test dates, so the defaults were moved to the table above, and the requested variant
+is reported next to them in the pull request. That comparison changes several things at once, so it does not isolate Theme and Trend. To go back, edit the constants at the top of `backend/strat/scoring.py`
+(`RS_POINTS`, `QQQ_POINTS`, `THEME_POINTS`, `TREND_ABOVE_POINTS` / `TREND_RISING_POINTS`, the Strat overlay points) and
+`FULL_EXCESS_PCT` in `backend/strat/leadership.py`; the maximum points and weights in the tooltip follow from them.
+
+**Range tightness (5 points).** `0.6 × f(ratio) + 0.4 × f(contraction)`, where `ratio` is the average true range (as a % of
+price, gaps included) of the last 10 sessions over the stock's own 50-session average, and `contraction` is the last 5
+sessions over the last 20. `f` is linear: full credit at a ratio of 0.85 (range 15% tighter than usual) or less and none at 1.25 or
+more; for contraction, full at 0.80 and none at 1.20. The absolute range level is deliberately not scored: in the
+backtest, calm large caps were not better winners, but stocks whose ranges were expanding against their own baseline were
+worse. The tooltip shows `10-day range 8.8% of price vs 50-day 7.8% (1.13×); last 5 days 10.9% vs 20-day 7.6% (1.44×)`.
+The constants are in `backend/strat/pricebehavior.py`.
+
+**Kill candle (multiplier penalty).** One wide, heavy red day is a distribution warning. A kill candle is a daily candle
+within the last 10 sessions that is red, has a true range of at least **2.5× the prior 20-day average true range**, volume
+of at least **1.5× the prior 50-day average**, and closes in the **lower 35%** of its range. The score is multiplied by
+`1 − 0.25 × (1 − age / 10)`: −25% on the day, fading linearly to nothing at 10 sessions, and **0 as soon as price closes
+above the candle's high**. The thresholds were tuned on the backtest dates (looser ones flagged too many ordinary pullbacks
+and cost more winners than they avoided). The row's RS chip also shows `kill candle MM-DD`.
+
+**Breakdown demotion.** A leader that is losing its trend is demoted instead of being ranked on stale 6M strength. The
+score is multiplied by a factor and the tooltip shows the cut as a negative line (`Breakdown penalty` / `Weakening penalty`):
+
+| Level | Trigger (any) | Effect |
 | --- | --- | --- |
-| Monthly 2U | 20 | +20 if the current (still-forming) monthly candle is a 2U, otherwise 0. |
-| Continuity | 38 | Price above the period open: Monthly +12, Weekly +12, Daily +6, plus +8 when all three are green. |
-| Weekly setup | 25 | Points of the strongest weekly setup + 25% of every other weekly setup, capped at 25. Setup points: 2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8. |
-| Distance to trigger | 15 | `15 × (1 − d / 5)`, where `d` is how far (in %) price is below the weekly trigger: 15 at the trigger, 0 at 5% or more below. A setup that has already triggered gets a flat 7.5. |
-| Liquidity | 10 | `10 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 10 at $5B or more. Not used for themes (an index has no volume of its own). |
-| Relative momentum | 15 | `15 × blended percentile` of the 1M / 3M / 6M price returns, ranked within the peer group (details below). Stocks are ranked among stocks, ETFs among ETFs and themes among themes. |
-| Theme strength | 15 | Stocks only. `15 × theme score / top theme score`, using the stock's **primary** theme and its score on the Themes page. The top-ranked theme gives the full 15; a theme at half the leader's score gives 7.5. The tooltip shows the theme, its score and rank, e.g. `Theme strength · Software & SaaS 91 (#2 of 82)`. 0 for a stock in no theme (and for ETFs, which are not scored on this component). |
+| **Broken** | close below the 50-day average, or 25%+ below the 6-month high | score × 0.5, and the name is **removed from the leaders list** (it shows under *Broken leaders*) |
+| **Weakening** | close below the 20-day average, or 12%+ below the 6-month high, or the **1M return negative while the 3M/6M percentiles (blended) are still ≥ P75** (strength rolling over) | score × 0.9, listed with an amber *weakening* flag |
 
-Rescale: the raw maximum is 138 for stocks (20 + 38 + 25 + 15 + 10 + 15 + 15), 123 for ETFs (no Theme strength) and 113 for
-themes (no Liquidity, no Theme strength), so a perfect row of any kind scores 100.
+The reasons are in the row's tooltip, in the RS chip next to the symbol and in the Reason text, e.g.
+`below the 50-day average; 25% below the 6-month high; 1M -2.7% while 3M/6M strength is still high with the 10/20-day averages lost`.
 
-**Relative momentum details**
+If the 20-day average daily range is under 0.5% of price (usually a stock pinned by a pending acquisition), the score is
+halved again; this shows as a negative "Pinned penalty" line.
+
+**Who counts as a leader.** The scanner **filters** rather than just ranking lower. A name is a *leader* when its blended
+1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
+`LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Leadership**
+filter has seven options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly setups · awaiting
+trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips are
+full-universe totals for those categories (not the current filters); click a chip or pick a Leadership option to dig in. The Min RS slider
+applies to *Leaders* and both *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
+like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
+(default true) and `min_rs`. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
+**RS chip** (`RS 97`, with *weakening* / *broken* / *kill candle* flags).
+
+**Weekly setups (leaders you can act on now).** *Leaders* that also have a **long-side weekly Strat setup on the last weekly
+candle**: RS at or above the Min RS slider (default P90), trend not broken (a *weakening* name stays; a *broken* one never
+does) and `has_setup`. The Leadership filter splits them into **awaiting trigger** (`triggered` is false) and **triggered**
+(`triggered` is true). The setups are the ones the scanner already classifies, nothing is duplicated
+(`find_long_setups` in `backend/strat/candles.py`): an **inside week** (1), **2-1-2** and **3-1-2** in progress (the inside
+bar is done and price has not yet broken its high), **2-1-2 / 3-1-2 / 1-2-2 / 2D-2U** already triggered (the chip says
+TRIGGERED), and a **weekly hammer** (pending below its own high, or triggered above the prior high). Each row shows the
+**trigger** (the weekly high for longs; the prior high once triggered) and **To trigger**, the distance from price (positive =
+still below the trigger, negative = already through it), and the rows keep the normal score order. It uses the same slider
+as *Leaders*, so each setup view is always a subset of Leaders at the same Min RS. "Last weekly candle" is the latest weekly
+bar in the data: complete on a Friday, Saturday or Sunday, partial for a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday
+2026-08-13 uses the week in progress), exactly as the rest of the scanner reads it. Hover the option in the dropdown for the
+same definition. See the *Weekly setups backtest* below for how the combined filter did.
+
+**Recent breakouts (future leaders, early).** Meant to surface names before they are leaders, so it ignores the slider
+and uses an RS floor of **P50** (`MIN_RS` in `backend/strat/breakout.py`) plus an unbroken trend. On the weekly chart:
+
+- a **tight base** of 3–10 weeks: its average weekly true range is at most 0.85× the stock's own range over the 20 weeks
+  before the base, and it is at most 15% deep (high to low);
+- a **breakout**: one of the last 3 weekly candles closes above the base high, on weekly volume of at least **2× the
+  10-week average** (a part-finished week is scaled to five sessions), closing in the upper 35% of its range;
+- **no active kill candle** since;
+- and it has **not failed**: a breakout whose base high price has since closed below is listed under *Failed breakouts* instead.
+
+Rows get a **Breakout** badge (`Breakout 2026-10-05 · 8-week base`) and are ranked by the normal score. The volume and depth
+thresholds were picked on the train dates and checked on the test dates (see the [breakout study](#recent-breakouts-backtest)).
+
+**Failed breakouts (a warning, the opposite of Recent breakouts).** Names that broke out and then lost the breakout. It
+reuses the Recent breakouts detection (`_breakout_at` in `backend/strat/breakout.py`, so the same tight 3–10 week base,
+2× volume and upper-35% close), but looks further back and checks what price did afterwards (`find_failed_breakout`):
+
+- the breakout week is one of the weekly candles **1 to 8 weeks back** (`FAILED_LOOKBACK_WEEKS`; the current week cannot have
+  failed yet). If there are several, the most recent breakout is the one that counts;
+- it has **failed** when the latest daily close is **below the base high** the breakout cleared (the *breakout level*; a close
+  exactly at the level still holds). The failure date is the first close below the level in the current run below it, so a
+  dip that was reclaimed does not count and a second dip is dated by the second dip;
+- no trend or kill-candle condition (a wide heavy down day is what a failure looks like), and **RS at P50 or better**, the same
+  floor as Recent breakouts. The Leadership option ignores the Min RS slider.
+
+Rows get a red **Failed breakout** badge (`Failed breakout 2026-10-05 · 1.9% below`, the tooltip adds the level, volume and failure date), the table shows
+**Broke out**, **Level**, **Below level** (latest close vs the level; the tooltip has the deepest close since) and **Failed**
+(date, tooltip: sessions below) columns, and is ordered by the **most recent failure**; click *Below level* to order by
+severity instead. A failed breakout is **no longer listed under Recent breakouts**, so the two options never overlap. The
+rows come from the same scan, so `STRAT_AS_OF` works (the history after the cut-off is hidden, so the failure appears only
+once the close below the level is on or before the cut-off). It is a warning or avoid signal, not a buy signal; the
+*Failed breakouts backtest* section below shows what such names did next. Scoring is unchanged.
+
+**Relative strength details**
 
 - **Returns** are price returns (percent) to the latest close over **1, 3 and 6 calendar months**. The base is the last
-  close on or before the date one/three/six months earlier (`1M` base = last close on or before today − 1 month, and so on).
-  A period is missing (`—`) when the history does not reach back that far. For a theme it is the equal-weight theme index
-  return.
-- **Percentile rank** within the peer group (stocks, ETFs or themes), per period: `(names below + ½ × names tied) / names with a return`,
-  from 0 (worst) to 1 (best).
-- **Weights**: `1M 20%`, `3M 40%`, `6M 40%`. The medium-term trend carries most of the weight, and the 1M return adds
-  the recent turn without letting a one-month spike dominate. If a period is missing, the remaining weights are
-  renormalized.
-- **Points** = `15 × (0.20·P1M + 0.40·P3M + 0.40·P6M)`. The label shows the blended percentile, e.g. `Relative momentum · P92`, and
-  the hover/detail text shows each return with its percentile, the number of peers and the weights. The weights are `MOMENTUM_WEIGHTS`
-  in `backend/strat/perf.py`.
+  close on or before the date one/three/six months earlier. A period is missing (`—`) when the history does not reach
+  back that far. For a theme it is the equal-weight theme index return.
+- **Percentile rank** within the peer group, per period: `(names below + ½ × names tied) / names with a return`, from 0
+  (worst) to 1 (best). If a period is missing, the remaining weights are renormalized. The weights are `MOMENTUM_WEIGHTS` in
+  `backend/strat/perf.py`; the QQQ caps and breakdown thresholds are constants in `backend/strat/leadership.py`.
+- The label shows the blended percentile, e.g. `Relative strength · P97`; the hover/detail text shows each return with its
+  percentile, the number of peers and the weights.
 
 **Theme strength details**
 
-- The ranking is the themes on the Themes page sorted by their own score (strongest first, ties by name), computed in
-  the same scan. Because themes are scored without this component, the ranking does not depend on itself.
+- Themes are scored with the same leadership formula (without Theme strength and Liquidity) and ranked by that score on the
+  Themes page (strongest first, ties by name). A stock's theme points come from its theme's rank, so a stock in a leading
+  theme (peer-group strength) scores higher; only its *primary* theme counts.
 - Scan order: returns and percentile distributions first, then the theme indexes and their scores, then the stock rows.
-- A stock's *secondary* themes never count; only its primary theme does. A symbol added from the Watchlist or
-  Positions that no theme lists scores 0 for this component.
+  A symbol added from the Watchlist or Positions that no theme lists scores 0 for this component.
 
-If the 20-day average daily range is under 0.5% of price (usually a stock pinned by a pending acquisition), the raw
-total is halved; this shows as a negative "Pinned penalty" line.
+When a name has several weekly setups, the one used for the trigger is the setup with the best combination of setup points
+and closeness, with a small preference for setups that have not triggered yet.
 
-When a name has several weekly setups, the one used for the trigger is the setup with the best combination of
-setup points and closeness, with a small preference for setups that have not triggered yet.
-
-**Worked example (NOW, ServiceNow, Oct 15 2026):**
+**Worked example (DELL, Dell Technologies, cut off at Aug 13 2026, `STRAT_AS_OF=2026-08-13`):** a leader with no weekly setup, #1 on that date.
 
 | Component | Points | Why |
 | --- | ---: | --- |
-| Monthly 2U | 20 / 20 | the current month is 2U |
-| Continuity | 38 / 38 | Monthly, Weekly and Daily are green (12 + 12 + 6), plus the +8 bonus |
-| Weekly setup | 18 / 25 | a weekly hammer (18) |
-| Distance to trigger | 13.45 / 15 | price 148.57 is 0.52% below the 149.34 trigger: `15 × (1 − 0.52/5)` |
-| Liquidity | 7.4 / 10 | $1.5B/day: `10 × log10(1512/50) / 2` |
-| Relative momentum | 13.75 / 15 | 1M +4.7% (P76), 3M +41.9% (P97), 6M +57.7% (P95) among 618 stocks: `0.20×0.76 + 0.40×0.97 + 0.40×0.95 = 0.92`, so `15 × 0.92` |
-| Theme strength | 14.48 / 15 | Software & SaaS scores 91.4 (#2 of 82) against the leader, Life-science tools, at 94.7: `15 × 91.4 / 94.7` |
-| **Raw total** | **125.07 / 138** | score `125.07 × 100 / 138 = 90.6` |
+| Relative strength | 14.54 / 15 | 1M +15.8% (P86), 3M +102.8% (P100), 6M +320.9% (P100) among 618 stocks: `0.20×0.86 + 0.40×1.00 + 0.40×1.00 = 0.97` |
+| Vs QQQ | 35.64 / 45 | +12.9 / +100.3 / +299.3 points over QQQ (full credit at +45 / +120 / +210): `0.2×0.29 + 0.4×0.84 + 0.4×1.00 = 0.79` |
+| Theme strength | 9.88 / 10 | AI hardware & servers, #2 of 82 themes |
+| Trend | 10 / 10 | above a rising 10-day (5) and a rising 20-day (5) average |
+| Range tightness | 3.80 / 5 | 10-day range 7.7% of price vs 7.9% over 50 days (0.97×); last 5 days 7.0% vs 8.2% (0.85×) |
+| Strat timing | 3 / 10 | no weekly setup (0), Monthly and Weekly green (1.5), Monthly 2U (1.5) |
+| Liquidity | 4.29 / 5 | $2.6B/day |
+| **Raw total** | **81.15 / 100** | score 81.2; nearest trigger 514.00 (+3.9%, this week's high) |
 
-**A theme row (Life-science tools, same day):** Monthly 2U +20, continuity +38, weekly setup +23 (3-1 → 3-1-2), distance
-+11.95, Relative momentum +14.03 (1M +10.9% P97, 3M +27.1% P95, 6M +47.8% P91 among 82 themes). Raw 106.98 / 113 gives a
-score of 94.7, the top of the Themes page.
+**The same family after a breakdown (HPE, Oct 16 2026):** RS fell to P83 (1M -2.7%), the close is below the 50-day average
+and 25% under the 6-month high, so the raw 37.0 is multiplied by 0.5 (a −18.5 *Breakdown penalty*) for a score of 18.5, and
+it is no longer a leader.
+
+**Loose ranges (current data, Oct 16 2026):** NBIS has a 10-day range of 8.8% of price against 7.8% over 50 days (1.13×)
+and 10.9% over the last 5 days against 7.6% over 20 (1.44×), so it earns 0.9 of the 5 tightness points; STX (1.03× and
+1.11×) earns 2.1. Both are also off the leaders list (below P90 and trend lost).
 
 In the app, hover (or keyboard-focus) any score pill in the Stock Scanner, Watchlist or Positions table or on a
 Themes or State of the Market card to see this breakdown.
-The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component.
+The detail page has a **Score breakdown** panel with the same numbers plus a one-line explanation of each component. Each line shows its weight and sub-weights.
 
 **Performance columns.** The Stock Scanner, Watchlist and Positions tables, every theme card and every State of the
 Market card show the **1M / 3M / 6M** price returns, green for gains and red for losses. In the tables they are sortable
@@ -247,13 +353,15 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     jumps to its card), a search box finds a theme by name or by a member ticker (e.g. `NVDA`), and the sort buttons order the
     cards by Score, 1M, 3M or 6M. Cards load 24 at a time.
   - The Monthly / Weekly / Daily toggle and the sort are saved separately from the other tabs.
-- **Stock Scanner** (`/`): ranked, sortable and filterable table of weekly setups.
-  - Filters: search, **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (including Monthly 2U), weekly setup type and stocks/ETFs, using
+- **Stock Scanner** (`/`): ranked, sortable and filterable table of market leaders, with their weekly setup (if any) as timing.
+  - Filters: search, **Leadership** (*Leaders* by default, plus *Weekly setups · awaiting trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs, using
     a custom dropdown (arrow keys, Home/End, type-to-jump, Enter/Space to pick, Esc or an outside click to close).
     The Setup filter has **Any**, **Awaiting trigger** (a trigger above price that has not traded yet), **Already
     triggered** (only rows whose weekly setup carries the TRIGGERED chip: 2-1-2 / 3-1-2 bullish, 2D-2U reversal, 1-2-2
     RevStrat and Hammer triggered), **Inside week** and **Weekly hammer**. The
     "To trigger" column is sortable by closeness to the weekly trigger.
+  - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders* and both
+    *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
     - **min price**: $1–$1,000, default $10 (`STRAT_MIN_PRICE`).
     - **min average dollar volume**: $10M–$5B.
@@ -274,7 +382,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
   - The Watchlist tab shows a count badge.
   - It lists the watched names with the Stock Scanner's columns, badges, trigger and score tooltip. The first-column
     check/**−** toggle removes a name.
-  - Names stay on the list after their weekly setup goes away; they are then marked “no active setup”.
+  - Names stay on the list whether or not they are leaders or have a weekly setup; they are then marked “no active setup” (leaders: “No setup / leader”).
   - The list is stored in the `watchlist` table of the local SQLite cache, so it survives restarts and data refreshes.
   - **Add symbol** (on the Watchlist tab) takes any Yahoo Finance ticker, not just universe names: type it (it is
     upper-cased) and press Enter.
@@ -284,7 +392,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     - Their bars, name and sector are cached, and while they are watched they get the same M/W/D Strat data, score
       and trigger, are included in every data refresh, and have a working detail page and chart.
     - They show an **Added** chip.
-    - They appear in the Stock Scanner only when they have a weekly setup and pass its filters like any other name.
+    - They appear in the Stock Scanner when they pass its filters like any other name (so, by default, when they are leaders).
   - Every row has a **Move to Positions →** button for when you buy. It opens a small form: entry price (prefilled
     with the last price), shares (optional) and entry date (today by default, no future dates). Saving removes the name
     from the Watchlist and opens it in Positions.
@@ -321,13 +429,63 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
   - With `prefers-reduced-motion: reduce` there is no pulsing, shimmer or spinning: the spinner becomes a static blue
     ring and the skeletons and banner are drawn flat, with the same text and progress bar.
 
+## Backtest
+
+```bash
+npm run backtest:leaders                  # rank quality, old vs new, biweekly over the whole cache (takes a few minutes)
+npm run backtest:leaders -- --timeline    # also the weekly rank of the reference leaders and when each was demoted
+npm run backtest:leaders -- --dates 2026-05-15 2026-08-13 --no-old
+```
+
+**The objective is rank quality for big winners:** the highest scores should go to the stocks that go up the most, found
+early and kept near #1 while the run lasts. For every other Friday from the start of the cache (2024-05-10) the script hides
+every price after that date (the same cut-off as `STRAT_AS_OF`), scores the whole universe with the **old** Strat-first score
+(`legacy_scoring.py`, weekly-setup rows only) and the **new** leadership score (leaders only), and compares them with what
+happened next, over the liquid stocks (price >= $10, 20-day average dollar volume >= $50M). Per period it reports:
+
+- the forward **1M and 3M return of the top 1 / 5 / 10** of each list minus the median liquid stock;
+- the **Spearman** rank correlation between score and forward 3M return inside the list;
+- **capture**: how many of the 10 best forward-3M performers of the whole market were in the list's top 10 / top 30, how many
+  of those *runs* the list caught in its top 10 within 6 dates, and the median number of sessions from the run's first
+  cut-off to the first time the name stood in the top 10;
+- the **rank of the reference names** (SNDK, MU, NBIS, AMD, DELL, HPE, ARM, PLTR) on every cut-off from 2025-11-01, with
+  their RS percentile (SNDK's run is the main check);
+- **Recent breakouts**, **Weekly setups** and **Failed breakouts**: see below.
+
+Cut-offs before 2025-10-01 are the **train** period (where weights and thresholds were tuned) and the rest is the **test**
+period; both are reported.
+`--timeline` adds the weekly rank of the reference leaders between 2026-04-24 and the last bar, and the first week each was
+demoted off the list (to check that demotion happens early enough to matter).
+
+**Recent breakouts backtest.** Pooled over every date, the forward 1M / 3M return of the names listed in Recent breakouts
+minus the median stock, the share of the breakouts that were not yet leaders and became leaders (RS >= P90, unbroken) 4-8
+weeks later against the same rate for every mid-pack name (RS P50-P90), and per reference name when it first appeared in the
+view and when it first became a leader.
+
+**Weekly setups backtest.** Pooled over every date, the forward 1M / 3M return of the Weekly setups names (RS >= P90,
+unbroken, a long-side weekly setup) minus the median liquid stock and minus QQQ, next to all Leaders without a setup and all
+Leaders. In the cache the setup filter did **not** beat plain Leaders (see the pull request for the table), so the Strat
+setup works as a timing view on top of leadership, not as a stock-selection edge.
+
+**Failed breakouts backtest.** Pooled over every date, the forward 1M / 3M return of the Failed breakouts names (and of the
+*fresh* ones, which lost the level within the last 10 sessions) minus the median liquid stock and minus QQQ, next to
+Recent breakouts. The numbers are in the pull request. Because the detection is strict (a heavy-volume close above a tight
+base), only a handful of names qualify on any date, so the sample is small and noisy.
+
+Caveats: the universe is today's S&P 500 + Nasdaq-100 (survivorship bias), the market only has a few distinct regimes in the
+cache, forward 3M windows overlap between neighbouring dates, and the test period is short. Treat the numbers as evidence
+for the direction of a change, not as a promise of future returns. The results of the last run are in the pull request.
+
 ## Layout
 
 ```
 backend/
   strat/candles.py    Strat classification, continuity, hammer, long setups (pure, unit tested)
-  strat/scoring.py    actionability score (Relative momentum, Theme strength)
-  strat/perf.py       1M/3M/6M returns, percentile ranks and the momentum blend
+  strat/scoring.py    leadership-first score (relative strength, benchmarks, theme, trend; Strat timing overlay; breakdown penalty)
+  strat/leadership.py trend structure, QQQ excess, breakdown detection, leader cut, nearest trigger
+  strat/legacy_scoring.py  the previous Strat-first score, kept only for the backtest comparison
+  strat/backtest.py   rank-quality backtest over biweekly cut-offs (`npm run backtest:leaders`)
+  strat/perf.py       1M/3M/6M returns, percentile ranks and the relative-strength blend
   strat/themes.py     theme map loader/validator, equal-weight theme index, universe sync (`python -m strat.themes`)
   strat/themes_report.py  correlation validation and clustering report (`npm run themes:report`)
   strat/data.py       SQLite cache (bars, watchlist, positions, added symbols, earnings), yfinance download, resampling
@@ -348,10 +506,10 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`)
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/scan` | Ranked weekly setups |
+| `GET /api/scan` | Ranked scan rows, leaders only by default (`leaders_only=false` for every name, `min_rs=0.8` for a looser cut). Rows without a weekly setup carry `nearest_trigger` |
 | `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
 | `GET /api/themes?tf=W` | Theme cards for a timeframe, strongest first: index candles, scan row and member chips |
-| `GET /api/config` | Liquidity defaults and the theme list (`id`, `name`, `count`) for the Scanner's filter |
+| `GET /api/config` | Liquidity defaults, `leader_min_rs` and the theme list (`id`, `name`, `count`) for the Scanner's filter |
 | `GET /api/market?tf=W` | State of the Market cards: QQQ, SPY and IWM, in that order |
 | `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
 | `POST /api/watchlist` | Add any ticker, body `{"symbol": "SOFI"}`. Returns 404 only if Yahoo Finance has no such symbol and 502 if the lookup fails |

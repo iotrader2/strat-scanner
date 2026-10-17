@@ -262,9 +262,9 @@ def save_bars(symbol: str, df: pd.DataFrame, db_path: Path | None = None) -> int
 def load_daily(symbol: str, db_path: Path | None = None) -> pd.DataFrame:
     with connect(db_path) as conn:
         df = pd.read_sql_query(
-            "SELECT date, open, high, low, close, volume FROM bars WHERE symbol = ? ORDER BY date",
+            "SELECT date, open, high, low, close, volume FROM bars WHERE symbol = ? AND date <= ? ORDER BY date",
             conn,
-            params=(symbol,),
+            params=(symbol, config.AS_OF or "9999-12-31"),
         )
     if df.empty:
         return df
@@ -275,7 +275,9 @@ def load_daily(symbol: str, db_path: Path | None = None) -> pd.DataFrame:
 def load_all_daily(db_path: Path | None = None) -> dict[str, pd.DataFrame]:
     with connect(db_path) as conn:
         df = pd.read_sql_query(
-            "SELECT symbol, date, open, high, low, close, volume FROM bars ORDER BY symbol, date", conn
+            "SELECT symbol, date, open, high, low, close, volume FROM bars WHERE date <= ? ORDER BY symbol, date",
+            conn,
+            params=(config.AS_OF or "9999-12-31",),
         )
     if df.empty:
         return {}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import type { ScanRow } from "../api";
+import { formatWeight } from "../leadership";
 
 type ScoreFields = Pick<ScanRow, "score" | "score_raw" | "score_max_raw" | "score_breakdown">;
 
@@ -13,7 +14,11 @@ export function BreakdownTable({ row, showDetail = false }: { row: ScoreFields; 
         {row.score_breakdown.map((c) => (
           <tr key={c.key} className={c.points < 0 ? "neg" : c.points === 0 ? "zero" : ""}>
             <td>
-              <div className="bd-label">{c.label}</div>
+              <div className="bd-label">
+                {c.label}
+                {c.weight_pct > 0 && <span className="bd-weight"> ({formatWeight(c.weight_pct)})</span>}
+              </div>
+              {c.sub_weights?.length > 0 && <div className="bd-sub">{c.sub_weights.join(" · ")}</div>}
               {showDetail && <div className="bd-detail">{c.detail}</div>}
             </td>
             <td className="num bd-pts">
@@ -47,7 +52,7 @@ export function ScorePill({ score, row }: { score: number; row?: ScoreFields }) 
 
   const show = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    const above = r.bottom + 260 > window.innerHeight;
+    const above = r.bottom + 440 > window.innerHeight;
     setPos({ x: Math.min(r.right, window.innerWidth - 12), y: above ? r.top - 8 : r.bottom + 8, above });
   };
 

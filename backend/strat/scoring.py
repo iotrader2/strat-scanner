@@ -1,103 +1,105 @@
-"""Actionability score for long Strat setups (0-100, higher is better)."""
+"""Leadership-first score for the Stock Scanner (0-100, higher is better).
+
+Leadership comes first: relative strength of the 1M/3M/6M returns (against the peer group and against QQQ),
+theme strength and trend (price above a rising 10- and 20-day average) are 80% of the points. The weekly Strat setup is a timing overlay worth at most
+10 points. It is never a gate, and a name with no setup still scores on its leadership. A leader that is losing its
+trend (lost moving averages, a deep drawdown from the high, 1M momentum turning negative) is demoted by a breakdown penalty.
+"""
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping, Optional
 
-from .candles import TWO_UP, Setup, TimeframeState
+from .candles import TWO_UP, TimeframeState
+from .leadership import (
+    BROKEN,
+    FULL_EXCESS_PCT,
+    WARNING,
+    Breakdown,
+    Trend,
+    leader_status,
+    LAGGARD,
+)
+from .legacy_scoring import (
+    MAX_SETUP_POINTS,
+    MIN_ATR_PCT,
+    PINNED_PENALTY,
+    PROXIMITY_POINTS as LEGACY_PROXIMITY_POINTS,
+    SETUP_POINTS,
+    SETUP_TF,
+    TF_NAMES,
+    Component,
+    ScoredSetup,
+    ThemeStrength,
+    _describe,
+    _pick_primary,
+    liquidity_points,
+    proximity_points as legacy_proximity_points,
+    trigger_distance_pct,
+)
+from .pricebehavior import (
+    CONTRACTION_RANGE,
+    CONTRACTION_WEIGHT,
+    KILL_LOOKBACK,
+    KILL_PENALTY,
+    RELATIVE_RANGE,
+    RELATIVE_WEIGHT,
+    KillCandle,
+    Tightness,
+    tightness_fraction,
+)
 from .perf import MOMENTUM_WEIGHTS, PERIOD_LABELS, PERIODS, Momentum
 
-TF_NAMES = {"M": "Monthly", "W": "Weekly", "D": "Daily"}
+__all__ = ["ThemeStrength", "Score", "score_symbol", "trigger_distance_pct", "liquidity_points", "max_raw_points"]
 
-# Only weekly setups are ranked; Monthly and Daily candles are context (continuity, Monthly 2U).
-SETUP_TF = "W"
+# Leadership (80 of 100, plus 5 for range tightness and 5 for liquidity). Chosen with the rank-quality backtest (README):
+# the size of the outperformance over QQQ ranks big winners far better than the percentile, which saturates at P99.
+RS_POINTS = 15.0  # blended 1M/3M/6M return percentile within the peer group
+QQQ_POINTS = 45.0  # outperformance over QQQ
+THEME_POINTS = 10.0  # rank of the stock's primary theme on the Themes page
+TREND_POINTS = 10.0  # price above a rising 10-day and a rising 20-day average
+TIGHTNESS_POINTS = 5.0  # calm, contracting daily ranges
+LIQUIDITY_POINTS = 5.0
 
-CONTINUITY_POINTS = {"M": 12.0, "W": 12.0, "D": 6.0}
-FULL_CONTINUITY_BONUS = 8.0
-MONTHLY_2U_POINTS = 20.0
+# Strat timing overlay (10 of 100)
+SETUP_OVERLAY_POINTS = 4.0
+PROXIMITY_OVERLAY_POINTS = 2.5
+CONTINUITY_POINTS = {"M": 0.75, "W": 0.75, "D": 0.25}
+FULL_CONTINUITY_BONUS = 0.25
+MONTHLY_2U_POINTS = 1.5
+CONTINUITY_MAX = sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS
+STRAT_OVERLAY_MAX = SETUP_OVERLAY_POINTS + PROXIMITY_OVERLAY_POINTS + CONTINUITY_MAX + MONTHLY_2U_POINTS
 
-# Pending (not yet triggered) weekly setups are the most actionable.
-SETUP_POINTS = {
-    "2-1-2-pending": 23.0,
-    "3-1-2-pending": 23.0,
-    "inside": 20.0,
-    "hammer": 18.0,
-    "2-1-2": 12.0,
-    "3-1-2": 12.0,
-    "1-2-2": 10.0,
-    "2D-2U": 9.0,
-    "hammer-triggered": 8.0,
-}
-MAX_SETUP_POINTS = 25.0
-PROXIMITY_POINTS = 15.0
-PROXIMITY_WINDOW_PCT = 5.0
-LIQUIDITY_POINTS = 10.0
-# Names whose average daily range is this tight are usually pinned by a pending deal.
-MIN_ATR_PCT = 0.5
-PINNED_PENALTY = 0.5
+TREND_PERIODS = (10, 20)  # only these averages score; the 50-day and the highs only feed the breakdown rules
+TREND_ABOVE_POINTS = 3.0  # per average the price is above
+TREND_RISING_POINTS = 2.0  # per average that is rising (above its value 5 bars ago)
+TREND_PER_MA_POINTS = TREND_ABOVE_POINTS + TREND_RISING_POINTS
+TREND_SUB_WEIGHTS = [
+    f"10-day {TREND_PER_MA_POINTS:g} pts · 20-day {TREND_PER_MA_POINTS:g} pts",
+    f"each: price above {TREND_ABOVE_POINTS:g} + average rising {TREND_RISING_POINTS:g}",
+]
+CONTINUITY_SUB_WEIGHTS = [
+    "Monthly " + f"{CONTINUITY_POINTS['M']:g}", "Weekly " + f"{CONTINUITY_POINTS['W']:g}",
+    "Daily " + f"{CONTINUITY_POINTS['D']:g}", f"all three +{FULL_CONTINUITY_BONUS:g}",
+]
 
-THEME_STRENGTH_POINTS = 40.0
-MOMENTUM_POINTS = 15.0
+# Breakdown: share of the score that is kept.
+BROKEN_FACTOR = 0.5
+WARNING_FACTOR = 0.9
 
-# Core components shared by every kind of row (Monthly 2U, continuity, weekly setup, distance to trigger).
-CORE_MAX_RAW_POINTS = (
-    MONTHLY_2U_POINTS + sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS + MAX_SETUP_POINTS + PROXIMITY_POINTS
+# ETFs belong to no theme and themes are not traded, so they are scored without those components on a smaller scale.
+STOCK_MAX_RAW_POINTS = (
+    RS_POINTS + QQQ_POINTS + THEME_POINTS + TREND_POINTS + TIGHTNESS_POINTS + STRAT_OVERLAY_MAX + LIQUIDITY_POINTS
 )
-# ETFs belong to no theme, so they are scored without Theme strength. A theme's equal-weight index has no tradable
-# volume of its own, so themes are scored without Liquidity (and without Theme strength, being the thing ranked).
-THEME_MAX_RAW_POINTS = CORE_MAX_RAW_POINTS + MOMENTUM_POINTS
-ETF_MAX_RAW_POINTS = CORE_MAX_RAW_POINTS + LIQUIDITY_POINTS + MOMENTUM_POINTS
-MAX_RAW_POINTS = ETF_MAX_RAW_POINTS + THEME_STRENGTH_POINTS
-
-
-@dataclass(frozen=True)
-class ThemeStrength:
-    """A theme's standing on the Themes page (its score and rank among all themes)."""
-
-    theme: str
-    name: str
-    score: float
-    rank: int  # 1 = strongest
-    total: int
-    top_theme: str
-    top_score: float
-    top_name: str = ""
-
-
-def theme_strength_points(strength: Optional[ThemeStrength]) -> float:
-    """Up to THEME_STRENGTH_POINTS in proportion to the theme's score relative to the top-ranked theme's."""
-    if strength is None or strength.top_score <= 0:
-        return 0.0
-    return THEME_STRENGTH_POINTS * min(1.0, max(0.0, strength.score) / strength.top_score)
-
-
-def momentum_points(momentum: Optional[Momentum]) -> float:
-    """Up to 15 points: the weighted blend of the 1M/3M/6M return percentiles within the peer group."""
-    if momentum is None or momentum.blended is None:
-        return 0.0
-    return MOMENTUM_POINTS * min(1.0, max(0.0, momentum.blended))
+ETF_MAX_RAW_POINTS = STOCK_MAX_RAW_POINTS - THEME_POINTS
+THEME_MAX_RAW_POINTS = ETF_MAX_RAW_POINTS - LIQUIDITY_POINTS
+MAX_RAW_POINTS = STOCK_MAX_RAW_POINTS
 
 
 def max_raw_points(kind: str) -> float:
-    return {"etf": ETF_MAX_RAW_POINTS, "theme": THEME_MAX_RAW_POINTS}.get(kind, MAX_RAW_POINTS)
-
-
-@dataclass
-class ScoredSetup:
-    tf: str
-    setup: Setup
-    points: float
-
-
-@dataclass
-class Component:
-    key: str
-    label: str
-    points: float
-    max_points: float
-    detail: str
+    return {"etf": ETF_MAX_RAW_POINTS, "theme": THEME_MAX_RAW_POINTS}.get(kind, STOCK_MAX_RAW_POINTS)
 
 
 @dataclass
@@ -113,30 +115,52 @@ class Score:
     mw_green: bool
     monthly_2u: bool
     trigger_distance_pct: Optional[float]
+    rs: Optional[float] = None  # blended 1M/3M/6M percentile, 0..1
+    status: str = LAGGARD  # "leader" | "broken" | "laggard"
+    trend_break: Breakdown = field(default_factory=lambda: Breakdown("none"))
 
     @property
     def has_setup(self) -> bool:
         return bool(self.setups)
 
+    @property
+    def is_leader(self) -> bool:
+        return self.status == "leader"
 
-def trigger_distance_pct(price: float, trigger: float) -> float:
-    """Percent the price must rise to reach the trigger (negative once through it)."""
-    return (trigger - price) / price * 100.0
 
-
-def proximity_points(dist_pct: Optional[float], triggered: bool) -> float:
-    if dist_pct is None:
+def theme_strength_points(strength: Optional[ThemeStrength]) -> float:
+    """Up to THEME_POINTS by the theme's rank among all themes: the top theme gets all of them."""
+    if strength is None or strength.total <= 0:
         return 0.0
-    if triggered or dist_pct <= 0:
-        return PROXIMITY_POINTS * 0.5
-    return PROXIMITY_POINTS * max(0.0, 1.0 - dist_pct / PROXIMITY_WINDOW_PCT)
+    return THEME_POINTS * (strength.total - strength.rank + 1) / strength.total
 
 
-def liquidity_points(avg_dollar_volume: float, floor: float = 50e6, ceiling: float = 5e9) -> float:
-    if avg_dollar_volume <= floor:
+def relative_strength_points(momentum: Optional[Momentum]) -> float:
+    if momentum is None or momentum.blended is None:
         return 0.0
-    frac = math.log10(avg_dollar_volume / floor) / math.log10(ceiling / floor)
-    return LIQUIDITY_POINTS * min(1.0, frac)
+    return RS_POINTS * min(1.0, max(0.0, momentum.blended))
+
+
+def qqq_points(excess: Optional[Mapping[str, Optional[float]]]) -> float:
+    """Weighted credit for beating QQQ: full at +15 / +40 / +70 points over 1M / 3M / 6M."""
+    if not excess:
+        return 0.0
+    have = {p: excess.get(p) for p in PERIODS if excess.get(p) is not None}
+    total = sum(MOMENTUM_WEIGHTS[p] for p in have)
+    if not total:
+        return 0.0
+    frac = sum(MOMENTUM_WEIGHTS[p] * min(1.0, max(0.0, v / FULL_EXCESS_PCT[p])) for p, v in have.items()) / total
+    return QQQ_POINTS * frac
+
+
+def trend_points(trend: Optional[Trend]) -> float:
+    """Price above a rising 10-day and a rising 20-day average: 4 for being above plus 2.5 for rising, each."""
+    if trend is None:
+        return 0.0
+    return sum(
+        (TREND_ABOVE_POINTS if trend.above(p) else 0.0) + (TREND_RISING_POINTS if trend.rising.get(p) else 0.0)
+        for p in TREND_PERIODS
+    )
 
 
 def score_symbol(
@@ -148,31 +172,60 @@ def score_symbol(
     theme: Optional[ThemeStrength] = None,
     momentum: Optional[Momentum] = None,
     theme_name: str = "",
+    trend: Optional[Trend] = None,
+    excess: Optional[Mapping[str, Optional[float]]] = None,
+    trend_break: Optional[Breakdown] = None,
+    tightness: Optional[Tightness] = None,
+    kill: Optional[KillCandle] = None,
 ) -> Score:
     """Score one symbol.
 
-    ``momentum`` is its Relative momentum (percentile ranks of its 1M/3M/6M returns). Stocks also get Theme strength
-    from ``theme`` (the standing of their primary theme, ``theme_name``). Themes have no Liquidity component.
+    ``momentum`` holds its 1M/3M/6M returns and their percentile ranks within the peer group; ``excess`` is each
+    return minus QQQ; ``trend`` the moving-average and high structure; ``trend_break`` whether the
+    leader is losing that trend. Stocks also get Theme strength from their primary theme (``theme``).
     """
-    reasons: list[str] = []
+    trend_break = trend_break or Breakdown("none")
     parts: list[Component] = []
+
+    parts.append(_rs_component(momentum))
+    parts.append(_qqq_component(excess))
+    if kind == "stock":
+        parts.append(_theme_component(theme, theme_name))
+    parts.append(_trend_component(trend))
+    parts.append(_tightness_component(tightness))
 
     weekly = states.get(SETUP_TF)
     scored = [
-        ScoredSetup(SETUP_TF, setup, SETUP_POINTS.get(setup.kind, 0.0))
-        for setup in (weekly.setups if weekly else [])
+        ScoredSetup(SETUP_TF, setup, SETUP_POINTS.get(setup.kind, 0.0)) for setup in (weekly.setups if weekly else [])
     ]
     ordered = sorted(scored, key=lambda s: s.points, reverse=True)
     primary = _pick_primary(scored, price)
 
-    monthly = states.get("M")
-    monthly_2u = bool(monthly and monthly.strat == TWO_UP)
+    setup_raw = 0.0
+    setup_detail = "no weekly setup (not required: a leader still scores on leadership)"
+    if ordered:
+        extra = 0.25 * sum(s.points for s in ordered[1:])
+        setup_raw = min(MAX_SETUP_POINTS, ordered[0].points + extra)
+        setup_detail = f"{ordered[0].setup.label}: {setup_raw:g}/{MAX_SETUP_POINTS:g} setup quality"
     parts.append(
         Component(
-            "monthly_2u", "Monthly setup", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
-            "current month is 2U" if monthly_2u else f"current month is {monthly.strat if monthly else 'n/a'}",
+            "weekly_setup", "Strat timing · weekly setup", SETUP_OVERLAY_POINTS * setup_raw / MAX_SETUP_POINTS,
+            SETUP_OVERLAY_POINTS, setup_detail,
         )
     )
+
+    dist = None
+    prox = 0.0
+    prox_detail = "no trigger"
+    if primary:
+        dist = trigger_distance_pct(price, primary.setup.trigger)
+        prox = PROXIMITY_OVERLAY_POINTS * legacy_proximity_points(dist, primary.setup.triggered) / LEGACY_PROXIMITY_POINTS
+        prox_detail = (
+            "already triggered (half credit)"
+            if primary.setup.triggered or dist <= 0
+            else f"{dist:.2f}% below trigger (full credit at 0%, none at 5%)"
+        )
+    parts.append(Component("proximity", "Strat timing · distance to trigger", prox, PROXIMITY_OVERLAY_POINTS, prox_detail))
 
     colors = {tf: (s.color if s else None) for tf, s in states.items()}
     green = [tf for tf in ("M", "W", "D") if colors.get(tf) == "green"]
@@ -183,39 +236,20 @@ def score_symbol(
     if full:
         cont_detail += f", full M+W+D bonus +{FULL_CONTINUITY_BONUS:g}"
     parts.append(
+        Component("continuity", "Strat timing · continuity", cont, CONTINUITY_MAX, cont_detail, sub_weights=CONTINUITY_SUB_WEIGHTS)
+    )
+
+    monthly = states.get("M")
+    monthly_2u = bool(monthly and monthly.strat == TWO_UP)
+    parts.append(
         Component(
-            "continuity", "Continuity (green vs open)", cont,
-            sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS, cont_detail,
+            "monthly_2u", "Strat timing · Monthly 2U", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
+            "current month is 2U" if monthly_2u else f"current month is {monthly.strat if monthly else 'n/a'}",
         )
     )
 
-    setup_pts = 0.0
-    setup_detail = "no weekly setup"
-    if ordered:
-        extra = 0.25 * sum(s.points for s in ordered[1:])
-        setup_pts = min(MAX_SETUP_POINTS, ordered[0].points + extra)
-        setup_detail = f"{ordered[0].setup.label} {ordered[0].points:g}"
-        if extra:
-            setup_detail += f" + 25% of other weekly setups {extra:g}"
-        if ordered[0].points + extra > MAX_SETUP_POINTS:
-            setup_detail += f", capped at {MAX_SETUP_POINTS:g}"
-    parts.append(Component("weekly_setup", "Weekly setup", setup_pts, MAX_SETUP_POINTS, setup_detail))
-
-    dist = None
-    prox = 0.0
-    prox_detail = "no trigger"
-    if primary:
-        dist = trigger_distance_pct(price, primary.setup.trigger)
-        prox = proximity_points(dist, primary.setup.triggered)
-        prox_detail = (
-            "already triggered (half credit)"
-            if primary.setup.triggered or dist <= 0
-            else f"{dist:.2f}% below trigger (full credit at 0%, none at {PROXIMITY_WINDOW_PCT:g}%)"
-        )
-    parts.append(Component("proximity", "Distance to trigger", prox, PROXIMITY_POINTS, prox_detail))
-
     if kind != "theme":
-        liq = liquidity_points(avg_dollar_volume)
+        liq = liquidity_points(avg_dollar_volume) * LIQUIDITY_POINTS / 10.0
         parts.append(
             Component(
                 "liquidity", "Liquidity", liq, LIQUIDITY_POINTS,
@@ -223,12 +257,20 @@ def score_symbol(
             )
         )
 
-    parts.append(_momentum_component(momentum))
-
-    if kind == "stock":
-        parts.append(_theme_component(theme, theme_name))
+    max_raw = max_raw_points(kind)
+    for c in parts:
+        c.weight_pct = round(c.max_points / max_raw * 100.0, 1)
 
     raw = sum(c.points for c in parts)
+    if trend_break.level in (BROKEN, WARNING):
+        keep = BROKEN_FACTOR if trend_break.level == BROKEN else WARNING_FACTOR
+        label = "Breakdown penalty" if trend_break.level == BROKEN else "Weakening penalty"
+        detail = "; ".join(trend_break.reasons) + f" — score × {keep:g}"
+        parts.append(Component("breakdown", label, -raw * (1 - keep), 0.0, detail))
+        raw *= keep
+    if kill is not None and kill.penalty > 0:
+        parts.append(_kill_component(kill, raw))
+        raw *= 1 - kill.penalty
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
         penalty = -raw * (1 - PINNED_PENALTY)
         parts.append(
@@ -236,6 +278,7 @@ def score_symbol(
         )
         raw += penalty
 
+    reasons: list[str] = []
     if primary:
         reasons.append(_describe(primary, dist))
         reasons.extend(f"Weekly {s.setup.label}" for s in ordered if s is not primary)
@@ -251,14 +294,18 @@ def score_symbol(
         reasons.append("Green on " + "+".join(green))
     else:
         reasons.append("No green continuity")
+    if kill is not None and kill.penalty > 0:
+        reasons.append(f"Kill candle {kill.date} (score -{kill.penalty * 100:.0f}%)")
+    if trend_break.level != "none":
+        reasons.append(("Broken: " if trend_break.level == BROKEN else "Weakening: ") + "; ".join(trend_break.reasons))
     if atr_pct is not None and atr_pct < MIN_ATR_PCT:
         reasons.append(f"Very low volatility (avg range {atr_pct:.2f}%), possibly pinned by a deal")
 
-    max_raw = max_raw_points(kind)
+    rs = momentum.blended if momentum else None
     return Score(
-        score=round(min(100.0, raw * 100.0 / max_raw), 1),
+        score=round(max(0.0, min(100.0, raw * 100.0 / max_raw)), 1),
         raw=round(raw, 2),
-        max_raw=max_raw,
+        max_raw=round(max_raw, 2),
         breakdown=parts,
         primary=primary,
         setups=scored,
@@ -267,14 +314,26 @@ def score_symbol(
         mw_green=mw_green,
         monthly_2u=monthly_2u,
         trigger_distance_pct=None if dist is None else round(dist, 2),
+        rs=rs,
+        status=leader_status(rs, trend_break),
+        trend_break=trend_break,
     )
 
 
-def _momentum_component(momentum: Optional[Momentum]) -> Component:
-    label = "Relative momentum"
+def _peer_label(momentum: Momentum) -> str:
+    return {"stock": "stocks", "etf": "ETFs", "theme": "themes"}.get(momentum.group, "peers")
+
+
+def _rs_sub_weights() -> list[str]:
+    return [f"{PERIOD_LABELS[p]} {MOMENTUM_WEIGHTS[p] * 100:.0f}%" for p in PERIODS]
+
+
+def _rs_component(momentum: Optional[Momentum]) -> Component:
     if momentum is None or momentum.blended is None:
-        return Component("momentum", label, 0.0, MOMENTUM_POINTS, "not enough price history for a 1M/3M/6M return")
-    peers = {"stock": "stocks", "etf": "ETFs", "theme": "themes"}.get(momentum.group, "peers")
+        return Component(
+            "rs", "Relative strength", 0.0, RS_POINTS, "not enough price history for a 1M/3M/6M return",
+            sub_weights=_rs_sub_weights(),
+        )
     parts = []
     for p in PERIODS:
         ret, pct = momentum.returns[p], momentum.percentiles[p]
@@ -284,46 +343,81 @@ def _momentum_component(momentum: Optional[Momentum]) -> Component:
     weights = "/".join(f"{MOMENTUM_WEIGHTS[p] * 100:.0f}" for p in PERIODS)
     n = max(momentum.peers.values(), default=0)
     detail = (
-        f"{' · '.join(parts)}; percentile among {n} {peers}, weighted {weights} (1M/3M/6M) "
-        f"= P{momentum.blended * 100:.0f}; {MOMENTUM_POINTS:g} × {momentum.blended:.2f}"
+        f"{' · '.join(parts)}; percentile among {n} {_peer_label(momentum)}, weighted {weights} (1M/3M/6M) "
+        f"= P{momentum.blended * 100:.0f}; {RS_POINTS:g} × {momentum.blended:.2f}"
     )
-    return Component("momentum", f"{label} · P{momentum.blended * 100:.0f}", momentum_points(momentum), MOMENTUM_POINTS, detail)
+    return Component(
+        "rs", f"Relative strength · P{momentum.blended * 100:.0f}", relative_strength_points(momentum), RS_POINTS, detail,
+        sub_weights=_rs_sub_weights(),
+    )
+
+
+def _qqq_component(excess: Optional[Mapping[str, Optional[float]]]) -> Component:
+    label = "Vs QQQ"
+    subs = [
+        f"{PERIOD_LABELS[p]} {MOMENTUM_WEIGHTS[p] * 100:.0f}% (full at +{FULL_EXCESS_PCT[p]:g} pts)" for p in PERIODS
+    ]
+    if not excess or all(excess.get(p) is None for p in PERIODS):
+        return Component("qqq", label, 0.0, QQQ_POINTS, "no QQQ comparison available", sub_weights=subs)
+    bits = [
+        f"{PERIOD_LABELS[p]} {excess[p]:+.1f} pts (full at +{FULL_EXCESS_PCT[p]:g})"
+        for p in PERIODS
+        if excess.get(p) is not None
+    ]
+    return Component(
+        "qqq", label, qqq_points(excess), QQQ_POINTS,
+        "return minus QQQ: " + " · ".join(bits), sub_weights=subs,
+    )
 
 
 def _theme_component(theme: Optional[ThemeStrength], theme_name: str) -> Component:
     label = "Theme strength"
     if theme is None:
         detail = f"no Themes-page score for {theme_name} yet" if theme_name else "not in any theme"
-        return Component("theme_strength", label, 0.0, THEME_STRENGTH_POINTS, detail)
-    pts = theme_strength_points(theme)
+        return Component("theme_strength", label, 0.0, THEME_POINTS, detail)
     rank = f"#{theme.rank} of {theme.total}"
-    if theme.theme == theme.top_theme:
-        how = "top-ranked theme, full credit"
-    else:
-        how = f"{THEME_STRENGTH_POINTS:g} × {theme.score:.1f} / {theme.top_score:.1f} (top: {theme.top_name or theme.top_theme})"
     return Component(
         "theme_strength",
-        f"{label} · {theme.name} {theme.score:.0f} ({rank})",
-        pts,
-        THEME_STRENGTH_POINTS,
-        f"{theme.name}: theme score {theme.score:.1f}, {rank} themes; {how}",
+        f"{label} · {theme.name} ({rank})",
+        theme_strength_points(theme),
+        THEME_POINTS,
+        f"{theme.name}: leadership score {theme.score:.1f}, {rank} themes; {THEME_POINTS:g} × ({theme.total} − {theme.rank} + 1) / {theme.total}",
     )
 
 
-def _pick_primary(scored: list[ScoredSetup], price: float) -> Optional[ScoredSetup]:
-    """Prefer an untriggered setup whose trigger is above price, weighted by closeness."""
-    if not scored:
-        return None
+def _trend_component(trend: Optional[Trend]) -> Component:
+    label = "Trend"
+    if trend is None:
+        return Component("trend", label, 0.0, TREND_POINTS, "not enough price history", sub_weights=TREND_SUB_WEIGHTS)
+    bits = []
+    for p in TREND_PERIODS:
+        above = trend.above(p)
+        if above is None:
+            bits.append(f"{p}-day n/a")
+        else:
+            bits.append(f"{p}-day {'above' if above else 'below'}{' & rising' if trend.rising.get(p) else ''}")
+    return Component("trend", label, trend_points(trend), TREND_POINTS, "; ".join(bits), sub_weights=TREND_SUB_WEIGHTS)
 
-    def rank(s: ScoredSetup) -> float:
-        dist = trigger_distance_pct(price, s.setup.trigger)
-        return s.points + proximity_points(dist, s.setup.triggered) + (5.0 if not s.setup.triggered else 0.0)
 
-    return max(scored, key=rank)
+def _tightness_component(t: Optional[Tightness]) -> Component:
+    label = "Range tightness"
+    subs = [
+        f"last-10 vs 50-day range {RELATIVE_WEIGHT * 100:.0f}% (full at ≤{RELATIVE_RANGE[0]:g}×, none at ≥{RELATIVE_RANGE[1]:g}×)",
+        f"last-5 vs 20-day range {CONTRACTION_WEIGHT * 100:.0f}% (full at ≤{CONTRACTION_RANGE[0]:g}×, none at ≥{CONTRACTION_RANGE[1]:g}×)",
+    ]
+    if t is None:
+        return Component("tightness", label, 0.0, TIGHTNESS_POINTS, "not enough price history", sub_weights=subs)
+    detail = (
+        f"10-day range {t.range10_pct:.1f}% of price vs 50-day {t.range50_pct:.1f}% ({t.ratio:.2f}×); "
+        f"last 5 days {t.range5_pct:.1f}% vs 20-day {t.range20_pct:.1f}% ({t.contraction:.2f}×)"
+    )
+    return Component("tightness", label, TIGHTNESS_POINTS * tightness_fraction(t), TIGHTNESS_POINTS, detail, sub_weights=subs)
 
 
-def _describe(s: ScoredSetup, dist: float) -> str:
-    tf = TF_NAMES[s.tf]
-    if s.setup.triggered or dist <= 0:
-        return f"{tf} {s.setup.label} — triggered above {s.setup.trigger:.2f}"
-    return f"{tf} {s.setup.label} — trigger {s.setup.trigger:.2f} ({dist:+.1f}% away)"
+def _kill_component(kill: KillCandle, raw: float) -> Component:
+    detail = (
+        f"{kill.age} session{'s' if kill.age != 1 else ''} ago: range {kill.range_x_atr:.1f}× the 20-day ATR, volume "
+        f"{kill.volume_x:.1f}× the 50-day average, closed {kill.close_position * 100:.0f}% up its range; "
+        f"{KILL_PENALTY * 100:.0f}% penalty fading over {KILL_LOOKBACK} sessions = score × {1 - kill.penalty:.2f}"
+    )
+    return Component("kill_candle", f"Kill candle ({kill.date})", -raw * kill.penalty, 0.0, detail)

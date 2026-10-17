@@ -15,7 +15,8 @@ from . import config, data, earnings
 from .breadth import fetch_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
-from .perf import MomentumRanks
+from .leadership import LEADER_MIN_RS, is_leader
+from .perf import MomentumRanks, Perf
 from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol, theme_cards
 from .themes import ThemeError, ThemeMap, load_themes
 from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
@@ -37,6 +38,7 @@ class State:
     result: Optional[ScanResult] = None
     strengths: dict = {}
     ranks: MomentumRanks = MomentumRanks({})
+    qqq: dict[str, Optional[float]] = {}
     theme_map: Optional[ThemeMap] = None
 
 
@@ -60,7 +62,7 @@ def _load_theme_map() -> Optional[ThemeMap]:
 
 def _scan_one(member: Member, daily) -> Optional[dict]:
     """Scan one symbol against the current theme ranking and momentum distributions."""
-    return scan_symbol(member, daily, State.strengths, State.ranks, State.theme_map)
+    return scan_symbol(member, daily, State.strengths, State.ranks, State.theme_map, State.qqq)
 
 
 def _rescan_symbol(member: Member) -> None:
@@ -97,7 +99,7 @@ def _refresh_earnings(max_age_hours: float, progress=None) -> None:
 def _with_earnings(rows: list[dict]) -> list[dict]:
     """Attach the upcoming-earnings warning (next 10 calendar days, as of today) to each row."""
     cached = data.load_earnings()
-    today = earnings.today_et()
+    today = date.fromisoformat(config.AS_OF) if config.AS_OF else earnings.today_et()
     return [
         {**r, "earnings": earnings.upcoming(cached.get(r["symbol"]), today) if r.get("kind") == "stock" else None}
         for r in rows
@@ -122,7 +124,7 @@ def _ensure_scan(force: bool = False) -> list[dict]:
         State.theme_map = _load_theme_map()
         result = scan_all(_universe(), daily, State.theme_map)
         State.result, State.scan = result, result.rows
-        State.strengths, State.ranks = result.strengths, result.ranks
+        State.strengths, State.ranks, State.qqq = result.strengths, result.ranks, result.qqq
         State.scan_key = key
     return State.scan
 
@@ -141,6 +143,7 @@ def status():
     universe = {m.symbol for m in _universe()}
     return {
         "last_refresh": data.get_meta("last_refresh"),
+        "as_of": config.AS_OF,
         "refreshing": State.refreshing,
         "progress": State.progress,
         "error": State.error,
@@ -159,6 +162,7 @@ def get_config():
     return {
         "min_price": config.MIN_PRICE,
         "min_dollar_volume": config.MIN_DOLLAR_VOLUME,
+        "leader_min_rs": LEADER_MIN_RS,
         "themes": [
             {"id": t.id, "name": t.name, "count": len(t.everyone)}
             for t in sorted((State.theme_map or _load_theme_map() or ThemeMap(0, [])).themes, key=lambda t: t.name)
@@ -171,16 +175,21 @@ def scan(
     min_price: float = Query(None),
     min_dollar_volume: float = Query(None),
     include_etfs: bool = True,
+    leaders_only: bool = True,
+    min_rs: float = Query(None, ge=0, le=1),
 ):
+    """Ranked scan rows. By default only leaders: relative strength at or above ``min_rs`` (a 0..1 percentile,
+    default P90) with the trend intact. A weekly setup is not required; names without one are labelled in the row."""
     min_price = config.MIN_PRICE if min_price is None else min_price
     min_dollar_volume = config.MIN_DOLLAR_VOLUME if min_dollar_volume is None else min_dollar_volume
+    cut = LEADER_MIN_RS if min_rs is None else min_rs
     rows = _with_earnings([
         {k: v for k, v in r.items() if k != "setups"}
         for r in _ensure_scan()
-        if r["has_setup"]
-        and r["price"] >= min_price
+        if r["price"] >= min_price
         and r["avg_dollar_volume"] >= min_dollar_volume
         and (include_etfs or r["kind"] == "stock")
+        and (not leaders_only or is_leader(r["rs"], r["leadership"]["breakdown"], cut))
     ])
     return {"as_of": State.scan_key, "count": len(rows), "rows": rows}
 

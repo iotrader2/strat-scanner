@@ -1,13 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type AppConfig, type ScanRow } from "../api";
+import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { Legend } from "../components/Badges";
-import { ScanTable } from "../components/ScanTable";
+import { ScanTable, type ExtraColumn } from "../components/ScanTable";
 import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
-import { usePersisted } from "../persist";
+import { readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
+import {
+  leadershipUsesMinRs,
+  matchesLeadership,
+  MIN_RS_RANGE,
+  migrateLeadership,
+  sliderToRs,
+  type LeadershipFilter,
+} from "../leadership";
+
+/** Widest Min RS the Leaders / Weekly setups views allow — hero chips use this, not the current slider. */
+const CHIP_RS = sliderToRs(MIN_RS_RANGE.min);
+import { RsSlider } from "../components/RsSlider";
 import { matchesSetup, type SetupFilter } from "../setupFilter";
 import { matchesTheme, themeName, themeOptions } from "../themes";
 
@@ -16,11 +28,97 @@ const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
 
+const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
+  { value: "leaders", label: "Leaders", hint: "Relative strength at or above the Min RS slider, trend not broken." },
+  {
+    value: "setups_pending",
+    label: "Weekly setups · awaiting trigger",
+    hint:
+      "Leaders (Min RS slider, trend not broken) with a long-side weekly Strat setup that has not broken its trigger yet: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger (weekly high) and distance to it. Sorted by score.",
+  },
+  {
+    value: "setups_triggered",
+    label: "Weekly setups · triggered",
+    hint:
+      "Leaders (Min RS slider, trend not broken) whose weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer that cleared its high. Sorted by score.",
+  },
+  {
+    value: "breakouts",
+    label: "Recent breakouts",
+    hint: "Tight-base weekly breakout (volume surge) in the last 3 weekly candles, RS at P50 or better. Ignores the Min RS slider.",
+  },
+  {
+    value: "failed_breakouts",
+    label: "Failed breakouts",
+    hint: "The opposite of Recent breakouts: a high-volume weekly close above a tight base in the last 8 weeks (same detection) that price has since closed back below. Shows the breakout date, the breakout level (the base high) and how far price is below it, most recent failure first. RS at P50 or better, any trend; ignores the Min RS slider. A warning, not a buy signal.",
+  },
+  {
+    value: "broken",
+    label: "Broken leaders",
+    hint: "Trend lost: below the 50-day average or 25%+ below the 6-month high. Same “· broken” flag as the RS chip. Ignores the Min RS slider — dig in with price, theme and the other filters.",
+  },
+  { value: "all", label: "All names" },
+];
+
+type HeroChipKey = "all" | "leaders" | "setupsPending" | "setupsTriggered" | "breakouts" | "failedBreakouts" | "broken";
+const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
+  { key: "all", filter: "all", label: "all names", tone: "muted" },
+  { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
+  { key: "setupsPending", filter: "setups_pending", label: "awaiting trigger", tone: "green" },
+  { key: "setupsTriggered", filter: "setups_triggered", label: "triggered setups", tone: "green" },
+  { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
+  { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
+  { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
+];
+/** Columns of the Failed breakouts view: when it broke out, the level, how far price is below it and when it failed. */
+const FAILED_COLUMNS: ExtraColumn[] = [
+  {
+    key: "failed_week",
+    label: "Broke out",
+    className: "muted small",
+    sortValue: (r) => r.failed_breakout?.week ?? null,
+    render: (r) => r.failed_breakout?.week ?? "—",
+  },
+  {
+    key: "failed_level",
+    label: "Level",
+    className: "num",
+    sortValue: (r) => r.failed_breakout?.level ?? null,
+    render: (r) => r.failed_breakout?.level.toFixed(2) ?? "—",
+  },
+  {
+    key: "failed_below",
+    label: "Below level",
+    className: "num",
+    ascendingFirst: true,
+    sortValue: (r) => r.failed_breakout?.below_pct ?? null,
+    render: (r) =>
+      r.failed_breakout ? (
+        <span className="red-text" title={`Deepest close since the breakout: ${fmtPct(r.failed_breakout.low_pct)} vs the level`}>
+          {fmtPct(r.failed_breakout.below_pct)}
+        </span>
+      ) : (
+        "—"
+      ),
+  },
+  {
+    key: "failed_on",
+    label: "Failed",
+    className: "muted small",
+    sortValue: (r) => r.failed_breakout?.failed_on ?? null,
+    render: (r) =>
+      r.failed_breakout ? (
+        <span title={`${r.failed_breakout.sessions_below} session(s) below the level`}>{r.failed_breakout.failed_on}</span>
+      ) : (
+        "—"
+      ),
+  },
+];
 const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
+  { value: "any", label: "Any" },
   { value: "mw", label: "M + W green" },
   { value: "m2u", label: "Monthly 2U" },
   { value: "full", label: "M + W + D green" },
-  { value: "any", label: "Any" },
 ];
 const SETUP_OPTIONS: DropdownOption<SetupFilter>[] = [
   { value: "any", label: "Any" },
@@ -46,7 +144,13 @@ export default function Scanner({ version }: { version: string | null }) {
 
   const [minPrice, setMinPrice] = usePersisted<number | null>("minPrice", null);
   const [minDvM, setMinDvM] = usePersisted<number | null>("minDvM", null);
-  const [continuity, setContinuity] = usePersisted<Continuity>("continuity", "mw");
+  // Continuity was a default gate (M+W green) when the scanner ranked setups; it is a timing option now, so it has a new key.
+  const [continuity, setContinuity] = usePersisted<Continuity>("continuityFilter", "any");
+  const [savedLeadership] = useState(() => migrateLeadership(readPersisted<string | null>("leadership", null)));
+  const [leadership, setLeadership] = usePersisted<LeadershipFilter>("leadership", savedLeadership.filter);
+  const [minRsSlider, setMinRs] = usePersisted<number | null>("minRs", null);
+  const minRsPct = minRsSlider ?? savedLeadership.minRs ?? MIN_RS_RANGE.default;
+  const minRs = sliderToRs(minRsPct);
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
   const [kind, setKind] = usePersisted<Kind>("kind", "all");
   const [query, setQuery] = useState("");
@@ -79,6 +183,7 @@ export default function Scanner({ version }: { version: string | null }) {
     const q = query.trim().toUpperCase();
     const out = liquid.filter((r) => {
       if (q && !r.symbol.includes(q) && !r.name.toUpperCase().includes(q)) return false;
+      if (!matchesLeadership(r, leadership, minRs)) return false;
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
       if (continuity === "mw" && !r.mw_green) return false;
@@ -87,15 +192,23 @@ export default function Scanner({ version }: { version: string | null }) {
       return matchesSetup(r, setupFilter);
     });
     return out;
-  }, [liquid, query, theme, kind, continuity, setupFilter]);
+  }, [liquid, query, theme, kind, continuity, setupFilter, leadership, minRs]);
 
+  /**
+   * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
+   * liquidity, theme or setup filters. Leaders / Weekly setups use the widest Min RS (P50); dig in with the slider.
+   */
   const stats = useMemo(
     () => ({
-      m2u: liquid.filter((r) => r.monthly_2u).length,
-      mw: liquid.filter((r) => r.mw_green).length,
-      pending: liquid.filter((r) => r.mw_green && r.trigger !== null && !r.triggered).length,
+      all: rows.length,
+      leaders: rows.filter((r) => matchesLeadership(r, "leaders", CHIP_RS)).length,
+      setupsPending: rows.filter((r) => matchesLeadership(r, "setups_pending", CHIP_RS)).length,
+      setupsTriggered: rows.filter((r) => matchesLeadership(r, "setups_triggered", CHIP_RS)).length,
+      breakouts: rows.filter((r) => matchesLeadership(r, "breakouts")).length,
+      failedBreakouts: rows.filter((r) => matchesLeadership(r, "failed_breakouts")).length,
+      broken: rows.filter((r) => matchesLeadership(r, "broken")).length,
     }),
-    [liquid],
+    [rows],
   );
 
   const themeChoices = useMemo<DropdownOption<string>[]>(() => themeOptions(config?.themes ?? []), [config]);
@@ -113,27 +226,33 @@ export default function Scanner({ version }: { version: string | null }) {
         <div>
           <h1>Stock Scanner</h1>
           <p className="muted">
-            Long setups on the weekly chart only (S&amp;P 500 + Nasdaq-100 + theme additions + sector ETFs), ranked by actionability:
-            Monthly 2U, M/W/D continuity, distance to the weekly trigger, liquidity, relative momentum and theme strength.
+            Market leaders first (S&amp;P 500 + Nasdaq-100 + theme additions + sector ETFs): 1M/3M/6M relative strength versus the
+            universe and QQQ, theme strength and trend quality. Weekly Strat setups are a timing bonus, not a gate, and names that are
+            losing their trend are demoted.
           </p>
         </div>
-        <div className="stat-cards">
-          <div className="stat-card">
-            <span className="stat-value green-text">{liquid.length}</span>
-            <span className="stat-label">weekly setups</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-value green-text">{stats.mw}</span>
-            <span className="stat-label">M + W green</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-value green-text">{stats.m2u}</span>
-            <span className="stat-label">Monthly 2U</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-value accent-text">{stats.pending}</span>
-            <span className="stat-label">M+W green, awaiting trigger</span>
-          </div>
+        <div className="stat-cards" role="group" aria-label="Leadership totals">
+          {HERO_CHIPS.map((chip) => {
+            const active = leadership === chip.filter;
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                className={`stat-card stat-card-btn${active ? " active" : ""}`}
+                aria-pressed={active}
+                onClick={() => setLeadership(chip.filter)}
+              >
+                <span
+                  className={`stat-value ${
+                    chip.tone === "red" ? "red-text" : chip.tone === "green" ? "green-text" : ""
+                  }`}
+                >
+                  {stats[chip.key]}
+                </span>
+                <span className="stat-label">{chip.label}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -146,6 +265,7 @@ export default function Scanner({ version }: { version: string | null }) {
           options={themeChoices}
           onChange={setTheme}
         />
+        <Dropdown label="Leadership" header="Filter by relative strength" value={leadership} options={LEADERSHIP_OPTIONS} onChange={setLeadership} />
         <Dropdown
           label="Continuity"
           header="Filter by continuity"
@@ -155,6 +275,9 @@ export default function Scanner({ version }: { version: string | null }) {
         />
         <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
         <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
+        {leadershipUsesMinRs(leadership) && (
+          <RsSlider value={minRsPct} min={MIN_RS_RANGE.min} max={MIN_RS_RANGE.max} onChange={setMinRs} />
+        )}
         <LogSlider
           label="Min price"
           value={effPrice}
@@ -175,7 +298,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
       <div className="table-meta">
         <span className="muted">
-          {!loading && `${filtered.length} of ${rows.length} weekly setups shown`}
+          {!loading && `${filtered.length} of ${rows.length} names shown`}
           {theme && (
             <button className="chip" onClick={() => setTheme("")}>
               {themeName(config?.themes ?? [], theme)} ✕
@@ -185,14 +308,23 @@ export default function Scanner({ version }: { version: string | null }) {
         <Legend />
       </div>
       {error && <div className="banner error">{error}</div>}
-      {!loading && rows.length === 0 && !error && (
-        <div className="card empty-state">No weekly setups match these filters (if the cache is empty, the first download starts automatically and takes a minute or two).</div>
+      {!loading && filtered.length === 0 && !error && (
+        <div className="card empty-state">Nothing matches these filters (if the cache is empty, the first download starts automatically and takes a minute or two).</div>
       )}
 
       {loading && rows.length === 0 ? (
-        <SkeletonTable rows={10} cols={16} label="Scanning weekly setups…" />
+        <SkeletonTable rows={10} cols={16} label="Scanning for leaders…" />
+      ) : leadership === "failed_breakouts" ? (
+        <ScanTable
+          key="failed"
+          rows={filtered}
+          onTheme={setTheme}
+          minRs={minRs}
+          extraColumns={FAILED_COLUMNS}
+          initialSort={{ key: "failed_on", dir: -1 }}
+        />
       ) : (
-        <ScanTable rows={filtered} onTheme={setTheme} />
+        <ScanTable key="default" rows={filtered} onTheme={setTheme} minRs={minRs} />
       )}
     </div>
   );

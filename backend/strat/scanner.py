@@ -10,12 +10,26 @@ import pandas as pd
 from . import config
 from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
 from .data import resample
+from . import legacy_scoring, scoring
+from .leadership import (
+    BENCHMARK,
+    assess_breakdown,
+    qqq_excess,
+    leader_status,
+    long_term_rs,
+    nearest_trigger,
+    trend_metrics,
+)
+from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout, find_failed_breakout
 from .perf import MomentumRanks, Perf, period_returns
-from .scoring import TF_NAMES, ThemeStrength, score_symbol, theme_strength_points
+from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
+from .scoring import TF_NAMES, ThemeStrength, trigger_distance_pct
 from .themes import Theme, ThemeMap, build_theme_index
 from .universe import Member
 
 TIMEFRAMES = ("M", "W", "D")
+LEADERS = "leaders"
+LEGACY = "legacy"  # the previous Strat-first score, for the backtest comparison only
 
 
 def to_candles(df: pd.DataFrame) -> list[Candle]:
@@ -56,15 +70,19 @@ def scan_symbol(
     strengths: Optional[Mapping[str, ThemeStrength]] = None,
     ranks: Optional[MomentumRanks] = None,
     themes: Optional[ThemeMap] = None,
+    qqq: Optional[Perf] = None,
+    method: str = LEADERS,
 ) -> Optional[dict]:
     """Scan one symbol.
 
-    ``ranks`` supplies the peer distributions for Relative momentum; stocks also get Theme strength from ``strengths``
-    (see ``theme_strengths``) for their primary theme in ``themes``.
+    ``ranks`` supplies the peer distributions for relative strength and ``qqq`` the QQQ returns; stocks
+    also get Theme strength from ``strengths`` (see ``theme_strengths``) for their primary theme in ``themes``.
+    ``method`` is ``"leaders"`` (the leadership-first score) or ``"legacy"`` (the old Strat-first score).
     """
     if daily is None or len(daily) < 30:
         return None
-    states = {tf: timeframe_state(tf, to_candles(resample(daily, tf))) for tf in TIMEFRAMES}
+    candles = {tf: to_candles(resample(daily, tf)) for tf in TIMEFRAMES}
+    states = {tf: timeframe_state(tf, candles[tf]) for tf in TIMEFRAMES}
     last = daily.iloc[-1]
     price = float(last.close)
     recent = daily.tail(config.ADV_LOOKBACK_DAYS)
@@ -79,11 +97,35 @@ def scan_symbol(
     strength = (strengths or {}).get(theme.id) if theme else None
     secondary = themes.secondary.get(member.symbol, []) if themes and member.kind == "stock" else []
     secondary_names = [themes.by_id(t).name for t in secondary] if themes else []
-    sc = score_symbol(
-        states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
-        theme_name=theme.name if theme else "",
-    )
+    trend = trend_metrics(daily)
+    excess = qqq_excess(perf, qqq)
+    long_rs = long_term_rs(momentum.percentiles) if momentum else None
+    trend_break = assess_breakdown(trend, perf, long_rs)
+    tightness = range_stats(daily)
+    kill = find_kill_candle(daily)
+    breakout = find_breakout(daily, kill) if member.kind == "stock" and ((momentum.blended if momentum else None) or 0) >= MIN_BREAKOUT_RS else None
+    failed_breakout = find_failed_breakout(daily) if member.kind == "stock" else None
+    if method == LEGACY:
+        sc = legacy_scoring.score_symbol(
+            states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
+            theme_name=theme.name if theme else "",
+        )
+        theme_points = legacy_scoring.theme_strength_points
+    else:
+        sc = scoring.score_symbol(
+            states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
+            theme_name=theme.name if theme else "", trend=trend, excess=excess, trend_break=trend_break,
+            tightness=tightness, kill=kill,
+        )
+        theme_points = scoring.theme_strength_points
     primary = sc.primary
+    rs = momentum.blended if momentum else None
+    status = leader_status(rs, trend_break)
+    near = None
+    if primary is None:
+        weekly = candles["W"]
+        levels = [(weekly[-1].high, "this week's high")] + ([(weekly[-2].high, "last week's high")] if len(weekly) > 1 else [])
+        near = nearest_trigger(price, levels)
     return {
         "symbol": member.symbol,
         "name": member.name,
@@ -101,12 +143,39 @@ def scan_symbol(
                 "score": strength.score,
                 "rank": strength.rank,
                 "total": strength.total,
-                "points": round(theme_strength_points(strength), 2),
+                "points": round(theme_points(strength), 2),
             }
             if strength
             else None
         ),
         "perf": perf,
+        "rs": None if rs is None else round(rs, 4),
+        "leader_status": status,
+        "is_leader": status == "leader",
+        "leadership": {
+            "rs": None if rs is None else round(rs, 4),
+            "status": status,
+            "excess": excess,
+            "above_ma": {str(p): trend.above(p) if trend else None for p in (10, 20, 50)},
+            "off_52w_high_pct": trend.off_52w_high_pct if trend else None,
+            "off_6m_high_pct": trend.off_6m_high_pct if trend else None,
+            "breakdown": trend_break.level,
+            "breakdown_reasons": trend_break.reasons,
+        },
+        "tightness": (
+            {
+                "range10_pct": round(tightness.range10_pct, 2),
+                "range50_pct": round(tightness.range50_pct, 2),
+                "ratio": round(tightness.ratio, 3),
+                "contraction": round(tightness.contraction, 3),
+                "fraction": round(tightness_fraction(tightness), 3),
+            }
+            if tightness
+            else None
+        ),
+        "kill_candle": asdict(kill) if kill else None,
+        "breakout": asdict(breakout) if breakout else None,
+        "failed_breakout": asdict(failed_breakout) if failed_breakout else None,
         "kind": member.kind,
         "indexes": member.indexes,
         "in_universe": member.in_universe,
@@ -125,6 +194,8 @@ def scan_symbol(
                 "label": c.label,
                 "points": round(c.points, 2),
                 "max_points": c.max_points,
+                "weight_pct": c.weight_pct,
+                "sub_weights": c.sub_weights,
                 "detail": c.detail,
             }
             for c in sc.breakdown
@@ -138,6 +209,9 @@ def scan_symbol(
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,
         "triggered": primary.setup.triggered if primary else None,
         "trigger_distance_pct": sc.trigger_distance_pct,
+        "nearest_trigger": round(near[0], 2) if near else None,
+        "nearest_trigger_label": near[1] if near else None,
+        "nearest_trigger_distance_pct": round(trigger_distance_pct(price, near[0]), 2) if near else None,
         "reason": " · ".join(sc.reasons),
         "setups": [
             {"tf": s.tf, "points": s.points, **asdict(s.setup)}
@@ -155,14 +229,21 @@ class ScanResult:
     strengths: dict[str, ThemeStrength] = field(default_factory=dict)
     ranks: MomentumRanks = field(default_factory=lambda: MomentumRanks({}))
     themes: Optional[ThemeMap] = None
+    qqq: dict[str, Optional[float]] = field(default_factory=dict)  # QQQ returns
+    method: str = LEADERS
 
 
 MIN_THEME_MEMBERS_WITH_DATA = 2
 
 
-def scan_all(members: list[Member], daily_by_symbol: dict[str, pd.DataFrame], themes: Optional[ThemeMap] = None) -> ScanResult:
-    """Scan everything. Order matters: returns are ranked first (momentum), then the themes are scored and ranked, and
-    only then the stocks, whose Theme strength comes from their theme's rank."""
+def scan_all(
+    members: list[Member],
+    daily_by_symbol: dict[str, pd.DataFrame],
+    themes: Optional[ThemeMap] = None,
+    method: str = LEADERS,
+) -> ScanResult:
+    """Scan everything. Order matters: returns are ranked first (relative strength), then the themes are scored and
+    ranked, and only then the stocks, whose Theme strength comes from their theme's rank."""
     perf_by_group: dict[str, dict[str, Perf]] = {"stock": {}, "etf": {}, "theme": {}}
     for m in members:
         daily = daily_by_symbol.get(m.symbol)
@@ -177,11 +258,13 @@ def scan_all(members: list[Member], daily_by_symbol: dict[str, pd.DataFrame], th
             theme_daily[theme.id] = index
             perf_by_group["theme"][theme.id] = period_returns(index.close)
     ranks = MomentumRanks.from_perf(perf_by_group)
+    bench_daily = daily_by_symbol.get(BENCHMARK)
+    qqq = period_returns(bench_daily.close) if bench_daily is not None and len(bench_daily) >= 30 else {}
 
     theme_rows = {}
     for theme in themes.themes if themes else []:
         if theme.id in theme_daily:
-            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks)
+            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks, qqq=qqq, method=method)
             if row:
                 theme_rows[theme.id] = row
     strengths = theme_strengths(theme_rows, themes)
@@ -189,11 +272,11 @@ def scan_all(members: list[Member], daily_by_symbol: dict[str, pd.DataFrame], th
     rows = []
     for m in members:
         if m.kind != "theme":
-            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes)
+            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method)
             if row:
                 rows.append(row)
     rows.sort(key=lambda r: r["score"], reverse=True)
-    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes)
+    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes, qqq, method)
 
 
 def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:
