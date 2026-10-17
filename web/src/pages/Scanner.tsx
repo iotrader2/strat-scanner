@@ -24,6 +24,12 @@ const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "broken", label: "Broken leaders (trend lost)" },
   { value: "all", label: "All names" },
 ];
+const LEADERSHIP_COUNT_LABEL: Record<LeadershipFilter, string> = {
+  leaders: "leaders",
+  breakouts: "recent breakouts",
+  broken: "broken leaders",
+  all: "names",
+};
 const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
   { value: "any", label: "Any" },
   { value: "mw", label: "M + W green" },
@@ -137,7 +143,7 @@ export default function Scanner({ version }: { version: string | null }) {
         <div className="stat-cards">
           <div className="stat-card">
             <span className="stat-value green-text">{stats.leaders}</span>
-            <span className="stat-label">leaders</span>
+            <span className="stat-label">{LEADERSHIP_COUNT_LABEL[leadership]}</span>
           </div>
           <div className="stat-card">
             <span className="stat-value green-text">{stats.withSetup}</span>
