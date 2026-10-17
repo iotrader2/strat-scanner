@@ -1,12 +1,13 @@
 import type { ScanRow } from "./api";
 import { NO_SETUP_LABEL } from "./watchlist";
 
-/** Leadership filter of the Stock Scanner. Leaders and Weekly setups use the Min RS slider; Recent breakouts and Broken leaders ignore it. */
+/** Leadership filter of the Stock Scanner. Leaders and Weekly setups use the Min RS slider; Recent breakouts, Failed breakouts and Broken leaders ignore it. */
 export type LeadershipFilter =
   | "leaders"
   | "setups_pending"
   | "setups_triggered"
   | "breakouts"
+  | "failed_breakouts"
   | "broken"
   | "all";
 
@@ -20,6 +21,7 @@ type LeaderFields = Pick<ScanRow, "rs"> & {
   triggered?: boolean | null;
   leadership?: Pick<ScanRow["leadership"], "breakdown">;
   breakout?: ScanRow["breakout"];
+  failed_breakout?: ScanRow["failed_breakout"];
 };
 
 const rsAtLeast = (r: LeaderFields, min: number) => r.rs !== null && r.rs !== undefined && r.rs >= min;
@@ -36,7 +38,9 @@ export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
  * trends are never listed as leaders. Weekly setups is Leaders that also have a long-side weekly Strat setup on the latest
  * weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger vs already triggered.
  * Recent breakouts ignores the slider: it needs a tight-base breakout and RS >= P50. Broken leaders ignores the slider:
- * any name whose trend is broken (same flag as the RS chip).
+ * any name whose trend is broken (same flag as the RS chip). Failed breakouts is the opposite of Recent breakouts: a
+ * breakout of the last 8 weeks whose level price has since lost (`failed_breakout`, from the backend), RS >= P50, any
+ * trend; it ignores the slider. A failed breakout is no longer listed under Recent breakouts.
  */
 export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, minRs: number = LEADER_RS): boolean {
   switch (filter) {
@@ -49,7 +53,9 @@ export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, min
     case "broken":
       return isBroken(r);
     case "breakouts":
-      return !!r.breakout && rsAtLeast(r, BREAKOUT_MIN_RS) && !isBroken(r);
+      return !!r.breakout && !r.failed_breakout && rsAtLeast(r, BREAKOUT_MIN_RS) && !isBroken(r);
+    case "failed_breakouts":
+      return !!r.failed_breakout && rsAtLeast(r, BREAKOUT_MIN_RS);
     default:
       return true;
   }
@@ -72,12 +78,18 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
     case "setups_pending":
     case "setups_triggered":
     case "breakouts":
+    case "failed_breakouts":
     case "broken":
     case "all":
       return { filter: saved, minRs: null };
     default:
       return { filter: "leaders", minRs: null };
   }
+}
+
+/** "Failed breakout 2026-09-14 · 6.2% below" text for the badge (the level is in the tooltip and the Level column). */
+export function failedBreakoutLabel(f: NonNullable<ScanRow["failed_breakout"]>): string {
+  return `Failed breakout ${f.week} · ${Math.abs(f.below_pct).toFixed(1)}% below`;
 }
 
 /** "Breakout 2026-09-14 · 6-week base" text for the badge. */

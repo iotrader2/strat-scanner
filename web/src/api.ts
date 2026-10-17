@@ -48,6 +48,26 @@ export interface KillCandleInfo {
   penalty: number;
 }
 
+/** A recent weekly breakout that has since closed back below its base high. */
+export interface FailedBreakoutInfo {
+  /** First trading day of the breakout week. */
+  week: string;
+  weeks_ago: number;
+  base_weeks: number;
+  /** The base high the breakout cleared (the breakout level). */
+  level: number;
+  volume_x: number;
+  breakout_close: number;
+  /** First close below the level in the current run below it. */
+  failed_on: string;
+  sessions_below: number;
+  close: number;
+  /** Latest close vs the level, % (negative). */
+  below_pct: number;
+  /** Deepest close since the breakout vs the level, %. */
+  low_pct: number;
+}
+
 export interface BreakoutInfo {
   /** First trading day of the breakout week. */
   week: string;
@@ -105,6 +125,8 @@ export interface ScanRow {
   kill_candle: KillCandleInfo | null;
   /** A recent weekly breakout of a tight base on heavy volume (null when there is none). */
   breakout: BreakoutInfo | null;
+  /** The latest breakout of the last 8 weeks that has since closed back below its base high (null when there is none). */
+  failed_breakout?: FailedBreakoutInfo | null;
   kind: "stock" | "etf" | "theme";
   indexes: string;
   in_universe: boolean;

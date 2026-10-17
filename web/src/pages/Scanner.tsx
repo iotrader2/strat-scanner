@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type AppConfig, type ScanRow } from "../api";
+import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { Legend } from "../components/Badges";
-import { ScanTable } from "../components/ScanTable";
+import { ScanTable, type ExtraColumn } from "../components/ScanTable";
 import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
@@ -48,6 +48,11 @@ const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     hint: "Tight-base weekly breakout (volume surge) in the last 3 weekly candles, RS at P50 or better. Ignores the Min RS slider.",
   },
   {
+    value: "failed_breakouts",
+    label: "Failed breakouts",
+    hint: "The opposite of Recent breakouts: a high-volume weekly close above a tight base in the last 8 weeks (same detection) that price has since closed back below. Shows the breakout date, the breakout level (the base high) and how far price is below it, most recent failure first. RS at P50 or better, any trend; ignores the Min RS slider. A warning, not a buy signal.",
+  },
+  {
     value: "broken",
     label: "Broken leaders",
     hint: "Trend lost: below the 50-day average or 25%+ below the 6-month high. Same “· broken” flag as the RS chip. Ignores the Min RS slider — dig in with price, theme and the other filters.",
@@ -55,14 +60,59 @@ const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "all", label: "All names" },
 ];
 
-type HeroChipKey = "all" | "leaders" | "setupsPending" | "setupsTriggered" | "breakouts" | "broken";
+type HeroChipKey = "all" | "leaders" | "setupsPending" | "setupsTriggered" | "breakouts" | "failedBreakouts" | "broken";
 const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
   { key: "all", filter: "all", label: "all names", tone: "muted" },
   { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
   { key: "setupsPending", filter: "setups_pending", label: "awaiting trigger", tone: "green" },
   { key: "setupsTriggered", filter: "setups_triggered", label: "triggered setups", tone: "green" },
   { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
+  { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
   { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
+];
+/** Columns of the Failed breakouts view: when it broke out, the level, how far price is below it and when it failed. */
+const FAILED_COLUMNS: ExtraColumn[] = [
+  {
+    key: "failed_week",
+    label: "Broke out",
+    className: "muted small",
+    sortValue: (r) => r.failed_breakout?.week ?? null,
+    render: (r) => r.failed_breakout?.week ?? "—",
+  },
+  {
+    key: "failed_level",
+    label: "Level",
+    className: "num",
+    sortValue: (r) => r.failed_breakout?.level ?? null,
+    render: (r) => r.failed_breakout?.level.toFixed(2) ?? "—",
+  },
+  {
+    key: "failed_below",
+    label: "Below level",
+    className: "num",
+    ascendingFirst: true,
+    sortValue: (r) => r.failed_breakout?.below_pct ?? null,
+    render: (r) =>
+      r.failed_breakout ? (
+        <span className="red-text" title={`Deepest close since the breakout: ${fmtPct(r.failed_breakout.low_pct)} vs the level`}>
+          {fmtPct(r.failed_breakout.below_pct)}
+        </span>
+      ) : (
+        "—"
+      ),
+  },
+  {
+    key: "failed_on",
+    label: "Failed",
+    className: "muted small",
+    sortValue: (r) => r.failed_breakout?.failed_on ?? null,
+    render: (r) =>
+      r.failed_breakout ? (
+        <span title={`${r.failed_breakout.sessions_below} session(s) below the level`}>{r.failed_breakout.failed_on}</span>
+      ) : (
+        "—"
+      ),
+  },
 ];
 const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
   { value: "any", label: "Any" },
@@ -155,6 +205,7 @@ export default function Scanner({ version }: { version: string | null }) {
       setupsPending: rows.filter((r) => matchesLeadership(r, "setups_pending", CHIP_RS)).length,
       setupsTriggered: rows.filter((r) => matchesLeadership(r, "setups_triggered", CHIP_RS)).length,
       breakouts: rows.filter((r) => matchesLeadership(r, "breakouts")).length,
+      failedBreakouts: rows.filter((r) => matchesLeadership(r, "failed_breakouts")).length,
       broken: rows.filter((r) => matchesLeadership(r, "broken")).length,
     }),
     [rows],
@@ -263,8 +314,17 @@ export default function Scanner({ version }: { version: string | null }) {
 
       {loading && rows.length === 0 ? (
         <SkeletonTable rows={10} cols={16} label="Scanning for leaders…" />
+      ) : leadership === "failed_breakouts" ? (
+        <ScanTable
+          key="failed"
+          rows={filtered}
+          onTheme={setTheme}
+          minRs={minRs}
+          extraColumns={FAILED_COLUMNS}
+          initialSort={{ key: "failed_on", dir: -1 }}
+        />
       ) : (
-        <ScanTable rows={filtered} onTheme={setTheme} minRs={minRs} />
+        <ScanTable key="default" rows={filtered} onTheme={setTheme} minRs={minRs} />
       )}
     </div>
   );

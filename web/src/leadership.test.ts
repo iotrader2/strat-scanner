@@ -6,6 +6,7 @@ import {
   MIN_RS_RANGE,
   NO_SETUP_LEADER,
   breakoutLabel,
+  failedBreakoutLabel,
   fmtRs,
   formatWeight,
   leadershipUsesMinRs,
@@ -16,6 +17,7 @@ import {
   triggerHint,
   type LeadershipFilter,
 } from "./leadership";
+import { sortBy } from "./components/ScanTable";
 import { readPersisted, writePersisted } from "./persist";
 
 type Breakout = NonNullable<ScanRow["breakout"]>;
@@ -155,6 +157,73 @@ describe("Weekly setups", () => {
   it("treats a row with no has_setup field as having no setup", () => {
     expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" } }, "setups_pending")).toBe(false);
     expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" }, has_setup: true }, "setups_triggered")).toBe(false);
+  });
+});
+
+type Failed = NonNullable<ScanRow["failed_breakout"]>;
+const failedInfo = (failed_on: string, below_pct: number): Failed => ({
+  week: "2026-09-14",
+  weeks_ago: 4,
+  base_weeks: 6,
+  level: 100,
+  volume_x: 2.4,
+  breakout_close: 106,
+  failed_on,
+  sessions_below: 3,
+  close: 100 + below_pct,
+  below_pct,
+  low_pct: below_pct - 1,
+});
+
+describe("Failed breakouts", () => {
+  const withFailed = (rs: number | null, breakdown: "none" | "warning" | "broken", failed: Failed | null, breakout: Breakout | null = null) => ({
+    ...row(rs, breakdown, breakout),
+    failed_breakout: failed,
+  });
+  const failedMid = withFailed(0.62, "none", failedInfo("2026-10-14", -3));
+  const failedLeader = withFailed(0.95, "warning", failedInfo("2026-10-08", -6));
+  const failedBroken = withFailed(0.7, "broken", failedInfo("2026-10-02", -12));
+  const failedWeak = withFailed(0.3, "none", failedInfo("2026-10-10", -5));
+  const failedNoRs = withFailed(null, "none", failedInfo("2026-10-10", -5));
+  const held = withFailed(0.9, "none", null);
+  const all = [failedMid, failedLeader, failedBroken, failedWeak, failedNoRs, held, withFailed(0.97, "none", null)];
+  const failed = (minRs?: number) => all.filter((r) => matchesLeadership(r, "failed_breakouts", minRs));
+
+  it("lists names whose breakout level was lost, with RS >= P50 and any trend", () => {
+    expect(failed()).toEqual([failedMid, failedLeader, failedBroken]);
+  });
+
+  it("ignores the Min RS slider", () => {
+    expect(failed(sliderToRs(99))).toEqual(failed(sliderToRs(50)));
+    expect(leadershipUsesMinRs("failed_breakouts")).toBe(false);
+  });
+
+  it("a row without a failed breakout, or with no field at all, never matches", () => {
+    expect(failed()).not.toContain(held);
+    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" } }, "failed_breakouts")).toBe(false);
+  });
+
+  it("a failed breakout is no longer a Recent breakout", () => {
+    const live = withFailed(0.8, "none", null, breakoutInfo);
+    const lost = withFailed(0.8, "none", failedInfo("2026-10-14", -2), breakoutInfo);
+    expect(matchesLeadership(live, "breakouts")).toBe(true);
+    expect(matchesLeadership(lost, "breakouts")).toBe(false);
+    expect(matchesLeadership(lost, "failed_breakouts")).toBe(true);
+  });
+
+  it("sorts by the most recent failure or by how far below the level", () => {
+    const byDate = sortBy(failed(), (r) => r.failed_breakout?.failed_on, -1);
+    expect(byDate).toEqual([failedMid, failedLeader, failedBroken]);
+    const bySeverity = sortBy(failed(), (r) => r.failed_breakout?.below_pct, 1);
+    expect(bySeverity).toEqual([failedBroken, failedLeader, failedMid]);
+  });
+
+  it("labels the badge with the breakout date and distance below the level", () => {
+    expect(failedBreakoutLabel(failedInfo("2026-10-14", -6.24))).toBe("Failed breakout 2026-09-14 · 6.2% below");
+  });
+
+  it("is kept by the saved-filter migration", () => {
+    expect(migrateLeadership("failed_breakouts")).toEqual({ filter: "failed_breakouts", minRs: null });
   });
 });
 

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
 import { fmtCompact } from "../logScale";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
-import { breakoutLabel, fmtRs, LEADER_RS, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
+import { breakoutLabel, failedBreakoutLabel, fmtRs, LEADER_RS, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
@@ -76,7 +76,7 @@ export function sortRows(rows: ScanRow[], key: SortKey, dir: 1 | -1): ScanRow[] 
 }
 
 /** Sort by any value; null/undefined values always go last. */
-export function sortBy(rows: ScanRow[], value: (r: ScanRow) => unknown, dir: 1 | -1): ScanRow[] {
+export function sortBy<T>(rows: T[], value: (r: T) => unknown, dir: 1 | -1): T[] {
   return [...rows].sort((a, b) => {
     const av = value(a);
     const bv = value(b);
@@ -116,6 +116,8 @@ interface Props {
   actionsLabel?: string;
   /** The Min RS slider as a 0..1 percentile, used to label leaders that have no weekly setup. */
   minRs?: number;
+  /** Sort the table starts in (default: score, highest first). */
+  initialSort?: { key: string; dir: 1 | -1 };
 }
 
 export function ScanTable({
@@ -128,9 +130,10 @@ export function ScanTable({
   actions,
   actionsLabel = "Actions",
   minRs = LEADER_RS,
+  initialSort = { key: "score", dir: -1 },
 }: Props) {
   const navigate = useNavigate();
-  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "score", dir: -1 });
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>(initialSort);
   const custom = useMemo(() => [...leadColumns, ...extraColumns], [leadColumns, extraColumns]);
   const sorted = useMemo(() => {
     const col = custom.find((c) => c.key === sort.key);
@@ -228,12 +231,20 @@ export function ScanTable({
                 <TfBadges tf={r.tf} />
               </td>
               <td className="setup-cell">
-                {r.breakout && (
+                {r.breakout && !r.failed_breakout && (
                   <span
                     className="breakout-badge"
                     title={`Weekly close ${r.breakout.close.toFixed(2)} above the ${r.breakout.base_high.toFixed(2)} base high on ${r.breakout.volume_x.toFixed(1)}x average weekly volume, closing ${Math.round(r.breakout.close_position * 100)}% up the week's range`}
                   >
                     {breakoutLabel(r.breakout)}
+                  </span>
+                )}
+                {r.failed_breakout && (
+                  <span
+                    className="breakout-badge failed"
+                    title={`Breakout level ${r.failed_breakout.level.toFixed(2)}: weekly close ${r.failed_breakout.breakout_close.toFixed(2)} above the base high on ${r.failed_breakout.volume_x.toFixed(1)}x average weekly volume, then closed back below it on ${r.failed_breakout.failed_on}; ${r.failed_breakout.sessions_below} session(s) below since, deepest close ${fmtPct(r.failed_breakout.low_pct)} vs the level`}
+                  >
+                    {failedBreakoutLabel(r.failed_breakout)}
                   </span>
                 )}
                 {r.has_setup && r.setup ? (
