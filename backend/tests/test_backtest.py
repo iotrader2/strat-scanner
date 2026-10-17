@@ -53,81 +53,158 @@ def test_cut_off_drops_later_bars_and_symbols_without_history():
     assert "B" not in cut  # only 30 bars ending 2026-10-15, none before the cut-off
 
 
-class TestListStats:
-    PICKS = [{"symbol": s} for s in "ABCDEFGHIJ"]
-
-    def test_means_hit_rates_and_winners(self):
-        forward = {s: float(i) for i, s in enumerate("ABCDEFGHIJ")}  # A 0 ... J 9
-        winners = {"I", "J", "A"}
-        st = bt.list_stats(self.PICKS, forward, winners, {"J", "I", "Z"})
-        assert st.count == 10
-        assert st.top[10] == pytest.approx(4.5) and st.top[30] == pytest.approx(4.5)
-        assert st.hit[10] == pytest.approx(0.3)
-        assert st.winners_in_top30 == 2
-
-    def test_names_without_a_forward_return_are_skipped(self):
-        st = bt.list_stats(self.PICKS, {"A": 10.0, "B": 20.0}, {"A"}, set())
-        assert st.top[10] == pytest.approx(15.0) and st.hit[10] == pytest.approx(0.5)
-
-    def test_an_empty_list_has_no_stats(self):
-        st = bt.list_stats([], {}, set(), set())
-        assert st.count == 0 and st.top[10] is None and st.hit[30] is None
+def _rows(n=120, winners=("W1", "W2"), score_of=None, listed_n=12):
+    """A fake market: stock i returns i % 40 % over 1M and twice that over 3M; the winners double their return."""
+    rows = []
+    for i in range(n):
+        sym = f"S{i:03d}"
+        f1 = float(i % 40)
+        rows.append(dict(symbol=sym, score=float(i), rs=i / n, status="leader" if i >= n - listed_n else "laggard",
+                         has_setup=False, listed=i >= n - listed_n, breakout=None, fwd1=f1, fwd3=2 * f1))
+    for sym in winners:
+        rows.append(dict(symbol=sym, score=500.0 if sym == "W1" else 1.0, rs=0.95, status="leader", has_setup=True,
+                         listed=True, breakout=None, fwd1=50.0, fwd3=150.0))
+    return rows
 
 
-class TestRunDate:
-    def test_new_list_is_leaders_only_and_old_list_needs_a_setup(self):
-        members, hist = _market()
-        snap = bt.run_date(hist, members, None, "2026-06-12", reference=("S39", "S00", "SPY"))
-        assert snap.universe > 30
-        new, old = snap.variants["new"], snap.variants["old"]
-        assert new.count <= 6  # the top decile of 40 stocks, minus anything broken
-        assert old.count != new.count
-        assert snap.ref_new["S39"] == 1  # the strongest riser leads the list
-        assert snap.ref_new["S00"] is None and snap.ref_status["S00"] == "laggard"
-        assert snap.ref_status["SPY"] == "leader" or snap.ref_new["SPY"] is None  # ETFs are never in the stock list
-        assert snap.ref_fwd["S39"] is not None
-        # a persistent riser beats the median name over the next month
-        assert new.top[10] > snap.median
+class TestRankDate:
+    def test_top_n_excess_is_measured_against_the_median_of_all_stocks(self):
+        dr = bt.rank_date("2026-01-02", _rows())
+        median1 = dr.median[1]
+        assert dr.excess[(1, 1)] == pytest.approx(50.0 - median1)  # W1 has the top score
+        assert dr.excess[(5, 3)] == pytest.approx((150.0 + 78 + 76 + 74 + 72) / 5 - dr.median[3])
+        assert dr.ranks["W1"] == 1 and dr.ranks["S119"] == 2
 
-    def test_only_data_up_to_the_cutoff_is_used(self):
-        members, hist = _market()
-        late = {k: v.copy() for k, v in hist.items()}
-        for df in late.values():  # a crash after the cut-off must not affect that day's picks
-            df.iloc[-40:, :4] *= 0.3
-        a = bt.run_date(hist, members, None, "2026-06-12", reference=("S39",))
-        b = bt.run_date(late, members, None, "2026-06-12", reference=("S39",))
-        assert a.ref_new == b.ref_new and a.variants["new"].count == b.variants["new"].count
+    def test_spearman_and_capture(self):
+        dr = bt.rank_date("2026-01-02", _rows())
+        assert dr.spearman is not None and -1 <= dr.spearman <= 1
+        assert {"W1", "W2"} <= dr.winners and len(dr.winners) == 10
+        assert dr.capture[10] is not None and dr.capture[10] >= 0.1  # W1 is in the first 10
+        assert dr.capture[30] >= dr.capture[10]
 
-    def test_old_comparison_can_be_skipped(self):
-        members, hist = _market()
-        snap = bt.run_date(hist, members, None, "2026-06-12", reference=("S39",), with_old=False)
-        assert "old" not in snap.variants and snap.ref_old == {}
+    def test_a_perfectly_ordered_list_has_spearman_one(self):
+        rows = [dict(symbol=f"S{i}", score=float(i), rs=0.99, status="leader", has_setup=True, listed=True, breakout=None,
+                     fwd1=float(i), fwd3=float(i)) for i in range(150)]
+        dr = bt.rank_date("2026-01-02", rows)
+        assert dr.spearman == pytest.approx(1.0)
+        assert dr.capture[10] == 1.0 and dr.excess[(1, 3)] > 0
+
+    def test_too_few_names_for_a_median_leaves_the_measures_empty(self):
+        dr = bt.rank_date("2026-01-02", _rows(n=20, winners=()))
+        assert dr.median[1] is None and dr.excess[(1, 1)] is None and dr.capture[10] is None
+
+
+class TestSummaryAndLags:
+    def _ranks(self, entry_step=2, steps=8):
+        out = []
+        for k in range(steps):
+            rows = _rows(winners=())
+            for r in rows:
+                if r["symbol"] == "S000":
+                    r.update(fwd3=500.0, fwd1=100.0, score=1000.0 if k >= entry_step else -1.0, listed=k >= entry_step)
+            out.append(bt.rank_date(f"2026-0{1 + k // 4}-{(k % 4) * 7 + 2:02d}", rows))
+        return out
+
+    def test_a_late_entry_has_a_lag_in_sessions(self):
+        runs = bt.capture_lags(self._ranks(entry_step=2))
+        run = next(r for r in runs if r.symbol == "S000")
+        assert run.run_start == "2026-01-02" and run.first_top10 == "2026-01-16" and run.sessions == 10
+        summary = bt.lag_summary(runs)
+        assert summary["caught"] >= 1 and summary["median_sessions"] is not None
+
+    def test_a_name_never_in_the_top_10_is_not_caught(self):
+        runs = bt.capture_lags(self._ranks(entry_step=99))
+        assert next(r for r in runs if r.symbol == "S000").sessions is None
+
+    def test_summarize_averages_the_dates_and_split_uses_the_test_start(self):
+        ranks = self._ranks()
+        parts = bt.split(ranks, "2026-01-16")
+        assert [r.as_of for r in parts["train"]] == ["2026-01-02", "2026-01-09"] and len(parts["all"]) == 8
+        s = bt.summarize(ranks)
+        assert s["dates"] == 8 and s["top1_3m"] is not None and s["capture10"] is not None
+
+
+class TestBreakoutBacktest:
+    def _by_date(self):
+        bo = {"week": "2026-01-05", "base_weeks": 5}
+        dates = [f"2026-0{1 + i // 2}-{(i % 2) * 14 + 2:02d}" for i in range(8)]
+        out = {}
+        for i, d in enumerate(dates):
+            rows = []
+            for j in range(120):
+                rows.append(dict(symbol=f"M{j}", score=1.0, rs=0.6, status="laggard", has_setup=False, listed=False,
+                                 breakout=None, fwd1=1.0, fwd3=3.0))
+            # B breaks out at date 0 (mid-pack) and is a leader from date 3 on
+            rows.append(dict(symbol="B", score=1.0, rs=0.97 if i >= 3 else 0.6, status="leader" if i >= 3 else "laggard",
+                             has_setup=False, listed=i >= 3, breakout=bo if i == 0 else None, fwd1=10.0, fwd3=30.0))
+            out[d] = rows
+        return out, dates
+
+    def test_pick_needs_a_breakout_rs_and_an_unbroken_trend(self):
+        base = dict(breakout={"week": "w"}, rs=0.6, status="laggard")
+        assert bt.is_breakout_pick(base)
+        assert not bt.is_breakout_pick({**base, "rs": 0.4})
+        assert not bt.is_breakout_pick({**base, "status": "broken"})
+        assert not bt.is_breakout_pick({**base, "breakout": None})
+
+    def test_returns_are_versus_the_median_and_leaders_are_counted(self):
+        by_date, dates = self._by_date()
+        s = bt.breakout_stats(by_date)
+        assert s.events == 1 and s.fwd1 == pytest.approx(9.0) and s.fwd3 == pytest.approx(27.0)
+        assert s.beat_1m == 1.0 and s.became_leader == 1.0  # B led two dates later
+        assert s.baseline_became_leader is not None and s.baseline_became_leader < 0.1
+
+    def test_examples_name_the_first_breakout_and_the_first_leader_date(self):
+        by_date, dates = self._by_date()
+        ex = bt.breakout_examples(by_date, ["B", "M1"])
+        assert ex[0].first_breakout == dates[0] and ex[0].first_leader == dates[3] and ex[0].breakout_week == "2026-01-05"
+        assert ex[1].first_breakout is None and ex[1].first_leader is None
+
+    def test_breakout_section_renders(self):
+        by_date, dates = self._by_date()
+        text = bt.render_breakouts(by_date, bt.breakout_examples(by_date, ["B"]), test_start=dates[4])
+        assert "Recent breakouts" in text and "Became leader" in text and "| B |" in text
 
 
 class TestReport:
-    def _snaps(self):
-        members, hist = _market()
-        return [bt.run_date(hist, members, None, d, reference=("S39", "S00")) for d in ("2026-05-15", "2026-06-12")]
+    def _variants(self):
+        return {"Old": bt.rank_all({"2026-01-02": _rows(), "2026-01-16": _rows()}),
+                "New": bt.rank_all({"2026-01-02": _rows(), "2026-01-16": _rows()})}
 
-    def test_report_has_old_vs_new_and_reference_rank_tables(self):
-        report = bt.render_report(self._snaps(), reference=("S39", "S00"))
-        assert "Old top 30" in report and "New top 30" in report
-        assert "| 2026-05-15 |" in report and "| 2026-06-12 |" in report and "**Average**" in report
-        assert "Reference leaders: rank on each date" in report
-        assert "**#1**" in report  # S39 leads
-        assert "laggard" in report  # S00 is filtered out
-        assert "New, leaders that also have a weekly setup" in report
+    def test_report_has_train_test_tables_and_reference_ranks(self):
+        v = self._variants()
+        text = bt.render_report(v, None, reference=("W1", "S000"), test_start="2026-01-10")
+        assert "**Train** (1 cut-off dates)" in text and "**Test** (1 cut-off dates)" in text
+        assert "Top 1 forward 3M excess" in text and "Spearman" in text and "Capture in top 10" in text
+        assert "| Old | New |" in text.replace("Metric | ", "") or "| Metric | Old | New |" in text
+        assert "| 2026-01-16 |" in text and "**#1**" in text
 
-    def test_reference_names_include_pltr(self):
-        assert "PLTR" in bt.REFERENCE
+    def test_reference_names_include_pltr_and_sndk_first(self):
+        assert bt.REFERENCE[0] == "SNDK" and "PLTR" in bt.REFERENCE
         assert {"HPE", "DELL", "MU", "SNDK", "ARM", "NBIS", "AMD"} <= set(bt.REFERENCE)
 
-    def test_default_dates_cover_the_required_window(self):
-        assert "2026-08-13" in bt.DEFAULT_DATES
-        assert len(bt.DEFAULT_DATES) >= 5
-        run = [d for d in bt.DEFAULT_DATES if bt.RUN_START <= d <= bt.RUN_END]
-        assert len(run) >= 5  # late April through September 2026
-        assert any(d < bt.RUN_START for d in bt.DEFAULT_DATES)  # and other market conditions
+    def test_dates_are_biweekly_and_split_before_the_test_period(self):
+        members, hist = _market(24)
+        dates = bt.rank_dates(hist, "2026-05-01")
+        assert dates[0] == "2026-05-01" and dates[1] == "2026-05-15"
+        assert bt.TEST_START > bt.RANK_START and bt.SNDK_RUN_START >= "2025-11-01"
+
+    def test_collect_scans_every_date_with_only_data_up_to_it(self):
+        members, hist = _market()
+        dates = ["2026-06-12", "2026-06-26"]
+        by_date = bt.collect(hist, members, None, dates)
+        rows = {r["symbol"]: r for r in by_date["2026-06-12"]}
+        assert rows["S39"]["listed"] and not rows["S00"]["listed"] and rows["S39"]["fwd3"] is not None
+        late = {k: v.copy() for k, v in hist.items()}
+        for df in late.values():  # a crash after the cut-off must not change that day's picks
+            df.iloc[-40:, :4] *= 0.3
+        again = {r["symbol"]: r for r in bt.collect(late, members, None, dates[:1])["2026-06-12"]}
+        assert {k for k, r in again.items() if r["listed"]} == {k for k, r in rows.items() if r["listed"]}
+
+    def test_the_old_list_is_names_with_a_weekly_setup(self):
+        members, hist = _market()
+        old = bt.collect(hist, members, None, ["2026-06-12"], method=bt.LEGACY)["2026-06-12"]
+        assert all(r["listed"] == r["has_setup"] for r in old)
 
 
 class TestTimeline:

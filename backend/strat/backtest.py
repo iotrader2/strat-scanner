@@ -1,15 +1,23 @@
-"""Leaders backtest: cut the local price cache off at historical dates and compare the old Strat-first score with the
-leadership-first score on what happened over the next month.
+"""Rank-quality backtest of the Stock Scanner score.
 
-    python -m strat.backtest                       # default dates, markdown report on stdout
-    python -m strat.backtest --dates 2026-08-13    # chosen dates
-    python -m strat.backtest --timeline            # weekly rank/status of the reference leaders (breakdown check)
+    python -m strat.backtest                          # biweekly cut-offs over the whole cache, markdown on stdout
+    python -m strat.backtest --dates 2026-08-13 ...   # chosen cut-off dates
+    python -m strat.backtest --timeline               # weekly rank/status of the reference leaders (breakdown check)
 
-For each cut-off date only bars up to that date are used (prices, returns, averages, themes and relative-strength
-percentiles are all recomputed from that history), then the picks are measured against the next calendar month. The
+The objective is that the highest scores go to the stocks that go up the most. For each cut-off date only bars up to
+that date are used (prices, returns, averages, themes and relative-strength percentiles are all recomputed from that
+history), then the list is measured against what happened next:
+
+* forward 1M and 3M return of the top 1 / 5 / 10 of the list, minus the median liquid stock;
+* Spearman rank correlation between score and forward 3M return inside the list;
+* capture: how many of the eventual 10 best forward-3M performers were in the list's top 10 / top 30, and how many
+  sessions after the start of their run each first reached the top 10;
+* the rank of the reference leaders (SNDK on every date) and the Recent breakouts study.
+
+Dates before ``TEST_START`` are the train period (where the weights were tuned), the rest is the test period. The
 universe is today's S&P 500 + Nasdaq-100 list (survivorship bias: names that left the indexes are missing), filtered to
-liquid stocks (price and average dollar volume at the cut-off date). Old picks are names with a weekly setup, ranked by
-the old score; new picks are the leaders-only list ranked by the new score.
+liquid stocks (price and average dollar volume at the cut-off date). The old list is names with a weekly setup, ranked
+by the old Strat-first score; the new list is the leaders-only list (RS >= P90, trend unbroken) ranked by the new score.
 """
 
 from __future__ import annotations
@@ -18,8 +26,9 @@ import argparse
 import statistics
 import sys
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
+import numpy as np
 import pandas as pd
 
 from . import config, data
@@ -28,38 +37,23 @@ from .scanner import LEADERS, LEGACY, ScanResult, scan_all
 from .themes import ThemeMap, load_themes
 from .universe import load_universe
 
-REFERENCE = ("HPE", "DELL", "MU", "SNDK", "ARM", "NBIS", "AMD", "PLTR")
+REFERENCE = ("SNDK", "MU", "NBIS", "AMD", "DELL", "HPE", "ARM", "PLTR")
 
-# Different market conditions: the April 2025 tariff crash and its rebound, a steady uptrend, a winter rotation, a
-# March 2026 pullback, then the April to September 2026 leadership run of the reference names.
-DEFAULT_DATES = (
-    "2025-04-21",
-    "2025-10-17",
-    "2026-01-16",
-    "2026-03-20",
-    "2026-04-24",
-    "2026-05-15",
-    "2026-06-18",
-    "2026-07-17",
-    "2026-08-13",
-    "2026-09-11",
-)
+RANK_START = "2024-05-10"  # first Friday with 6 months of cached history behind it
+RANK_FREQ = "2W-FRI"
+TEST_START = "2025-10-01"
+SNDK_RUN_START = "2025-11-01"
 RUN_START, RUN_END = "2026-04-24", "2026-09-11"  # the reference names led the market in this window
 
-TOP_SIZES = (10, 30)
-WINNER_FRACTION = 0.20
+TOP_SIZES = (1, 5, 10)
+CAPTURE_SIZES = (10, 30)
+CAPTURE_TOP = 10  # "eventual best performers" = the 10 best forward-3M returns
+RUN_GAP_STEPS = 3  # a name's runs are separate when it was out of the top 10 for this many dates
+MIN_SPEARMAN_NAMES = 8
+BECAME_LEADER_STEPS = (2, 3, 4)  # 4 to 8 weeks later on biweekly dates
+
 FORWARD_MONTHS = 1
 END_TOLERANCE_DAYS = 5
-
-MEMBER_VARIANTS = ("old", "old_mw", "new", "new_mw", "new_setup")
-VARIANT_LABELS = {
-    "old": "Old: weekly-setup list, old score",
-    "old_mw": "Old, default view (setup + Monthly & Weekly green)",
-    "new": "New: leaders-only list, new score",
-    "new_mw": "New, leaders also Monthly & Weekly green",
-    "new_setup": "New, leaders that also have a weekly setup",
-}
-
 
 def cut_off(daily_by_symbol: Mapping[str, pd.DataFrame], as_of: pd.Timestamp) -> dict[str, pd.DataFrame]:
     """Every symbol's bars up to and including ``as_of`` (symbols with no bars yet are dropped)."""
@@ -107,185 +101,451 @@ def new_list(result: ScanResult, mw_green: bool = False, setup: bool = False) ->
     return sorted(rows, key=lambda r: (-r["score"], r["symbol"]))
 
 
-@dataclass
-class ListStats:
-    count: int
-    top: dict[int, Optional[float]] = field(default_factory=dict)  # N -> mean forward return of the first N
-    hit: dict[int, Optional[float]] = field(default_factory=dict)  # N -> share of the first N in the winners
-    winners_in_top30: Optional[int] = None  # of the 30 biggest winners, how many are in the first 30
 
 
-def list_stats(picks: Sequence[dict], forward: Mapping[str, float], winners: set[str], big30: set[str]) -> ListStats:
-    st = ListStats(len(picks))
-    for n in TOP_SIZES:
-        top = [r["symbol"] for r in picks[:n] if r["symbol"] in forward]
-        st.top[n] = statistics.fmean(forward[s] for s in top) if top else None
-        st.hit[n] = sum(s in winners for s in top) / len(top) if top else None
-    st.winners_in_top30 = len({r["symbol"] for r in picks[:30]} & big30)
-    return st
+# --------------------------------------------------------------------------------------------------------------------
+# Collecting one scan per cut-off date
+# --------------------------------------------------------------------------------------------------------------------
 
 
-@dataclass
-class Snapshot:
-    """One cut-off date: how each list did, and where the reference names stood."""
-
-    as_of: str
-    universe: int
-    median: float
-    winners: int
-    variants: dict[str, ListStats]
-    ref_old: dict[str, Optional[int]]  # rank in the old list (None = no weekly setup)
-    ref_new: dict[str, Optional[int]]  # rank in the new leaders list (None = filtered out)
-    ref_status: dict[str, str]  # leader / broken / laggard / n/a
-    ref_fwd: dict[str, Optional[float]]
-    ref_rs: dict[str, Optional[float]] = field(default_factory=dict)  # blended RS percentile, 0..1
+def rank_dates(daily_by_symbol: Mapping[str, pd.DataFrame], start: str = RANK_START, freq: str = RANK_FREQ) -> list[str]:
+    """Biweekly cut-off dates from ``start`` to the last cached bar."""
+    last_bar = max(df.index[-1] for df in daily_by_symbol.values())
+    return [d.strftime("%Y-%m-%d") for d in pd.date_range(start, last_bar, freq=freq)]
 
 
-def run_date(
+def slim_row(row: dict, daily: pd.DataFrame, ts: pd.Timestamp, listed: bool) -> dict:
+    """The fields of a scan row the rank-quality metrics need, plus its forward 1M and 3M return."""
+    return {
+        "symbol": row["symbol"],
+        "score": row["score"],
+        "rs": row.get("rs"),
+        "status": row.get("leader_status", "n/a"),
+        "has_setup": row["has_setup"],
+        "listed": listed,
+        "breakout": row.get("breakout"),
+        "fwd1": forward_return(daily, ts),
+        "fwd3": forward_return(daily, ts, months=3),
+    }
+
+
+def collect(
     daily_by_symbol: Mapping[str, pd.DataFrame],
     members,
     themes: Optional[ThemeMap],
-    as_of: str,
-    reference: Sequence[str] = REFERENCE,
-    with_old: bool = True,
-) -> Snapshot:
-    ts = pd.Timestamp(as_of)
-    cut = cut_off(daily_by_symbol, ts)
-    new = scan_all(members, cut, themes, method=LEADERS)
-    old = scan_all(members, cut, themes, method=LEGACY) if with_old else None
+    dates: Sequence[str],
+    method: str = LEADERS,
+    progress: bool = False,
+) -> dict[str, list[dict]]:
+    """Scan the market as of every date: liquid stocks with their score, status and what they did next.
 
-    liquid = liquid_stocks(new.rows)
-    forward = {}
-    for r in liquid:
-        f = forward_return(daily_by_symbol[r["symbol"]], ts)
-        if f is not None:
-            forward[r["symbol"]] = f
-    ordered = sorted(forward, key=lambda s: (-forward[s], s))
-    winners = set(ordered[: max(1, round(len(ordered) * WINNER_FRACTION))])
-    big30 = set(ordered[:30])
-    median = statistics.median(forward.values()) if forward else float("nan")
+    ``listed`` marks what the scanner shows by default: the leaders list for the new score, names with a weekly setup
+    for the old one.
+    """
+    out: dict[str, list[dict]] = {}
+    for d in dates:
+        if progress:
+            print(f"[backtest] {method} {d}", file=sys.stderr, flush=True)
+        ts = pd.Timestamp(d)
+        result = scan_all(members, cut_off(daily_by_symbol, ts), themes, method=method)
+        out[d] = [
+            slim_row(r, daily_by_symbol[r["symbol"]], ts, bool(r["has_setup"] if method == LEGACY else r["is_leader"]))
+            for r in liquid_stocks(result.rows)
+        ]
+    return out
 
-    lists = {
-        "new": new_list(new),
-        "new_mw": new_list(new, mw_green=True),
-        "new_setup": new_list(new, setup=True),
+
+# --------------------------------------------------------------------------------------------------------------------
+# Rank quality
+# --------------------------------------------------------------------------------------------------------------------
+
+
+def spearman(scores: Sequence[float], forward: Sequence[float]) -> Optional[float]:
+    """Spearman rank correlation (None with too few names or no variation)."""
+    if len(scores) < MIN_SPEARMAN_NAMES:
+        return None
+    corr = pd.Series(scores).rank().corr(pd.Series(forward).rank())
+    return None if corr != corr else float(corr)
+
+
+@dataclass
+class DateRank:
+    """How well one list ranked the market as of one date."""
+
+    as_of: str
+    universe: int  # liquid stocks with a forward 1M return
+    listed: int
+    median: dict[int, Optional[float]]  # horizon in months -> median forward return of the universe
+    excess: dict[tuple[int, int], Optional[float]]  # (top N, months) -> mean forward return minus the median
+    spearman: Optional[float]  # score vs forward 3M return inside the list
+    capture: dict[int, Optional[float]]  # list size -> share of the eventual best 10 (3M) inside its first N
+    winners: frozenset  # the symbols of the 10 best forward-3M returns
+    ranks: dict[str, int] = field(default_factory=dict)  # rank in the list
+    rows: dict[str, dict] = field(default_factory=dict)
+
+
+def _median(values: Iterable[float]) -> Optional[float]:
+    values = list(values)
+    return statistics.median(values) if values else None
+
+
+def rank_date(as_of: str, rows: Sequence[dict]) -> DateRank:
+    listed = sorted((r for r in rows if r["listed"]), key=lambda r: (-r["score"], r["symbol"]))
+    ranks = {r["symbol"]: i for i, r in enumerate(listed, start=1)}
+    median: dict[int, Optional[float]] = {}
+    excess: dict[tuple[int, int], Optional[float]] = {}
+    for months, key in ((1, "fwd1"), (3, "fwd3")):
+        have = [r for r in rows if r[key] is not None]
+        median[months] = _median(r[key] for r in have) if len(have) >= 100 else None
+        for n in TOP_SIZES:
+            picks = [r[key] for r in listed[:n] if r[key] is not None]
+            excess[(n, months)] = statistics.fmean(picks) - median[months] if picks and median[months] is not None else None
+
+    with_3m = [r for r in listed if r["fwd3"] is not None]
+    rho = spearman([r["score"] for r in with_3m], [r["fwd3"] for r in with_3m]) if median[3] is not None else None
+    winners = frozenset(
+        r["symbol"] for r in sorted((r for r in rows if r["fwd3"] is not None), key=lambda r: (-r["fwd3"], r["symbol"]))[:CAPTURE_TOP]
+    ) if median[3] is not None else frozenset()
+    capture = {
+        n: len(winners & {r["symbol"] for r in listed[:n]}) / CAPTURE_TOP if winners else None for n in CAPTURE_SIZES
     }
-    if old is not None:
-        lists["old"] = old_list(old)
-        lists["old_mw"] = old_list(old, mw_green=True)
-    variants = {k: list_stats(v, forward, winners, big30) for k, v in lists.items()}
-
-    def rank_of(picks: Sequence[dict], sym: str) -> Optional[int]:
-        return next((i for i, r in enumerate(picks, start=1) if r["symbol"] == sym), None)
-
-    by_sym = {r["symbol"]: r for r in new.rows}
-    return Snapshot(
-        as_of=as_of,
-        universe=len(forward),
-        median=median,
-        winners=len(winners),
-        variants=variants,
-        ref_old={s: rank_of(lists["old"], s) for s in reference} if old is not None else {},
-        ref_new={s: rank_of(lists["new"], s) for s in reference},
-        ref_status={s: by_sym[s]["leader_status"] if s in by_sym else "n/a" for s in reference},
-        ref_fwd={s: forward.get(s) for s in reference},
-        ref_rs={s: by_sym[s]['rs'] if s in by_sym else None for s in reference},
+    return DateRank(
+        as_of, sum(r["fwd1"] is not None for r in rows), len(listed), median, excess, rho, capture, winners, ranks,
+        {r["symbol"]: r for r in rows},
     )
 
 
+def rank_all(by_date: Mapping[str, Sequence[dict]]) -> list[DateRank]:
+    return [rank_date(d, by_date[d]) for d in sorted(by_date)]
+
+
+def split(ranks: Sequence[DateRank], test_start: str = TEST_START) -> dict[str, list[DateRank]]:
+    return {
+        "train": [r for r in ranks if r.as_of < test_start],
+        "test": [r for r in ranks if r.as_of >= test_start],
+        "all": list(ranks),
+    }
+
+
+def _mean(values: Iterable[Optional[float]]) -> Optional[float]:
+    have = [v for v in values if v is not None and v == v]
+    return statistics.fmean(have) if have else None
+
+
+def summarize(ranks: Sequence[DateRank]) -> dict:
+    """Averages over the dates (dates without a forward window for a measure are left out of it)."""
+    out: dict = {"dates": len(ranks)}
+    for months in (1, 3):
+        for n in TOP_SIZES:
+            out[f"top{n}_{months}m"] = _mean(r.excess.get((n, months)) for r in ranks)
+    out["spearman"] = _mean(r.spearman for r in ranks)
+    for n in CAPTURE_SIZES:
+        out[f"capture{n}"] = _mean(r.capture.get(n) for r in ranks)
+    out["listed"] = _mean(r.listed for r in ranks)
+    return out
+
+
+@dataclass
+class RunLag:
+    symbol: str
+    run_start: str
+    first_top10: Optional[str]
+    sessions: Optional[int]
+
+
+def capture_lags(ranks: Sequence[DateRank], top: int = 10, within_steps: int = 6) -> list[RunLag]:
+    """For each run of a name among the eventual best 3M performers, how many sessions after the run's first date it
+    first stood in the list's top ``top`` (None when it never did within ``within_steps`` dates).
+
+    A run starts at the first cut-off whose forward 3M return puts the name in the best 10; it ends when the name has
+    been out of them for ``RUN_GAP_STEPS`` dates.
+    """
+    dates = [r.as_of for r in ranks]
+    by_name: dict[str, list[int]] = {}
+    for i, r in enumerate(ranks):
+        for sym in r.winners:
+            by_name.setdefault(sym, []).append(i)
+    runs: list[RunLag] = []
+    for sym, idx in sorted(by_name.items()):
+        starts = [idx[0]] + [b for a, b in zip(idx, idx[1:]) if b - a > RUN_GAP_STEPS]
+        for s in starts:
+            hit = next(
+                (t for t in range(s, min(len(ranks), s + within_steps + 1)) if ranks[t].ranks.get(sym, 10**9) <= top), None
+            )
+            sessions = None if hit is None else int(np.busday_count(dates[s], dates[hit]))
+            runs.append(RunLag(sym, dates[s], None if hit is None else dates[hit], sessions))
+    return runs
+
+
+def lag_summary(runs: Sequence[RunLag]) -> dict:
+    caught = [r for r in runs if r.sessions is not None]
+    return {
+        "runs": len(runs),
+        "caught": len(caught),
+        "at_start": sum(r.sessions == 0 for r in caught),
+        "within_4w": sum(r.sessions <= 10 for r in caught),
+        "median_sessions": statistics.median(r.sessions for r in caught) if caught else None,
+    }
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# Recent breakouts
+# --------------------------------------------------------------------------------------------------------------------
+
+
+def is_breakout_pick(row: dict) -> bool:
+    """What the scanner's Recent breakouts view lists: a breakout, RS at least P50 and an unbroken trend."""
+    return bool(row.get("breakout")) and (row.get("rs") or 0) >= 0.5 and row.get("status") != "broken"
+
+
+@dataclass
+class BreakoutStats:
+    events: int
+    fwd1: Optional[float]  # mean forward 1M return minus the date's median
+    fwd3: Optional[float]
+    beat_1m: Optional[float]  # share that beat the date's median
+    beat_3m: Optional[float]
+    became_leader: Optional[float]  # share that were RS >= P90 (a leader) 4 to 8 weeks later
+    baseline_became_leader: Optional[float]  # same for every mid-pack name (RS P50-P90, unbroken)
+    leader_events: int = 0  # events that already were leaders when they broke out (left out of became_leader)
+
+
+def breakout_stats(
+    by_date: Mapping[str, Sequence[dict]], dates: Optional[Sequence[str]] = None, steps: Sequence[int] = BECAME_LEADER_STEPS
+) -> BreakoutStats:
+    """Pooled over the dates: forward returns of the Recent breakouts versus the median stock, and how many mid-pack
+    breakouts became leaders (RS >= P90, unbroken) within 4 to 8 weeks, against all mid-pack names."""
+    ordered = sorted(by_date)
+    wanted = set(dates) if dates is not None else set(ordered)
+    ex1: list[float] = []
+    ex3: list[float] = []
+    became: list[bool] = []
+    base: list[bool] = []
+    already = 0
+    events = 0
+    for i, d in enumerate(ordered):
+        if d not in wanted:
+            continue
+        rows = by_date[d]
+        med1 = _median(r["fwd1"] for r in rows if r["fwd1"] is not None)
+        med3 = _median(r["fwd3"] for r in rows if r["fwd3"] is not None)
+        later = [{r["symbol"]: r for r in by_date[ordered[i + k]]} for k in steps if i + k < len(ordered)]
+        has_later = len(later) == len(steps)
+
+        def became_leader(sym: str) -> bool:
+            return any(sym in m and m[sym]["status"] == "leader" for m in later)
+
+        for r in rows:
+            mid = 0.5 <= (r["rs"] or 0) < 0.9 and r["status"] != "broken"
+            if mid and has_later:
+                base.append(became_leader(r["symbol"]))
+            if not is_breakout_pick(r):
+                continue
+            events += 1
+            if r["fwd1"] is not None and med1 is not None:
+                ex1.append(r["fwd1"] - med1)
+            if r["fwd3"] is not None and med3 is not None:
+                ex3.append(r["fwd3"] - med3)
+            if r["status"] == "leader":
+                already += 1
+            elif has_later and mid:
+                became.append(became_leader(r["symbol"]))
+    share = lambda xs: sum(xs) / len(xs) if xs else None  # noqa: E731
+    return BreakoutStats(
+        events,
+        statistics.fmean(ex1) if ex1 else None,
+        statistics.fmean(ex3) if ex3 else None,
+        share([x > 0 for x in ex1]),
+        share([x > 0 for x in ex3]),
+        share(became),
+        share(base),
+        already,
+    )
+
+
+@dataclass
+class BreakoutExample:
+    symbol: str
+    first_breakout: Optional[str]
+    breakout_week: Optional[str]
+    rs_then: Optional[float]
+    first_leader: Optional[str]
+    fwd3_after: Optional[float]
+
+
+def breakout_examples(by_date: Mapping[str, Sequence[dict]], symbols: Sequence[str]) -> list[BreakoutExample]:
+    """When each name first showed up in Recent breakouts, and when it first became a leader."""
+    ordered = sorted(by_date)
+    out = []
+    for sym in symbols:
+        first = next(
+            (
+                (d, r)
+                for d in ordered
+                for r in by_date[d]
+                if r["symbol"] == sym and is_breakout_pick(r)
+            ),
+            None,
+        )
+        leader = next((d for d in ordered for r in by_date[d] if r["symbol"] == sym and r["status"] == "leader"), None)
+        out.append(
+            BreakoutExample(
+                sym,
+                first[0] if first else None,
+                first[1]["breakout"]["week"] if first else None,
+                first[1]["rs"] if first else None,
+                leader,
+                first[1]["fwd3"] if first else None,
+            )
+        )
+    return out
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# Report
+# --------------------------------------------------------------------------------------------------------------------
+
+
 def _pct(v: Optional[float], digits: int = 1) -> str:
-    return "—" if v is None or v != v else f"{v:+.{digits}f}%"
+    return "—" if v is None or v != v else f"{v:+.{digits}f}"
 
 
 def _share(v: Optional[float]) -> str:
     return "—" if v is None else f"{v * 100:.0f}%"
 
 
-def _mean(values: Sequence[Optional[float]]) -> Optional[float]:
-    have = [v for v in values if v is not None and v == v]
-    return statistics.fmean(have) if have else None
+def _num(v: Optional[float], digits: int = 2) -> str:
+    return "—" if v is None or v != v else f"{v:+.{digits}f}"
 
 
-def render_report(snaps: Sequence[Snapshot], reference: Sequence[str] = REFERENCE) -> str:
-    """Markdown report: per-date old vs new table, averages, and the reference leaders' ranks."""
-    out: list[str] = []
-    out.append("### Old vs new scoring, forward 1-month return of the picks\n")
-    out.append(
-        "Top-10 / Top-30 are the average forward 1M return of the first 10 / 30 names of each list; "
-        "*Median* is the median forward 1M return of all liquid stocks. Hit rate is the share of the first 30 that were "
-        f"in the top {WINNER_FRACTION:.0%} of forward winners (a random pick scores {WINNER_FRACTION:.0%}). "
-        "Winners-in-top-30 counts how many of the 30 biggest forward winners the first 30 caught.\n"
-    )
-    out.append("| Cut-off | Stocks | Median | Old top 10 | New top 10 | Old top 30 | New top 30 | Old hit-30 | New hit-30 | Old winners/30 | New winners/30 | Old list | New list |")
-    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
-    for s in snaps:
-        o, n = s.variants.get("old"), s.variants["new"]
+def render_rank_quality(variants: Mapping[str, Sequence[DateRank]], test_start: str = TEST_START) -> str:
+    """Summary table per period: how well each variant's list ranks the eventual big winners."""
+    out = [
+        "### Rank quality: do the highest scores go to the biggest winners?\n",
+        "Biweekly cut-off dates; *excess* is the mean forward return of the list's top N minus the median liquid stock. "
+        "*Spearman* is the rank correlation of score and forward 3M return inside the list. *Capture* is the share of "
+        "the 10 best forward-3M performers (of all liquid stocks) inside the list's first 10 / 30. "
+        f"Train = cut-offs before {test_start} (where the weights were tuned), test = {test_start} onwards.\n",
+    ]
+    names = list(variants)
+    for period in ("train", "test", "all"):
+        subsets = {n: split(variants[n], test_start)[period] for n in names}
+        sums = {n: summarize(s) for n, s in subsets.items()}
+        lags = {n: lag_summary(capture_lags(s)) for n, s in subsets.items()}
+        first = next(iter(sums.values()))
+        out.append(f"\n**{period.capitalize()}** ({first['dates']} cut-off dates)\n")
+        out.append("| Metric | " + " | ".join(names) + " |")
+        out.append("|---|" + "---|" * len(names))
+
+        def row(label, fmt, key):
+            out.append(f"| {label} | " + " | ".join(fmt(sums[n][key]) for n in names) + " |")
+
+        for months in (1, 3):
+            for n in TOP_SIZES:
+                row(f"Top {n} forward {months}M excess (pts)", _pct, f"top{n}_{months}m")
+        row("Spearman(score, fwd 3M)", _num, "spearman")
+        row("Capture in top 10", _share, "capture10")
+        row("Capture in top 30", _share, "capture30")
         out.append(
-            f"| {s.as_of} | {s.universe} | {_pct(s.median)} | {_pct(o.top[10]) if o else '—'} | {_pct(n.top[10])} | "
-            f"{_pct(o.top[30]) if o else '—'} | {_pct(n.top[30])} | {_share(o.hit[30]) if o else '—'} | {_share(n.hit[30])} | "
-            f"{o.winners_in_top30 if o else '—'} | {n.winners_in_top30} | {o.count if o else '—'} | {n.count} |"
+            "| Runs caught in top 10 / runs | " + " | ".join(f"{lags[n]['caught']}/{lags[n]['runs']}" for n in names) + " |"
         )
-    avg = lambda f: _mean([f(s) for s in snaps])  # noqa: E731
-    o_ok = [s for s in snaps if "old" in s.variants]
-    out.append(
-        f"| **Average** | | **{_pct(avg(lambda s: s.median))}** | "
-        f"**{_pct(_mean([s.variants['old'].top[10] for s in o_ok]))}** | **{_pct(avg(lambda s: s.variants['new'].top[10]))}** | "
-        f"**{_pct(_mean([s.variants['old'].top[30] for s in o_ok]))}** | **{_pct(avg(lambda s: s.variants['new'].top[30]))}** | "
-        f"**{_share(_mean([s.variants['old'].hit[30] for s in o_ok]))}** | **{_share(avg(lambda s: s.variants['new'].hit[30]))}** | "
-        f"**{_mean([s.variants['old'].winners_in_top30 for s in o_ok]) or 0:.1f}** | **{avg(lambda s: s.variants['new'].winners_in_top30):.1f}** | | |"
-    )
-
-    out.append("\n### Averages across the dates, by list variant (the setup and continuity gates)\n")
-    out.append("| List | Top 10 | Top 30 | Top-30 excess vs median | Hit-30 | Winners/30 |")
-    out.append("|---|---|---|---|---|---|")
-    for key in MEMBER_VARIANTS:
-        have = [s for s in snaps if key in s.variants]
-        if not have:
-            continue
-        t10 = _mean([s.variants[key].top[10] for s in have])
-        t30 = _mean([s.variants[key].top[30] for s in have])
-        med = _mean([s.median for s in have])
-        exc = None if t30 is None or med is None else t30 - med
         out.append(
-            f"| {VARIANT_LABELS[key]} | {_pct(t10)} | {_pct(t30)} | {_pct(exc)} | "
-            f"{_share(_mean([s.variants[key].hit[30] for s in have]))} | "
-            f"{_mean([s.variants[key].winners_in_top30 for s in have]) or 0:.1f} |"
+            "| Median sessions from run start to top 10 | "
+            + " | ".join("—" if lags[n]["median_sessions"] is None else f"{lags[n]['median_sessions']:g}" for n in names)
+            + " |"
         )
-
-    out.append("\n### Reference leaders: rank on each date (new leaders list; old weekly-setup list in square brackets)\n")
-    out.append(
-        "Each cell is the rank on the new leaders-only list with the name's blended 1M/3M/6M relative-strength percentile "
-        "(`P97`). `—` means filtered out of the new list: *laggard* (RS below P90) or *broken* (RS high but the trend is "
-        "lost). `[no setup]` means the old scanner did not list it at all.\n"
-    )
-    out.append("| Cut-off | " + " | ".join(reference) + " |")
-    out.append("|---|" + "---|" * len(reference))
-    for s in snaps:
-        cells = []
-        for sym in reference:
-            new_rank = s.ref_new.get(sym)
-            old_rank = s.ref_old.get(sym)
-            rs = s.ref_rs.get(sym)
-            rs_txt = "" if rs is None else f" P{rs * 100:.0f}"
-            new_txt = f"**#{new_rank}**{rs_txt}" if new_rank else f"—{rs_txt} {s.ref_status.get(sym, 'n/a')}"
-            old_txt = f"#{old_rank}" if old_rank else "no setup"
-            cells.append(f"{new_txt} [{old_txt}]" if s.ref_old else new_txt)
-        out.append(f"| {s.as_of} | " + " | ".join(cells) + " |")
-    n_run = [s for s in snaps if RUN_START <= s.as_of <= RUN_END]
-    if n_run:
-        out.append(f"\nInside the {RUN_START} to {RUN_END} run (new list size shown per date above):\n")
-        out.append("| Name | Dates on the new list | Dates in its top 10 | Dates in the old list | Avg forward 1M |")
-        out.append("|---|---|---|---|---|")
-        for sym in reference:
-            new_ranks = [s.ref_new.get(sym) for s in n_run]
-            old_ranks = [s.ref_old.get(sym) for s in n_run]
-            out.append(
-                f"| {sym} | {sum(r is not None for r in new_ranks)}/{len(n_run)} | "
-                f"{sum(r is not None and r <= 10 for r in new_ranks)}/{len(n_run)} | "
-                f"{sum(r is not None for r in old_ranks) if s.ref_old else '—'}/{len(n_run)} | "
-                f"{_pct(_mean([s.ref_fwd.get(sym) for s in n_run]))} |"
-            )
+        out.append("| List size (avg) | " + " | ".join(f"{sums[n]['listed'] or 0:.0f}" for n in names) + " |")
     return "\n".join(out)
+
+
+def _cell(rank: Optional[int], row: Optional[dict]) -> str:
+    if row is None:
+        return "n/a"
+    rs = "" if row["rs"] is None else f" P{row['rs'] * 100:.0f}"
+    if rank:
+        return f"**#{rank}**{rs}"
+    return f"—{rs} {row['status']}" if row["status"] != "n/a" else f"—{rs}"
+
+
+def render_reference(
+    variants: Mapping[str, Sequence[DateRank]], symbols: Sequence[str] = REFERENCE, start: str = SNDK_RUN_START
+) -> str:
+    """Rank of every reference name on every cut-off date from ``start`` (SNDK's run); other variants in brackets."""
+    names = list(variants)
+    main = variants[names[-1]]
+    out = [
+        f"### Reference leaders: rank on every cut-off from {start} ({names[-1]} list; "
+        + (f"{names[0]} rank in brackets, [-] = not listed" if len(names) > 1 else "—")
+        + ")\n",
+        "A cell is the rank with the blended 1M/3M/6M relative-strength percentile; `—` means off the list "
+        "(*laggard* below P90, or *broken*).\n",
+        "| Cut-off | " + " | ".join(symbols) + " |",
+        "|---|" + "---|" * len(symbols),
+    ]
+    other = {r.as_of: r for r in variants[names[0]]} if len(names) > 1 else {}
+    for dr in main:
+        if dr.as_of < start:
+            continue
+        cells = []
+        for sym in symbols:
+            c = _cell(dr.ranks.get(sym), dr.rows.get(sym))
+            if other:
+                o = other.get(dr.as_of)
+                rank = o.ranks.get(sym) if o else None
+                c += f" [{rank if rank else '-'}]"
+            cells.append(c)
+        out.append(f"| {dr.as_of} | " + " | ".join(cells) + " |")
+    return "\n".join(out)
+
+
+def render_breakouts(
+    by_date: Mapping[str, Sequence[dict]],
+    examples: Sequence[BreakoutExample],
+    test_start: str = TEST_START,
+) -> str:
+    out = [
+        "### Recent breakouts: do they surface future leaders?\n",
+        "Breakout = latest weekly closes above a tight 3-10 week base on heavy volume (RS at least P50, unbroken trend, "
+        "no kill candle). Returns are pooled over all breakout events and measured against the median liquid stock of "
+        "the same date. *Became leader* is the share of breakouts that were not yet leaders and were RS >= P90 (unbroken) "
+        "4 to 8 weeks later; the baseline is the same rate for every mid-pack name (RS P50-P90).\n",
+        "| Period | Events | Fwd 1M vs median (pts) | Beat median 1M | Fwd 3M vs median (pts) | Beat median 3M | Became leader | Baseline |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    ordered = sorted(by_date)
+    periods = {
+        "Train": [d for d in ordered if d < test_start],
+        "Test": [d for d in ordered if d >= test_start],
+        "All": ordered,
+    }
+    for label, ds in periods.items():
+        s = breakout_stats(by_date, ds)
+        out.append(
+            f"| {label} | {s.events} | {_pct(s.fwd1)} | {_share(s.beat_1m)} | {_pct(s.fwd3)} | {_share(s.beat_3m)} | "
+            f"{_share(s.became_leader)} | {_share(s.baseline_became_leader)} |"
+        )
+    out.append("\n| Name | First Recent breakout (cut-off) | Breakout week | RS then | First became a leader | Fwd 3M after |")
+    out.append("|---|---|---|---|---|---|")
+    for e in examples:
+        rs = "—" if e.rs_then is None else f"P{e.rs_then * 100:.0f}"
+        out.append(
+            f"| {e.symbol} | {e.first_breakout or 'never'} | {e.breakout_week or '—'} | {rs} | "
+            f"{e.first_leader or 'never'} | {_pct(e.fwd3_after)}% |"
+        )
+    return "\n".join(out)
+
+
+def render_report(
+    variants: Mapping[str, Sequence[DateRank]],
+    breakouts: Optional[Mapping[str, Sequence[dict]]] = None,
+    reference: Sequence[str] = REFERENCE,
+    test_start: str = TEST_START,
+) -> str:
+    parts = [render_rank_quality(variants, test_start), render_reference(variants, reference)]
+    if breakouts:
+        parts.append(render_breakouts(breakouts, breakout_examples(breakouts, reference), test_start))
+    return "\n\n".join(parts)
+
 
 
 @dataclass
@@ -368,8 +628,10 @@ def render_timeline(series: Mapping[str, Sequence[TimelinePoint]]) -> str:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Backtest the leadership score against the old Strat-first score")
-    parser.add_argument("--dates", nargs="+", default=list(DEFAULT_DATES), help="cut-off dates (YYYY-MM-DD)")
+    parser = argparse.ArgumentParser(description="Rank-quality backtest of the leadership score against the old Strat-first score")
+    parser.add_argument("--dates", nargs="+", help="cut-off dates (YYYY-MM-DD); default: every other Friday over the cache")
+    parser.add_argument("--start", default=RANK_START, help="first default cut-off date")
+    parser.add_argument("--test-start", default=TEST_START, help="cut-offs from this date on are the test period")
     parser.add_argument("--reference", nargs="+", default=list(REFERENCE), help="symbols whose ranks are reported")
     parser.add_argument("--timeline", action="store_true", help="also report weekly ranks/demotion over the leadership run")
     parser.add_argument("--timeline-start", default=RUN_START)
@@ -387,11 +649,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except Exception:  # themes are optional for the comparison
         themes = None
 
-    snaps = []
-    for d in args.dates:
-        print(f"[backtest] {d}", file=sys.stderr, flush=True)
-        snaps.append(run_date(daily, members, themes, d, tuple(args.reference), with_old=not args.no_old))
-    print(render_report(snaps, tuple(args.reference)))
+    dates = args.dates or rank_dates(daily, args.start)
+    new_rows = collect(daily, members, themes, dates, LEADERS, progress=True)
+    variants: dict[str, list[DateRank]] = {}
+    if not args.no_old:
+        variants["Old"] = rank_all(collect(daily, members, themes, dates, LEGACY, progress=True))
+    variants["New"] = rank_all(new_rows)
+    print(render_report(variants, new_rows, tuple(args.reference), args.test_start))
     if args.timeline:
         print()
         series = run_timeline(daily, members, themes, args.timeline_start, args.timeline_end, tuple(args.reference))
