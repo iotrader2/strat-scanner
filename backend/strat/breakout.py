@@ -4,6 +4,7 @@ A *tight base* is 3 to 10 weeks of narrow weekly ranges (their average true rang
 range over the 20 weeks before the base) that stay inside a modest depth. The *breakout* is a weekly candle that
 closes above the base high, on weekly volume well above the 10-week average, closing in the upper part of its range.
 Only the latest few weekly candles count, and a kill candle (a wide, heavy down day) since cancels the setup.
+A *failed breakout* is the same breakout, up to 8 weeks old, that has since closed back below the base high.
 
 Pure functions of the daily bars, so they work on a history cut off at any date (used by the backtest).
 """
@@ -29,6 +30,7 @@ BREAKOUT_VOLUME_X = 2.0  # breakout-week volume vs the average of the 10 weeks b
 BREAKOUT_CLOSE_POSITION = 0.65  # the week closes in the upper 35% of its range
 RECENT_WEEKS = 3  # the breakout week is one of the last 3 weekly candles
 MIN_RS = 0.50  # relative-strength floor: future leaders may still be mid-pack
+FAILED_LOOKBACK_WEEKS = 8  # Failed breakouts: the breakout week is one of the weekly candles 1 to 8 weeks back
 
 
 @dataclass(frozen=True)
@@ -87,9 +89,37 @@ def find_base(weekly: pd.DataFrame, rng: pd.Series, j: int) -> Optional[tuple[in
     return None
 
 
+def _breakout_at(weekly: pd.DataFrame, rng: pd.Series, j: int, scale: float) -> Optional[Breakout]:
+    """The breakout the weekly candle ``j`` makes (None when it is not one); ``weeks_ago`` is counted from the last bar."""
+    n = len(weekly)
+    if j < BASE_MIN_WEEKS + 1:
+        return None
+    bar = weekly.iloc[j]
+    span = float(bar.high - bar.low)
+    if span <= 0:
+        return None
+    position = float(bar.close - bar.low) / span
+    vol = float(bar.volume) * (scale if j == n - 1 else 1.0)
+    avg_vol = float(weekly.volume.iloc[max(0, j - VOLUME_WEEKS) : j].mean())
+    if avg_vol <= 0 or vol / avg_vol < BREAKOUT_VOLUME_X or position < BREAKOUT_CLOSE_POSITION:
+        return None
+    base = find_base(weekly, rng, j)
+    if base is None or float(bar.close) <= base[1]:
+        return None
+    length, high, base_rng, baseline = base
+    return Breakout(
+        weekly.index[j].strftime("%Y-%m-%d"), n - 1 - j, length, round(high, 2), round(base_rng, 2), round(baseline, 2),
+        round(vol / avg_vol, 2), round(position, 2), round(float(bar.close), 2),
+    )
+
+
+def _enough_history(daily: pd.DataFrame) -> bool:
+    return daily is not None and len(daily) >= 5 * (BASE_MIN_WEEKS + MIN_BASELINE_WEEKS + 2)
+
+
 def find_breakout(daily: pd.DataFrame, kill: Optional[KillCandle] = None) -> Optional[Breakout]:
     """The latest qualifying breakout among the last RECENT_WEEKS weekly candles (None when there is none)."""
-    if daily is None or len(daily) < 5 * (BASE_MIN_WEEKS + MIN_BASELINE_WEEKS + 2):
+    if not _enough_history(daily):
         return None
     if kill is not None and kill.penalty > 0:
         return None
@@ -97,24 +127,71 @@ def find_breakout(daily: pd.DataFrame, kill: Optional[KillCandle] = None) -> Opt
     n = len(weekly)
     rng = _week_range_pct(weekly)
     for ago in range(RECENT_WEEKS):
-        j = n - 1 - ago
-        if j < BASE_MIN_WEEKS + 1:
-            break
-        bar = weekly.iloc[j]
-        span = float(bar.high - bar.low)
-        if span <= 0:
-            continue
-        position = float(bar.close - bar.low) / span
-        vol = float(bar.volume) * (scale if j == n - 1 else 1.0)
-        avg_vol = float(weekly.volume.iloc[max(0, j - VOLUME_WEEKS) : j].mean())
-        if avg_vol <= 0 or vol / avg_vol < BREAKOUT_VOLUME_X or position < BREAKOUT_CLOSE_POSITION:
-            continue
-        base = find_base(weekly, rng, j)
-        if base is None or float(bar.close) <= base[1]:
-            continue
-        length, high, base_rng, baseline = base
-        return Breakout(
-            weekly.index[j].strftime("%Y-%m-%d"), ago, length, round(high, 2), round(base_rng, 2), round(baseline, 2),
-            round(vol / avg_vol, 2), round(position, 2), round(float(bar.close), 2),
-        )
+        found = _breakout_at(weekly, rng, n - 1 - ago, scale)
+        if found is not None:
+            return found
     return None
+
+
+@dataclass(frozen=True)
+class FailedBreakout:
+    week: str  # first trading day of the breakout week
+    weeks_ago: int
+    base_weeks: int
+    level: float  # the base high the breakout cleared
+    volume_x: float
+    breakout_close: float
+    failed_on: str  # first close below the level since price last closed at or above it
+    sessions_below: int  # sessions since then, the failure session included
+    close: float  # latest close
+    below_pct: float  # latest close vs the level, % (negative)
+    low_pct: float  # deepest close since the breakout vs the level, % (<= below_pct)
+
+
+def find_failed_breakout(daily: pd.DataFrame, lookback: int = FAILED_LOOKBACK_WEEKS) -> Optional[FailedBreakout]:
+    """The latest breakout (same detection as Recent breakouts) that has since lost its level.
+
+    Looks at the weekly candles from the current one back ``lookback`` weeks. Of the qualifying breakouts the most recent
+    one counts (a breakout in the current week has not had time to fail, and hides older ones). It has failed when the
+    latest daily close is below the base high it cleared. A kill candle does not hide it. The failure date is the first
+    close below the level in the current run below it, so a name that dipped, reclaimed the level and dipped again is
+    dated by the second dip.
+    """
+    if not _enough_history(daily):
+        return None
+    weekly, scale = _weekly(daily)
+    n = len(weekly)
+    rng = _week_range_pct(weekly)
+    found: Optional[Breakout] = None
+    j = n - 1
+    for ago in range(lookback + 1):
+        j = n - 1 - ago
+        found = _breakout_at(weekly, rng, j, scale)
+        if found is not None:
+            break
+    if found is None or found.weeks_ago == 0:
+        return None
+    after = daily.close[daily.index >= weekly.index[j + 1]]
+    if after.empty:
+        return None
+    level = found.base_high
+    close = float(after.iloc[-1])
+    if close >= level:
+        return None
+    below = after < level
+    run_start = len(below)
+    while run_start > 0 and below.iloc[run_start - 1]:
+        run_start -= 1
+    return FailedBreakout(
+        week=found.week,
+        weeks_ago=found.weeks_ago,
+        base_weeks=found.base_weeks,
+        level=level,
+        volume_x=found.volume_x,
+        breakout_close=found.close,
+        failed_on=after.index[run_start].strftime("%Y-%m-%d"),
+        sessions_below=len(below) - run_start,
+        close=round(close, 2),
+        below_pct=round((close / level - 1) * 100.0, 2),
+        low_pct=round((float(after.min()) / level - 1) * 100.0, 2),
+    )

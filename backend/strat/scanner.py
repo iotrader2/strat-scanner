@@ -20,7 +20,7 @@ from .leadership import (
     nearest_trigger,
     trend_metrics,
 )
-from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout
+from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout, find_failed_breakout
 from .perf import MomentumRanks, Perf, period_returns
 from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
 from .scoring import TF_NAMES, ThemeStrength, trigger_distance_pct
@@ -104,6 +104,7 @@ def scan_symbol(
     tightness = range_stats(daily)
     kill = find_kill_candle(daily)
     breakout = find_breakout(daily, kill) if member.kind == "stock" and ((momentum.blended if momentum else None) or 0) >= MIN_BREAKOUT_RS else None
+    failed_breakout = find_failed_breakout(daily) if member.kind == "stock" else None
     if method == LEGACY:
         sc = legacy_scoring.score_symbol(
             states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
@@ -174,6 +175,7 @@ def scan_symbol(
         ),
         "kill_candle": asdict(kill) if kill else None,
         "breakout": asdict(breakout) if breakout else None,
+        "failed_breakout": asdict(failed_breakout) if failed_breakout else None,
         "kind": member.kind,
         "indexes": member.indexes,
         "in_universe": member.in_universe,

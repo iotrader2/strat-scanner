@@ -1,3 +1,5 @@
+import dataclasses
+
 import pandas as pd
 import pytest
 
@@ -74,3 +76,82 @@ class TestFindBreakout:
         assert scale == pytest.approx(5 / 3)
         _, full = bo._weekly(df)
         assert full == 1.0
+
+
+def _extend(df, closes):
+    """Append one session per close (business days after the last bar)."""
+    idx = pd.bdate_range(df.index[-1] + pd.Timedelta(days=1), periods=len(closes))
+    extra = pd.DataFrame(
+        {"open": closes, "high": [c + 0.3 for c in closes], "low": [c - 0.3 for c in closes], "close": closes, "volume": 1e6},
+        index=idx,
+    )
+    return pd.concat([df, extra])
+
+
+class TestFindFailedBreakout:
+    HOLD = 111.0  # a close above the level
+    LEVEL = bo.find_breakout(_daily(40, 30, 6)).base_high  # the base high the breakout week clears (108.0)
+
+    def _failed(self, closes):
+        return bo.find_failed_breakout(_extend(_daily(40, 30, 6), closes))
+
+    def test_a_close_back_below_the_base_high_after_a_breakout_week_is_a_failure(self):
+        f = self._failed([self.HOLD] * 5 + [110.0, 109.0, 99.0, 98.0, 97.0])
+        assert f is not None
+        assert f.level == self.LEVEL and f.week == "2026-10-05" and f.breakout_close == 110.8
+        assert f.below_pct == pytest.approx((97.0 / self.LEVEL - 1) * 100, abs=0.01) and f.below_pct < 0
+        assert f.weeks_ago == 2 and f.failed_on == "2026-10-21" and f.sessions_below == 3
+        assert f.low_pct == f.below_pct and f.volume_x >= bo.BREAKOUT_VOLUME_X
+
+    def test_low_pct_is_the_deepest_close_since_the_breakout(self):
+        f = self._failed([self.HOLD] * 5 + [110.0, 109.0, 95.0, 98.0, 97.0])
+        assert f.low_pct < f.below_pct < 0
+
+    def test_a_breakout_that_still_holds_its_level_has_not_failed(self):
+        assert self._failed([self.HOLD] * 10) is None
+
+    def test_a_close_exactly_at_the_level_holds(self):
+        assert self._failed([self.HOLD] * 5 + [110.0, 109.0, 109.0, 108.5, self.LEVEL]) is None
+
+    def test_a_dip_below_the_level_that_was_reclaimed_has_not_failed(self):
+        assert self._failed([self.HOLD] * 4 + [99.0, 98.0, 110.0, 110.0, 110.0, 110.0]) is None
+
+    def test_the_failure_date_is_the_start_of_the_current_run_below_the_level(self):
+        f = self._failed([self.HOLD] * 3 + [99.0, 110.0, 110.0, 99.5, 99.0, 98.0, 98.5])
+        assert f is not None and f.sessions_below == 4 and f.failed_on == "2026-10-20"
+
+    def test_a_breakout_in_the_current_week_cannot_have_failed(self):
+        assert bo.find_failed_breakout(_daily(40, 30, 6)) is None
+
+    def test_the_breakout_must_be_within_the_lookback(self):
+        assert bo.FAILED_LOOKBACK_WEEKS == 8
+        too_old = [self.HOLD] * 5 * 8 + [99.0] * 3  # 9 weekly candles after the breakout week
+        assert self._failed(too_old) is None
+        oldest = [self.HOLD] * 5 * 7 + [99.0] * 3  # 8
+        f = self._failed(oldest)
+        assert f is not None and f.weeks_ago == 8
+
+    def test_a_kill_candle_does_not_hide_a_failure(self):
+        # Wide heavy down days are what failures look like; unlike Recent breakouts, a kill candle is not a veto.
+        assert self._failed([self.HOLD] * 5 + [99.0] * 3) is not None
+
+    def test_too_little_history_has_no_failed_breakout(self):
+        assert bo.find_failed_breakout(_daily(10, 5, 3)) is None
+
+    def test_find_breakout_still_sees_a_breakout_that_failed_within_three_weeks(self):
+        df = _extend(_daily(40, 30, 6), [self.HOLD] * 5 + [99.0] * 5)
+        assert bo.find_breakout(df) is not None and bo.find_failed_breakout(df) is not None
+
+    def test_a_newer_breakout_in_the_current_week_hides_an_older_failed_one(self, monkeypatch):
+        df = _extend(_daily(40, 30, 6), [self.HOLD] * 5 + [99.0] * 5)
+        assert bo.find_failed_breakout(df) is not None
+        real = bo._breakout_at
+        n = len(bo._weekly(df)[0])
+
+        def fake(weekly, rng, j, scale):
+            if j == n - 1:
+                return dataclasses.replace(real(weekly, rng, n - 3, scale), weeks_ago=0)
+            return real(weekly, rng, j, scale)
+
+        monkeypatch.setattr(bo, "_breakout_at", fake)
+        assert bo.find_failed_breakout(df) is None
