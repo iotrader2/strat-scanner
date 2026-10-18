@@ -51,7 +51,12 @@ nav { display: flex; gap: 4px; }
 nav a { padding: 7px 14px; border-radius: 999px; color: var(--muted); font-weight: 500; }
 nav a:hover { color: var(--text); }
 nav a.active { color: var(--text); background: var(--card-2); border: 1px solid var(--border-2); }
-.status { margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 12px; }
+.status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.live-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.live-dot.busy { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.live-dot.stale { background: var(--yellow); }
+.live-dot.off { background: var(--muted); }
 .refreshing { color: var(--accent); display: flex; align-items: center; gap: 8px; }
 .spinner { width: 12px; height: 12px; border: 2px solid rgba(56, 189, 248, 0.25); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

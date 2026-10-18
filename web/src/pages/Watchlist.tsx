@@ -55,8 +55,8 @@ function AddSymbol() {
       </button>
       {message && <span className={message.ok ? "muted small" : "red-text small"}>{message.text}</span>}
       <span className="muted small add-hint">
-        Any Yahoo Finance ticker works; names outside the S&amp;P 500 / Nasdaq-100 are downloaded, scored and refreshed
-        while they are on the list.
+        Any Yahoo Finance ticker works; names outside the S&amp;P 500 / Nasdaq-100 are downloaded, scored and kept
+        up to date while they are on the list.
       </span>
     </form>
   );
@@ -99,7 +99,7 @@ export default function Watchlist() {
       </div>
       {error && <div className="banner error">{error}</div>}
       {missing.length > 0 && (
-        <div className="banner">No cached data yet for {missing.join(", ")}; they appear after the next refresh.</div>
+        <div className="banner">No cached data yet for {missing.join(", ")}; they appear once their history is downloaded.</div>
       )}
       {data !== null && symbols.length === 0 ? (
         <div className="card empty-state">

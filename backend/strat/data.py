@@ -14,8 +14,6 @@ from typing import Callable, Iterable, Iterator, Optional
 import pandas as pd
 
 from . import config
-from .universe import OTHER_SECTOR, YAHOO_TO_GICS
-
 log = logging.getLogger(__name__)
 
 SCHEMA = """
@@ -57,6 +55,29 @@ CREATE TABLE IF NOT EXISTS extra_symbols (
     sector TEXT NOT NULL,
     kind   TEXT NOT NULL,
     industry TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS corporate_actions (
+    symbol  TEXT NOT NULL,
+    ex_date TEXT NOT NULL,
+    kind    TEXT NOT NULL,
+    ratio   REAL NOT NULL,
+    PRIMARY KEY (symbol, ex_date, kind)
+);
+CREATE TABLE IF NOT EXISTS session_bar (
+    symbol     TEXT PRIMARY KEY,
+    date       TEXT NOT NULL,
+    open       REAL NOT NULL,
+    high       REAL NOT NULL,
+    low        REAL NOT NULL,
+    close      REAL NOT NULL,
+    volume     REAL NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS scan_snapshot (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    version     INTEGER NOT NULL,
+    computed_at TEXT NOT NULL,
+    payload     TEXT NOT NULL
 );
 """
 
@@ -199,34 +220,17 @@ class LookupFailed(Exception):
 
 
 def lookup_symbol(symbol: str) -> tuple[pd.DataFrame, dict]:
-    """Daily history plus name/sector/kind for any Yahoo Finance ticker."""
-    import yfinance as yf
-    from yfinance.exceptions import YFTickerMissingError
+    """Daily history plus name/sector/kind for any ticker the configured provider knows."""
+    from .provider import LookupError, get_provider
 
-    ticker = yf.Ticker(symbol)
     try:
-        df = ticker.history(
-            period=config.HISTORY_PERIOD, interval="1d", auto_adjust=False, actions=False, raise_errors=True
-        )
-    except YFTickerMissingError as exc:
+        return get_provider().lookup(symbol, config.HISTORY_PERIOD)
+    except LookupError as exc:
         raise SymbolNotFound(symbol) from exc
     except Exception as exc:
+        if type(exc).__name__ in ("YFTickerMissingError", "SymbolNotFound"):
+            raise SymbolNotFound(symbol) from exc
         raise LookupFailed(f"{symbol}: {exc}") from exc
-    if df.empty:
-        raise SymbolNotFound(symbol)
-    try:
-        info = ticker.info or {}
-    except Exception:  # metadata is cosmetic; prices are what matter
-        info = {}
-    is_etf = info.get("quoteType") == "ETF"
-    sector = YAHOO_TO_GICS.get(info.get("sector") or "", OTHER_SECTOR)
-    meta = {
-        "name": info.get("shortName") or info.get("longName") or symbol,
-        "sector": sector,
-        "kind": "etf" if is_etf else "stock",
-        "industry": "" if is_etf else str(info.get("industry") or ""),
-    }
-    return df, meta
 
 
 def cached_symbols(db_path: Path | None = None) -> dict[str, str]:
@@ -259,30 +263,164 @@ def save_bars(symbol: str, df: pd.DataFrame, db_path: Path | None = None) -> int
     return len(rows)
 
 
-def load_daily(symbol: str, db_path: Path | None = None) -> pd.DataFrame:
-    with connect(db_path) as conn:
-        df = pd.read_sql_query(
-            "SELECT date, open, high, low, close, volume FROM bars WHERE symbol = ? AND date <= ? ORDER BY date",
-            conn,
-            params=(symbol, config.AS_OF or "9999-12-31"),
+def _as_of_date() -> str:
+    if config.AS_OF:
+        return config.AS_OF
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+
+
+def save_splits(symbol: str, splits: list[tuple[str, float]], db_path: Path | None = None) -> None:
+    if not splits:
+        return
+    with _write_lock, connect(db_path) as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO corporate_actions(symbol, ex_date, kind, ratio) VALUES (?, ?, 'split', ?)",
+            [(symbol, ex, float(ratio)) for ex, ratio in splits if ratio and float(ratio) != 1.0],
         )
+
+
+def load_splits(db_path: Path | None = None) -> dict[str, list[tuple[str, float]]]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT symbol, ex_date, ratio FROM corporate_actions WHERE kind = 'split' ORDER BY symbol, ex_date"
+        ).fetchall()
+    out: dict[str, list[tuple[str, float]]] = {}
+    for sym, ex, ratio in rows:
+        out.setdefault(sym, []).append((ex, float(ratio)))
+    return out
+
+
+def save_session_bar(symbol: str, df: pd.DataFrame, db_path: Path | None = None) -> None:
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
     if df.empty:
-        return df
-    df["date"] = pd.to_datetime(df["date"])
-    return df.set_index("date")
+        return
+    idx, r = next(iter(df.iloc[[-1]].iterrows()))
+    ts = pd.Timestamp(idx)
+    if ts.tzinfo is not None:
+        ts = ts.tz_convert("America/New_York").tz_localize(None)
+    updated = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _write_lock, connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO session_bar(symbol, date, open, high, low, close, volume, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                symbol,
+                ts.strftime("%Y-%m-%d"),
+                float(r.Open),
+                float(r.High),
+                float(r.Low),
+                float(r.Close),
+                float(0 if pd.isna(r.Volume) else r.Volume),
+                updated,
+            ),
+        )
 
 
-def load_all_daily(db_path: Path | None = None) -> dict[str, pd.DataFrame]:
+def clear_session_bar(symbol: str, db_path: Path | None = None) -> None:
+    with _write_lock, connect(db_path) as conn:
+        conn.execute("DELETE FROM session_bar WHERE symbol = ?", (symbol,))
+
+
+def _session_frames(db_path: Path | None) -> dict[str, pd.DataFrame]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT symbol, date, open, high, low, close, volume FROM session_bar"
+        ).fetchall()
+    out = {}
+    for sym, day, o, h, low, c, v in rows:
+        out[sym] = pd.DataFrame(
+            [{"open": o, "high": h, "low": low, "close": c, "volume": v}],
+            index=pd.DatetimeIndex([pd.Timestamp(day)]),
+        )
+    return out
+
+
+def _overlay_session(frames: dict[str, pd.DataFrame], db_path: Path | None) -> dict[str, pd.DataFrame]:
+    for sym, bar in _session_frames(db_path).items():
+        have = frames.get(sym)
+        if have is None or have.empty or bar.index[-1] > have.index[-1]:
+            frames[sym] = bar if have is None or have.empty else pd.concat([have, bar])
+        elif bar.index[-1] == have.index[-1]:
+            frames[sym] = pd.concat([have.iloc[:-1], bar])
+    return frames
+
+
+def _adjust(frames: dict[str, pd.DataFrame], as_of: str, db_path: Path | None) -> dict[str, pd.DataFrame]:
+    from .adjust import apply_splits
+
+    splits = load_splits(db_path)
+    if not splits:
+        return frames
+    return {sym: apply_splits(df, splits.get(sym, ()), as_of) for sym, df in frames.items()}
+
+
+def load_daily(symbol: str, db_path: Path | None = None, *, adjust: bool = True) -> pd.DataFrame:
+    frames = load_all_daily(db_path, adjust=adjust)
+    return frames.get(symbol, pd.DataFrame())
+
+
+def load_all_daily(db_path: Path | None = None, *, adjust: bool = True) -> dict[str, pd.DataFrame]:
+    as_of = config.AS_OF or "9999-12-31"
     with connect(db_path) as conn:
         df = pd.read_sql_query(
             "SELECT symbol, date, open, high, low, close, volume FROM bars WHERE date <= ? ORDER BY symbol, date",
             conn,
-            params=(config.AS_OF or "9999-12-31",),
+            params=(as_of,),
         )
-    if df.empty:
-        return {}
-    df["date"] = pd.to_datetime(df["date"])
-    return {sym: g.drop(columns="symbol").set_index("date") for sym, g in df.groupby("symbol", sort=False)}
+    frames: dict[str, pd.DataFrame] = {}
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+        frames = {sym: g.drop(columns="symbol").set_index("date") for sym, g in df.groupby("symbol", sort=False)}
+    if adjust:
+        frames = _adjust(frames, _as_of_date() if not config.AS_OF else config.AS_OF, db_path)
+        if not config.AS_OF:
+            frames = _overlay_session(frames, db_path)
+    return frames
+
+
+def newest_bar_date(db_path: Path | None = None):
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT MAX(date) FROM bars").fetchone()
+    if not row or not row[0]:
+        return None
+    from datetime import date as date_cls
+
+    return date_cls.fromisoformat(row[0])
+
+
+def save_snapshot(version: int, computed_at: str, rows: list, db_path: Path | None = None) -> None:
+    import json
+    from datetime import date as date_cls
+
+    def _json_default(obj):
+        if isinstance(obj, (datetime, date_cls)):
+            return obj.isoformat()
+        item = getattr(obj, "item", None)
+        if callable(item):
+            try:
+                return item()
+            except Exception:
+                return str(obj)
+        return str(obj)
+
+    payload = json.dumps(rows, default=_json_default)
+    with _write_lock, connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO scan_snapshot(id, version, computed_at, payload) VALUES (1, ?, ?, ?)",
+            (version, computed_at, payload),
+        )
+
+
+def load_snapshot(db_path: Path | None = None) -> Optional[dict]:
+    import json
+
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT version, computed_at, payload FROM scan_snapshot WHERE id = 1").fetchone()
+    if not row:
+        return None
+    return {"version": int(row[0]), "computed_at": row[1], "rows": json.loads(row[2])}
 
 
 def resample(daily: pd.DataFrame, tf: str) -> pd.DataFrame:
@@ -305,19 +443,31 @@ def resample(daily: pd.DataFrame, tf: str) -> pd.DataFrame:
     return agg
 
 
-def _download(tickers: list[str], period: str) -> pd.DataFrame:
-    import yfinance as yf
+def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    idx = pd.DatetimeIndex(pd.to_datetime(out.index))
+    if idx.tz is not None:
+        idx = idx.tz_convert("America/New_York").tz_localize(None)
+    out.index = idx
+    return out
 
-    return yf.download(
-        tickers,
-        period=period,
-        interval="1d",
-        group_by="ticker",
-        auto_adjust=False,
-        actions=False,
-        progress=False,
-        threads=True,
-    )
+
+def _split_partial(df: pd.DataFrame, now: datetime | None = None) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """During the regular session, keep today's unfinished bar out of the confirmed history."""
+    from .scheduler import regular_session
+
+    df = _normalize_index(df)
+    clock = now or datetime.now(timezone.utc)
+    if not regular_session(clock):
+        return df, None
+    from zoneinfo import ZoneInfo
+
+    today = pd.Timestamp(clock.astimezone(ZoneInfo("America/New_York")).date())
+    session = df[df.index.normalize() == today]
+    done = df[df.index.normalize() < today]
+    if session.empty:
+        return done, None
+    return done, session.iloc[[-1]]
 
 
 def refresh(
@@ -325,43 +475,50 @@ def refresh(
     full: bool = False,
     progress: Callable[[int, int, str], None] | None = None,
     db_path: Path | None = None,
+    period: str | None = None,
 ) -> dict[str, int]:
-    """Download daily bars for ``symbols``.
+    """Download daily bars for ``symbols`` through the configured provider.
 
-    Symbols already in the cache only fetch a recent window (incremental);
-    new symbols, or ``full=True``, fetch the full history period.
+    Symbols already in the cache fetch ``period`` (default: the incremental window).
+    New symbols, or ``full=True``, fetch the full history period. Splits are stored
+    raw; today's bar stays in ``session_bar`` while the regular session is open.
     """
+    from .provider import get_provider
+
     symbols = list(dict.fromkeys(symbols))
     have = cached_symbols(db_path)
     groups: dict[str, list[str]] = {}
     for s in symbols:
-        period = config.HISTORY_PERIOD if full or s not in have else config.INCREMENTAL_PERIOD
-        groups.setdefault(period, []).append(s)
+        window = config.HISTORY_PERIOD if full or s not in have else (period or config.INCREMENTAL_PERIOD)
+        groups.setdefault(window, []).append(s)
 
+    provider = get_provider()
     saved: dict[str, int] = {}
     done = 0
     total = len(symbols)
-    for period, syms in groups.items():
+    for window, syms in groups.items():
         for i in range(0, len(syms), config.DOWNLOAD_BATCH):
             batch = syms[i : i + config.DOWNLOAD_BATCH]
             if progress:
-                progress(done, total, f"Downloading {batch[0]}…{batch[-1]} ({period})")
-            df = None
+                progress(done, total, f"Downloading {batch[0]}…{batch[-1]} ({window})")
+            fetched = None
             for attempt in range(3):
                 try:
-                    df = _download(batch, period)
+                    fetched = provider.fetch_history(batch, window)
                     break
                 except Exception as exc:  # network hiccups / rate limits
                     log.warning("download failed (%s), retrying: %s", attempt + 1, exc)
                     time.sleep(2 * (attempt + 1))
-            if df is not None and not df.empty:
-                for sym in batch:
-                    try:
-                        sub = df[sym] if isinstance(df.columns, pd.MultiIndex) else df
-                    except KeyError:
-                        continue
-                    n = save_bars(sym, sub)
-                    if n:
+            if fetched is not None:
+                for sym, sub in fetched.frames.items():
+                    save_splits(sym, fetched.splits.get(sym, []), db_path)
+                    done_bars, session = _split_partial(sub)
+                    n = save_bars(sym, done_bars, db_path)
+                    if session is None:
+                        clear_session_bar(sym, db_path)
+                    else:
+                        save_session_bar(sym, session, db_path)
+                    if n or session is not None:
                         saved[sym] = n
             done += len(batch)
     set_meta("last_refresh", datetime.now(timezone.utc).isoformat(timespec="seconds"), db_path)

@@ -1,7 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
-import { fmtCompact } from "../logScale";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
 import { breakoutLabel, failedBreakoutLabel, LEADER_RS, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
 import { rsChipView } from "../rsChange";

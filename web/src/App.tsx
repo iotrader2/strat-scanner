@@ -10,8 +10,7 @@ import Watchlist from "./pages/Watchlist";
 import Positions from "./pages/Positions";
 import { WatchlistProvider, useWatchlist } from "./components/Watch";
 import { PositionsProvider, usePositions } from "./components/Positions";
-import { LoadingIndicator, RefreshBanner } from "./components/Loading";
-import { refreshProgress } from "./loading";
+import { liveStatus, type SocketPhase } from "./live";
 
 function useStickyTab() {
   const location = useLocation();
@@ -60,32 +59,67 @@ function PositionsTab() {
 export default function App() {
   useStickyTab();
   const [status, setStatus] = useState<Status | null>(null);
-  const [connected, setConnected] = useState<boolean | null>(null);
+  const [socket, setSocket] = useState<SocketPhase>("connecting");
   const [dataVersion, setDataVersion] = useState<string | null>(null);
 
   const poll = useCallback(async () => {
     try {
       const s = await api.status();
       setStatus(s);
-      setConnected(true);
-      if (!s.refreshing) setDataVersion(s.last_refresh);
+      if (s.version != null) setDataVersion(String(s.version));
     } catch {
       setStatus(null);
-      setConnected(false);
     }
   }, []);
 
   useEffect(() => {
-    poll();
-    const id = setInterval(poll, status?.refreshing ? 1500 : 15000);
-    return () => clearInterval(id);
-  }, [poll, status?.refreshing]);
+    let ws: WebSocket | null = null;
+    let stopped = false;
+    let retryMs = 1000;
+    let timer = 0;
 
-  const refresh = async () => {
-    await api.refresh(false);
-    poll();
-  };
+    const connect = () => {
+      if (stopped) return;
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${window.location.host}/ws`);
+      ws.onopen = () => setSocket("open");
+      ws.onmessage = (ev) => {
+        let msg: { type?: string; version?: number; status?: Status };
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
+        if (msg.type === "ping") return;
+        if (msg.status) setStatus(msg.status);
+        if ((msg.type === "snapshot" || msg.type === "delta") && msg.version != null) {
+          setDataVersion(String(msg.version));
+        }
+      };
+      ws.onclose = () => {
+        if (stopped) return;
+        setSocket("reconnecting");
+        timer = window.setTimeout(connect, retryMs);
+        retryMs = Math.min(retryMs * 2, 15000);
+      };
+    };
 
+    connect();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      ws?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (socket === "open") return;
+    poll();
+    const id = window.setInterval(poll, status?.updating || status?.refreshing ? 1500 : 15000);
+    return () => window.clearInterval(id);
+  }, [poll, socket, status?.updating, status?.refreshing]);
+
+  const live = liveStatus(status, socket);
 
   return (
     <WatchlistProvider version={dataVersion}>
@@ -108,27 +142,13 @@ export default function App() {
                 <WatchlistTab />
                 <PositionsTab />
               </nav>
-              <div className="status">
-                {status === null ? (
-                  connected === null ? <LoadingIndicator label="Connecting…" /> : <span className="muted">API offline</span>
-                ) : status.refreshing ? (
-                  <LoadingIndicator label={`Refreshing ${refreshProgress(status.progress).pct ?? 0}%`} />
-                ) : (
-                  <span className="muted">
-                    {status.symbols_cached}/{status.universe_size} symbols ·{" "}
-                    {status.as_of
-                      ? `cut-off view, data through ${status.as_of}`
-                      : `updated ${status.last_refresh ? new Date(status.last_refresh).toLocaleString() : "never"}`}
-                  </span>
-                )}
-                <button className="btn" onClick={refresh} disabled={!status || status.refreshing}>
-                  ↻ Refresh data
-                </button>
+              <div className="status" role="status" aria-live="polite">
+                <span className={`live-dot ${live.tone}`} aria-hidden="true" />
+                <span className={live.tone === "busy" ? "refreshing" : "muted"}>{live.label}</span>
               </div>
             </header>
-            <RefreshBanner status={status} />
           </div>
-          {status?.error && <div className="banner error">Last refresh failed: {status.error}</div>}
+          {status?.error && <div className="banner error">Price update failed: {status.error}</div>}
           <main>
             <Routes>
               <Route path="/" element={<Scanner version={dataVersion} />} />
