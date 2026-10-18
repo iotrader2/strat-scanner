@@ -75,7 +75,6 @@ export function WatchButton({ symbol, labelled = false }: { symbol: string; labe
       className={`watch-btn ${on ? "on" : ""} ${labelled ? "labelled" : ""}`}
       aria-pressed={on}
       aria-label={on ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`}
-      title={on ? "On your watchlist — click to remove" : "Add to watchlist"}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

@@ -32,14 +32,16 @@ def period_returns(close: pd.Series) -> Perf:
     close = close.dropna()
     if close.empty:
         return out
-    last_date = close.index[-1]
-    last = float(close.iloc[-1])
+    index = close.index
+    values = close.to_numpy(dtype=float)
+    last_date = index[-1]
+    last = float(values[-1])
     for period, months in PERIOD_MONTHS.items():
         start = last_date - pd.DateOffset(months=months)
-        if close.index[0] > start + pd.Timedelta(days=START_TOLERANCE_DAYS):
+        if index[0] > start + pd.Timedelta(days=START_TOLERANCE_DAYS):
             continue
-        before = close[:start]
-        base = float(before.iloc[-1]) if len(before) else float(close.iloc[0])
+        before = index.searchsorted(start, side="right")  # bars on or before the start date
+        base = float(values[before - 1]) if before else float(values[0])
         if base > 0:
             out[period] = round((last / base - 1.0) * 100.0, 2)
     return out

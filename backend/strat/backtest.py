@@ -148,7 +148,7 @@ def collect(
         if progress:
             print(f"[backtest] {method} {d}", file=sys.stderr, flush=True)
         ts = pd.Timestamp(d)
-        result = scan_all(members, cut_off(daily_by_symbol, ts), themes, method=method)
+        result = scan_all(members, cut_off(daily_by_symbol, ts), themes, method=method, changes=False)
         out[d] = [
             slim_row(r, daily_by_symbol[r["symbol"]], ts, bool(r["has_setup"] if method == LEGACY else r["is_leader"]))
             for r in liquid_stocks(result.rows)
@@ -748,7 +748,7 @@ def run_timeline(
     last_bar = max(df.index[-1] for df in daily_by_symbol.values())
     for ts in pd.date_range(start, min(pd.Timestamp(end), last_bar), freq=freq):
         cut = cut_off(daily_by_symbol, ts)
-        result = scan_all(members, cut, themes, method=LEADERS)
+        result = scan_all(members, cut, themes, method=LEADERS, changes=False)
         picks = new_list(result)
         by_sym = {r["symbol"]: r for r in result.rows}
         for sym in reference:

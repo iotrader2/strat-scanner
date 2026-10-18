@@ -8,6 +8,17 @@ from typing import Mapping, Optional
 import pandas as pd
 
 from . import config
+from .change import (
+    RS_LOOKBACK,
+    STATE_LOOKBACK,
+    PriorRanks,
+    entered_leaders,
+    prior_ranks,
+    rs_change_points,
+    session_calendar,
+    snapshot,
+    worsened,
+)
 from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
 from .data import resample
 from . import legacy_scoring, scoring
@@ -83,12 +94,15 @@ def scan_symbol(
     themes: Optional[ThemeMap] = None,
     qqq: Optional[Perf] = None,
     method: str = LEADERS,
+    prior: Optional[Mapping[int, PriorRanks]] = None,
 ) -> Optional[dict]:
     """Scan one symbol.
 
     ``ranks`` supplies the peer distributions for relative strength and ``qqq`` the QQQ returns; stocks
     also get Theme strength from ``strengths`` (see ``theme_strengths``) for their primary theme in ``themes``.
     ``method`` is ``"leaders"`` (the leadership-first score) or ``"legacy"`` (the old Strat-first score).
+    ``prior`` supplies the peer distributions at earlier sessions (see ``change.prior_ranks``) for the RS change and the
+    new breakdown / new leader flags; without it those fields are empty.
     """
     if daily is None or len(daily) < 30:
         return None
@@ -133,6 +147,16 @@ def scan_symbol(
     primary = sc.primary
     rs = momentum.blended if momentum else None
     status = leader_status(rs, trend_break)
+    as_of = daily.index[-1].strftime("%Y-%m-%d")
+    history = [
+        snap
+        for k, pr in (prior or {}).items()
+        if (snap := snapshot(member.kind, daily, pr, with_level=k <= STATE_LOOKBACK)) is not None
+    ]
+    rs_then = next((s for s in history if s.offset == RS_LOOKBACK), None)
+    rs_prev = rs_then.rs if rs_then else None
+    new_breakdown = worsened(trend_break.level, history, as_of)
+    new_leader = entered_leaders(rs, trend_break.level, history, as_of)
     near = None
     if primary is None:
         weekly = candles["W"]
@@ -162,6 +186,9 @@ def scan_symbol(
         ),
         "perf": perf,
         "rs": None if rs is None else round(rs, 4),
+        "rs_prev": None if rs_prev is None else round(rs_prev, 4),
+        "rs_prev_date": rs_then.date if rs_then and rs_prev is not None else None,
+        "rs_change": rs_change_points(rs, rs_prev),
         "leader_status": status,
         "is_leader": status == "leader",
         "leadership": {
@@ -173,6 +200,8 @@ def scan_symbol(
             "off_6m_high_pct": trend.off_6m_high_pct if trend else None,
             "breakdown": trend_break.level,
             "breakdown_reasons": trend_break.reasons,
+            "breakdown_new": new_breakdown,
+            "leader_new": new_leader,
         },
         "tightness": (
             {
@@ -197,7 +226,7 @@ def scan_symbol(
         "avg_volume": avg_volume,
         "atr": round(atr, 2),
         "atr_pct": round(atr_pct, 2),
-        "as_of": daily.index[-1].strftime("%Y-%m-%d"),
+        "as_of": as_of,
         "score": sc.score,
         "score_raw": sc.raw,
         "score_max_raw": sc.max_raw,
@@ -244,6 +273,7 @@ class ScanResult:
     themes: Optional[ThemeMap] = None
     qqq: dict[str, Optional[float]] = field(default_factory=dict)  # QQQ returns
     method: str = LEADERS
+    prior: dict[int, PriorRanks] = field(default_factory=dict)  # peer distributions at earlier sessions
 
 
 MIN_THEME_MEMBERS_WITH_DATA = 2
@@ -254,9 +284,11 @@ def scan_all(
     daily_by_symbol: dict[str, pd.DataFrame],
     themes: Optional[ThemeMap] = None,
     method: str = LEADERS,
+    changes: bool = True,
 ) -> ScanResult:
     """Scan everything. Order matters: returns are ranked first (relative strength), then the themes are scored and
-    ranked, and only then the stocks, whose Theme strength comes from their theme's rank."""
+    ranked, and only then the stocks, whose Theme strength comes from their theme's rank. ``changes`` adds the RS change
+    and new breakdown / new leader flags (4 extra ranking passes over earlier sessions; the backtest turns it off)."""
     perf_by_group: dict[str, dict[str, Perf]] = {"stock": {}, "etf": {}, "theme": {}}
     for m in members:
         daily = daily_by_symbol.get(m.symbol)
@@ -274,10 +306,17 @@ def scan_all(
     bench_daily = daily_by_symbol.get(BENCHMARK)
     qqq = period_returns(bench_daily.close) if bench_daily is not None and len(bench_daily) >= 30 else {}
 
+    prior: dict[int, PriorRanks] = {}
+    if changes:
+        groups: dict[str, dict[str, pd.DataFrame]] = {"stock": {}, "etf": {}, "theme": dict(theme_daily)}
+        for kind in ("stock", "etf"):
+            groups[kind] = {s: daily_by_symbol[s] for s in perf_by_group[kind]}
+        prior = prior_ranks(session_calendar(daily_by_symbol), groups)
+
     theme_rows = {}
     for theme in themes.themes if themes else []:
         if theme.id in theme_daily:
-            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks, qqq=qqq, method=method)
+            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks, qqq=qqq, method=method, prior=prior)
             if row:
                 theme_rows[theme.id] = row
     strengths = theme_strengths(theme_rows, themes)
@@ -285,11 +324,11 @@ def scan_all(
     rows = []
     for m in members:
         if m.kind != "theme":
-            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method)
+            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method, prior)
             if row:
                 rows.append(row)
     rows.sort(key=lambda r: r["score"], reverse=True)
-    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes, qqq, method)
+    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes, qqq, method, prior)
 
 
 def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:

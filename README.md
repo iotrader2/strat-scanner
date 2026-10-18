@@ -222,7 +222,26 @@ full-universe totals for those categories (not the current filters); click a chi
 applies to *Leaders* and both *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
 (default true) and `min_rs`. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
-**RS chip** (`RS 97`, with *weakening* / *broken* / *kill candle* flags).
+**RS chip** (the RS change such as `▼7`, with *weakening* / *broken* / *kill candle* flags and the NEW markers below; the RS percentile itself is in the tooltip, since it already drives the score).
+
+**What changed lately (RS change and NEW markers).** RS is a point-in-time reading, so the chip shows how it is changing (change detection:
+`backend/strat/change.py`, no stored snapshots). Every earlier session is recomputed the same way as today and as `STRAT_AS_OF`
+cuts the history: each symbol's history is truncated at that session's close, its 1M/3M/6M returns are measured on it and
+ranked against its peers *on that date* (stocks vs stocks, ETFs vs ETFs, themes vs themes), then blended with the usual 20/40/40
+weights. The sessions are QQQ's trading calendar, so every symbol is compared on the same dates. The scoring weights are untouched.
+
+| Marker | Definition | Shown as |
+| --- | --- | --- |
+| **RS change** | today's blended RS percentile minus the same measure **5 sessions earlier**, in whole percentile points between the two chip values (`RS 91` vs `RS 98` = −7). Moves smaller than **3 points** are left off the chip | `▼7` in red, `▲12` in green |
+| **NEW weakening / broken** | the breakdown level is worse today than on at least one of the **last 3 sessions**: none → weakening, none → broken or weakening → broken. The date is the first session at the new (or a worse) level, so `since` is today when it happened today. Unchanged or improving levels never count; the marker disappears 3 sessions after the change | `– · NEW · weakening`, `▼9 · NEW · broken` |
+| **NEW leader** (extra) | RS is at or above **P90** (`LEADER_MIN_RS`) with the trend not broken today, and was below P90 on at least one of the last 3 sessions. A new worsening takes the place of this marker. It uses the fixed P90 gate, not the Min RS slider | `▲9 · NEW · leader` |
+
+The tooltip keeps the full reading (`Relative strength P91: …`, the prior value and its date) and adds a line for each marker, e.g. `RS change vs 5 sessions ago: P98 on 2026-10-09 → P91 (▼7)` and
+`NEW weakening: changed on 2026-10-15 (1 session ago), from no breakdown flag.`. A missing history (a new listing, or a cut-off with
+fewer than 6 sessions behind it) simply leaves the fields empty. The scan row exposes `rs_prev` (0..1), `rs_prev_date`, `rs_change`
+(percentile points), and `leadership.breakdown_new` (`{from, to, since, sessions_ago}`) and `leadership.leader_new`
+(`{since, sessions_ago, from_rs}`), all `null` when nothing happened. The prior sessions cost four extra ranking passes per scan
+(`SNAPSHOT_OFFSETS` in `change.py`; the peer distributions are built once per date and reused for every symbol); the backtest skips them.
 
 **Weekly setups (leaders you can act on now).** *Leaders* that also have a **long-side weekly Strat setup on the last weekly
 candle**: RS at or above the Min RS slider (default P90), trend not broken (a *weakening* name stays; a *broken* one never
@@ -360,6 +379,9 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     triggered** (only rows whose weekly setup carries the TRIGGERED chip: 2-1-2 / 3-1-2 bullish, 2D-2U reversal, 1-2-2
     RevStrat and Hammer triggered), **Inside week** and **Weekly hammer**. The
     "To trigger" column is sortable by closeness to the weekly trigger.
+  - The **RS chip** under each symbol shows the change in RS percentile vs 5 sessions ago (`▼7` red for drops, `▲12` green for
+    rises; moves under 3 points are left off) and a `NEW` marker for a breakdown that just worsened or a leader that just crossed P90 (last 3
+    sessions). A name with no change and no flag shows no chip. See [What changed lately](#how-scoring-works).
   - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders* and both
     *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
@@ -486,6 +508,7 @@ backend/
   strat/legacy_scoring.py  the previous Strat-first score, kept only for the backtest comparison
   strat/backtest.py   rank-quality backtest over biweekly cut-offs (`npm run backtest:leaders`)
   strat/perf.py       1M/3M/6M returns, percentile ranks and the relative-strength blend
+  strat/change.py     RS change vs 5 sessions ago and NEW breakdown / NEW leader flags (prior-session ranks, pure functions)
   strat/themes.py     theme map loader/validator, equal-weight theme index, universe sync (`python -m strat.themes`)
   strat/themes_report.py  correlation validation and clustering report (`npm run themes:report`)
   strat/data.py       SQLite cache (bars, watchlist, positions, added symbols, earnings), yfinance download, resampling
@@ -506,7 +529,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`)
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/scan` | Ranked scan rows, leaders only by default (`leaders_only=false` for every name, `min_rs=0.8` for a looser cut). Rows without a weekly setup carry `nearest_trigger` |
+| `GET /api/scan` | Ranked scan rows, leaders only by default (`leaders_only=false` for every name, `min_rs=0.8` for a looser cut). Rows without a weekly setup carry `nearest_trigger`; every row carries `rs_prev`, `rs_prev_date`, `rs_change` and `leadership.breakdown_new` / `leader_new` (see *What changed lately*) |
 | `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
 | `GET /api/themes?tf=W` | Theme cards for a timeframe, strongest first: index candles, scan row and member chips |
 | `GET /api/config` | Liquidity defaults, `leader_min_rs` and the theme list (`id`, `name`, `count`) for the Scanner's filter |

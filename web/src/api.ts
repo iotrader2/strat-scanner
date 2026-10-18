@@ -35,6 +35,27 @@ export interface Leadership {
   /** "none", "warning" (weakening) or "broken" (trend lost: demoted and left off the leaders list). */
   breakdown: "none" | "warning" | "broken";
   breakdown_reasons: string[];
+  /** Set when the breakdown level just worsened (none -> warning/broken or warning -> broken) within the last 3 sessions. */
+  breakdown_new?: BreakdownChange | null;
+  /** Set when a leader crossed above P90 within the last 3 sessions and is not broken. */
+  leader_new?: LeaderEntry | null;
+}
+
+export interface BreakdownChange {
+  from: "none" | "warning";
+  to: "warning" | "broken";
+  /** First session at the new (or a worse) level. */
+  since: string;
+  /** Sessions before the latest one (0 = today). */
+  sessions_ago: number;
+}
+
+export interface LeaderEntry {
+  /** First session back at or above the RS gate. */
+  since: string;
+  sessions_ago: number;
+  /** Blended RS just before it crossed (0..1). */
+  from_rs: number;
 }
 
 export interface KillCandleInfo {
@@ -118,6 +139,11 @@ export interface ScanRow {
   perf: Perf;
   /** Blended 1M/3M/6M return percentile among peers (0..1); null while the history is too short. */
   rs: number | null;
+  /** The same blended RS percentile (0..1) as of 5 sessions earlier, ranked among peers on that date; null without history. */
+  rs_prev?: number | null;
+  rs_prev_date?: string | null;
+  /** Change in whole percentile points between the two chip values (RS 91 vs RS 98 = -7). */
+  rs_change?: number | null;
   leader_status: LeaderStatus;
   is_leader: boolean;
   leadership: Leadership;
