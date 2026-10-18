@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from . import config, data, earnings
 from .hub import hub
 from .scheduler import decide, fetch_period, now_et
+from .morning_api import router as morning_router
 from .breadth import fetch_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
@@ -27,6 +28,7 @@ from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="TiltKiller (local)")
+app.include_router(morning_router)
 
 CHART_LIMITS = {"M": 60, "W": 156, "D": 260}
 
@@ -79,7 +81,9 @@ def _rescan_symbol(member: Member) -> None:
     State.scan = sorted(rows, key=lambda r: r["score"], reverse=True)
 
 
-def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True) -> None:
+def _run_refresh(
+    full: bool, period: str | None = None, with_earnings: bool = True, collect_morning: bool = False
+) -> None:
     try:
         symbols = [m.symbol for m in _universe()]
 
@@ -91,6 +95,8 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
         if with_earnings:
             backfill_industries(_universe())
             _refresh_earnings(max_age_hours=0, progress=progress)
+        if collect_morning:
+            _collect_morning()
         State.error = None
     except Exception as exc:
         log.exception("refresh failed")
@@ -98,6 +104,16 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
     finally:
         State.refreshing = False
         _ensure_scan(force=True)
+
+
+def _collect_morning() -> None:
+    """After the close: store the new session's leaders, bars and outcomes. Failures stay in the log."""
+    try:
+        from .morning_collect import collect_recent
+
+        collect_recent()
+    except Exception:
+        log.exception("morning leader collection failed")
 
 
 def _refresh_earnings(max_age_hours: float, progress=None) -> None:
@@ -118,7 +134,9 @@ def _publish_status() -> None:
     hub.publish({"type": "status", "version": State.version, "status": _status_body()})
 
 
-def start_refresh(full: bool = False, period: str | None = None, with_earnings: bool = True) -> bool:
+def start_refresh(
+    full: bool = False, period: str | None = None, with_earnings: bool = True, collect_morning: bool = False
+) -> bool:
     with State.lock:
         if State.refreshing:
             return False
@@ -126,7 +144,9 @@ def start_refresh(full: bool = False, period: str | None = None, with_earnings: 
         State.error = None
         State.progress = {"done": 0, "total": 0, "message": "Starting"}
     _publish_status()
-    threading.Thread(target=_run_refresh, args=(full, period, with_earnings), daemon=True).start()
+    threading.Thread(
+        target=_run_refresh, args=(full, period, with_earnings, collect_morning), daemon=True
+    ).start()
     return True
 
 
@@ -226,7 +246,11 @@ def _scheduler_loop() -> None:
         else:
             newest = data.newest_bar_date()
             window = fetch_period(now, newest)
-            start_refresh(full=window == config.HISTORY_PERIOD, period=None if window == config.HISTORY_PERIOD else window)
+            start_refresh(
+                full=window == config.HISTORY_PERIOD,
+                period=None if window == config.HISTORY_PERIOD else window,
+                collect_morning=True,
+            )
 
 
 @app.on_event("startup")

@@ -46,6 +46,7 @@ describe("tab restore", () => {
     expect(tabLocation("/", "?theme=memory")).toBe("/?theme=memory");
     expect(tabLocation("/watchlist", "")).toBe("/watchlist");
     expect(tabLocation("/positions", "")).toBe("/positions");
+    expect(tabLocation("/morning", "")).toBe("/morning");
     expect(tabLocation("/stock/AAPL", "")).toBeNull();
   });
 
@@ -55,6 +56,7 @@ describe("tab restore", () => {
     expect(restoreTarget("/", "", "/market")).toBe("/market");
     expect(restoreTarget("/", "", "/watchlist")).toBe("/watchlist");
     expect(restoreTarget("/", "", "/positions")).toBe("/positions");
+    expect(restoreTarget("/", "", "/morning")).toBe("/morning");
     expect(restoreTarget("/", "", "/?theme=cybersecurity")).toBe("/?theme=cybersecurity");
   });
 
@@ -83,6 +85,7 @@ describe("tab restore", () => {
     expect(pageTitle("/market")).toBe("State of the Market · TiltKiller");
     expect(pageTitle("/watchlist")).toBe("Watchlist · TiltKiller");
     expect(pageTitle("/positions")).toBe("Positions · TiltKiller");
+    expect(pageTitle("/morning")).toBe("Morning Leaders · TiltKiller");
     expect(pageTitle("/stock/brk-b")).toBe("BRK-B · TiltKiller");
     expect(pageTitle("/nope")).toBe("TiltKiller");
   });

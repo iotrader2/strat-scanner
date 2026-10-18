@@ -79,6 +79,71 @@ CREATE TABLE IF NOT EXISTS scan_snapshot (
     computed_at TEXT NOT NULL,
     payload     TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS leader_snapshots (
+    date   TEXT NOT NULL,
+    rank   INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    score  REAL NOT NULL,
+    rs     REAL,
+    name   TEXT NOT NULL DEFAULT '',
+    as_of  TEXT NOT NULL,
+    PRIMARY KEY (date, rank)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_leader_snapshots_symbol ON leader_snapshots(date, symbol);
+CREATE TABLE IF NOT EXISTS intraday_bars (
+    symbol   TEXT NOT NULL,
+    ts       TEXT NOT NULL,
+    interval TEXT NOT NULL,
+    open     REAL NOT NULL,
+    high     REAL NOT NULL,
+    low      REAL NOT NULL,
+    close    REAL NOT NULL,
+    volume   REAL NOT NULL,
+    source   TEXT NOT NULL,
+    PRIMARY KEY (symbol, ts, interval)
+);
+CREATE INDEX IF NOT EXISTS idx_intraday_symbol_ts ON intraday_bars(symbol, ts);
+CREATE TABLE IF NOT EXISTS intraday_gaps (
+    symbol     TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    interval   TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (symbol, date, interval)
+);
+CREATE TABLE IF NOT EXISTS interval_ranks (
+    date        TEXT NOT NULL,
+    window      TEXT NOT NULL,
+    rank        INTEGER NOT NULL,
+    symbol      TEXT NOT NULL,
+    score       REAL NOT NULL,
+    day_move    REAL,
+    vs_qqq      REAL,
+    or_position REAL,
+    PRIMARY KEY (date, window, rank)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_interval_ranks_symbol ON interval_ranks(date, window, symbol);
+CREATE TABLE IF NOT EXISTS entry_results (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    window      TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    candle_low  REAL,
+    eod_ret     REAL,
+    d1_ret      REAL,
+    d2_ret      REAL,
+    d3_ret      REAL,
+    d4_ret      REAL,
+    d5_ret      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    stop_ret    REAL,
+    mfe         REAL,
+    mae         REAL,
+    role        TEXT NOT NULL DEFAULT 'leader',
+    PRIMARY KEY (date, symbol, window)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_results_window ON entry_results(window, date);
 """
 
 

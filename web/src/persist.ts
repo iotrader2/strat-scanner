@@ -23,12 +23,12 @@ export function usePersisted<T>(key: string, initial: T) {
 }
 
 export const LAST_TAB_KEY = "lastTab";
-const TABS = ["/", "/market", "/themes", "/watchlist", "/positions"];
+const TABS = ["/", "/market", "/themes", "/morning", "/watchlist", "/positions"];
 
 /** Saved locations from before Sectors became Themes. */
 const LEGACY_TABS: Record<string, string> = { "/sectors": "/themes" };
 
-/** Top-level tab (State of the Market, Themes, Stock Scanner, Watchlist or Positions) for a location, including its query string, or null for other pages. */
+/** Top-level tab (State of the Market, Themes, Stock Scanner, Morning Leaders, Watchlist or Positions) for a location, including its query string, or null for other pages. */
 export function tabLocation(pathname: string, search: string): string | null {
   return TABS.includes(pathname) ? pathname + search : null;
 }
@@ -47,7 +47,14 @@ export function restoreTarget(pathname: string, search: string, lastTab: string 
   return saved === "/" ? null : saved;
 }
 
-const TITLES: Record<string, string> = { "/": "Stock Scanner", "/market": "State of the Market", "/themes": "Themes", "/watchlist": "Watchlist", "/positions": "Positions" };
+const TITLES: Record<string, string> = {
+  "/": "Stock Scanner",
+  "/market": "State of the Market",
+  "/themes": "Themes",
+  "/morning": "Morning Leaders",
+  "/watchlist": "Watchlist",
+  "/positions": "Positions",
+};
 
 /** Browser tab title for a route. */
 export function pageTitle(pathname: string): string {

@@ -1,4 +1,4 @@
-.PHONY: dev setup refresh refresh-universe themes-report themes-sync backtest-leaders test typecheck
+.PHONY: dev setup refresh refresh-universe themes-report themes-sync backtest-leaders morning-collect morning-backfill morning-report test typecheck
 
 dev:
 	npm run dev
@@ -20,6 +20,15 @@ themes-sync:
 
 backtest-leaders:
 	npm run backtest:leaders
+
+morning-collect:
+	npm run morning:collect
+
+morning-backfill:
+	npm run morning:backfill
+
+morning-report:
+	npm run morning:report
 
 test:
 	npm test

@@ -44,6 +44,9 @@ takes about a minute. The top bar shows a live indicator: *Updating · N symbols
 | `npm test` | Run the backend (pytest) and frontend (Vitest) unit tests |
 | `npm run typecheck` | Type-check the frontend |
 | `npm run backtest:leaders` | Cut the price cache off at historical dates and compare the old and new scoring (see [Backtest](#backtest)); add `-- --timeline` for the weekly rank of the reference leaders |
+| `npm run morning:collect` | Store each session's top 10 leaders (as of the prior close), pull the 15-minute bars Yahoo still has, and fill entry results. Safe to re-run |
+| `npm run morning:backfill` | The same window (12 months of leaders) and a rebuild of check-in ranks and outcomes from bars already stored. With `STRAT_INTRADAY_PROVIDER=alpaca` this is also how older 15-minute bars are filled |
+| `npm run morning:report` | Write `backend/data/morning_report.md`: win rate, average and median returns, stop-hit rate and expectancy at each morning time |
 
 Each has a `make` equivalent (`make refresh`, `make test`, ...). The `refresh`/`test` npm scripts assume a
 POSIX shell; on Windows run `backend\.venv\Scripts\python -m strat.refresh` / `-m pytest` from `backend/`.
@@ -65,6 +68,10 @@ Defaults can be changed with environment variables (the UI filters can also be c
 | `STRAT_API_PORT` / `STRAT_WEB_PORT` | `8000` / `5173` | Local ports |
 | `STRAT_CACHE_DB` | `backend/data/cache.sqlite3` | Cache location |
 | `STRAT_AS_OF` | unset | Cut the cached history off at this date (`YYYY-MM-DD`) to see the scanner as it looked then, e.g. `STRAT_AS_OF=2026-08-13 npm run dev`. The top bar then reads *Cut-off view, data through …*. Live polling is skipped |
+| `STRAT_INTRADAY_PROVIDER` | `yahoo` | Who serves 15-minute bars. `alpaca` is the optional backfill (free Basic plan, SIP, 15-minute delay) |
+| `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` | unset | Alpaca keys. `STRAT_ALPACA_KEY` and `STRAT_ALPACA_SECRET` are accepted too. Never commit them |
+| `STRAT_ALPACA_FEED` | `sip` | Alpaca feed. Leave this on `sip` for a backtest; `iex` is one exchange and a poor low |
+| `STRAT_MORNING_W_MOVE`, `STRAT_MORNING_W_QQQ`, `STRAT_MORNING_W_OR` | `1` | Weights for "best at this minute". Then `npm run morning:backfill` rebuilds ranks from stored bars |
 
 Example: `STRAT_MIN_PRICE=20 STRAT_MIN_DOLLAR_VOLUME=100000000 npm run dev`.
 
@@ -75,6 +82,7 @@ A single thread in the API process is the only thing that talks to Yahoo:
 - When the newest confirmed daily bar is older than the last completed session, it downloads history (5 days if the gap is small, 3 months if the cache is merely behind, 3 years for a symbol that has never been downloaded).
 - During the regular session (09:30–16:00 America/New_York, weekdays) it polls quotes at most every 15 minutes. Today's bar is kept beside the confirmed history, so a restart cannot overwrite a finished day with a partial one.
 - After each download it recomputes the scan and stores the rows in `scan_snapshot`. The next page load reads that snapshot immediately. Chart pages still build from the bar cache.
+- The history pass after the close also runs the morning-leader job for the last few sessions: the top 10 as of the prior close, that day's 15-minute bars, and the entry results. It does not run on the intraday quote poll.
 - Browsers connect to `/ws` (proxied by Vite). They receive the snapshot on connect, a delta when the scan changes, and a ping every 15 seconds. If the socket drops, the page reconnects on its own and falls back to `GET /api/status` until it is back.
 - Splits are stored raw. A scan, a `STRAT_AS_OF` cut-off, and the backtest adjust a bar only by splits whose ex-date is on or before the date being viewed. A split that lands inside a forward-return window does not look like a crash.
 
@@ -517,6 +525,79 @@ Caveats: the universe is today's S&P 500 + Nasdaq-100 (survivorship bias), the m
 cache, forward 3M windows overlap between neighbouring dates, and the test period is short. Treat the numbers as evidence
 for the direction of a change, not as a promise of future returns. The results of the last run are in the pull request.
 
+## Morning Leaders
+
+The Morning Leaders tab is the opposite of a quote screen. It does not ask anyone to watch the tape.
+It shows the top 10 leaders at the prior close, then which of those names were strongest at **9:45, 10:00, 10:15, 10:30 and 10:45 ET**, and how buying at each of those closes has worked.
+
+### No lookahead
+
+Leaders for session D are the live scanner's top 10 stocks (leadership score, leader gate, price and dollar-volume filters) computed on bars through **the previous session's close**. The same cut-off as `STRAT_AS_OF` and the backtest. Session D's bar is not an input. A check-in rank uses only 15-minute bars whose end is at or before that minute, and QQQ over that same span.
+
+### Best at that minute
+
+Tunable, in one place (`IntervalWeights`, or the `STRAT_MORNING_W_*` variables):
+
+```
+score = move_weight × day move
+      + qqq_weight  × (day move − QQQ's move)
+      + or_weight   × opening-range score
+```
+
+The day move is the percent change from the session open (the open of the 09:30 bar) to this candle's close. The opening-range score is +1 when the close is at the high of every bar so far, 0 in the middle, and −1 at the low. Missing QQQ adds nothing rather than a guess. Ties break by symbol. Defaults are 1, 1 and 1.
+
+The trade buys that candle's close and stops at that candle's low. The entry candle is not itself a stop (its low printed before the close). Later bars the same day are walked in order; a bar that trades through the stop fills at the stop and does not donate its high, because the order inside one bar is unknown. Later sessions use the daily low the same way. Close-to-close returns are stored next to the stopped return.
+
+Average, median and win rate are the raw close-to-close hold, with each morning weighed once (the equal-weight basket of that day's ten). Expectancy is the same basket after the candle-low stop replaces the close on mornings that stop was hit. The summary picks the check-in with the highest average close-to-close return by **day 3**, and shows the stop-hit rate and stop-aware expectancy beside it. A one-bar wick sits too close to the fill to rank the times. The open buy (no stop) and QQQ held from the same minute are the benchmarks, paired on the mornings both sides have.
+
+### What Yahoo will and will not give you
+
+Checked on 2026-10-18:
+
+| Request | What came back |
+| --- | --- |
+| 15-minute `period=60d` | 60 sessions, 2026-07-24 through 2026-10-16. This is the widest 15-minute window that fills |
+| 15-minute `start` older than 60 calendar days | Rejected: "must be within the last 60 days" |
+| 5-minute `period=60d` | The same 60 sessions |
+| 1-hour `period=730d` | Back to 2023-11-17 |
+
+`npm run morning:collect` stores leader snapshots for 12 months from the daily cache (no intraday vendor needed for the list) and 15-minute bars for whatever Yahoo still serves. Bars stay in SQLite, so each new session after the close extends the history. Re-running is a no-op for days that are already complete.
+
+### Schema
+
+All in the existing cache (`STRAT_CACHE_DB`):
+
+| Table | Key | What it holds |
+| --- | --- | --- |
+| `leader_snapshots` | `(date, rank)` | The top 10 for that session: symbol, leadership score, RS, name, and `as_of` (the prior close) |
+| `intraday_bars` | `(symbol, ts, interval)` | Raw 15-minute bars. `ts` is the bar **end** in America/New_York (`2026-10-16T09:45:00`). `source` is `yahoo` or `alpaca` |
+| `interval_ranks` | `(date, window, rank)` | Best-at-that-minute order, the score, the day move, versus QQQ, and the opening-range position |
+| `entry_results` | `(date, symbol, window)` | Entry, candle low, EOD and +1..+5 close returns, stopped flag and day, stop return, MFE, MAE. `window` is `09:45` … `10:45` or `open`. `role` is `leader` or `benchmark` (QQQ) |
+| `intraday_gaps` | `(symbol, date, interval)` | A completed session the provider had nothing for, so the next run does not ask again |
+
+Prices are stored raw and adjusted on read with the same split table as the scanner. A split inside a hold is not a loss.
+
+### Backfill, and the five calls a day production needs
+
+The collector asks only for symbol-days that are missing. After the close that is one session of the top 10 plus QQQ. A day of 15-minute bars for about 100 names is a few thousand rows, which is **one Alpaca call** (page limit 10,000) or a couple of Yahoo calls. Together with the daily history download the app already does, a production morning stays around five vendor calls. Twelve months of leaders is a local scan, not an API call.
+
+Yahoo cannot backfill the six to twelve months of 15-minute bars this study wants. For a personal backtest of about 100 to 650 symbols, in the order worth trying:
+
+| Source | Cost | What you actually get | Fit |
+| --- | --- | --- | --- |
+| **Alpaca Basic** | $0 | SIP historical bars since 2016, including 15-minute. The free plan's limit is the **latest 15 minutes** (the `end` must be at least 15 minutes old). 200 requests/minute. One symbol-year of 15-minute bars is about 6,500 rows, under one page, so ~100 symbols is a minute and ~650 is a few minutes at the rate cap | **Use this.** `STRAT_INTRADAY_PROVIDER=alpaca` plus the two key variables. The feed defaults to `sip`. Do not use `iex` for a stop-at-the-low study: IEX is one exchange and roughly 2–3% of volume, so the lows are wrong |
+| Massive Starter | $29/month | Minute aggregates, 5 years, 15-minute delayed, flat files. Resample to 15 minutes. One month is enough to backfill, then cancel. Confirm the personal-use licence on the plan you buy | Best paid bulk dump if you would rather not open an Alpaca account |
+| EODHD intraday | $29.99/month | No native 15-minute bar. 5-minute US bars from October 2020 (600-day window per call) resample cleanly. Intraday is stored raw and is **not** revised for later splits; this app's split table has to do that | Fine, more work than Alpaca |
+| Twelve Data Grow | from $29/month | Native 15-minute, up to 5,000 bars per call (a year is two calls). Free Basic is 800 credits/day, one credit per symbol, so a 100-name recent window fits in a day and 650 names does not | Usable. The free tier is a thin backfill, not twelve months of the whole universe |
+| Tiingo | $0–$30/month | IEX intraday. Same problem as Alpaca's IEX feed: the low is not the market's low | Skip for this study |
+| IBKR (the account you already have) | Included with the brokerage | 15-minute bars are allowed. The step-size tables disagree on whether one request can be a week or a month; plan on **one week per request** to stay inside both. The hard pacing note (60 requests / 10 minutes) is written for bars of 30 seconds or less and is described as lifted for 1-minute and larger, with a soft throttle that still disconnects a noisy client. 100 symbols × 52 weeks is about 5,200 requests. TWS or the gateway has to be logged in. Personal use of your own market data is the compliant path | Works, and it is the slow one. Alpaca is a smaller project for the same SIP-quality bars |
+
+Alpaca's own docs call IEX "the only feed that can be used without a subscription" in one page and, on the historical FAQ, say anything older than 15 minutes is available on Basic with `feed=sip`. This client sends `feed=sip` and a historical `end`. If a key is rejected, the error is the response body, not a silent fall-back to IEX.
+
+### Reading it
+
+`GET /api/morning?week=2026-10-12` returns that Monday–Friday board and the cached aggregate. The first call reads SQLite; the next call with the same rows is served from memory. The page has no dev-server labels.
+
 ## Layout
 
 ```
@@ -530,8 +611,12 @@ backend/
   strat/change.py     RS change vs 5 sessions ago and NEW breakdown / NEW leader flags (prior-session ranks, pure functions)
   strat/themes.py     theme map loader/validator, equal-weight theme index, universe sync (`python -m strat.themes`)
   strat/themes_report.py  correlation validation and clustering report (`npm run themes:report`)
-  strat/data.py       SQLite cache (bars, splits, session bar, scan snapshot, watchlist, positions, earnings)
-  strat/provider.py   MarketDataProvider; Yahoo is the Phase 1 implementation
+  strat/data.py       SQLite cache (bars, splits, session bar, scan snapshot, watchlist, positions, earnings, morning tables)
+  strat/provider.py   MarketDataProvider; Yahoo is the Phase 1 daily implementation
+  strat/intraday.py   15-minute providers (Yahoo, optional Alpaca)
+  strat/morning.py    check-in score, outcomes, expectancy (pure)
+  strat/morning_collect.py  idempotent collector (`python -m strat.morning_collect`)
+  strat/morning_report.py   backtest report (`python -m strat.morning_report`)
   strat/scheduler.py  when to download history vs poll the open session
   strat/adjust.py     point-in-time split adjustment
   strat/hub.py        WebSocket fan-out (one upstream fetcher, N browsers)
@@ -565,6 +650,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 | `PUT /api/positions/{symbol}` | Edit `entry_price`, `shares` and `entry_date` |
 | `DELETE /api/positions/{symbol}` | Close (remove) a position |
 | `POST /api/positions/{symbol}/watchlist` | Move a position back to the watchlist |
+| `GET /api/morning?week=YYYY-MM-DD` | Morning Leaders board for that week (Monday is inferred) plus the cached per-interval stats |
 | `GET /api/status` | Cache status: `updating`, `version`, `computed_at`, `delay` (`15m` on Yahoo) |
 | `WS /ws` | Snapshot on connect, deltas after a rescan, `ping` every 15 seconds |
 | `POST /api/refresh` | Operator hook for a download. The scheduler calls the same job; the UI does not |
