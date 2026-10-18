@@ -79,6 +79,9 @@ _SINGLE_METRICS = (
     ("vs_qqq", "vs QQQ", _pct),
 )
 
+_STRAT_METRICS = _SINGLE_METRICS + (("vs_rma_first", "vs 10:30 first", _r),)
+_STRAT_PATTERNS = ("2d-2u", "2d-1-2u", "3-1-2u", "1-2d-2u")
+
 
 def render(stats: dict, meta: dict) -> str:
     lines = [
@@ -182,6 +185,7 @@ def render(stats: dict, meta: dict) -> str:
             "today's index membership (survivorship) all apply."
         )
     _append_single(lines, stats)
+    _append_strat(lines, stats)
     lines.append("")
     return "\n".join(lines)
 
@@ -229,6 +233,82 @@ def _append_single(lines: list[str], stats: dict) -> None:
         for key, metric, fmt in _SINGLE_METRICS:
             cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in order]
             lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
+
+
+def _append_strat(lines: list[str], stats: dict) -> None:
+    strat = stats.get("strat_reversal") or {}
+    books = strat.get("books") or {}
+    panels = strat.get("panels") or []
+    lines.extend(["", "## Strat reversal: 15-minute and 30-minute", ""])
+    if strat.get("definition"):
+        lines.append(strat["definition"])
+        lines.append("")
+    lines.append(
+        "The entry does not wait for the candle to close. If the completed candle takes out the prior "
+        "low as well and finishes as a 3, the trade is kept. The pattern label is the prefix, and the "
+        "share that finished as a 2U is below. A 2D followed by an inside is 1-2d-2u only, not also 2d-2u. "
+        "A 2D with anything else before it, including a 3, is 2d-2u."
+    )
+    lines.append("")
+    lines.append(
+        "The stop is fixed when the trade is filled: the lower of the prior candle's low and the lows of "
+        "the 5-minute bars in the entry candle that had already closed. The trigger bar's own low is not "
+        "included, and the stop is not moved down to the entry candle's final low. A later 5-minute bar "
+        "at or below the stop exits at the stop. A bar that opens below the stop exits at the open and "
+        "can book worse than −1R. A trigger whose stop is not below the entry is skipped, and the scan "
+        "continues for a later reversal that day. A through-trade may use the trigger bar's close for the "
+        "20 RMA check. A gap fill at the open uses only bars that had already closed."
+    )
+    lines.append("")
+    best = strat.get("best")
+    benchmark = strat.get("benchmark") or {}
+    if not best:
+        lines.append("Not enough completed holds for the Strat reversal study yet.")
+    else:
+        bench = _r(benchmark.get("avg_r"))
+        paired = _r(best.get("vs_rma_first"))
+        lines.append(
+            f"**{best['label']}** is the best of these books by day 3 at {_r(best['avg_r'])} per morning "
+            f"(n = {best['n_days']} mornings / {best['n_trades']} fills). "
+            f"The 10:30 first-name RMA book, the benchmark, is {bench} by day 3. "
+            f"On the mornings both books have a day-3 result, this book is {paired} versus that one."
+        )
+        lines.append("")
+    if not panels:
+        return
+    lines.append(
+        "Average % and average R give each morning one vote. Expectancy, win rate, the stop-hit rate, "
+        "and best, median, and worst are per fill. vs QQQ is that morning's stop-aware percent minus QQQ "
+        "held from the same minute, with no stop on QQQ. vs 10:30 first is the paired excess in R against "
+        "the 10:30 first-name RMA book."
+    )
+    for panel in panels:
+        ids = [book_id for book_id in panel.get("books") or [] if book_id in books]
+        if not ids:
+            continue
+        lines.extend(["", f"### {panel['title']}", ""])
+        bits = []
+        for book_id in ids:
+            book = books[book_id]
+            when = book.get("avg_entry") or "—"
+            median = book.get("median_entry")
+            clock = when if not median or median == when else f"{when} on average (median {median})"
+            counts = book.get("pattern_counts") or {}
+            mix = ", ".join(f"{name} {counts.get(name, 0)}" for name in _STRAT_PATTERNS)
+            share = "—" if book.get("finished_2u_rate") is None else f"{book['finished_2u_rate'] * 100:.0f}%"
+            bits.append(
+                f"**{book['label']}** enters at {clock} with an average stop {_dist(book.get('avg_stop_pct'))} "
+                f"under the entry ({mix}; finished as 2U {share})"
+            )
+        lines.append("; ".join(bits) + ".")
+        lines.append("")
+        labels = [books[book_id]["label"] for book_id in ids]
+        lines.append("| | " + " | ".join(labels) + " |")
+        lines.append("| --- | " + " | ".join("---:" for _ in labels) + " |")
+        for name, title in HORIZON_LABEL.items():
+            for key, metric, fmt in _STRAT_METRICS:
+                cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in ids]
+                lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -90,6 +90,7 @@ export interface MorningStats {
   primary_horizon: string;
   definition: string;
   single_entry?: SingleEntryStats;
+  strat_reversal?: StratStats;
 }
 
 export interface SingleHorizon {
@@ -260,10 +261,62 @@ export const SINGLE_RULES = [
 ] as const;
 
 /** Where the EMA book actually got in. The 10:30 book is always 10:30. */
-export function entryNote(book: SingleBook | undefined): string {
+export function entryNote(book: SingleBook | StratBook | undefined): string {
   if (!book) return "";
   const when = book.avg_entry ?? "—";
   const clock = book.median_entry && book.median_entry !== book.avg_entry ? `${when} on average (median ${book.median_entry})` : when;
   const stop = book.avg_stop_pct == null ? "—" : `${Math.abs(book.avg_stop_pct).toFixed(2)}%`;
   return `${book.label} enters at ${clock}. The stop averages ${stop} under the entry.`;
+}
+
+export interface StratHorizon extends SingleHorizon {
+  vs_rma_first: number | null;
+}
+
+export interface StratBook {
+  id: string;
+  label: string;
+  title: string;
+  timeframe: number;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  pattern_counts: Record<string, number>;
+  finished_2u_rate: number | null;
+  horizons: Record<string, StratHorizon>;
+}
+
+export interface StratStats {
+  books: Record<string, StratBook>;
+  order: string[];
+  panels: { title: string; books: string[] }[];
+  best: { id: string; label: string; avg_r: number | null; n_days: number; n_trades: number; vs_rma_first: number | null } | null;
+  benchmark: { label: string; avg_r: number | null; n_days: number; n_trades: number } | null;
+  definition: string;
+}
+
+export const STRAT_PATTERNS = ["2d-2u", "2d-1-2u", "3-1-2u", "1-2d-2u"] as const;
+
+export const STRAT_METRICS: { key: keyof StratHorizon; label: string; kind: "count" | "pct" | "r" | "rate" | "r1" }[] = [
+  ...SINGLE_METRICS,
+  { key: "vs_rma_first", label: "vs 10:30 first", kind: "r" },
+];
+
+/** Pattern mix for one Strat book, plus how often the entry candle actually finished as a 2U. */
+export function stratNote(book: StratBook | undefined): string {
+  if (!book) return "";
+  const counts = STRAT_PATTERNS.map((name) => `${name} ${book.pattern_counts?.[name] ?? 0}`).join(", ");
+  const share = book.finished_2u_rate == null ? "—" : `${Math.round(book.finished_2u_rate * 100)}%`;
+  return `${entryNote(book)} ${counts}. Finished as 2U: ${share}.`;
+}
+
+/** Day-3 winner among the eight Strat books, set next to the 10:30 first-name RMA book. */
+export function stratSentence(stats: StratStats | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const bench = stats?.benchmark?.avg_r;
+  const benchText = bench == null ? "" : ` The 10:30 first-name RMA book is ${signedR(bench, 2)} by day 3.`;
+  const paired = best.vs_rma_first == null ? "" : ` Paired against that book it is ${signedR(best.vs_rma_first, 2)}.`;
+  return `${best.label} is the best of these books by day 3 at ${signedR(best.avg_r, 2)} per morning.${benchText}${paired}`;
 }

@@ -3,6 +3,8 @@ import {
   bestSentence,
   displayTime,
   entryNote,
+  stratNote,
+  stratSentence,
   orderedRows,
   outcomeLine,
   returnTone,
@@ -94,5 +96,35 @@ describe("morning check-in view", () => {
         horizons: {},
       }),
     ).toBe("EMA all enters at 10:22 on average (median 9:45). The stop averages 0.82% under the entry.");
+  });
+
+  it("describes a Strat book and compares the day-3 winner with the 10:30 first book", () => {
+    const book = {
+      id: "15_all",
+      label: "All",
+      title: "15-minute all",
+      timeframe: 15,
+      n_fills: 4,
+      avg_entry: "10:40",
+      median_entry: "10:15",
+      avg_stop_pct: 1.25,
+      pattern_counts: { "2d-2u": 2, "2d-1-2u": 1, "3-1-2u": 1, "1-2d-2u": 0 },
+      finished_2u_rate: 0.5,
+      horizons: {},
+    };
+    expect(stratNote(book)).toBe(
+      "All enters at 10:40 on average (median 10:15). The stop averages 1.25% under the entry. 2d-2u 2, 2d-1-2u 1, 3-1-2u 1, 1-2d-2u 0. Finished as 2U: 50%.",
+    );
+    expect(
+      stratSentence({
+        books: {},
+        order: [],
+        panels: [],
+        definition: "",
+        best: { id: "15_rma_first", label: "15-minute RMA first", avg_r: 0.12, n_days: 40, n_trades: 40, vs_rma_first: -0.17 },
+        benchmark: { label: "10:30 first", avg_r: 0.29, n_days: 58, n_trades: 58 },
+      }),
+    ).toBe("15-minute RMA first is the best of these books by day 3 at +0.12R per morning. The 10:30 first-name RMA book is +0.29R by day 3. Paired against that book it is -0.17R.");
+    expect(stratSentence(undefined)).toBeNull();
   });
 });

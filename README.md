@@ -549,6 +549,12 @@ A second study keeps one entry per name per day and stops at the low of day, the
 
 Two rules sit side by side, and each rule has two books. The **10:30** book buys every top-10 name that has closed above the 20 RMA by 10:30, at the 10:30 close, plus a book that keeps only the name that crossed first. The **EMA** book buys at the close of the first 5-minute bar at or after 9:45 that closes above the 20-period EMA (earlier sessions warm the average; nothing before 9:45 is an entry), plus a book that keeps only the first of those names. The report shows percent and R at the close and through day 5, with win rate, stop-hit rate, total R, expectancy, MFE, and the best, median, and worst fill, against QQQ from the same minute. The EMA book's average entry time is in the report.
 
+### Strat reversal, 15-minute and 30-minute
+
+A third study buys the first bullish Strat reversal of the day on each top-10 leader. 15-minute and 30-minute candles are aggregated from the stored 5-minute bars, aligned to 9:30. The patterns are the reversals already in `find_long_setups`: 2d-2u, 2d-1-2u, 3-1-2u, and 1-2d-2u. 3-2u is not a reversal in that list, so it is not used. The opening candle is context only. Entry is the first 5-minute trade above the prior candle's high, at the prior high, or at the open when the bar gaps through it. The earliest fill is 9:45 on the 15-minute chart and 10:00 on the 30-minute chart, and nothing is filled after 15:30.
+
+The stop is fixed at the trigger: the lower of the prior candle's low and the entry candle's low so far, excluding the trigger bar. It is not the entry candle's final low. Hits are tracked only after the entry. One R is that distance. Each timeframe is reported four ways: every name, the first name only, and the same two books limited to names whose 5-minute chart had closed above the 20 RMA by the decision time. The benchmark is the 10:30 first-name RMA book.
+
 ### What Yahoo will and will not give you
 
 Checked on 2026-10-18:
@@ -572,6 +578,8 @@ All in the existing cache (`STRAT_CACHE_DB`):
 | `intraday_bars` | `(symbol, ts, interval)` | Raw 5-minute and 15-minute bars. `ts` is the bar **end** in America/New_York (`2026-10-16T09:35:00` for the first 5-minute bar). `source` is `yahoo` or `alpaca` |
 | `interval_ranks` | `(date, window, rank)` | Who had closed above the 20 RMA, the cross time (`HH:MM`), and the buy order (earliest cross first). A name that had not crossed is stored with `qualified` 0 and is not a buy |
 | `entry_results` | `(date, symbol, window)` | Entry, the 1% stop price, EOD and +1..+5 close results in R, stopped flag and day, stop result (−1R), gap flag, MFE, MAE. Only names that qualified. `window` is `09:45` … `10:45`. `role` is `leader` or `benchmark` (QQQ) |
+| `single_entry` | `(date, symbol, rule, entry_time)` | The low-of-day study. `rule` is `rma1030`, `ema`, or `qqq`. Percent closes, the stop, the exit, and the gap flag |
+| `strat_reversal` | `(date, symbol, timeframe, entry_time)` | The 15- and 30-minute reversal study. `timeframe` is 15, 30, or 0 for QQQ. Pattern, whether the 20 RMA had been crossed by the fill, and whether the entry candle finished as a 2U |
 | `intraday_gaps` | `(symbol, date, interval)` | A completed session the provider had nothing for, so the next run does not ask again |
 
 Prices are stored raw and adjusted on read with the same split table as the scanner. A split inside a hold is not a loss.

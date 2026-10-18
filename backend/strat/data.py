@@ -173,6 +173,33 @@ CREATE TABLE IF NOT EXISTS single_entry (
 CREATE TABLE IF NOT EXISTS single_entry_day (
     date TEXT PRIMARY KEY
 );
+CREATE TABLE IF NOT EXISTS strat_reversal (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    timeframe   INTEGER NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    pattern     TEXT,
+    qualified   INTEGER NOT NULL DEFAULT 0,
+    finished_2u INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, symbol, timeframe, entry_time)
+);
+CREATE TABLE IF NOT EXISTS strat_reversal_day (
+    date TEXT PRIMARY KEY
+);
 """
 
 

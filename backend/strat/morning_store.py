@@ -39,6 +39,8 @@ def delete_day(day: str, db_path: Path | None = None) -> None:
         conn.execute("DELETE FROM intraday_gaps WHERE date = ?", (day,))
         conn.execute("DELETE FROM single_entry WHERE date = ?", (day,))
         conn.execute("DELETE FROM single_entry_day WHERE date = ?", (day,))
+        conn.execute("DELETE FROM strat_reversal WHERE date = ?", (day,))
+        conn.execute("DELETE FROM strat_reversal_day WHERE date = ?", (day,))
 
 
 def leader_dates(db_path: Path | None = None) -> set[str]:
@@ -354,13 +356,59 @@ def single_entry_days(db_path: Path | None = None) -> set[str]:
         return {r[0] for r in conn.execute("SELECT date FROM single_entry_day")}
 
 
+def replace_strat_reversals(day: str, rows: Sequence[dict], db_path: Path | None = None) -> None:
+    """Replace one session of the Strat reversal study and mark it built, even with no fills."""
+    payload = []
+    for r in rows:
+        payload.append(
+            (
+                day, r["symbol"], int(r["timeframe"]), r["entry_time"], float(r["entry_price"]),
+                r.get("stop_price"), r.get("stop_pct"),
+                r.get("eod_pct"), r.get("d1_pct"), r.get("d2_pct"), r.get("d3_pct"), r.get("d4_pct"), r.get("d5_pct"),
+                int(r.get("stopped") or 0), r.get("stop_day"), r.get("exit_pct"), int(r.get("gapped") or 0),
+                r.get("mfe_pct"), r.get("pattern"), int(r.get("qualified") or 0), int(r.get("finished_2u") or 0),
+            )
+        )
+    with data._write_lock, data.connect(db_path) as conn:
+        conn.execute("DELETE FROM strat_reversal WHERE date = ?", (day,))
+        conn.executemany(
+            "INSERT INTO strat_reversal(date, symbol, timeframe, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, "
+            "pattern, qualified, finished_2u) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            payload,
+        )
+        conn.execute("INSERT OR REPLACE INTO strat_reversal_day(date) VALUES (?)", (day,))
+
+
+def strat_reversals_between(start: str, end: str, db_path: Path | None = None) -> list[dict]:
+    with data.connect(db_path) as conn:
+        return _rows(
+            conn,
+            "SELECT date, symbol, timeframe, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, "
+            "pattern, qualified, finished_2u "
+            "FROM strat_reversal WHERE date >= ? AND date <= ? ORDER BY date, timeframe, entry_time, symbol",
+            (start, end),
+        )
+
+
+def strat_reversal_days(db_path: Path | None = None) -> set[str]:
+    with data.connect(db_path) as conn:
+        return {r[0] for r in conn.execute("SELECT date FROM strat_reversal_day")}
+
+
 def revision(db_path: Path | None = None) -> str:
     with data.connect(db_path) as conn:
         leaders = conn.execute("SELECT COUNT(*), MAX(date) FROM leader_snapshots").fetchone()
         results = conn.execute("SELECT COUNT(*), MAX(date) FROM entry_results").fetchone()
         ranks = conn.execute("SELECT COUNT(*), MAX(date) FROM interval_ranks").fetchone()
         single = conn.execute("SELECT COUNT(*), MAX(date) FROM single_entry").fetchone()
-    return f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}:{single[0]}:{single[1]}"
+        strat = conn.execute("SELECT COUNT(*), MAX(date) FROM strat_reversal").fetchone()
+    return (
+        f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}:"
+        f"{single[0]}:{single[1]}:{strat[0]}:{strat[1]}"
+    )
 
 
 def _bar_span(conn, interval: str) -> tuple[int, Optional[str], Optional[str]]:
@@ -386,6 +434,10 @@ def counts(db_path: Path | None = None) -> dict:
         single_rows = conn.execute(
             "SELECT COUNT(*) FROM single_entry WHERE rule != 'qqq'"
         ).fetchone()[0]
+        strat_days = conn.execute("SELECT COUNT(*) FROM strat_reversal_day").fetchone()[0]
+        strat_rows = conn.execute(
+            "SELECT COUNT(*) FROM strat_reversal WHERE timeframe != 0"
+        ).fetchone()[0]
     return {
         "leader_days": int(days or 0),
         "leader_rows": int(names or 0),
@@ -402,4 +454,6 @@ def counts(db_path: Path | None = None) -> dict:
         "result_days": int(results or 0),
         "single_days": int(single_days or 0),
         "single_rows": int(single_rows or 0),
+        "strat_days": int(strat_days or 0),
+        "strat_rows": int(strat_rows or 0),
     }

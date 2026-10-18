@@ -34,6 +34,7 @@ from .morning import (
     single_entries_for_day,
     window_end,
 )
+from .strat_reversal import prepare_candles, strat_reversals_for_day
 from .morning_store import (
     all_leaders,
     bar_coverage,
@@ -48,8 +49,10 @@ from .morning_store import (
     replace_ranks,
     replace_results,
     replace_single_entries,
+    replace_strat_reversals,
     save_bars,
     single_entry_days,
+    strat_reversal_days,
 )
 from .scanner import scan_all
 
@@ -371,10 +374,11 @@ def recompute_results(
             by_day.setdefault(row["date"], []).append(row["symbol"])
     if not force:
         # Days with no results yet, days whose +5 close was unknown, and days not yet in the
-        # low-of-day single-entry study.
+        # low-of-day study or the Strat reversal study.
         pending = incomplete_result_dates(calendar, db_path=db_path)
-        built = single_entry_days(db_path)
-        days = [day for day in days if day in pending or day not in built]
+        single_built = single_entry_days(db_path)
+        strat_built = strat_reversal_days(db_path)
+        days = [day for day in days if day in pending or day not in single_built or day not in strat_built]
     if not days:
         _log("Entry results are already filled in")
         return 0
@@ -391,11 +395,13 @@ def recompute_results(
     # Daily frames are already raw. Adjust through the last session so a split inside a hold is not a crash.
     daily = _adjust_frames(raw_daily, splits, end)
     _log(f"Computing check-in ranks and outcomes for {len(days)} sessions")
+    prepared = prepare_candles(intraday, symbols)
     written = 0
     for day in days:
         names = by_day.get(day, [])
         if not names:
             replace_single_entries(day, [], db_path)
+            replace_strat_reversals(day, [], db_path)
             continue
         # A morning with no 5-minute tape is not a zero-qualification day. Drop the old 15-minute result.
         if not any(_has_session(intraday.get(sym), day) for sym in (*names, QQQ)):
@@ -403,14 +409,17 @@ def recompute_results(
             replace_results(day, [], role="leader", db_path=db_path)
             replace_results(day, [], role="benchmark", db_path=db_path)
             replace_single_entries(day, [], db_path)
+            replace_strat_reversals(day, [], db_path)
             written += 1
             continue
         ranks, leader_rows, qqq_rows = compute_day(day, names, intraday, daily, calendar)
         single_leaders, single_qqq = single_entries_for_day(day, names, intraday, daily, calendar)
+        strat_rows = strat_reversals_for_day(day, names, intraday, daily, calendar, prepared)
         replace_ranks(day, ranks, db_path)
         replace_results(day, leader_rows, role="leader", db_path=db_path)
         replace_results(day, qqq_rows, role="benchmark", db_path=db_path)
         replace_single_entries(day, [*single_leaders, *single_qqq], db_path)
+        replace_strat_reversals(day, strat_rows, db_path)
         written += 1
     return written
 

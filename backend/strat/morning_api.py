@@ -18,7 +18,9 @@ from .morning_store import (
     results_between,
     revision,
     single_entries_between,
+    strat_reversals_between,
 )
+from .strat_reversal import build_reversal_stats, reversal_text
 
 router = APIRouter()
 
@@ -56,9 +58,20 @@ def cached_stats(force: bool = False) -> dict:
         [row for row in single_rows if row["rule"] == "qqq"],
     )
     single["definition"] = single_entry_text()
+    reversal_rows = strat_reversals_between("0000-01-01", "9999-12-31")
+    rma_first = [
+        row for row in single_rows if row["rule"] == "rma1030" and int(row.get("rank") or 0) == 1
+    ]
+    reversal = build_reversal_stats(
+        [row for row in reversal_rows if int(row.get("timeframe") or 0) != 0],
+        [row for row in reversal_rows if int(row.get("timeframe") or 0) == 0],
+        rma_first,
+    )
+    reversal["definition"] = reversal_text()
     public = _round({k: v for k, v in stats.items() if k != "qqq_at_best"})
     public["definition"] = definition_text()
     public["single_entry"] = _round(single)
+    public["strat_reversal"] = _round(reversal)
     _CACHE["rev"] = rev
     _CACHE["stats"] = public
     return public
