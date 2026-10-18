@@ -17,10 +17,13 @@ from .morning_store import counts
 HORIZON_LABEL = {"eod": "EOD", "d1": "+1d", "d2": "+2d", "d3": "+3d", "d4": "+4d", "d5": "+5d"}
 
 
-def _pct(value, digits: int = 2) -> str:
+def _r(value, digits: int = 2) -> str:
     if value is None:
         return "—"
-    return f"{value:+.{digits}f}%"
+    text = f"{abs(value):.{digits}f}"
+    if float(text) == 0:
+        return f"{0:.{digits}f}R"
+    return f"{'+' if value > 0 else '-'}{text}R"
 
 
 def _rate(value) -> str:
@@ -58,40 +61,50 @@ def render(stats: dict, meta: dict) -> str:
         f"(`period=60d`, 60 sessions). Older sessions keep their leader snapshot.",
         "",
         "Sample-size caveat: the names bought in one morning move together, so 40 mornings are not 400 independent bets.",
-        "The win rate and expectancy below are the equal-weight basket of the names that qualified, one number per morning.",
+        "Average R gives each morning one vote. Expectancy is the mean R per fill. Win rate and the stop-hit rate are per fill.",
         "Mornings when nobody had crossed are left out of the return columns and included in the qualified average.",
         "A split inside the hold is adjusted out; it is not a loss.",
         "",
         "## By check-in",
         "",
-        "Qualified is the average number of the top 10 that had closed above the 20 RMA by that check-in, including mornings when the count was zero.",
-        "EOD through +5d are close-to-close holds of the names that were bought. Expectancy replaces the close with the low-of-day stop once a later bar has traded below it.",
-        "The stop is the session low from 9:30 through the entry bar. 9:45 is the earliest buy. QQQ is the same clock-time hold, without a stop. vs QQQ is the basket minus that hold.",
+        "1R is 1% of the entry. Qualified is the average number of the top 10 that had closed above the 20 RMA, including mornings when the count was zero.",
+        "EOD through +5d are stop-aware: a trade that has been stopped counts as −1R from the stop day on.",
+        "The stop is 1% under the entry. A later 5-minute bar at or below that price stops the trade. Gaps are fills whose stopping bar opened below the stop; they still book −1R.",
+        "A morning stays out of a horizon until that hold is finished: some name has the close stored, or every name is already stopped.",
+        "Days, fills, total R, win rate, stop-hit rate, gaps and expectancy are the +3 day sample. Each horizon's average uses the mornings finished through that horizon, so EOD can include a morning that does not yet have a day-3 close.",
+        "Avg MFE is the best R reached before the stop or the end of the +5 day hold, averaged over fills resolved by day 3.",
+        "9:45 is the earliest buy. QQQ is the same clock-time hold, without a stop.",
         "",
     ]
-    header = "| Window | Days | Qualified | EOD | +1d | +3d | +5d | Win +3d | Stop hit | Expectancy +3d | vs QQQ +3d |"
-    sep = "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    header = "| Window | Days | Fills | Qualified | EOD | +1d | +2d | +3d | +4d | +5d | Win | Stop | Gaps | Total R | Expectancy | Avg MFE |"
+    sep = "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     lines.extend([header, sep])
     for window in WINDOW_IDS:
         block = (stats.get("windows") or {}).get(window)
         if not block:
             continue
         h = block["horizons"]
+        primary = h["d3"] if h["d3"]["n_days"] else h["eod"]
         lines.append(
             "| "
             + " | ".join(
                 [
                     window,
-                    str(h["d3"]["n_days"] or h["eod"]["n_days"]),
+                    str(primary["n_days"]),
+                    str(primary["n_trades"]),
                     _count(block.get("avg_qualified")),
-                    _pct(h["eod"]["avg"]),
-                    _pct(h["d1"]["avg"]),
-                    _pct(h["d3"]["avg"]),
-                    _pct(h["d5"]["avg"]),
-                    _rate(h["d3"]["win_rate"]),
-                    _rate(h["d3"]["stop_hit_rate"]),
-                    _pct(h["d3"]["expectancy"]),
-                    _pct(block["vs_qqq"].get("d3")),
+                    _r(h["eod"]["avg"]),
+                    _r(h["d1"]["avg"]),
+                    _r(h["d2"]["avg"]),
+                    _r(h["d3"]["avg"]),
+                    _r(h["d4"]["avg"]),
+                    _r(h["d5"]["avg"]),
+                    _rate(primary["win_rate"]),
+                    _rate(primary["stop_hit_rate"]),
+                    str(primary.get("gap_count") if primary.get("gap_count") is not None else "—"),
+                    _r(primary.get("total_r"), 1),
+                    _r(primary.get("expectancy")),
+                    _r(primary.get("avg_mfe")),
                 ]
             )
             + " |"
@@ -103,10 +116,10 @@ def render(stats: dict, meta: dict) -> str:
     else:
         horizon = HORIZON_LABEL.get(best["horizon"], best["horizon"])
         lines.append(
-            f"**{best['window']}** has the highest average {horizon} close return: "
-            f"{_pct(best['avg'])} per morning "
-            f"({_rate(best['win_rate'])} of mornings positive, "
-            f"n = {best['n_days']} mornings / {best['n_trades']} fills)."
+            f"**{best['window']}** has the highest average {horizon} result: "
+            f"{_r(best['avg'])} per morning "
+            f"({_rate(best['win_rate'])} of fills ahead, "
+            f"n = {best['n_days']} mornings / {best['n_trades']} fills, total {_r(best.get('total_r'), 1)})."
         )
         lines.append("")
         lines.append(
@@ -114,11 +127,13 @@ def render(stats: dict, meta: dict) -> str:
         )
         lines.append("")
         lines.append(
-            f"A stop at the low of day through that bar was hit {_rate(best['stop_hit_rate'])} of the time by {horizon}. "
-            f"The stop-aware expectancy is {_pct(best['expectancy'])}."
+            f"A 1% stop was hit {_rate(best['stop_hit_rate'])} of the time by {horizon}. "
+            f"{best.get('gap_count', 0)} of those fills gapped through the stop and still booked −1R. "
+            f"Expectancy is {_r(best['expectancy'])} per trade. "
+            f"The average trade reached {_r(best.get('avg_mfe'))} in its favor before the stop or day 5."
         )
         lines.append("")
-        lines.append(f"Against holding QQQ from the same minute: {_pct(best.get('vs_qqq'))}.")
+        lines.append(f"Against holding QQQ from the same minute: {_r(best.get('vs_qqq'))}.")
         lines.append("")
         lines.append(
             "That is a description of this sample, not a promise. Overlapping holds, a short window, and "

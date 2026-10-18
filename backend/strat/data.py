@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS entry_results (
     stop_ret    REAL,
     mfe         REAL,
     mae         REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
     role        TEXT NOT NULL DEFAULT 'leader',
     PRIMARY KEY (date, symbol, window)
 );
@@ -159,6 +160,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE interval_ranks ADD COLUMN qualified INTEGER NOT NULL DEFAULT 1")
     if rank_cols and "cross_time" not in rank_cols:
         conn.execute("ALTER TABLE interval_ranks ADD COLUMN cross_time TEXT")
+    result_cols = {r[1] for r in conn.execute("PRAGMA table_info(entry_results)")}
+    if result_cols and "gapped" not in result_cols:
+        conn.execute("ALTER TABLE entry_results ADD COLUMN gapped INTEGER NOT NULL DEFAULT 0")
 
 _write_lock = threading.Lock()
 

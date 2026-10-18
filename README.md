@@ -539,9 +539,9 @@ On the 5-minute chart a name qualifies once a bar **closes above** its 20-period
 
 A name that has not closed above the RMA by the check-in is not bought. Among the names that have, the earliest cross is first. Ties break by symbol. The cross time is stored with the pick.
 
-The entry is the close of the 5-minute bar that ends at the check-in, not the close of the cross bar. The earliest buy is 9:45. The stop is the low of day so far: the lowest low from 9:30 through the end of that bar. The entry bar is not itself a stop (that low is already in the level). A later bar stops the trade when it trades below that low. Later bars the same day are walked in order. A bar that trades below the stop fills at the stop and does not donate its high, because the order inside one bar is unknown. Later sessions use the daily low the same way. Close-to-close returns are stored next to the stopped return.
+The entry is the close of the 5-minute bar that ends at the check-in, not the close of the cross bar. The earliest buy is 9:45. The stop is 1% under that price. One R is 1% of the entry, so a close 3% above the entry is +3R and a stopped trade is −1R. The entry bar is not a stop. A later 5-minute bar, through the rest of the session and the next five sessions, stops the trade when it trades at or below the stop. From the stop day on the result is −1R. A bar that opens below the stop is counted as a gap and still books −1R; its high is not credited, because the order inside one bar is unknown. A later session with no 5-minute bars uses that day's daily bar. The entry day's daily low is not a stop, because it includes the wick before the entry.
 
-Average, median and win rate are the raw close-to-close hold, with each morning weighed once (the equal-weight basket of the names that qualified). Expectancy is the same basket after the low-of-day stop replaces the close on trades that stop was hit. The summary picks the check-in with the highest average close-to-close return by **day 3**, and shows how many names qualified, the stop-hit rate and the stop-aware expectancy beside it. QQQ held from the same minute is the benchmark, paired on the mornings both sides have.
+Average R gives each morning one vote. Expectancy is the mean R per fill. Win rate and the stop-hit rate are per fill. The summary picks the check-in with the highest average stop-aware R by **day 3**, and shows how many names qualified, the total R, the stop-hit rate, how many gapped through the stop, and the average maximum favorable excursion. QQQ held from the same minute is the benchmark, without a stop.
 
 ### What Yahoo will and will not give you
 
@@ -565,7 +565,7 @@ All in the existing cache (`STRAT_CACHE_DB`):
 | `leader_snapshots` | `(date, rank)` | The top 10 for that session: symbol, leadership score, RS, name, and `as_of` (the prior close) |
 | `intraday_bars` | `(symbol, ts, interval)` | Raw 5-minute and 15-minute bars. `ts` is the bar **end** in America/New_York (`2026-10-16T09:35:00` for the first 5-minute bar). `source` is `yahoo` or `alpaca` |
 | `interval_ranks` | `(date, window, rank)` | Who had closed above the 20 RMA, the cross time (`HH:MM`), and the buy order (earliest cross first). A name that had not crossed is stored with `qualified` 0 and is not a buy |
-| `entry_results` | `(date, symbol, window)` | Entry, low of day through the entry bar, EOD and +1..+5 close returns, stopped flag and day, stop return, MFE, MAE. Only names that qualified. `window` is `09:45` … `10:45`. `role` is `leader` or `benchmark` (QQQ) |
+| `entry_results` | `(date, symbol, window)` | Entry, the 1% stop price, EOD and +1..+5 close results in R, stopped flag and day, stop result (−1R), gap flag, MFE, MAE. Only names that qualified. `window` is `09:45` … `10:45`. `role` is `leader` or `benchmark` (QQQ) |
 | `intraday_gaps` | `(symbol, date, interval)` | A completed session the provider had nothing for, so the next run does not ask again |
 
 Prices are stored raw and adjusted on read with the same split table as the scanner. A split inside a hold is not a loss.

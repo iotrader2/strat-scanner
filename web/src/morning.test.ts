@@ -6,7 +6,9 @@ import {
   outcomeLine,
   returnTone,
   shownRank,
+  realizedR,
   signedPct,
+  signedR,
   type MorningRow,
 } from "./morning";
 
@@ -45,6 +47,10 @@ describe("morning check-in view", () => {
     expect(signedPct(1.25)).toBe("+1.3%");
     expect(signedPct(-0.04, 2)).toBe("-0.04%");
     expect(signedPct(-0.02)).toBe("0.0%");
+    expect(signedR(3)).toBe("+3.0R");
+    expect(signedR(-1)).toBe("-1.0R");
+    expect(realizedR({ stopped: 1, stop_day: 0, stop_ret: -1, d3_ret: 4 }, "d3_ret")).toBe(-1);
+    expect(realizedR({ stopped: 1, stop_day: 2, stop_ret: -1, eod_ret: 1.5, d3_ret: 4 }, "eod_ret")).toBe(1.5);
     expect(outcomeLine({ eod_ret: 1, d1_ret: null, d3_ret: 2, d5_ret: null, stopped: 1, stop_day: 0, stop_ret: -1.5 })).toContain(
       "stopped same day",
     );
@@ -66,10 +72,11 @@ describe("morning check-in view", () => {
       vs_qqq: 0.2,
     });
     expect(text).toContain("10:15");
-    expect(text).toContain("+0.5%");
+    expect(text).toContain("+0.50R");
     expect(text).toContain("56%");
     expect(text).toContain("30%");
     expect(text).toContain("20 RMA");
+    expect(text).toContain("1% stop");
     expect(bestSentence(null)).toBeNull();
   });
 });

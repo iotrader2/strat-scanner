@@ -110,118 +110,109 @@ class TestRmaQualification:
 
 
 class TestOutcomes:
-    def test_the_entry_candle_is_not_a_stop_and_a_later_bar_is(self):
+    def test_a_one_percent_stop_books_minus_one_r_and_ignores_the_entry_bar(self):
+        # Entry 100 at 09:45. The entry bar wicks to 98, which is not a fill.
+        # 10:00 reaches 103 and stays above the stop. 10:15 trades at 99. Its 106 high does not count.
         bars = _day(
             [
-                (100, 102, 99, 101),  # ends 09:45, entry 101, stop 99. Its own low is not a fill.
-                (101, 103, 100, 102),  # 10:00, still alive; high 103 counts.
-                (102, 106, 98, 99),  # 10:15, trades through the stop. High 106 does not count.
+                (100, 102, 98, 100),
+                (100, 103, 99.5, 102),
+                (102, 106, 99, 100),
             ]
         )
         daily = _daily([101, 110, 110, 110, 110, 110], start="2026-10-16")
         out = outcome_for_entry(
-            entry=101,
-            stop=99,
+            entry=100,
+            with_stop=True,
             day_bars=bars,
             entry_end=window_end("2026-10-16", "09:45"),
             daily=daily,
             entry_day=pd.Timestamp("2026-10-16"),
             forward_days=list(daily.index[1:]),
         )
-        assert out["stopped"] == 1 and out["stop_day"] == 0
-        assert out["stop_ret"] == pytest.approx((99 / 101 - 1) * 100)
-        assert out["mfe"] == pytest.approx((103 / 101 - 1) * 100)
-        assert out["mae"] == pytest.approx((99 / 101 - 1) * 100)
-        # The close return is stored beside the stop, not replaced by it.
-        assert out["eod_ret"] == pytest.approx(0, abs=1e-9)
-        assert realized_return(out, "eod") == pytest.approx(out["stop_ret"])
+        assert out["candle_low"] == pytest.approx(99)
+        assert out["stopped"] == 1 and out["stop_day"] == 0 and out["gapped"] == 0
+        assert out["stop_ret"] == pytest.approx(-1)
+        assert out["mfe"] == pytest.approx(3)  # 103, not the 106 after the stop
+        assert realized_return(out, "eod") == pytest.approx(-1)
+        assert realized_return(out, "d3") == pytest.approx(-1)
+        # The close is stored beside the stop. +1% on the day would have been +1R.
+        assert out["eod_ret"] == pytest.approx(1)
 
-    def test_a_later_day_stops_on_the_daily_low_and_ignores_that_days_high(self):
-        bars = _day([(100, 101, 99.5, 100.5)])
-        # entry day close 100.5, next day low 98 (through the 99.5 stop) but high 120.
+    def test_a_bar_that_opens_through_the_stop_is_a_gap_and_still_minus_one_r(self):
+        bars = _day(
+            [
+                (100, 101, 99.5, 100),
+                (98, 98.5, 96, 97),  # opens below 99
+            ]
+        )
+        daily = _daily([97, 110, 110, 110, 110, 110], start="2026-10-16")
+        out = outcome_for_entry(
+            entry=100,
+            with_stop=True,
+            day_bars=bars,
+            entry_end=window_end("2026-10-16", "09:45"),
+            daily=daily,
+            entry_day=pd.Timestamp("2026-10-16"),
+            forward_days=list(daily.index[1:]),
+        )
+        assert out["gapped"] == 1
+        assert out["stop_ret"] == pytest.approx(-1)
+        assert out["mae"] == pytest.approx(-4)  # the 96 print, not the booked R
+        assert out["mfe"] == pytest.approx(0)
+
+    def test_a_later_five_minute_bar_stops_the_hold(self):
+        entry_day = _five("2026-10-16 09:30", [100.0, 100.4], low=99.5)
+        # Next session opens through the stop. The daily low stays above it, so only the 5-minute bar can stop this.
+        nxt = _five("2026-10-19 09:30", [98.0], low=97.0)
+        bars = pd.concat([entry_day, nxt])
         idx = pd.to_datetime(["2026-10-16", "2026-10-19", "2026-10-20"])
         daily = pd.DataFrame(
-            {"open": [100, 100, 100], "high": [101, 120, 101], "low": [99.5, 98, 99], "close": [100.5, 110, 101], "volume": 1e6},
+            {"open": [100, 100, 100], "high": [101, 104, 101], "low": [99.5, 99.2, 99], "close": [100.4, 103, 101], "volume": 1e6},
             index=idx,
         )
         out = outcome_for_entry(
-            entry=100.5,
-            stop=99.5,
+            entry=100,
+            with_stop=True,
             day_bars=bars,
-            entry_end=window_end("2026-10-16", "09:45"),
+            entry_end=window_end("2026-10-16", "09:35"),
             daily=daily,
             entry_day=idx[0],
             forward_days=list(idx[1:]),
         )
-        assert out["stop_day"] == 1
-        assert out["mfe"] == pytest.approx(0, abs=1e-9)  # nothing after entry made a new high before the stop
-        assert out["d1_ret"] == pytest.approx((110 / 100.5 - 1) * 100)
-        assert realized_return(out, "d1") == pytest.approx(out["stop_ret"])
+        assert out["stop_day"] == 1 and out["gapped"] == 1
+        assert out["d1_ret"] == pytest.approx(3)  # +3% close is +3R, stored beside the stop
         assert realized_return(out, "eod") == pytest.approx(out["eod_ret"])
+        assert realized_return(out, "d1") == pytest.approx(-1)
+        assert out["mfe"] == pytest.approx(0.8)  # the 100.8 high before the gap; the gap day's high is ignored
 
-    def test_the_stop_is_the_low_of_day_through_the_entry_candle(self):
-        # 9:45 prints 97. The 10:00 candle's own low is 99. The stop is 97, not 99.
-        bars = _day(
-            [
-                (100, 101, 97, 100.5),
-                (100.5, 103, 99, 102),
-                (102, 104, 98, 103),  # below the entry candle, still above the low of day
-                (103, 105, 96.5, 104),  # trades below 97. High 105 does not count.
-            ]
-        )
-        end = window_end("2026-10-16", "10:00")
-        assert float(bars.loc[end].low) == pytest.approx(99)
-        assert session_low_through(bars, end) == pytest.approx(97)
-        daily = _daily([104, 110, 110, 110, 110, 110], start="2026-10-16")
-        held = outcome_for_entry(
-            entry=102,
-            stop=97,
-            day_bars=bars.iloc[:3],
-            entry_end=end,
-            daily=daily,
-            entry_day=pd.Timestamp("2026-10-16"),
-            forward_days=list(daily.index[1:]),
-        )
-        assert held["stopped"] == 0
-        # Touching 97 again is not below the low of day.
-        touched = bars.iloc[:3].copy()
-        touched.iloc[-1, touched.columns.get_loc("low")] = 97
-        still = outcome_for_entry(
-            entry=102,
-            stop=97,
-            day_bars=touched,
-            entry_end=end,
-            daily=daily,
-            entry_day=pd.Timestamp("2026-10-16"),
-            forward_days=list(daily.index[1:]),
-        )
-        assert still["stopped"] == 0
-        broken = outcome_for_entry(
-            entry=102,
-            stop=97,
+    def test_a_close_three_percent_higher_is_plus_three_r(self):
+        bars = _five("2026-10-16 09:30", [100.0, 101.0], low=99.5)
+        daily = _daily([103, 103, 103, 103, 103, 103], start="2026-10-16")
+        out = outcome_for_entry(
+            entry=100,
+            with_stop=True,
             day_bars=bars,
-            entry_end=end,
+            entry_end=pd.Timestamp("2026-10-16 09:35"),
             daily=daily,
             entry_day=pd.Timestamp("2026-10-16"),
             forward_days=list(daily.index[1:]),
         )
-        assert broken["stopped"] == 1 and broken["stop_day"] == 0
-        assert broken["stop_ret"] == pytest.approx((97 / 102 - 1) * 100)
-        assert broken["mfe"] == pytest.approx((104 / 102 - 1) * 100)
-        assert broken["eod_ret"] == pytest.approx((104 / 102 - 1) * 100)
+        assert out["stopped"] == 0
+        assert out["eod_ret"] == pytest.approx(3)
+        assert realized_return(out, "d5") == pytest.approx(3)
 
 
-def test_expectancy_uses_the_stop_and_each_morning_weighs_the_same():
+def test_expectancy_is_r_per_trade_and_the_average_gives_each_morning_one_vote():
     trades = [
-        {"date": "2026-10-01", "window": "09:45", "stopped": 1, "stop_day": 0, "stop_ret": -2.0, "eod_ret": 5.0, "d3_ret": 9.0},
-        {"date": "2026-10-01", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "eod_ret": 1.0, "d3_ret": 3.0},
-        {"date": "2026-10-02", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "eod_ret": 2.0, "d3_ret": 1.0},
+        {"date": "2026-10-01", "window": "09:45", "stopped": 1, "stop_day": 0, "stop_ret": -1.0, "gapped": 1, "eod_ret": 5.0, "d3_ret": 9.0, "mfe": 1.5},
+        {"date": "2026-10-01", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "gapped": 0, "eod_ret": 1.0, "d3_ret": 3.0, "mfe": 4.0},
+        {"date": "2026-10-02", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "gapped": 0, "eod_ret": 2.0, "d3_ret": 1.0, "mfe": 2.5},
     ]
     qqq = [
         {"date": "2026-10-01", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "eod_ret": 0.5, "d3_ret": 0.5},
         {"date": "2026-10-02", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "eod_ret": 0.5, "d3_ret": 0.5},
     ]
-    # Pad the other windows so build_stats has the keys. Empty windows are fine.
     ranks = [
         {"date": "2026-10-01", "window": "09:45", "qualified": 1},
         {"date": "2026-10-01", "window": "09:45", "qualified": 1},
@@ -230,16 +221,39 @@ def test_expectancy_uses_the_stop_and_each_morning_weighs_the_same():
     ]
     stats = build_stats(trades, qqq, ranks)
     eod = stats["windows"]["09:45"]["horizons"]["eod"]
-    # Day 1 basket is mean(-2, +1) = -0.5. Day 2 is +2. Mean expectancy -0.5 and +2 → 0.75.
-    assert eod["expectancy"] == pytest.approx(0.75)
-    assert eod["avg"] == pytest.approx(2.5)  # close-to-close, the stop does not replace it
+    # Day 1 is mean(−1, +1) = 0. Day 2 is +2. The morning average is 1R.
+    # The three fills are −1, +1 and +2, so expectancy is +2/3 R and total R is +2.
+    assert eod["avg"] == pytest.approx(1.0)
+    assert eod["expectancy"] == pytest.approx(2 / 3)
+    assert eod["total_r"] == pytest.approx(2)
     assert eod["n_days"] == 2
-    assert eod["win_rate"] == pytest.approx(1.0)
-    assert eod["stop_hit_rate"] == pytest.approx(1 / 3)  # one of the three resolved fills
+    assert eod["n_trades"] == 3
+    assert eod["win_rate"] == pytest.approx(2 / 3)
+    assert eod["stop_hit_rate"] == pytest.approx(1 / 3)
+    assert eod["gap_count"] == 1
+    assert eod["avg_mfe"] == pytest.approx((1.5 + 4.0 + 2.5) / 3)
     assert stats["best"]["window"] == "09:45"
+    assert stats["best"]["gap_count"] == 1
     # Two names on the first morning and none on the second. The zero morning counts.
     assert stats["windows"]["09:45"]["avg_qualified"] == pytest.approx(1.0)
     assert stats["best"]["avg_qualified"] == pytest.approx(1.0)
+
+
+def test_an_unfinished_morning_does_not_count_only_the_names_already_stopped():
+    trades = [
+        {"date": "2026-10-16", "window": "09:45", "stopped": 1, "stop_day": 0, "stop_ret": -1.0, "eod_ret": 0.2, "d3_ret": None, "mfe": 0.4},
+        {"date": "2026-10-16", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "eod_ret": 0.5, "d3_ret": None, "mfe": 0.6},
+    ]
+    stats = build_stats(trades, [], [])
+    assert stats["windows"]["09:45"]["horizons"]["eod"]["n_trades"] == 2
+    assert stats["windows"]["09:45"]["horizons"]["d3"]["n_days"] == 0
+    done = [
+        {"date": "2026-10-15", "window": "09:45", "stopped": 1, "stop_day": 0, "stop_ret": -1.0, "eod_ret": -1.0, "d3_ret": None, "mfe": 0.2},
+        {"date": "2026-10-15", "window": "09:45", "stopped": 1, "stop_day": 1, "stop_ret": -1.0, "eod_ret": 0.4, "d3_ret": None, "mfe": 0.5},
+    ]
+    both = build_stats(done, [], [])
+    assert both["windows"]["09:45"]["horizons"]["d3"]["n_days"] == 1
+    assert both["windows"]["09:45"]["horizons"]["d3"]["avg"] == pytest.approx(-1)
 
 
 def _trend(drift, n=280, jump=0.0):
@@ -337,14 +351,14 @@ def test_a_split_inside_the_hold_is_not_a_crash():
     adjusted_bars = apply_splits(bars, [("2026-10-19", 4.0)], "2026-10-19")
     out = outcome_for_entry(
         entry=float(adjusted_bars.iloc[0].close),
-        stop=float(adjusted_bars.iloc[0].low),
+        with_stop=True,
         day_bars=adjusted_bars,
         entry_end=window_end("2026-10-16", "09:45"),
         daily=adjusted_daily,
         entry_day=pd.Timestamp("2026-10-16"),
         forward_days=[pd.Timestamp("2026-10-19")],
     )
-    # 101 pre-split vs 25 post 4-for-1 is flat, not a 75% crash. No later bar trades the stop.
+    # 100 pre-split vs 25 post 4-for-1 is flat, not a 75% crash. The forward low is inside 1R.
     assert out["d1_ret"] == pytest.approx(0, abs=0.05)
     assert out["stopped"] == 0
 
@@ -452,11 +466,11 @@ def test_compute_day_buys_the_earliest_cross_and_skips_the_rest():
         return pd.concat([prior, frame])
 
     # AAA closes above the average at 09:35. BBB waits until 09:45. CCC never does.
-    aaa = session([101.0, 101.5, 103.0, 104.0], [98.0, 97.5, 97.0, 99.0])
-    bbb = session([100.0, 100.0, 102.0, 102.5], [99.0, 99.0, 99.0, 99.0])
+    aaa = session([101.0, 101.5, 103.0, 104.0], [102.5, 102.5, 102.5, 102.5])
+    bbb = session([100.0, 100.0, 102.0, 102.5], [101.5, 101.5, 101.5, 101.5])
     ccc = session([100.0, 100.0, 100.0, 100.0], [99.0, 99.0, 99.0, 99.0])
     qqq = session([100.0, 100.1, 100.2, 100.3], [99.5, 99.5, 99.5, 99.5])
-    # A later session's 5-minute low must not be walked as if it were today.
+    # The next session opens through AAA's 1% stop. That is day +1, and it books −1R.
     spike = _five("2026-10-19 09:30", [90.0], low=40.0)
     aaa = pd.concat([aaa, spike])
     calendar = ["2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"]
@@ -485,8 +499,10 @@ def test_compute_day_buys_the_earliest_cross_and_skips_the_rest():
     assert {r["symbol"] for r in leaders if r["window"] == "09:45"} == {"AAA", "BBB"}
     aaa_fill = next(r for r in leaders if r["window"] == "09:45" and r["symbol"] == "AAA")
     assert aaa_fill["entry_price"] == pytest.approx(103.0)
-    assert aaa_fill["candle_low"] == pytest.approx(97.0)
-    assert aaa_fill["stopped"] == 0
+    assert aaa_fill["candle_low"] == pytest.approx(103 * 0.99)
+    assert aaa_fill["stopped"] == 1 and aaa_fill["stop_day"] == 1 and aaa_fill["gapped"] == 1
+    assert aaa_fill["stop_ret"] == pytest.approx(-1)
+    assert realized_return(aaa_fill, "d1") == pytest.approx(-1)
     ten = next(r for r in ranks if r["window"] == "10:00" and r["symbol"] == "CCC")
     assert ten["qualified"] == 0
     assert len(HORIZONS) == 6

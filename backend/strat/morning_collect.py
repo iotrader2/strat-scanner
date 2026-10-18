@@ -31,7 +31,6 @@ from .morning import (
     cross_through,
     entry_at,
     outcome_for_entry,
-    session_low_through,
     window_end,
 )
 from .morning_store import (
@@ -174,6 +173,7 @@ def compute_day(
 
     ``intraday`` is the full 5-minute history (prior sessions included) so the 20 RMA is warm.
     Only a close above that average *today*, at or before the check-in, qualifies a name.
+    The stop on a fill is 1% under the entry.
     """
     forward = [pd.Timestamp(d) for d in calendar if d > day][:5]
     entry_day = pd.Timestamp(day)
@@ -190,15 +190,13 @@ def compute_day(
             bars = series.get(sym)
             cross = cross_through(bars, end)
             entry = entry_at(bars, end)
-            stop = session_low_through(bars, end)
-            qualified = cross is not None and entry is not None and stop is not None
+            qualified = cross is not None and entry is not None
             considered.append(
                 {
                     "symbol": sym,
                     "qualified": qualified,
                     "cross": cross,
                     "entry": entry,
-                    "stop": stop,
                     "bars": bars,
                 }
             )
@@ -212,8 +210,8 @@ def compute_day(
                     "window": label,
                     **outcome_for_entry(
                         entry=row["entry"],
-                        stop=row["stop"],
-                        day_bars=_session_bars(row["bars"], day),
+                        with_stop=True,
+                        day_bars=row["bars"],
                         entry_end=end,
                         daily=daily.get(row["symbol"]),
                         entry_day=entry_day,
@@ -231,8 +229,8 @@ def compute_day(
                     "window": label,
                     **outcome_for_entry(
                         entry=q_entry,
-                        stop=None,
-                        day_bars=_session_bars(qqq_bars, day),
+                        with_stop=False,
+                        day_bars=qqq_bars,
                         entry_end=end,
                         daily=daily.get(QQQ),
                         entry_day=entry_day,

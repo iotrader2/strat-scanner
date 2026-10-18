@@ -21,6 +21,7 @@ export interface WindowOutcome {
   stopped?: number | null;
   stop_day?: number | null;
   stop_ret?: number | null;
+  gapped?: number | null;
   mfe?: number | null;
   mae?: number | null;
 }
@@ -51,6 +52,9 @@ export interface HorizonStat {
   win_rate: number | null;
   expectancy: number | null;
   stop_hit_rate: number | null;
+  total_r?: number | null;
+  gap_count?: number | null;
+  avg_mfe?: number | null;
 }
 
 export interface WindowStat {
@@ -72,6 +76,9 @@ export interface BestWindow {
   stop_hit_rate: number | null;
   n_days: number;
   n_trades: number;
+  total_r?: number | null;
+  avg_mfe?: number | null;
+  gap_count?: number | null;
   vs_qqq: number | null;
   avg_qualified?: number | null;
 }
@@ -107,6 +114,24 @@ export function signedPct(value: number | null | undefined, digits = 1): string 
   return `${value > 0 ? "+" : "-"}${text}%`;
 }
 
+/** 1R is 1% of the entry, so the stored percent is already in R. */
+export function signedR(value: number | null | undefined, digits = 1): string {
+  const text = signedPct(value, digits);
+  return text === "—" ? text : text.replace("%", "R");
+}
+
+const HORIZON_AT = { eod_ret: 0, d1_ret: 1, d2_ret: 2, d3_ret: 3, d4_ret: 4, d5_ret: 5 } as const;
+type HorizonField = keyof typeof HORIZON_AT;
+
+/** Stop-aware R. From the stop day on the result is −1R. */
+export function realizedR(outcome: WindowOutcome | undefined, field: HorizonField): number | null {
+  if (!outcome || outcome.qualified === 0) return null;
+  const at = HORIZON_AT[field];
+  if (outcome.stopped && outcome.stop_day != null && outcome.stop_day <= at) return outcome.stop_ret ?? -1;
+  const value = outcome[field];
+  return value == null ? null : value;
+}
+
 export function returnTone(value: number | null | undefined): "up" | "down" | "flat" {
   if (value === null || value === undefined || value === 0) return "flat";
   return value > 0 ? "up" : "down";
@@ -138,15 +163,16 @@ export function outcomeLine(outcome: WindowOutcome | undefined): string {
       : "Has not closed above the 20 RMA";
   }
   const hold = [
-    `EOD ${signedPct(outcome.eod_ret)}`,
-    `+1d ${signedPct(outcome.d1_ret)}`,
-    `+3d ${signedPct(outcome.d3_ret)}`,
-    `+5d ${signedPct(outcome.d5_ret)}`,
+    `EOD ${signedR(realizedR(outcome, "eod_ret"))}`,
+    `+1d ${signedR(realizedR(outcome, "d1_ret"))}`,
+    `+3d ${signedR(realizedR(outcome, "d3_ret"))}`,
+    `+5d ${signedR(realizedR(outcome, "d5_ret"))}`,
   ];
   if (outcome.cross_time) hold.unshift(`crossed ${displayTime(outcome.cross_time)}`);
+  if (outcome.mfe != null) hold.push(`MFE ${signedR(outcome.mfe)}`);
   if (outcome.stopped) {
     const when = outcome.stop_day === 0 ? "same day" : `day +${outcome.stop_day}`;
-    hold.push(`stopped ${when} (${signedPct(outcome.stop_ret)})`);
+    hold.push(`stopped ${when} (${signedR(outcome.stop_ret ?? -1)}${outcome.gapped ? ", gapped" : ""})`);
   } else if (outcome.eod_ret != null) {
     hold.push("stop not hit");
   }
@@ -155,14 +181,15 @@ export function outcomeLine(outcome: WindowOutcome | undefined): string {
 
 const HORIZON_WORD: Record<string, string> = { eod: "the close", d1: "day 1", d2: "day 2", d3: "day 3", d4: "day 4", d5: "day 5" };
 
-/** One sentence for the summary panel. The return is the close-to-close hold; the stop is named beside it. */
+/** One sentence for the summary panel. The result is stop-aware R; 1R is 1% of the entry. */
 export function bestSentence(best: BestWindow | null): string | null {
   if (!best) return null;
   const when = HORIZON_WORD[best.horizon] ?? best.horizon;
-  const win = best.win_rate == null ? "" : ` ${Math.round(best.win_rate * 100)}% of mornings were higher by ${when}.`;
+  const win = best.win_rate == null ? "" : ` ${Math.round(best.win_rate * 100)}% of fills were ahead by ${when}.`;
+  const gaps = best.gap_count == null ? "" : ` ${best.gap_count} gapped through.`;
   const stop =
     best.stop_hit_rate == null
       ? ""
-      : ` A stop at the low of day through that bar was hit ${Math.round(best.stop_hit_rate * 100)}% of the time (expectancy ${signedPct(best.expectancy)}).`;
-  return `Buying the names above the 20 RMA at the ${displayTime(best.window)} close returned ${signedPct(best.avg)} on average by ${when}.${win}${stop}`;
+      : ` A 1% stop was hit ${Math.round(best.stop_hit_rate * 100)}% of the time (expectancy ${signedR(best.expectancy, 2)} per trade).`;
+  return `Buying the names above the 20 RMA at the ${displayTime(best.window)} close returned ${signedR(best.avg, 2)} on average by ${when}.${win}${stop}${gaps}`;
 }

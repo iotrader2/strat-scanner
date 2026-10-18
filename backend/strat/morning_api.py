@@ -102,6 +102,7 @@ def week_payload(week: Optional[str] = None) -> dict:
             "stopped": outcome.get("stopped"),
             "stop_day": outcome.get("stop_day"),
             "stop_ret": outcome.get("stop_ret"),
+            "gapped": outcome.get("gapped"),
             "mfe": outcome.get("mfe"),
             "mae": outcome.get("mae"),
             "entry_price": outcome.get("entry_price"),

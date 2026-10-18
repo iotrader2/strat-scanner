@@ -7,9 +7,10 @@ import {
   displayTime,
   orderedRows,
   outcomeLine,
+  realizedR,
   returnTone,
   shownRank,
-  signedPct,
+  signedR,
   type MorningMode,
   type MorningRow,
   type MorningWeek,
@@ -75,7 +76,7 @@ function TickerLogo({ symbol }: { symbol: string }) {
 
 function WeekRow({ row, mode }: { row: MorningRow; mode: MorningMode }) {
   const outcome = mode === "leaders" ? undefined : row.windows[mode];
-  const ret = outcome?.d3_ret;
+  const ret = realizedR(outcome, "d3_ret");
   const rank = shownRank(row, mode);
   const skipped = mode !== "leaders" && outcome?.qualified === 0;
   const cross = outcome?.cross_time;
@@ -90,7 +91,7 @@ function WeekRow({ row, mode }: { row: MorningRow; mode: MorningMode }) {
       {mode !== "leaders" && skipped && <span className="week-skip">skipped</span>}
       {mode !== "leaders" && !skipped && (
         <span className={`week-ret ${returnTone(ret)}`} title={outcomeLine(outcome)}>
-          {signedPct(ret)}
+          {signedR(ret)}
         </span>
       )}
       <span className="score-pill" title={`${row.name} · leadership ${row.score.toFixed(1)} as of ${row.as_of}`}>
@@ -112,38 +113,44 @@ function StatCells({
   qualified: number | null;
 }) {
   const qualifiedCell = <td className="num">{qualified == null ? "—" : qualified.toFixed(1)}</td>;
-  if (!stat) {
-    return (
-      <>
-        <td className="num">—</td>
-        {qualifiedCell}
-        {COMPARE.map((h) => (
-          <td key={h} className="num">—</td>
-        ))}
-        <td className="num">—</td>
-        <td className="num">—</td>
-        <td className="num">—</td>
-      </>
-    );
-  }
-  const primary = stat.horizons.d3;
+  const blank = (
+    <>
+      <td className="num">—</td>
+      <td className="num">—</td>
+      {qualifiedCell}
+      {COMPARE.map((h) => (
+        <td key={h} className="num">—</td>
+      ))}
+      <td className="num">—</td>
+      <td className="num">—</td>
+      <td className="num">—</td>
+      <td className="num">—</td>
+      <td className="num">—</td>
+      <td className="num">—</td>
+    </>
+  );
+  if (!stat) return blank;
+  const primary = stat.horizons.d3?.n_days ? stat.horizons.d3 : stat.horizons.eod;
+  if (!primary) return blank;
   return (
     <>
-      <td className="num">{primary?.n_days || stat.n_days || "—"}</td>
+      <td className="num">{primary.n_days || "—"}</td>
+      <td className="num">{primary.n_trades || "—"}</td>
       {qualifiedCell}
       {COMPARE.map((h) => {
         const value = stat.horizons[h]?.avg;
         return (
           <td key={h} className={`num ${returnTone(value)}`}>
-            {signedPct(value)}
+            {signedR(value, 2)}
           </td>
         );
       })}
-      <td className="num">{primary?.win_rate == null ? "—" : `${Math.round(primary.win_rate * 100)}%`}</td>
-      <td className="num">{!stopped || primary?.stop_hit_rate == null ? "—" : `${Math.round(primary.stop_hit_rate * 100)}%`}</td>
-      <td className={`num ${returnTone(stopped ? primary?.expectancy : primary?.avg)}`}>
-        {signedPct(stopped ? primary?.expectancy : primary?.avg)}
-      </td>
+      <td className="num">{primary.win_rate == null ? "—" : `${Math.round(primary.win_rate * 100)}%`}</td>
+      <td className="num">{!stopped || primary.stop_hit_rate == null ? "—" : `${Math.round(primary.stop_hit_rate * 100)}%`}</td>
+      <td className="num">{!stopped || primary.gap_count == null ? "—" : primary.gap_count}</td>
+      <td className={`num ${returnTone(primary.total_r)}`}>{signedR(primary.total_r, 1)}</td>
+      <td className={`num ${returnTone(primary.expectancy)}`}>{signedR(primary.expectancy, 2)}</td>
+      <td className={`num ${returnTone(primary.avg_mfe)}`}>{signedR(primary.avg_mfe, 2)}</td>
     </>
   );
 }
@@ -194,10 +201,11 @@ export default function Morning() {
             <div className="best-time">{displayTime(best.window)}</div>
             <p>{sentence}</p>
             <p className="muted small">
-              {signedPct(best.vs_qqq)} versus QQQ from the same minute
+              {signedR(best.vs_qqq, 2)} versus QQQ from the same minute
+              {best.avg_mfe != null && ` · MFE ${signedR(best.avg_mfe, 2)}`}
               {best.avg_qualified != null && ` · ${best.avg_qualified.toFixed(1)} names above the 20 RMA on average`}
               {" · "}
-              {best.n_days} mornings. Names in one morning move together, so this is not {best.n_trades} separate bets.
+              {best.n_days} mornings, {best.n_trades} fills. Names in one morning move together.
             </p>
           </>
         ) : (
@@ -218,7 +226,7 @@ export default function Morning() {
       <p className="interval-note muted small">
         {mode === "leaders"
           ? "Top 10 at the prior close. The pill is the leadership score."
-          : `Bought once a 5-minute bar closes above the 20 RMA. Earliest cross first. The time is that cross; the number is the +3 day return. Names still under the average are skipped.`}
+          : `Bought once a 5-minute bar closes above the 20 RMA. Earliest cross first. The time is that cross; the number is the +3 day result in R. A 1% stop books −1R. Names still under the average are skipped.`}
       </p>
 
       <section className="week-card card">
@@ -259,7 +267,7 @@ export default function Morning() {
       <section className="card morning-compare" aria-label="Check-in comparison">
         <div className="compare-head">
           <h2>How each time has done</h2>
-          <p className="muted small">Equal-weight basket of the names that had closed above the 20 RMA. Qualified is how many of the ten did, on average. The stop is the low of day through the entry bar. QQQ is the same clock, without a stop.</p>
+          <p className="muted small">1R is 1% of the entry. Average R gives each morning one vote. Expectancy is R per fill. The stop is 1% under the entry, and a gap through it still books −1R. MFE is the best R before the stop or day 5. QQQ is the same clock, without a stop.</p>
         </div>
         <div className="table-card">
           <table className="scan-table morning-table">
@@ -267,13 +275,17 @@ export default function Morning() {
               <tr>
                 <th>Time</th>
                 <th className="num">Days</th>
+                <th className="num">Fills</th>
                 <th className="num">Qualified</th>
                 {COMPARE.map((h) => (
                   <th key={h} className="num">{COMPARE_LABEL[h]}</th>
                 ))}
-                <th className="num">Win +3d</th>
+                <th className="num">Win</th>
                 <th className="num">Stop</th>
-                <th className="num">Expectancy +3d</th>
+                <th className="num">Gaps</th>
+                <th className="num">Total R</th>
+                <th className="num">Expectancy</th>
+                <th className="num">MFE</th>
               </tr>
             </thead>
             <tbody>

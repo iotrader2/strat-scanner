@@ -15,7 +15,7 @@ RANK_FIELDS = (
 RESULT_FIELDS = (
     "date", "symbol", "window", "entry_price", "candle_low",
     "eod_ret", "d1_ret", "d2_ret", "d3_ret", "d4_ret", "d5_ret",
-    "stopped", "stop_day", "stop_ret", "mfe", "mae", "role",
+    "stopped", "stop_day", "stop_ret", "mfe", "mae", "gapped", "role",
 )
 
 
@@ -237,15 +237,16 @@ def replace_results(day: str, rows: Sequence[dict], *, role: str, db_path: Path 
             (
                 day, r["symbol"], r["window"], float(r["entry_price"]), r.get("candle_low"),
                 r.get("eod_ret"), r.get("d1_ret"), r.get("d2_ret"), r.get("d3_ret"), r.get("d4_ret"), r.get("d5_ret"),
-                int(r.get("stopped") or 0), r.get("stop_day"), r.get("stop_ret"), r.get("mfe"), r.get("mae"), role,
+                int(r.get("stopped") or 0), r.get("stop_day"), r.get("stop_ret"), r.get("mfe"), r.get("mae"),
+                int(r.get("gapped") or 0), role,
             )
         )
     with data._write_lock, data.connect(db_path) as conn:
         conn.execute("DELETE FROM entry_results WHERE date = ? AND role = ?", (day, role))
         conn.executemany(
             "INSERT INTO entry_results(date, symbol, window, entry_price, candle_low, eod_ret, d1_ret, d2_ret, "
-            "d3_ret, d4_ret, d5_ret, stopped, stop_day, stop_ret, mfe, mae, role) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "d3_ret, d4_ret, d5_ret, stopped, stop_day, stop_ret, mfe, mae, gapped, role) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             payload,
         )
 
@@ -253,7 +254,7 @@ def replace_results(day: str, rows: Sequence[dict], *, role: str, db_path: Path 
 def results_between(start: str, end: str, role: Optional[str] = None, db_path: Path | None = None) -> list[dict]:
     sql = (
         "SELECT date, symbol, window, entry_price, candle_low, eod_ret, d1_ret, d2_ret, d3_ret, d4_ret, d5_ret, "
-        "stopped, stop_day, stop_ret, mfe, mae, role FROM entry_results WHERE date >= ? AND date <= ?"
+        "stopped, stop_day, stop_ret, mfe, mae, gapped, role FROM entry_results WHERE date >= ? AND date <= ?"
     )
     params: list = [start, end]
     if role:
@@ -267,7 +268,7 @@ def results_between(start: str, end: str, role: Optional[str] = None, db_path: P
 def all_results(role: Optional[str] = None, db_path: Path | None = None) -> list[dict]:
     sql = (
         "SELECT date, symbol, window, entry_price, candle_low, eod_ret, d1_ret, d2_ret, d3_ret, d4_ret, d5_ret, "
-        "stopped, stop_day, stop_ret, mfe, mae, role FROM entry_results"
+        "stopped, stop_day, stop_ret, mfe, mae, gapped, role FROM entry_results"
     )
     params: tuple = ()
     if role:
