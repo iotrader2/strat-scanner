@@ -555,6 +555,14 @@ A third study buys the first bullish Strat reversal of the day on each top-10 le
 
 The stop is fixed at the trigger: the lower of the prior candle's low and the entry candle's low so far, excluding the trigger bar. It is not the entry candle's final low. Hits are tracked only after the entry. One R is that distance. Each timeframe is reported four ways: every name, the first name only, and the same two books limited to names whose 5-minute chart had closed above the 20 RMA by the decision time. The benchmark is the 10:30 first-name RMA book.
 
+### RMA cross trigger
+
+A fourth study buys every top-10 leader at the close of the first 5-minute bar, from 9:45 on, that closes strictly above a 20-period average. Earlier sessions warm the average. A bar that ends before 9:45 is not an entry. A name that never closes above the average is not bought. One trade per name per day.
+
+The same rule runs on the Wilder RMA, the 20 SMA, and the 20 EMA. A name that opens above the average is included. "Opened above" is the open of the first regular-session bar (the 9:30 print) strictly above the average carried from the prior session, before today's bars update it. Those fills are counted, and they still enter at the first 9:45-or-later close above the average.
+
+The stop is that entry bar's low. One R is that distance. The entry bar is not a stop. A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at the open. A bar whose low is not strictly under its close is skipped. The benchmark is the 10:30 first-name RMA book.
+
 ### What Yahoo will and will not give you
 
 Checked on 2026-10-18:
@@ -580,6 +588,7 @@ All in the existing cache (`STRAT_CACHE_DB`):
 | `entry_results` | `(date, symbol, window)` | Entry, the 1% stop price, EOD and +1..+5 close results in R, stopped flag and day, stop result (−1R), gap flag, MFE, MAE. Only names that qualified. `window` is `09:45` … `10:45`. `role` is `leader` or `benchmark` (QQQ) |
 | `single_entry` | `(date, symbol, rule, entry_time)` | The low-of-day study. `rule` is `rma1030`, `ema`, or `qqq`. Percent closes, the stop, the exit, and the gap flag |
 | `strat_reversal` | `(date, symbol, timeframe, entry_time)` | The 15- and 30-minute reversal study. `timeframe` is 15, 30, or 0 for QQQ. Pattern, whether the 20 RMA had been crossed by the fill, and whether the entry candle finished as a 2U |
+| `cross_trigger` | `(date, symbol, rule, entry_time)` | The first 5-minute close from 9:45 above the 20 RMA, 20 SMA, or 20 EMA. `rule` is `rma`, `sma`, `ema`, or `qqq`. The stop is the entry bar's low. `opened_above` marks a 9:30 open already above the prior session's average |
 | `intraday_gaps` | `(symbol, date, interval)` | A completed session the provider had nothing for, so the next run does not ask again |
 
 Prices are stored raw and adjusted on read with the same split table as the scanner. A split inside a hold is not a loss.

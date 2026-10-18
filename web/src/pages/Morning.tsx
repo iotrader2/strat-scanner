@@ -8,6 +8,8 @@ import {
   SINGLE_RULES,
   STRAT_METRICS,
   bestSentence,
+  crossNote,
+  crossSentence,
   displayTime,
   entryNote,
   orderedRows,
@@ -388,7 +390,63 @@ export default function Morning() {
 
       <SingleEntryTable stats={stats?.single_entry} />
       <StratReversalTable stats={stats?.strat_reversal} />
+      <CrossTriggerTable stats={stats?.cross_trigger} />
     </div>
+  );
+}
+
+function CrossTriggerTable({ stats }: { stats: MorningWeek["stats"]["cross_trigger"] }) {
+  if (!stats?.order?.length) return null;
+  const sentence = crossSentence(stats);
+  return (
+    <section className="card single-entry cross-entry" aria-label="RMA cross trigger study">
+      <div className="compare-head">
+        <h2>RMA cross trigger</h2>
+        <p className="muted small">{stats.definition}</p>
+        {sentence && <p className="strat-best">{sentence}</p>}
+      </div>
+      <div className="single-rule">
+        {stats.order.map((id) => (
+          <p className="muted small" key={id}>{crossNote(stats.books[id])}</p>
+        ))}
+        <div className="table-card">
+          <table className="scan-table morning-table single-table strat-table">
+            <thead>
+              <tr>
+                <th> </th>
+                {stats.order.map((id) => (
+                  <th className="num" key={id}>{stats.books[id]?.label ?? id}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {SINGLE_HORIZONS.map((horizon) => (
+                <Fragment key={horizon}>
+                  <tr className="single-horizon">
+                    <th colSpan={1 + stats.order.length}>{COMPARE_LABEL[horizon]}</th>
+                  </tr>
+                  {STRAT_METRICS.map((metric) => (
+                    <tr key={`${horizon}-${metric.key}`}>
+                      <th scope="row">{metric.label}</th>
+                      {stats.order.map((id) => {
+                        const block = stats.books[id]?.horizons[horizon];
+                        const raw = block?.[metric.key];
+                        const tone = metric.kind === "pct" || metric.kind === "r" || metric.kind === "r1" ? returnTone(typeof raw === "number" ? raw : null) : "";
+                        return (
+                          <td className={`num ${tone}`} key={id}>
+                            {formatSingle(block, metric.key, metric.kind)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }
 

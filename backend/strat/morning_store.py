@@ -41,6 +41,8 @@ def delete_day(day: str, db_path: Path | None = None) -> None:
         conn.execute("DELETE FROM single_entry_day WHERE date = ?", (day,))
         conn.execute("DELETE FROM strat_reversal WHERE date = ?", (day,))
         conn.execute("DELETE FROM strat_reversal_day WHERE date = ?", (day,))
+        conn.execute("DELETE FROM cross_trigger WHERE date = ?", (day,))
+        conn.execute("DELETE FROM cross_trigger_day WHERE date = ?", (day,))
 
 
 def leader_dates(db_path: Path | None = None) -> set[str]:
@@ -398,6 +400,69 @@ def strat_reversal_days(db_path: Path | None = None) -> set[str]:
         return {r[0] for r in conn.execute("SELECT date FROM strat_reversal_day")}
 
 
+def replace_cross_triggers(
+    day: str,
+    rows: Sequence[dict],
+    db_path: Path | None = None,
+    *,
+    had_tape: bool = True,
+) -> None:
+    """Replace one session of the cross-trigger study and mark it built, even with no fills.
+
+    ``had_tape`` is false when the session has no 5-minute bars. Those days stay out of the
+    trades-per-day denominator. A session with tape and zero triggers is stored with ``had_tape``.
+    """
+    payload = []
+    for r in rows:
+        payload.append(
+            (
+                day, r["symbol"], r["rule"], r["entry_time"], float(r["entry_price"]),
+                r.get("stop_price"), r.get("stop_pct"),
+                r.get("eod_pct"), r.get("d1_pct"), r.get("d2_pct"), r.get("d3_pct"), r.get("d4_pct"), r.get("d5_pct"),
+                int(r.get("stopped") or 0), r.get("stop_day"), r.get("exit_pct"), int(r.get("gapped") or 0),
+                r.get("mfe_pct"), int(r.get("opened_above") or 0),
+            )
+        )
+    with data._write_lock, data.connect(db_path) as conn:
+        conn.execute("DELETE FROM cross_trigger WHERE date = ?", (day,))
+        conn.executemany(
+            "INSERT INTO cross_trigger(date, symbol, rule, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, "
+            "opened_above) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            payload,
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO cross_trigger_day(date, had_tape) VALUES (?, ?)",
+            (day, 1 if had_tape else 0),
+        )
+
+
+def cross_triggers_between(start: str, end: str, db_path: Path | None = None) -> list[dict]:
+    with data.connect(db_path) as conn:
+        return _rows(
+            conn,
+            "SELECT date, symbol, rule, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, "
+            "opened_above "
+            "FROM cross_trigger WHERE date >= ? AND date <= ? ORDER BY date, rule, entry_time, symbol",
+            (start, end),
+        )
+
+
+def cross_trigger_days(db_path: Path | None = None) -> set[str]:
+    with data.connect(db_path) as conn:
+        return {r[0] for r in conn.execute("SELECT date FROM cross_trigger_day")}
+
+
+def cross_trigger_tape_days(db_path: Path | None = None) -> list[str]:
+    """Sessions that had 5-minute tape, including mornings where nobody triggered."""
+    with data.connect(db_path) as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT date FROM cross_trigger_day WHERE had_tape = 1 ORDER BY date"
+        )]
+
+
 def revision(db_path: Path | None = None) -> str:
     with data.connect(db_path) as conn:
         leaders = conn.execute("SELECT COUNT(*), MAX(date) FROM leader_snapshots").fetchone()
@@ -405,9 +470,10 @@ def revision(db_path: Path | None = None) -> str:
         ranks = conn.execute("SELECT COUNT(*), MAX(date) FROM interval_ranks").fetchone()
         single = conn.execute("SELECT COUNT(*), MAX(date) FROM single_entry").fetchone()
         strat = conn.execute("SELECT COUNT(*), MAX(date) FROM strat_reversal").fetchone()
+        cross = conn.execute("SELECT COUNT(*), MAX(date) FROM cross_trigger").fetchone()
     return (
         f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}:"
-        f"{single[0]}:{single[1]}:{strat[0]}:{strat[1]}"
+        f"{single[0]}:{single[1]}:{strat[0]}:{strat[1]}:{cross[0]}:{cross[1]}"
     )
 
 
@@ -438,6 +504,10 @@ def counts(db_path: Path | None = None) -> dict:
         strat_rows = conn.execute(
             "SELECT COUNT(*) FROM strat_reversal WHERE timeframe != 0"
         ).fetchone()[0]
+        cross_days = conn.execute("SELECT COUNT(*) FROM cross_trigger_day WHERE had_tape = 1").fetchone()[0]
+        cross_rows = conn.execute(
+            "SELECT COUNT(*) FROM cross_trigger WHERE rule != 'qqq'"
+        ).fetchone()[0]
     return {
         "leader_days": int(days or 0),
         "leader_rows": int(names or 0),
@@ -456,4 +526,6 @@ def counts(db_path: Path | None = None) -> dict:
         "single_rows": int(single_rows or 0),
         "strat_days": int(strat_days or 0),
         "strat_rows": int(strat_rows or 0),
+        "cross_days": int(cross_days or 0),
+        "cross_rows": int(cross_rows or 0),
     }

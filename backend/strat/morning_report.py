@@ -186,6 +186,7 @@ def render(stats: dict, meta: dict) -> str:
         )
     _append_single(lines, stats)
     _append_strat(lines, stats)
+    _append_cross(lines, stats)
     lines.append("")
     return "\n".join(lines)
 
@@ -309,6 +310,80 @@ def _append_strat(lines: list[str], stats: dict) -> None:
             for key, metric, fmt in _STRAT_METRICS:
                 cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in ids]
                 lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
+
+
+def _append_cross(lines: list[str], stats: dict) -> None:
+    cross = stats.get("cross_trigger") or {}
+    books = cross.get("books") or {}
+    order = [book_id for book_id in (cross.get("order") or []) if book_id in books]
+    lines.extend(["", "## RMA cross trigger", ""])
+    if cross.get("definition"):
+        lines.append(cross["definition"])
+        lines.append("")
+    lines.append(
+        "Opened above means the open of the first regular-session bar, the 9:30 print, is strictly "
+        "above the average carried in from the prior session, before today's bars update it. Those "
+        "names are still bought at the first bar at or after 9:45 that closes above the average. "
+        "They are counted below. A name that never closes above the average is not bought."
+    )
+    lines.append("")
+    lines.append(
+        "The stop is the low of that entry bar, which is final once the bar has closed. The entry bar "
+        "is not a stop. A later 5-minute bar at or below the stop exits at the stop. A bar that opens "
+        "below the stop exits at the open and can book worse than −1R. A bar whose low is not strictly "
+        "under its close has no risk, so it is skipped and the scan keeps looking for a later bar that day. "
+        "Trades per day includes tape sessions where nobody triggered."
+    )
+    lines.append("")
+    best = cross.get("best")
+    benchmark = cross.get("benchmark") or {}
+    ready = [
+        book_id
+        for book_id in order
+        if (books[book_id].get("horizons") or {}).get("eod", {}).get("n_days")
+    ]
+    if not best or not ready:
+        lines.append("Not enough completed holds for the cross-trigger study yet.")
+        return
+    bench = _r(benchmark.get("avg_r"))
+    paired = _r(best.get("vs_rma_first"))
+    lines.append(
+        f"**{best['label']}** is the best of these books by day 3 at {_r(best['avg_r'])} per morning "
+        f"(n = {best['n_days']} mornings / {best['n_trades']} fills). "
+        f"The 10:30 first-name RMA book, the benchmark, is {bench} by day 3. "
+        f"On the mornings both books have a day-3 result, this book is {paired} versus that one."
+    )
+    lines.append("")
+    lines.append(
+        "Average % and average R give each morning one vote. Expectancy, win rate, the stop-hit rate, "
+        "and best, median, and worst are per fill. vs QQQ is that morning's stop-aware percent minus QQQ "
+        "held from the same minute, with no stop on QQQ. vs 10:30 first is the paired excess in R against "
+        "the 10:30 first-name RMA book."
+    )
+    lines.append("")
+    bits = []
+    for book_id in order:
+        book = books[book_id]
+        when = book.get("avg_entry") or "—"
+        median = book.get("median_entry")
+        clock = when if not median or median == when else f"{when} on average (median {median})"
+        opened = book.get("opened_above")
+        fills = book.get("n_fills")
+        per = book.get("trades_per_day")
+        per_text = "—" if per is None else f"{per:.1f}"
+        bits.append(
+            f"**{book['label']}** enters at {clock} with an average stop {_dist(book.get('avg_stop_pct'))} "
+            f"under the entry ({opened} of {fills} opened above the average; {per_text} trades per tape day)"
+        )
+    lines.append("; ".join(bits) + ".")
+    lines.append("")
+    labels = [books[book_id]["label"] for book_id in order]
+    lines.append("| | " + " | ".join(labels) + " |")
+    lines.append("| --- | " + " | ".join("---:" for _ in labels) + " |")
+    for name, title in HORIZON_LABEL.items():
+        for key, metric, fmt in _STRAT_METRICS:
+            cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in order]
+            lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
 
 
 def main(argv: list[str] | None = None) -> None:

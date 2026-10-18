@@ -9,8 +9,11 @@ from fastapi import APIRouter, Query
 
 from . import config
 from .intraday import today_et
+from .cross_trigger import build_cross_stats, cross_text
 from .morning import WINDOW_IDS, build_single_stats, build_stats, definition_text, single_entry_text
 from .morning_store import (
+    cross_trigger_tape_days,
+    cross_triggers_between,
     earliest_leader_date,
     latest_leader_date,
     leaders_between,
@@ -68,10 +71,19 @@ def cached_stats(force: bool = False) -> dict:
         rma_first,
     )
     reversal["definition"] = reversal_text()
+    cross_rows = cross_triggers_between("0000-01-01", "9999-12-31")
+    cross = build_cross_stats(
+        [row for row in cross_rows if row["rule"] != "qqq"],
+        [row for row in cross_rows if row["rule"] == "qqq"],
+        rma_first,
+        cross_trigger_tape_days(),
+    )
+    cross["definition"] = cross_text()
     public = _round({k: v for k, v in stats.items() if k != "qqq_at_best"})
     public["definition"] = definition_text()
     public["single_entry"] = _round(single)
     public["strat_reversal"] = _round(reversal)
+    public["cross_trigger"] = _round(cross)
     _CACHE["rev"] = rev
     _CACHE["stats"] = public
     return public

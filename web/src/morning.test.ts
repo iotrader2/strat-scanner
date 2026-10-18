@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   bestSentence,
+  crossNote,
+  crossSentence,
   displayTime,
   entryNote,
   stratNote,
@@ -126,5 +128,36 @@ describe("morning check-in view", () => {
       }),
     ).toBe("15-minute RMA first is the best of these books by day 3 at +0.12R per morning. The 10:30 first-name RMA book is +0.29R by day 3. Paired against that book it is -0.17R.");
     expect(stratSentence(undefined)).toBeNull();
+  });
+
+  it("counts names that opened above the average and compares the cross books with the 10:30 first book", () => {
+    expect(
+      crossNote({
+        id: "rma",
+        label: "RMA",
+        rule: "rma",
+        n_fills: 40,
+        avg_entry: "10:05",
+        median_entry: "9:45",
+        avg_stop_pct: 0.64,
+        opened_above: 12,
+        opened_above_rate: 0.3,
+        trades_per_day: 6.7,
+        tape_days: 60,
+        horizons: {},
+      }),
+    ).toBe(
+      "RMA enters at 10:05 on average (median 9:45). The stop averages 0.64% under the entry. 12 of 40 opened above the average. 6.7 trades per day.",
+    );
+    expect(
+      crossSentence({
+        books: {},
+        order: [],
+        definition: "",
+        best: { id: "sma", label: "SMA", avg_r: -0.11, n_days: 58, n_trades: 400, vs_rma_first: -0.4 },
+        benchmark: { label: "10:30 first", avg_r: 0.29, n_days: 58, n_trades: 58 },
+      }),
+    ).toBe("SMA is the best of these books by day 3 at -0.11R per morning. The 10:30 first-name RMA book is +0.29R by day 3. Paired against that book it is -0.40R.");
+    expect(crossSentence(undefined)).toBeNull();
   });
 });
