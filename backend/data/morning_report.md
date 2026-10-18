@@ -529,3 +529,360 @@ Average % and average R give each morning one vote. Expectancy, win rate, the st
 | +5d worst % | -18.45% | -18.45% | -18.45% |
 | +5d vs QQQ | -0.85% | -0.83% | -0.84% |
 | +5d vs 10:30 first | -0.88R | -1.00R | -0.96R |
+
+## EMA pullback reclaim
+
+Every top-10 leader is bought at the close of the first 5-minute bar, from 9:45 on, that closes back above the 20 EMA after a bar in today's session closed below it. Earlier sessions warm the average. A close back above before 9:45 does not fill, and the name has to close below the EMA again. A name that never closes below it, including one that opened above and stayed there, is not bought. One trade per name. The same entry is stopped three ways: the reclaim bar's low, the lowest low from the first close below through that bar, and the session low from 9:30 through the entry. Each stop has every name and the first name.
+
+A pullback is a 5-minute bar in today's session whose close is strictly below the 20 EMA. The reclaim is the next bar whose close is strictly back above it. Close equal to the EMA is neither. The pullback can start before 9:45, including on the 9:35 bar. The reclaim bar itself has to end at 9:45 or later. A reclaim before 9:45 is not stored for later: that episode is over, and a name that stays above the EMA after it is not bought.
+
+The pullback stop is the lowest low from the first close-below bar of that episode through the reclaim bar, including the reclaim bar. The low-of-day stop is the lowest low from 9:30 through the entry bar, so a low from before the pullback counts. The entry bar is not a stop. A later 5-minute bar at or below the stop exits at the stop. A bar that opens below the stop exits at the open and can book worse than −1R. A stop that is not strictly under the entry is dropped for that variant only. Trades per day includes tape sessions where nobody reclaimed. The first name is the earliest reclaim, then the symbol.
+
+**Low of day, all** is the best of these books by day 3 at -0.21R per morning (n = 58 mornings / 574 fills). The 10:30 first-name RMA book, the benchmark, is +0.29R by day 3. On the mornings both books have a day-3 result, this book is -0.51R versus that one.
+
+Average % and average R give each morning one vote. Expectancy, win rate, the stop-hit rate, and best, median, and worst are per fill. vs QQQ is that morning's stop-aware percent minus QQQ held from the same minute, with no stop on QQQ. vs 10:30 first is the paired excess in R against the 10:30 first-name RMA book.
+
+### Stop at the reclaim bar's low
+
+**All** enters at 11:13 on average (median 10:55) with an average stop 0.49% under the entry (9.9 trades per tape day); **First** enters at 9:55 on average (median 9:50) with an average stop 0.82% under the entry (1.0 trades per tape day).
+
+| | All | First |
+| --- | ---: | ---: |
+| EOD days | 60 | 60 |
+| EOD fills | 594 | 60 |
+| EOD avg % | -0.06% | -0.23% |
+| EOD avg R | -0.13R | -0.40R |
+| EOD win | 17.5% | 18.3% |
+| EOD stop | 80.1% | 71.7% |
+| EOD gaps | 9 | 1 |
+| EOD total R | -84.4R | -23.9R |
+| EOD expectancy | -0.14R | -0.40R |
+| EOD avg MFE | +2.93R | +2.02R |
+| EOD median R | -1.00R | -1.00R |
+| EOD best R | +21.51R | +5.25R |
+| EOD worst R | -7.37R | -1.11R |
+| EOD median % | -0.31% | -0.55% |
+| EOD best % | +6.84% | +5.34% |
+| EOD worst % | -2.06% | -2.06% |
+| EOD vs QQQ | -0.06% | -0.25% |
+| EOD vs 10:30 first | -0.24R | -0.51R |
+| +1d days | 59 | 60 |
+| +1d fills | 584 | 60 |
+| +1d avg % | -0.09% | -0.21% |
+| +1d avg R | -0.32R | -0.48R |
+| +1d win | 9.6% | 11.7% |
+| +1d stop | 90.2% | 88.3% |
+| +1d gaps | 29 | 7 |
+| +1d total R | -189.2R | -28.5R |
+| +1d expectancy | -0.32R | -0.48R |
+| +1d avg MFE | +2.98R | +2.02R |
+| +1d median R | -1.00R | -1.00R |
+| +1d best R | +29.49R | +16.45R |
+| +1d worst R | -14.06R | -5.17R |
+| +1d median % | -0.36% | -0.67% |
+| +1d best % | +14.33% | +14.33% |
+| +1d worst % | -7.83% | -4.28% |
+| +1d vs QQQ | -0.19% | -0.33% |
+| +1d vs 10:30 first | -0.24R | -0.38R |
+| +2d days | 58 | 60 |
+| +2d fills | 574 | 60 |
+| +2d avg % | -0.11% | -0.32% |
+| +2d avg R | -0.42R | -0.64R |
+| +2d win | 6.8% | 8.3% |
+| +2d stop | 93.0% | 91.7% |
+| +2d gaps | 35 | 8 |
+| +2d total R | -239.6R | -38.2R |
+| +2d expectancy | -0.42R | -0.64R |
+| +2d avg MFE | +3.00R | +2.02R |
+| +2d median R | -1.00R | -1.00R |
+| +2d best R | +37.61R | +13.92R |
+| +2d worst R | -19.71R | -5.17R |
+| +2d median % | -0.37% | -0.69% |
+| +2d best % | +13.52% | +12.13% |
+| +2d worst % | -7.83% | -4.28% |
+| +2d vs QQQ | -0.31% | -0.53% |
+| +2d vs 10:30 first | -0.50R | -0.70R |
+| +3d days | 58 | 60 |
+| +3d fills | 574 | 60 |
+| +3d avg % | -0.09% | -0.29% |
+| +3d avg R | -0.48R | -0.58R |
+| +3d win | 6.1% | 8.3% |
+| +3d stop | 93.9% | 91.7% |
+| +3d gaps | 38 | 8 |
+| +3d total R | -274.7R | -34.8R |
+| +3d expectancy | -0.48R | -0.58R |
+| +3d avg MFE | +3.00R | +2.02R |
+| +3d median R | -1.00R | -1.00R |
+| +3d best R | +28.90R | +18.11R |
+| +3d worst R | -19.71R | -5.17R |
+| +3d median % | -0.38% | -0.69% |
+| +3d best % | +16.20% | +15.78% |
+| +3d worst % | -7.83% | -4.28% |
+| +3d vs QQQ | -0.45% | -0.66% |
+| +3d vs 10:30 first | -0.79R | -0.86R |
+| +4d days | 58 | 60 |
+| +4d fills | 574 | 60 |
+| +4d avg % | -0.13% | -0.42% |
+| +4d avg R | -0.52R | -0.71R |
+| +4d win | 5.1% | 5.0% |
+| +4d stop | 94.6% | 91.7% |
+| +4d gaps | 40 | 8 |
+| +4d total R | -296.9R | -42.4R |
+| +4d expectancy | -0.52R | -0.71R |
+| +4d avg MFE | +3.00R | +2.02R |
+| +4d median R | -1.00R | -1.00R |
+| +4d best R | +48.27R | +15.10R |
+| +4d worst R | -34.25R | -5.17R |
+| +4d median % | -0.38% | -0.69% |
+| +4d best % | +17.11% | +13.16% |
+| +4d worst % | -15.20% | -4.28% |
+| +4d vs QQQ | -0.69% | -1.01% |
+| +4d vs 10:30 first | -0.69R | -0.86R |
+| +5d days | 58 | 60 |
+| +5d fills | 574 | 60 |
+| +5d avg % | -0.07% | -0.37% |
+| +5d avg R | -0.39R | -0.69R |
+| +5d win | 4.9% | 5.0% |
+| +5d stop | 95.1% | 95.0% |
+| +5d gaps | 41 | 9 |
+| +5d total R | -225.2R | -41.1R |
+| +5d expectancy | -0.39R | -0.69R |
+| +5d avg MFE | +3.00R | +2.02R |
+| +5d median R | -1.00R | -1.00R |
+| +5d best R | +71.58R | +15.80R |
+| +5d worst R | -34.25R | -5.17R |
+| +5d median % | -0.39% | -0.75% |
+| +5d best % | +20.63% | +13.76% |
+| +5d worst % | -15.20% | -4.28% |
+| +5d vs QQQ | -0.80% | -1.13% |
+| +5d vs 10:30 first | -0.73R | -1.01R |
+
+### Stop at the pullback low
+
+**All** enters at 11:13 on average (median 10:55) with an average stop 1.21% under the entry (9.9 trades per tape day); **First** enters at 9:55 on average (median 9:50) with an average stop 1.63% under the entry (1.0 trades per tape day).
+
+| | All | First |
+| --- | ---: | ---: |
+| EOD days | 60 | 60 |
+| EOD fills | 594 | 60 |
+| EOD avg % | -0.02% | -0.24% |
+| EOD avg R | -0.03R | -0.34R |
+| EOD win | 34.8% | 33.3% |
+| EOD stop | 49.8% | 51.7% |
+| EOD gaps | 8 | 1 |
+| EOD total R | -19.9R | -20.4R |
+| EOD expectancy | -0.03R | -0.34R |
+| EOD avg MFE | +2.47R | +1.75R |
+| EOD median R | -0.98R | -1.00R |
+| EOD best R | +11.73R | +3.14R |
+| EOD worst R | -1.19R | -1.03R |
+| EOD median % | -0.33% | -0.59% |
+| EOD best % | +7.84% | +5.34% |
+| EOD worst % | -5.10% | -3.07% |
+| EOD vs QQQ | -0.02% | -0.27% |
+| EOD vs 10:30 first | -0.13R | -0.45R |
+| +1d days | 59 | 60 |
+| +1d fills | 584 | 60 |
+| +1d avg % | -0.06% | -0.06% |
+| +1d avg R | -0.21R | -0.26R |
+| +1d win | 23.6% | 21.7% |
+| +1d stop | 71.9% | 73.3% |
+| +1d gaps | 50 | 4 |
+| +1d total R | -124.3R | -15.6R |
+| +1d expectancy | -0.21R | -0.26R |
+| +1d avg MFE | +2.50R | +1.75R |
+| +1d median R | -1.00R | -1.00R |
+| +1d best R | +21.58R | +8.58R |
+| +1d worst R | -14.06R | -4.50R |
+| +1d median % | -0.58% | -0.90% |
+| +1d best % | +14.75% | +14.75% |
+| +1d worst % | -7.83% | -4.28% |
+| +1d vs QQQ | -0.16% | -0.18% |
+| +1d vs 10:30 first | -0.13R | -0.16R |
+| +2d days | 58 | 60 |
+| +2d fills | 574 | 60 |
+| +2d avg % | +0.01% | 0.00% |
+| +2d avg R | -0.26R | -0.31R |
+| +2d win | 20.0% | 23.3% |
+| +2d stop | 78.6% | 76.7% |
+| +2d gaps | 59 | 4 |
+| +2d total R | -149.0R | -18.3R |
+| +2d expectancy | -0.26R | -0.31R |
+| +2d avg MFE | +2.53R | +1.75R |
+| +2d median R | -1.00R | -1.00R |
+| +2d best R | +29.30R | +6.52R |
+| +2d worst R | -18.58R | -4.50R |
+| +2d median % | -0.67% | -0.90% |
+| +2d best % | +18.92% | +12.13% |
+| +2d worst % | -7.83% | -4.28% |
+| +2d vs QQQ | -0.19% | -0.16% |
+| +2d vs 10:30 first | -0.34R | -0.36R |
+| +3d days | 58 | 60 |
+| +3d fills | 574 | 60 |
+| +3d avg % | -0.03% | +0.08% |
+| +3d avg R | -0.32R | -0.30R |
+| +3d win | 16.6% | 21.7% |
+| +3d stop | 82.4% | 76.7% |
+| +3d gaps | 63 | 4 |
+| +3d total R | -178.3R | -18.2R |
+| +3d expectancy | -0.31R | -0.30R |
+| +3d avg MFE | +2.53R | +1.75R |
+| +3d median R | -1.00R | -1.00R |
+| +3d best R | +17.56R | +8.48R |
+| +3d worst R | -18.58R | -4.50R |
+| +3d median % | -0.71% | -0.90% |
+| +3d best % | +16.20% | +15.78% |
+| +3d worst % | -7.83% | -4.28% |
+| +3d vs QQQ | -0.34% | -0.19% |
+| +3d vs 10:30 first | -0.62R | -0.57R |
+| +4d days | 57 | 59 |
+| +4d fills | 564 | 59 |
+| +4d avg % | +0.02% | -0.17% |
+| +4d avg R | -0.24R | -0.41R |
+| +4d win | 14.7% | 13.6% |
+| +4d stop | 84.6% | 83.0% |
+| +4d gaps | 67 | 6 |
+| +4d total R | -135.2R | -24.2R |
+| +4d expectancy | -0.24R | -0.41R |
+| +4d avg MFE | +2.56R | +1.72R |
+| +4d median R | -1.00R | -1.00R |
+| +4d best R | +37.93R | +8.97R |
+| +4d worst R | -18.58R | -4.50R |
+| +4d median % | -0.74% | -1.03% |
+| +4d best % | +20.44% | +15.41% |
+| +4d worst % | -15.20% | -4.28% |
+| +4d vs QQQ | -0.51% | -0.67% |
+| +4d vs 10:30 first | -0.45R | -0.58R |
+| +5d days | 57 | 59 |
+| +5d fills | 564 | 59 |
+| +5d avg % | +0.16% | -0.12% |
+| +5d avg R | -0.18R | -0.38R |
+| +5d win | 14.2% | 13.6% |
+| +5d stop | 85.5% | 84.8% |
+| +5d gaps | 69 | 7 |
+| +5d total R | -100.6R | -22.7R |
+| +5d expectancy | -0.18R | -0.38R |
+| +5d avg MFE | +2.56R | +1.72R |
+| +5d median R | -1.00R | -1.00R |
+| +5d best R | +30.35R | +11.99R |
+| +5d worst R | -18.58R | -4.50R |
+| +5d median % | -0.76% | -1.13% |
+| +5d best % | +27.14% | +20.61% |
+| +5d worst % | -15.41% | -4.28% |
+| +5d vs QQQ | -0.52% | -0.77% |
+| +5d vs 10:30 first | -0.56R | -0.73R |
+
+### Stop at the low of day
+
+**All** enters at 11:13 on average (median 10:55) with an average stop 1.89% under the entry (9.9 trades per tape day); **First** enters at 9:55 on average (median 9:50) with an average stop 1.81% under the entry (1.0 trades per tape day).
+
+| | All | First |
+| --- | ---: | ---: |
+| EOD days | 60 | 60 |
+| EOD fills | 594 | 60 |
+| EOD avg % | -0.03% | -0.10% |
+| EOD avg R | -0.06R | -0.22R |
+| EOD win | 40.6% | 38.3% |
+| EOD stop | 33.7% | 43.3% |
+| EOD gaps | 4 | 1 |
+| EOD total R | -36.6R | -13.3R |
+| EOD expectancy | -0.06R | -0.22R |
+| EOD avg MFE | +2.01R | +1.79R |
+| EOD median R | -0.16R | -0.33R |
+| EOD best R | +9.55R | +3.25R |
+| EOD worst R | -1.09R | -1.03R |
+| EOD median % | -0.30% | -0.51% |
+| EOD best % | +7.84% | +6.01% |
+| EOD worst % | -5.10% | -3.19% |
+| EOD vs QQQ | -0.03% | -0.12% |
+| EOD vs 10:30 first | -0.17R | -0.34R |
+| +1d days | 59 | 60 |
+| +1d fills | 584 | 60 |
+| +1d avg % | -0.07% | +0.08% |
+| +1d avg R | -0.14R | -0.16R |
+| +1d win | 31.2% | 26.7% |
+| +1d stop | 58.1% | 68.3% |
+| +1d gaps | 48 | 4 |
+| +1d total R | -83.4R | -9.7R |
+| +1d expectancy | -0.14R | -0.16R |
+| +1d avg MFE | +2.04R | +1.79R |
+| +1d median R | -1.00R | -1.00R |
+| +1d best R | +8.58R | +8.58R |
+| +1d worst R | -6.53R | -3.77R |
+| +1d median % | -0.76% | -1.02% |
+| +1d best % | +14.75% | +14.75% |
+| +1d worst % | -7.92% | -4.28% |
+| +1d vs QQQ | -0.16% | -0.03% |
+| +1d vs 10:30 first | -0.06R | -0.07R |
+| +2d days | 58 | 60 |
+| +2d fills | 574 | 60 |
+| +2d avg % | -0.02% | +0.03% |
+| +2d avg R | -0.16R | -0.28R |
+| +2d win | 27.2% | 25.0% |
+| +2d stop | 67.4% | 75.0% |
+| +2d gaps | 59 | 4 |
+| +2d total R | -90.3R | -16.5R |
+| +2d expectancy | -0.16R | -0.28R |
+| +2d avg MFE | +2.05R | +1.79R |
+| +2d median R | -1.00R | -1.00R |
+| +2d best R | +9.76R | +5.24R |
+| +2d worst R | -6.53R | -3.77R |
+| +2d median % | -0.96% | -1.05% |
+| +2d best % | +19.13% | +12.13% |
+| +2d worst % | -7.92% | -4.28% |
+| +2d vs QQQ | -0.22% | -0.13% |
+| +2d vs 10:30 first | -0.24R | -0.33R |
+| +3d days | 58 | 60 |
+| +3d fills | 574 | 60 |
+| +3d avg % | -0.07% | +0.16% |
+| +3d avg R | -0.21R | -0.25R |
+| +3d win | 23.3% | 23.3% |
+| +3d stop | 73.5% | 75.0% |
+| +3d gaps | 66 | 4 |
+| +3d total R | -118.9R | -15.3R |
+| +3d expectancy | -0.21R | -0.25R |
+| +3d avg MFE | +2.05R | +1.79R |
+| +3d median R | -1.00R | -1.00R |
+| +3d best R | +11.73R | +5.99R |
+| +3d worst R | -6.63R | -3.77R |
+| +3d median % | -1.09% | -1.05% |
+| +3d best % | +16.20% | +15.78% |
+| +3d worst % | -17.17% | -4.28% |
+| +3d vs QQQ | -0.39% | -0.10% |
+| +3d vs 10:30 first | -0.51R | -0.52R |
+| +4d days | 57 | 59 |
+| +4d fills | 564 | 59 |
+| +4d avg % | -0.02% | -0.18% |
+| +4d avg R | -0.17R | -0.38R |
+| +4d win | 20.7% | 15.2% |
+| +4d stop | 76.8% | 81.4% |
+| +4d gaps | 67 | 6 |
+| +4d total R | -96.3R | -22.6R |
+| +4d expectancy | -0.17R | -0.38R |
+| +4d avg MFE | +2.07R | +1.77R |
+| +4d median R | -1.00R | -1.00R |
+| +4d best R | +16.43R | +8.97R |
+| +4d worst R | -9.20R | -3.77R |
+| +4d median % | -1.13% | -1.15% |
+| +4d best % | +20.44% | +15.41% |
+| +4d worst % | -17.17% | -4.28% |
+| +4d vs QQQ | -0.55% | -0.69% |
+| +4d vs 10:30 first | -0.37R | -0.56R |
+| +5d days | 57 | 59 |
+| +5d fills | 564 | 59 |
+| +5d avg % | +0.09% | -0.16% |
+| +5d avg R | -0.13R | -0.35R |
+| +5d win | 19.7% | 15.2% |
+| +5d stop | 78.5% | 83.0% |
+| +5d gaps | 70 | 7 |
+| +5d total R | -71.7R | -20.9R |
+| +5d expectancy | -0.13R | -0.35R |
+| +5d avg MFE | +2.07R | +1.77R |
+| +5d median R | -1.00R | -1.00R |
+| +5d best R | +16.04R | +11.99R |
+| +5d worst R | -9.20R | -3.77R |
+| +5d median % | -1.17% | -1.15% |
+| +5d best % | +27.14% | +20.61% |
+| +5d worst % | -17.17% | -4.28% |
+| +5d vs QQQ | -0.59% | -0.82% |
+| +5d vs 10:30 first | -0.51R | -0.70R |

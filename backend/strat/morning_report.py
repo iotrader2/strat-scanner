@@ -187,6 +187,7 @@ def render(stats: dict, meta: dict) -> str:
     _append_single(lines, stats)
     _append_strat(lines, stats)
     _append_cross(lines, stats)
+    _append_reclaim(lines, stats)
     lines.append("")
     return "\n".join(lines)
 
@@ -384,6 +385,82 @@ def _append_cross(lines: list[str], stats: dict) -> None:
         for key, metric, fmt in _STRAT_METRICS:
             cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in order]
             lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
+
+
+def _append_reclaim(lines: list[str], stats: dict) -> None:
+    reclaim = stats.get("ema_reclaim") or {}
+    books = reclaim.get("books") or {}
+    panels = reclaim.get("panels") or []
+    lines.extend(["", "## EMA pullback reclaim", ""])
+    if reclaim.get("definition"):
+        lines.append(reclaim["definition"])
+        lines.append("")
+    lines.append(
+        "A pullback is a 5-minute bar in today's session whose close is strictly below the 20 EMA. "
+        "The reclaim is the next bar whose close is strictly back above it. Close equal to the EMA is "
+        "neither. The pullback can start before 9:45, including on the 9:35 bar. The reclaim bar itself "
+        "has to end at 9:45 or later. A reclaim before 9:45 is not stored for later: that episode is over, "
+        "and a name that stays above the EMA after it is not bought."
+    )
+    lines.append("")
+    lines.append(
+        "The pullback stop is the lowest low from the first close-below bar of that episode through the "
+        "reclaim bar, including the reclaim bar. The low-of-day stop is the lowest low from 9:30 through "
+        "the entry bar, so a low from before the pullback counts. The entry bar is not a stop. A later "
+        "5-minute bar at or below the stop exits at the stop. A bar that opens below the stop exits at "
+        "the open and can book worse than −1R. A stop that is not strictly under the entry is dropped "
+        "for that variant only. Trades per day includes tape sessions where nobody reclaimed. The first "
+        "name is the earliest reclaim, then the symbol."
+    )
+    lines.append("")
+    best = reclaim.get("best")
+    benchmark = reclaim.get("benchmark") or {}
+    if not best:
+        lines.append("Not enough completed holds for the EMA pullback-reclaim study yet.")
+    else:
+        bench = _r(benchmark.get("avg_r"))
+        paired = _r(best.get("vs_rma_first"))
+        lines.append(
+            f"**{best['label']}** is the best of these books by day 3 at {_r(best['avg_r'])} per morning "
+            f"(n = {best['n_days']} mornings / {best['n_trades']} fills). "
+            f"The 10:30 first-name RMA book, the benchmark, is {bench} by day 3. "
+            f"On the mornings both books have a day-3 result, this book is {paired} versus that one."
+        )
+        lines.append("")
+    if not panels:
+        return
+    lines.append(
+        "Average % and average R give each morning one vote. Expectancy, win rate, the stop-hit rate, "
+        "and best, median, and worst are per fill. vs QQQ is that morning's stop-aware percent minus QQQ "
+        "held from the same minute, with no stop on QQQ. vs 10:30 first is the paired excess in R against "
+        "the 10:30 first-name RMA book."
+    )
+    for panel in panels:
+        ids = [book_id for book_id in panel.get("books") or [] if book_id in books]
+        if not ids:
+            continue
+        lines.extend(["", f"### {panel['title']}", ""])
+        bits = []
+        for book_id in ids:
+            book = books[book_id]
+            when = book.get("avg_entry") or "—"
+            median = book.get("median_entry")
+            clock = when if not median or median == when else f"{when} on average (median {median})"
+            per = book.get("trades_per_day")
+            per_text = "—" if per is None else f"{per:.1f}"
+            bits.append(
+                f"**{book['label']}** enters at {clock} with an average stop {_dist(book.get('avg_stop_pct'))} "
+                f"under the entry ({per_text} trades per tape day)"
+            )
+        lines.append("; ".join(bits) + ".")
+        lines.append("")
+        labels = [books[book_id]["label"] for book_id in ids]
+        lines.append("| | " + " | ".join(labels) + " |")
+        lines.append("| --- | " + " | ".join("---:" for _ in labels) + " |")
+        for name, title in HORIZON_LABEL.items():
+            for key, metric, fmt in _STRAT_METRICS:
+                cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in ids]
+                lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
 
 
 def main(argv: list[str] | None = None) -> None:

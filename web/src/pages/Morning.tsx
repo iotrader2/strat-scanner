@@ -11,6 +11,8 @@ import {
   crossNote,
   crossSentence,
   displayTime,
+  reclaimNote,
+  reclaimSentence,
   entryNote,
   orderedRows,
   outcomeLine,
@@ -391,7 +393,68 @@ export default function Morning() {
       <SingleEntryTable stats={stats?.single_entry} />
       <StratReversalTable stats={stats?.strat_reversal} />
       <CrossTriggerTable stats={stats?.cross_trigger} />
+      <ReclaimTable stats={stats?.ema_reclaim} />
     </div>
+  );
+}
+
+function ReclaimTable({ stats }: { stats: MorningWeek["stats"]["ema_reclaim"] }) {
+  if (!stats?.panels?.length) return null;
+  const sentence = reclaimSentence(stats);
+  return (
+    <section className="card single-entry reclaim-entry" aria-label="EMA pullback reclaim study">
+      <div className="compare-head">
+        <h2>EMA pullback reclaim</h2>
+        <p className="muted small">{stats.definition}</p>
+        {sentence && <p className="strat-best">{sentence}</p>}
+      </div>
+      <div className="reclaim-grid">
+        {stats.panels.map((panel) => (
+          <div className="single-rule" key={panel.title}>
+            <h3>{panel.title}</h3>
+            {panel.books.map((id) => (
+              <p className="muted small" key={id}>{reclaimNote(stats.books[id])}</p>
+            ))}
+            <div className="table-card">
+              <table className="scan-table morning-table single-table strat-table">
+                <thead>
+                  <tr>
+                    <th> </th>
+                    {panel.books.map((id) => (
+                      <th className="num" key={id}>{stats.books[id]?.label ?? id}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {SINGLE_HORIZONS.map((horizon) => (
+                    <Fragment key={horizon}>
+                      <tr className="single-horizon">
+                        <th colSpan={1 + panel.books.length}>{COMPARE_LABEL[horizon]}</th>
+                      </tr>
+                      {STRAT_METRICS.map((metric) => (
+                        <tr key={`${horizon}-${metric.key}`}>
+                          <th scope="row">{metric.label}</th>
+                          {panel.books.map((id) => {
+                            const block = stats.books[id]?.horizons[horizon];
+                            const raw = block?.[metric.key];
+                            const tone = metric.kind === "pct" || metric.kind === "r" || metric.kind === "r1" ? returnTone(typeof raw === "number" ? raw : null) : "";
+                            return (
+                              <td className={`num ${tone}`} key={id}>
+                                {formatSingle(block, metric.key, metric.kind)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

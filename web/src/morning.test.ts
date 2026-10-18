@@ -3,6 +3,8 @@ import {
   bestSentence,
   crossNote,
   crossSentence,
+  reclaimNote,
+  reclaimSentence,
   displayTime,
   entryNote,
   stratNote,
@@ -159,5 +161,34 @@ describe("morning check-in view", () => {
       }),
     ).toBe("SMA is the best of these books by day 3 at -0.11R per morning. The 10:30 first-name RMA book is +0.29R by day 3. Paired against that book it is -0.40R.");
     expect(crossSentence(undefined)).toBeNull();
+  });
+
+  it("notes an EMA pullback reclaim and compares the day-3 winner with the 10:30 first book", () => {
+    expect(
+      reclaimNote({
+        id: "pullback_all",
+        label: "All",
+        title: "Pullback low, all",
+        rule: "pullback",
+        n_fills: 20,
+        avg_entry: "10:40",
+        median_entry: "10:15",
+        avg_stop_pct: 1.25,
+        trades_per_day: 3.4,
+        tape_days: 60,
+        horizons: {},
+      }),
+    ).toBe("All enters at 10:40 on average (median 10:15). The stop averages 1.25% under the entry. 3.4 trades per day.");
+    expect(
+      reclaimSentence({
+        books: {},
+        order: [],
+        panels: [],
+        definition: "",
+        best: { id: "lod_first", label: "Low of day, first", avg_r: 0.08, n_days: 40, n_trades: 40, vs_rma_first: -0.21 },
+        benchmark: { label: "10:30 first", avg_r: 0.29, n_days: 58, n_trades: 58 },
+      }),
+    ).toBe("Low of day, first is the best of these books by day 3 at +0.08R per morning. The 10:30 first-name RMA book is +0.29R by day 3. Paired against that book it is -0.21R.");
+    expect(reclaimSentence(undefined)).toBeNull();
   });
 });

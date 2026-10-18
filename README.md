@@ -563,6 +563,12 @@ The same rule runs on the Wilder RMA, the 20 SMA, and the 20 EMA. A name that op
 
 The stop is that entry bar's low. One R is that distance. The entry bar is not a stop. A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at the open. A bar whose low is not strictly under its close is skipped. The benchmark is the 10:30 first-name RMA book.
 
+### EMA pullback reclaim
+
+A fifth study buys a top-10 leader only after it has closed below the 20 EMA during today's session and then closed back above it. Earlier sessions warm the EMA. The reclaim bar has to end at 9:45 or later. A close back above before 9:45 does not fill, and the name has to close below the EMA again. A name that never closes below the EMA, including one that opened above it and stayed there, is not bought. One reclaim per name per day.
+
+The same entry is stopped three ways: the reclaim bar's low, the lowest low from the first close below through that reclaim bar, and the session low from 9:30 through the entry. Each stop is reported for every name and for the first name that day. The benchmark is the 10:30 first-name RMA book.
+
 ### What Yahoo will and will not give you
 
 Checked on 2026-10-18:
@@ -589,6 +595,7 @@ All in the existing cache (`STRAT_CACHE_DB`):
 | `single_entry` | `(date, symbol, rule, entry_time)` | The low-of-day study. `rule` is `rma1030`, `ema`, or `qqq`. Percent closes, the stop, the exit, and the gap flag |
 | `strat_reversal` | `(date, symbol, timeframe, entry_time)` | The 15- and 30-minute reversal study. `timeframe` is 15, 30, or 0 for QQQ. Pattern, whether the 20 RMA had been crossed by the fill, and whether the entry candle finished as a 2U |
 | `cross_trigger` | `(date, symbol, rule, entry_time)` | The first 5-minute close from 9:45 above the 20 RMA, 20 SMA, or 20 EMA. `rule` is `rma`, `sma`, `ema`, or `qqq`. The stop is the entry bar's low. `opened_above` marks a 9:30 open already above the prior session's average |
+| `ema_reclaim` | `(date, symbol, rule, entry_time)` | The first 5-minute close from 9:45 back above the 20 EMA after a close below it today. `rule` is `reclaim` (entry-bar low), `pullback` (pullback low), `lod` (low of day through the entry), or `qqq` |
 | `intraday_gaps` | `(symbol, date, interval)` | A completed session the provider had nothing for, so the next run does not ask again |
 
 Prices are stored raw and adjusted on read with the same split table as the scanner. A split inside a hold is not a loss.

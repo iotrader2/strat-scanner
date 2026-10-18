@@ -10,10 +10,13 @@ from fastapi import APIRouter, Query
 from . import config
 from .intraday import today_et
 from .cross_trigger import build_cross_stats, cross_text
+from .ema_reclaim import build_reclaim_stats, reclaim_text
 from .morning import WINDOW_IDS, build_single_stats, build_stats, definition_text, single_entry_text
 from .morning_store import (
     cross_trigger_tape_days,
     cross_triggers_between,
+    ema_reclaim_tape_days,
+    ema_reclaims_between,
     earliest_leader_date,
     latest_leader_date,
     leaders_between,
@@ -79,11 +82,20 @@ def cached_stats(force: bool = False) -> dict:
         cross_trigger_tape_days(),
     )
     cross["definition"] = cross_text()
+    reclaim_rows = ema_reclaims_between("0000-01-01", "9999-12-31")
+    reclaim = build_reclaim_stats(
+        [row for row in reclaim_rows if row["rule"] != "qqq"],
+        [row for row in reclaim_rows if row["rule"] == "qqq"],
+        rma_first,
+        ema_reclaim_tape_days(),
+    )
+    reclaim["definition"] = reclaim_text()
     public = _round({k: v for k, v in stats.items() if k != "qqq_at_best"})
     public["definition"] = definition_text()
     public["single_entry"] = _round(single)
     public["strat_reversal"] = _round(reversal)
     public["cross_trigger"] = _round(cross)
+    public["ema_reclaim"] = _round(reclaim)
     _CACHE["rev"] = rev
     _CACHE["stats"] = public
     return public

@@ -35,12 +35,14 @@ from .morning import (
     window_end,
 )
 from .cross_trigger import cross_triggers_for_day
+from .ema_reclaim import ema_reclaims_for_day
 from .strat_reversal import prepare_candles, strat_reversals_for_day
 from .morning_store import (
     all_leaders,
     bar_coverage,
     cross_trigger_days,
     delete_day,
+    ema_reclaim_days,
     gap_dates,
     incomplete_result_dates,
     latest_bar_day,
@@ -48,6 +50,7 @@ from .morning_store import (
     load_bars,
     mark_gap,
     replace_cross_triggers,
+    replace_ema_reclaims,
     replace_leaders,
     replace_ranks,
     replace_results,
@@ -377,14 +380,16 @@ def recompute_results(
             by_day.setdefault(row["date"], []).append(row["symbol"])
     if not force:
         # Days with no results yet, days whose +5 close was unknown, and days not yet in the
-        # low-of-day study, the Strat reversal study, or the cross-trigger study.
+        # low-of-day study, the Strat reversal study, the cross-trigger study, or the EMA reclaim study.
         pending = incomplete_result_dates(calendar, db_path=db_path)
         single_built = single_entry_days(db_path)
         strat_built = strat_reversal_days(db_path)
         cross_built = cross_trigger_days(db_path)
+        reclaim_built = ema_reclaim_days(db_path)
         days = [
             day for day in days
-            if day in pending or day not in single_built or day not in strat_built or day not in cross_built
+            if day in pending or day not in single_built or day not in strat_built
+            or day not in cross_built or day not in reclaim_built
         ]
     if not days:
         _log("Entry results are already filled in")
@@ -410,6 +415,7 @@ def recompute_results(
             replace_single_entries(day, [], db_path)
             replace_strat_reversals(day, [], db_path)
             replace_cross_triggers(day, [], db_path, had_tape=False)
+            replace_ema_reclaims(day, [], db_path, had_tape=False)
             continue
         # A morning with no 5-minute tape is not a zero-qualification day. Drop the old 15-minute result.
         if not any(_has_session(intraday.get(sym), day) for sym in (*names, QQQ)):
@@ -419,18 +425,21 @@ def recompute_results(
             replace_single_entries(day, [], db_path)
             replace_strat_reversals(day, [], db_path)
             replace_cross_triggers(day, [], db_path, had_tape=False)
+            replace_ema_reclaims(day, [], db_path, had_tape=False)
             written += 1
             continue
         ranks, leader_rows, qqq_rows = compute_day(day, names, intraday, daily, calendar)
         single_leaders, single_qqq = single_entries_for_day(day, names, intraday, daily, calendar)
         strat_rows = strat_reversals_for_day(day, names, intraday, daily, calendar, prepared)
         cross_rows = cross_triggers_for_day(day, names, intraday, daily, calendar)
+        reclaim_rows = ema_reclaims_for_day(day, names, intraday, daily, calendar)
         replace_ranks(day, ranks, db_path)
         replace_results(day, leader_rows, role="leader", db_path=db_path)
         replace_results(day, qqq_rows, role="benchmark", db_path=db_path)
         replace_single_entries(day, [*single_leaders, *single_qqq], db_path)
         replace_strat_reversals(day, strat_rows, db_path)
         replace_cross_triggers(day, cross_rows, db_path, had_tape=True)
+        replace_ema_reclaims(day, reclaim_rows, db_path, had_tape=True)
         written += 1
     return written
 

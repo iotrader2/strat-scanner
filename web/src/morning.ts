@@ -92,6 +92,7 @@ export interface MorningStats {
   single_entry?: SingleEntryStats;
   strat_reversal?: StratStats;
   cross_trigger?: CrossStats;
+  ema_reclaim?: ReclaimStats;
 }
 
 export interface SingleHorizon {
@@ -262,7 +263,7 @@ export const SINGLE_RULES = [
 ] as const;
 
 /** Where the book actually got in, and how far the stop sits under that price. */
-export function entryNote(book: SingleBook | StratBook | CrossBook | undefined): string {
+export function entryNote(book: SingleBook | StratBook | CrossBook | ReclaimBook | undefined): string {
   if (!book) return "";
   const when = book.avg_entry ?? "—";
   const clock = book.median_entry && book.median_entry !== book.avg_entry ? `${when} on average (median ${book.median_entry})` : when;
@@ -354,6 +355,46 @@ export function crossNote(book: CrossBook | undefined): string {
 
 /** Day-3 winner among the RMA, SMA, and EMA cross books, set next to the 10:30 first-name RMA book. */
 export function crossSentence(stats: CrossStats | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const bench = stats?.benchmark?.avg_r;
+  const benchText = bench == null ? "" : ` The 10:30 first-name RMA book is ${signedR(bench, 2)} by day 3.`;
+  const paired = best.vs_rma_first == null ? "" : ` Paired against that book it is ${signedR(best.vs_rma_first, 2)}.`;
+  return `${best.label} is the best of these books by day 3 at ${signedR(best.avg_r, 2)} per morning.${benchText}${paired}`;
+}
+
+export interface ReclaimBook {
+  id: string;
+  label: string;
+  title: string;
+  rule: string;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  trades_per_day: number | null;
+  tape_days: number;
+  horizons: Record<string, StratHorizon>;
+}
+
+export interface ReclaimStats {
+  books: Record<string, ReclaimBook>;
+  order: string[];
+  panels: { title: string; books: string[] }[];
+  best: { id: string; label: string; avg_r: number | null; n_days: number; n_trades: number; vs_rma_first: number | null } | null;
+  benchmark: { label: string; avg_r: number | null; n_days: number; n_trades: number } | null;
+  definition: string;
+}
+
+/** Entry clock and stop distance for one EMA pullback-reclaim book, plus trades per tape day. */
+export function reclaimNote(book: ReclaimBook | undefined): string {
+  if (!book) return "";
+  const per = book.trades_per_day == null ? "—" : book.trades_per_day.toFixed(1);
+  return `${entryNote(book)} ${per} trades per day.`;
+}
+
+/** Day-3 winner among the six reclaim books, set next to the 10:30 first-name RMA book. */
+export function reclaimSentence(stats: ReclaimStats | undefined): string | null {
   const best = stats?.best;
   if (!best || best.avg_r == null) return null;
   const bench = stats?.benchmark?.avg_r;

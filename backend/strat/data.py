@@ -226,6 +226,31 @@ CREATE TABLE IF NOT EXISTS cross_trigger_day (
     date     TEXT PRIMARY KEY,
     had_tape INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS ema_reclaim (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    rule        TEXT NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    PRIMARY KEY (date, symbol, rule, entry_time)
+);
+CREATE TABLE IF NOT EXISTS ema_reclaim_day (
+    date     TEXT PRIMARY KEY,
+    had_tape INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
