@@ -3,23 +3,29 @@ import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
 import { fmtCompact } from "../logScale";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
-import { breakoutLabel, failedBreakoutLabel, fmtRs, LEADER_RS, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
+import { breakoutLabel, failedBreakoutLabel, LEADER_RS, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
+import { rsChipView } from "../rsChange";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
 
-/** Relative-strength percentile chip, with a flag when the leader is weakening or its trend is broken. */
+/** Relative-strength percentile chip: RS change vs a week ago, a flag when the leader is weakening or broken, and a NEW marker for fresh transitions. */
 function RsChip({ row }: { row: ScanRow }) {
-  if (row.rs === null || row.rs === undefined) return null;
-  const level = row.leadership?.breakdown ?? "none";
-  const kill = row.kill_candle && row.kill_candle.penalty > 0 ? ` · kill candle ${row.kill_candle.date.slice(5)}` : "";
-  const flag = (level === "broken" ? " · broken" : level === "warning" ? " · weakening" : "") + kill;
-  const reasons = row.leadership?.breakdown_reasons ?? [];
-  const title = `Relative strength ${fmtRs(row.rs)}: blended 1M/3M/6M return percentile${reasons.length ? `. ${reasons.join("; ")}` : ""}`;
+  const view = rsChipView(row);
+  if (!view) return null;
   return (
-    <span className={`rs-chip ${level}`} title={title}>
-      RS {Math.round(row.rs * 100)}
-      {flag}
+    <span className={`rs-chip ${view.level}`} title={view.title}>
+      RS {view.rs}
+      {view.delta && <span className={`rs-delta ${view.delta.dir}`}> {view.delta.text}</span>}
+      {view.newMarker && (
+        <>
+          {" · "}
+          <span className={`rs-new ${view.newMarker.kind}`}>NEW</span>
+          {` · ${view.newMarker.label}`}
+        </>
+      )}
+      {view.flag ? ` · ${view.flag}` : ""}
+      {view.kill}
     </span>
   );
 }
