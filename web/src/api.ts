@@ -134,6 +134,10 @@ export interface ScanRow {
   change_pct: number;
   avg_dollar_volume: number;
   avg_volume: number;
+  /** 14-day average true range, in dollars. */
+  atr?: number | null;
+  /** ATR as a percent of the last close. */
+  atr_pct?: number | null;
   as_of: string;
   score: number;
   score_raw: number;

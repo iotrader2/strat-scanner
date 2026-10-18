@@ -46,8 +46,7 @@ export default function Market({ version }: { version: string | null }) {
         <div>
           <h1>State of the Market</h1>
           <p className="muted">
-            The Nasdaq-100 (QQQ), S&amp;P 500 (SPY) and Russell 2000 (IWM) with their M/W/D Strat badges, continuity and
-            weekly setups. Start here, then drill into <Link className="sector-link" to="/themes">Themes</Link> and
+            How the big indexes are doing. Check them here, then open <Link className="sector-link" to="/themes">Themes</Link> or
             the <Link className="sector-link" to="/">Stock Scanner</Link>.
           </p>
         </div>

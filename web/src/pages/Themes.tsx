@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
-import { Link } from "react-router-dom";
 import { api, type ThemeCard as ThemeCardData, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { Legend } from "../components/Badges";
@@ -52,13 +51,7 @@ export default function Themes({ version }: { version: string | null }) {
       <section className="hero">
         <div>
           <h1>Themes</h1>
-          <p className="muted">
-            Groups of stocks that actually move together (cybersecurity, memory, regional banks, neoclouds…), from the
-            curated map in <code>backend/data/themes.yaml</code> and checked against 6-month return correlations. Each card
-            is an equal-weight index of the members with its M/W/D Strat badges, weekly setup, 1M/3M/6M return and
-            members. Use “Scan theme” to filter the Stock Scanner. The index benchmarks are on{" "}
-            <Link className="sector-link" to="/market">State of the Market</Link>.
-          </p>
+          <p className="muted">Groups of stocks that move together. Open a theme, or scan it in the Stock Scanner.</p>
         </div>
         <TfToggle tf={tf} onChange={setTf} />
       </section>

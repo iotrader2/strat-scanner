@@ -76,10 +76,7 @@ export default function Watchlist() {
         <div>
           <h1>Watchlist</h1>
           <p className="muted">
-            Names you are tracking, with the same Strat badges, weekly trigger and score as the Stock Scanner. They stay here
-            when the weekly setup goes away (shown as “no active setup”) until you remove them with the first-column ✓ toggle. Once you buy one, use “Move to Positions” to record the entry and
-            track it on the Positions tab. Saved in the local
-            SQLite cache, so the list survives restarts.
+            Stocks you&apos;re watching. They stay until you take them off. When you buy one, move it to Positions.
           </p>
         </div>
         <div className="stat-cards">

@@ -30,6 +30,17 @@ from .universe import Member
 TIMEFRAMES = ("M", "W", "D")
 LEADERS = "leaders"
 LEGACY = "legacy"  # the previous Strat-first score, for the backtest comparison only
+ATR_PERIOD = 14
+
+
+def average_true_range(daily: pd.DataFrame, period: int = ATR_PERIOD) -> tuple[float, float]:
+    """14-day average true range in dollars, and that range as a percent of the last close."""
+    prev = daily.close.shift(1)
+    tr = pd.concat([daily.high, prev], axis=1).max(axis=1) - pd.concat([daily.low, prev], axis=1).min(axis=1)
+    window = tr.dropna().tail(period)
+    atr = float(window.mean()) if len(window) else 0.0
+    price = float(daily.close.iloc[-1])
+    return atr, (atr / price * 100) if price else 0.0
 
 
 def to_candles(df: pd.DataFrame) -> list[Candle]:
@@ -88,7 +99,8 @@ def scan_symbol(
     recent = daily.tail(config.ADV_LOOKBACK_DAYS)
     adv = float((recent.close * recent.volume).mean())
     avg_volume = float(recent.volume.mean())
-    atr_pct = float(((recent.high - recent.low) / recent.close).mean() * 100)
+    range_pct = float(((recent.high - recent.low) / recent.close).mean() * 100)
+    atr, atr_pct = average_true_range(daily)
     prev_close = float(daily.close.iloc[-2]) if len(daily) > 1 else price
 
     perf = period_returns(daily.close)
@@ -107,13 +119,13 @@ def scan_symbol(
     failed_breakout = find_failed_breakout(daily) if member.kind == "stock" else None
     if method == LEGACY:
         sc = legacy_scoring.score_symbol(
-            states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
+            states, price, adv, range_pct, kind=member.kind, theme=strength, momentum=momentum,
             theme_name=theme.name if theme else "",
         )
         theme_points = legacy_scoring.theme_strength_points
     else:
         sc = scoring.score_symbol(
-            states, price, adv, atr_pct, kind=member.kind, theme=strength, momentum=momentum,
+            states, price, adv, range_pct, kind=member.kind, theme=strength, momentum=momentum,
             theme_name=theme.name if theme else "", trend=trend, excess=excess, trend_break=trend_break,
             tightness=tightness, kill=kill,
         )
@@ -183,6 +195,7 @@ def scan_symbol(
         "change_pct": round((price / prev_close - 1) * 100, 2) if prev_close else 0.0,
         "avg_dollar_volume": adv,
         "avg_volume": avg_volume,
+        "atr": round(atr, 2),
         "atr_pct": round(atr_pct, 2),
         "as_of": daily.index[-1].strftime("%Y-%m-%d"),
         "score": sc.score,
