@@ -12,14 +12,13 @@ from strat.backtest import _as_of_frames
 from strat.intraday import clamp_start, to_session_ends
 from strat.morning import (
     HORIZONS,
-    IntervalWeights,
-    bars_through,
     build_stats,
-    interval_features,
-    interval_score,
+    cross_through,
+    entry_at,
     outcome_for_entry,
-    rank_at_window,
     realized_return,
+    session_low_through,
+    wilder_rma,
     window_end,
 )
 from strat.morning_api import monday_of, week_payload
@@ -55,42 +54,59 @@ def _daily(closes, start="2026-10-01"):
     )
 
 
-class TestCheckInScore:
-    def test_a_later_bar_cannot_change_the_945_rank(self):
-        # At 9:45 A is the stronger open. By 10:00 B has run past it. The 9:45 rank must not see that.
-        a = _day([(100, 101, 99.5, 100.8), (100.8, 101, 100.4, 100.6)])
-        b = _day([(100, 100.4, 99.8, 100.1), (100.1, 104, 100, 103.5)])
-        qqq = _day([(100, 100.2, 99.9, 100.1), (100.1, 100.3, 100, 100.2)])
+def _five(start: str, closes: list[float], low: float | None = None) -> pd.DataFrame:
+    """5-minute bars indexed by bar end. ``start`` is the first bar's open."""
+    idx = pd.date_range(start, periods=len(closes), freq="5min") + pd.Timedelta(minutes=5)
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c + 0.4 for c in closes],
+            "low": [low if low is not None else c - 0.4 for c in closes],
+            "close": closes,
+            "volume": 1e5,
+        },
+        index=idx,
+    )
+
+
+class TestRmaQualification:
+    def test_wilder_rma_seeds_with_the_sma_then_smooths(self):
+        out = wilder_rma([1, 2, 3, 4, 5], 3)
+        assert out[0] != out[0] and out[1] != out[1]
+        assert out[2] == pytest.approx(2)
+        assert out[3] == pytest.approx((4 + 2 * 2) / 3)
+        assert out[4] == pytest.approx((5 + 2 * out[3]) / 3)
+        assert all(value != value for value in wilder_rma([1, 2], 20))
+
+    def test_a_prior_close_above_the_average_is_not_todays_cross(self):
+        prior = _five("2026-10-15 09:30", [100.0] * 20 + [110.0])
+        today = _five("2026-10-16 09:30", [100.0, 100.0, 101.0])
+        bars = pd.concat([prior, today])
+        # Yesterday's 110 is above the average. Today's first two closes are not, so 9:40 has no cross.
+        assert cross_through(bars, window_end("2026-10-16", "09:40")) is None
+        assert cross_through(bars, window_end("2026-10-16", "09:45")) == window_end("2026-10-16", "09:45")
+
+    def test_close_must_be_strictly_above_and_a_later_cross_is_invisible_early(self):
+        prior = _five("2026-10-15 09:30", [100.0] * 20)
+        flat = _five("2026-10-16 09:30", [100.0, 100.0, 100.0])
+        bars = pd.concat([prior, flat])
+        assert cross_through(bars, window_end("2026-10-16", "09:45")) is None
+        popped = flat.copy()
+        popped.iloc[-1, popped.columns.get_loc("close")] = 100.01
+        later = pd.concat([prior, popped])
+        assert cross_through(later, window_end("2026-10-16", "09:40")) is None
+        assert cross_through(later, window_end("2026-10-16", "09:45")) == pd.Timestamp("2026-10-16 09:45")
+
+    def test_entry_is_the_check_in_close_and_the_stop_is_todays_low(self):
+        prior = _five("2026-10-15 09:30", [100.0] * 20, low=50.0)
+        today = _five("2026-10-16 09:30", [101.0, 101.5, 103.0, 104.0], low=97.0)
+        today.iloc[0, today.columns.get_loc("low")] = 98.0
+        bars = pd.concat([prior, today])
         end = window_end("2026-10-16", "09:45")
-        assert bars_through(b, end).index.max() == end
-        early = rank_at_window(
-            {"A": interval_features(a, qqq, end), "B": interval_features(b, qqq, end)}
-        )
-        later = rank_at_window(
-            {
-                "A": interval_features(a, qqq, window_end("2026-10-16", "10:00")),
-                "B": interval_features(b, qqq, window_end("2026-10-16", "10:00")),
-            }
-        )
-        assert [r["symbol"] for r in early] == ["A", "B"]
-        assert [r["symbol"] for r in later] == ["B", "A"]
-        # The 9:45 features are exactly the first candle, not the second.
-        feat = interval_features(a, qqq, end)
-        assert feat["entry_price"] == pytest.approx(100.8)
-        assert feat["candle_low"] == pytest.approx(99.5)
-
-    def test_weights_are_applied_and_a_missing_qqq_adds_nothing(self):
-        features = {"day_move": 2.0, "vs_qqq": 1.0, "or_position": 1.0}
-        assert interval_score(features, IntervalWeights(1, 1, 1)) == pytest.approx(2 + 1 + 1)
-        assert interval_score(features, IntervalWeights(0, 0, 2)) == pytest.approx(2)
-        bare = dict(features, vs_qqq=None)
-        assert interval_score(bare, IntervalWeights()) == pytest.approx(2 + 0 + 1)
-
-    def test_ties_break_by_symbol(self):
-        feat = {"day_move": 1.0, "vs_qqq": 0.0, "or_position": 0.5, "entry_price": 1, "candle_low": 1, "candle_high": 1}
-        ranked = rank_at_window({"ZZ": feat, "AA": dict(feat)})
-        assert [r["symbol"] for r in ranked] == ["AA", "ZZ"]
-        assert [r["rank"] for r in ranked] == [1, 2]
+        assert cross_through(bars, end) == pd.Timestamp("2026-10-16 09:35")
+        assert entry_at(bars, end) == pytest.approx(103.0)
+        assert session_low_through(bars, end) == pytest.approx(97.0)
+        assert entry_at(bars, window_end("2026-10-16", "10:15")) is None
 
 
 class TestOutcomes:
@@ -143,25 +159,56 @@ class TestOutcomes:
         assert realized_return(out, "d1") == pytest.approx(out["stop_ret"])
         assert realized_return(out, "eod") == pytest.approx(out["eod_ret"])
 
-    def test_open_benchmark_has_no_stop_and_uses_the_first_open(self):
-        bars = _day([(50, 52, 49, 51), (51, 53, 50, 52)])
-        daily = _daily([51, 55], start="2026-10-16")
-        from strat.morning import open_entry
-
-        assert open_entry(bars, daily, pd.Timestamp("2026-10-16")) == pytest.approx(50)
-        out = outcome_for_entry(
-            entry=50,
-            stop=None,
-            day_bars=bars,
-            entry_end=None,
+    def test_the_stop_is_the_low_of_day_through_the_entry_candle(self):
+        # 9:45 prints 97. The 10:00 candle's own low is 99. The stop is 97, not 99.
+        bars = _day(
+            [
+                (100, 101, 97, 100.5),
+                (100.5, 103, 99, 102),
+                (102, 104, 98, 103),  # below the entry candle, still above the low of day
+                (103, 105, 96.5, 104),  # trades below 97. High 105 does not count.
+            ]
+        )
+        end = window_end("2026-10-16", "10:00")
+        assert float(bars.loc[end].low) == pytest.approx(99)
+        assert session_low_through(bars, end) == pytest.approx(97)
+        daily = _daily([104, 110, 110, 110, 110, 110], start="2026-10-16")
+        held = outcome_for_entry(
+            entry=102,
+            stop=97,
+            day_bars=bars.iloc[:3],
+            entry_end=end,
             daily=daily,
             entry_day=pd.Timestamp("2026-10-16"),
-            forward_days=[pd.Timestamp("2026-10-19")],
+            forward_days=list(daily.index[1:]),
         )
-        assert out["stopped"] == 0 and out["stop_ret"] is None
-        # The next session's high is part of the excursion. close 55, high is one point above it.
-        assert out["mfe"] == pytest.approx((56 / 50 - 1) * 100)
-        assert out["d1_ret"] == pytest.approx((55 / 50 - 1) * 100)
+        assert held["stopped"] == 0
+        # Touching 97 again is not below the low of day.
+        touched = bars.iloc[:3].copy()
+        touched.iloc[-1, touched.columns.get_loc("low")] = 97
+        still = outcome_for_entry(
+            entry=102,
+            stop=97,
+            day_bars=touched,
+            entry_end=end,
+            daily=daily,
+            entry_day=pd.Timestamp("2026-10-16"),
+            forward_days=list(daily.index[1:]),
+        )
+        assert still["stopped"] == 0
+        broken = outcome_for_entry(
+            entry=102,
+            stop=97,
+            day_bars=bars,
+            entry_end=end,
+            daily=daily,
+            entry_day=pd.Timestamp("2026-10-16"),
+            forward_days=list(daily.index[1:]),
+        )
+        assert broken["stopped"] == 1 and broken["stop_day"] == 0
+        assert broken["stop_ret"] == pytest.approx((97 / 102 - 1) * 100)
+        assert broken["mfe"] == pytest.approx((104 / 102 - 1) * 100)
+        assert broken["eod_ret"] == pytest.approx((104 / 102 - 1) * 100)
 
 
 def test_expectancy_uses_the_stop_and_each_morning_weighs_the_same():
@@ -175,7 +222,13 @@ def test_expectancy_uses_the_stop_and_each_morning_weighs_the_same():
         {"date": "2026-10-02", "window": "09:45", "stopped": 0, "stop_day": None, "stop_ret": None, "eod_ret": 0.5, "d3_ret": 0.5},
     ]
     # Pad the other windows so build_stats has the keys. Empty windows are fine.
-    stats = build_stats(trades, qqq, IntervalWeights())
+    ranks = [
+        {"date": "2026-10-01", "window": "09:45", "qualified": 1},
+        {"date": "2026-10-01", "window": "09:45", "qualified": 1},
+        {"date": "2026-10-02", "window": "09:45", "qualified": 0},
+        {"date": "2026-10-02", "window": "09:45", "qualified": 0},
+    ]
+    stats = build_stats(trades, qqq, ranks)
     eod = stats["windows"]["09:45"]["horizons"]["eod"]
     # Day 1 basket is mean(-2, +1) = -0.5. Day 2 is +2. Mean expectancy -0.5 and +2 → 0.75.
     assert eod["expectancy"] == pytest.approx(0.75)
@@ -184,6 +237,9 @@ def test_expectancy_uses_the_stop_and_each_morning_weighs_the_same():
     assert eod["win_rate"] == pytest.approx(1.0)
     assert eod["stop_hit_rate"] == pytest.approx(1 / 3)  # one of the three resolved fills
     assert stats["best"]["window"] == "09:45"
+    # Two names on the first morning and none on the second. The zero morning counts.
+    assert stats["windows"]["09:45"]["avg_qualified"] == pytest.approx(1.0)
+    assert stats["best"]["avg_qualified"] == pytest.approx(1.0)
 
 
 def _trend(drift, n=280, jump=0.0):
@@ -236,6 +292,15 @@ def test_storage_is_idempotent(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM intraday_bars").fetchone()[0] == 1
 
 
+def test_a_one_symbol_yahoo_frame_still_has_price_columns():
+    from strat.intraday import _symbol_frame
+
+    columns = pd.MultiIndex.from_tuples([("QQQ", "Open"), ("QQQ", "High"), ("QQQ", "Low"), ("QQQ", "Close"), ("QQQ", "Volume")])
+    frame = pd.DataFrame([[1, 2, 0.5, 1.5, 10]], columns=columns)
+    unpacked = _symbol_frame(frame, "QQQ", True)
+    assert list(unpacked.columns) == ["Open", "High", "Low", "Close", "Volume"]
+
+
 def test_yahoo_requests_stay_inside_the_60_day_window():
     today = date(2026, 10, 18)
     assert clamp_start(date(2026, 1, 1), today, 59, today) == date(2026, 8, 20)
@@ -249,6 +314,9 @@ def test_bar_ends_are_the_regular_session_in_new_york():
     frame = pd.DataFrame({"open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10}, index=start)
     ends = to_session_ends(frame)
     assert list(ends.index.strftime("%H:%M")) == ["09:45", "10:00", "10:15"]
+    five = pd.date_range("2026-10-16 09:25", periods=4, freq="5min")
+    five_frame = pd.DataFrame({"open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10}, index=five)
+    assert list(to_session_ends(five_frame, 5).index.strftime("%H:%M")) == ["09:35", "09:40", "09:45"]
     utc = pd.DataFrame(
         {"open": [100], "high": [101], "low": [99], "close": [100.5], "volume": [5]},
         index=pd.to_datetime(["2026-10-16T13:30:00Z"]),
@@ -332,7 +400,30 @@ def test_window_helpers_and_the_week_route(tmp_path, monkeypatch):
 
     replace_ranks(
         "2026-10-16",
-        [{"window": "10:15", "rank": 1, "symbol": "NVDA", "score": 2.4, "day_move": 1.5, "vs_qqq": 0.8, "or_position": 0.9}],
+        [
+            {
+                "window": "10:15",
+                "rank": 1,
+                "symbol": "NVDA",
+                "score": 0,
+                "day_move": None,
+                "vs_qqq": None,
+                "or_position": None,
+                "qualified": 1,
+                "cross_time": "09:40",
+            },
+            {
+                "window": "09:45",
+                "rank": 100,
+                "symbol": "NVDA",
+                "score": 0,
+                "day_move": None,
+                "vs_qqq": None,
+                "or_position": None,
+                "qualified": 0,
+                "cross_time": None,
+            },
+        ],
         db,
     )
     body = week_payload("2026-10-16")
@@ -341,6 +432,10 @@ def test_window_helpers_and_the_week_route(tmp_path, monkeypatch):
     friday = body["days"][4]
     assert friday["weekday"] == "FRI" and friday["rows"][0]["symbol"] == "NVDA"
     assert friday["rows"][0]["windows"]["10:15"]["d3_ret"] == pytest.approx(2.5)
+    assert friday["rows"][0]["windows"]["10:15"]["rank"] == 1
+    assert friday["rows"][0]["windows"]["10:15"]["cross_time"] == "09:40"
+    assert friday["rows"][0]["windows"]["09:45"]["qualified"] == 0
+    assert friday["rows"][0]["windows"]["09:45"]["rank"] is None
     client = TestClient(__import__("strat.api", fromlist=["app"]).app)
     res = client.get("/api/morning", params={"week": "2026-10-12"})
     assert res.status_code == 200
@@ -348,22 +443,50 @@ def test_window_helpers_and_the_week_route(tmp_path, monkeypatch):
     assert "localhost" not in res.text.lower()
 
 
-def test_compute_day_ranks_only_names_with_a_candle():
-    a = _day([(100, 102, 99, 101), (101, 103, 100, 102)])
-    qqq = _day([(100, 100.5, 99.8, 100.2), (100.2, 100.6, 100, 100.4)])
+def test_compute_day_buys_the_earliest_cross_and_skips_the_rest():
+    prior = _five("2026-10-15 09:30", [100.0] * 25, low=50.0)
+
+    def session(closes: list[float], lows: list[float]) -> pd.DataFrame:
+        frame = _five("2026-10-16 09:30", closes)
+        frame["low"] = lows
+        return pd.concat([prior, frame])
+
+    # AAA closes above the average at 09:35. BBB waits until 09:45. CCC never does.
+    aaa = session([101.0, 101.5, 103.0, 104.0], [98.0, 97.5, 97.0, 99.0])
+    bbb = session([100.0, 100.0, 102.0, 102.5], [99.0, 99.0, 99.0, 99.0])
+    ccc = session([100.0, 100.0, 100.0, 100.0], [99.0, 99.0, 99.0, 99.0])
+    qqq = session([100.0, 100.1, 100.2, 100.3], [99.5, 99.5, 99.5, 99.5])
+    # A later session's 5-minute low must not be walked as if it were today.
+    spike = _five("2026-10-19 09:30", [90.0], low=40.0)
+    aaa = pd.concat([aaa, spike])
+    calendar = ["2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"]
     daily = {
-        "AAA": _daily([101, 104, 106, 103, 108, 110], start="2026-10-16"),
+        "AAA": _daily([103, 110, 111, 112, 113, 114], start="2026-10-16"),
+        "BBB": _daily([102, 108, 109, 110, 111, 112], start="2026-10-16"),
+        "CCC": _daily([100, 100, 100, 100, 100, 100], start="2026-10-16"),
         "QQQ": _daily([100, 101, 102, 103, 104, 105], start="2026-10-16"),
     }
     ranks, leaders, benchmarks = compute_day(
         "2026-10-16",
-        ["AAA", "MISSING"],
-        {"AAA": a, "QQQ": qqq},
+        ["AAA", "BBB", "CCC", "MISSING"],
+        {"AAA": aaa, "BBB": bbb, "CCC": ccc, "QQQ": qqq},
         daily,
-        ["2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"],
-        IntervalWeights(),
+        calendar,
     )
-    assert {r["symbol"] for r in ranks} == {"AAA"}
-    assert any(r["window"] == "09:45" and r["symbol"] == "AAA" for r in leaders)
-    assert any(r["symbol"] == "QQQ" and r["window"] == "open" for r in benchmarks)
+    assert all(r["window"] != "open" for r in (*ranks, *leaders, *benchmarks))
+    nine = [r for r in ranks if r["window"] == "09:45"]
+    bought = [r for r in nine if r["qualified"]]
+    skipped = [r for r in nine if not r["qualified"]]
+    assert [r["symbol"] for r in bought] == ["AAA", "BBB"]
+    assert bought[0]["cross_time"] == "09:35"
+    assert bought[1]["cross_time"] == "09:45"
+    assert {r["symbol"] for r in skipped} == {"CCC", "MISSING"}
+    assert all(r["rank"] >= 100 for r in skipped)
+    assert {r["symbol"] for r in leaders if r["window"] == "09:45"} == {"AAA", "BBB"}
+    aaa_fill = next(r for r in leaders if r["window"] == "09:45" and r["symbol"] == "AAA")
+    assert aaa_fill["entry_price"] == pytest.approx(103.0)
+    assert aaa_fill["candle_low"] == pytest.approx(97.0)
+    assert aaa_fill["stopped"] == 0
+    ten = next(r for r in ranks if r["window"] == "10:00" and r["symbol"] == "CCC")
+    assert ten["qualified"] == 0
     assert len(HORIZONS) == 6

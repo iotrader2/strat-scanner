@@ -73,7 +73,11 @@ def clamp_start(start: date, end: date, lookback_days: Optional[int], today: dat
 
 
 def to_session_ends(frame: pd.DataFrame, minutes: int = 15) -> pd.DataFrame:
-    """Move a bar-start index to the bar end and keep the regular session (09:45 through 16:00 ET)."""
+    """Move a bar-start index to the bar end and keep the regular session.
+
+    The first bar kept ends at 09:30 plus ``minutes``: 09:45 on a 15-minute chart,
+    09:35 on a 5-minute chart. Premarket and anything after 16:00 are dropped.
+    """
     if frame is None or frame.empty:
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
     out = frame.copy()
@@ -90,7 +94,8 @@ def to_session_ends(frame: pd.DataFrame, minutes: int = 15) -> pd.DataFrame:
     idx = (idx + pd.Timedelta(minutes=minutes)).tz_localize(None)
     out.index = idx
     clock = out.index.strftime("%H:%M")
-    out = out.loc[(clock >= "09:45") & (clock <= "16:00")]
+    first = (pd.Timestamp("2000-01-01 09:30") + pd.Timedelta(minutes=minutes)).strftime("%H:%M")
+    out = out.loc[(clock >= first) & (clock <= "16:00")]
     out = out[~out.index.duplicated(keep="last")].sort_index()
     if "volume" not in out.columns:
         out["volume"] = 0.0
@@ -114,12 +119,18 @@ class YahooIntraday:
     name = "yahoo"
     lookback_days = YAHOO_15M_LOOKBACK_DAYS
 
+    def __init__(self, interval: str = "15m"):
+        if interval not in {"5m", "15m"}:
+            raise ValueError(f"Yahoo intraday interval must be '5m' or '15m', not {interval!r}")
+        self.interval = interval
+
     def fetch(self, symbols: list[str], start: date, end: date) -> dict[str, pd.DataFrame]:
         import yfinance as yf
 
         today = today_et()
         if start > end or not symbols:
             return {}
+        minutes = 5 if self.interval == "5m" else 15
         # A start/end pair older than 60 calendar days errors. ``period=60d`` is wider
         # (60 sessions, about 85 calendar days) and is how a backfill gets the whole window.
         use_period = start <= today - timedelta(days=self.lookback_days or YAHOO_15M_LOOKBACK_DAYS)
@@ -130,7 +141,7 @@ class YahooIntraday:
             kwargs = {"period": YAHOO_15M_PERIOD} if use_period else {"start": start.isoformat(), "end": end_excl}
             df = yf.download(
                 batch,
-                interval="15m",
+                interval=self.interval,
                 group_by="ticker",
                 auto_adjust=False,
                 prepost=False,
@@ -140,10 +151,10 @@ class YahooIntraday:
             )
             many = isinstance(df.columns, pd.MultiIndex) if df is not None and not df.empty else False
             for symbol in batch:
-                sub = _symbol_frame(df, symbol, many and len(batch) > 1)
+                sub = _symbol_frame(df, symbol, many)
                 if sub is None:
                     continue
-                bars = to_session_ends(sub)
+                bars = to_session_ends(sub, minutes)
                 if bars.empty:
                     continue
                 lo = pd.Timestamp(start)

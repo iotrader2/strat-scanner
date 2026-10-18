@@ -597,6 +597,12 @@ button.this-week:hover { color: var(--text); border-color: var(--border-2); }
 .week-row .score-pill { margin-left: auto; }
 .week-row .week-ret { margin-left: auto; }
 .week-row .week-ret + .score-pill { margin-left: 8px; }
+.week-cross, .week-skip {
+  margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; flex: none;
+}
+.week-row .week-cross + .week-ret,
+.week-row .week-cross + .week-skip { margin-left: 8px; }
+.week-row.is-skipped { opacity: 0.55; }
 .pill-shield { width: 11px; height: 11px; }
 .week-tip {
   display: none; position: absolute; left: 8px; right: 8px; top: calc(100% - 4px); z-index: 5;

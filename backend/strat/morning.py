@@ -1,34 +1,23 @@
-"""Morning check-in times. Rank a day's leaders from information known at that minute, then score the trade.
+"""Morning check-in times. Buy a day's leaders only after the 5-minute chart closes above its 20 RMA.
 
-No lookahead. A check-in at 10:15 uses the session open and the 15-minute bars that have
-*ended* by 10:15, plus QQQ over that same span. The rest of the day is an outcome, not an input.
+No lookahead. A check-in at 10:15 uses 5-minute bars that have *ended* by 10:15. The rest of the
+day is an outcome, not an input. The 20-period RMA (Wilder, TradingView ``ta.rma``) is warmed up on
+earlier sessions so it already has a value at the open. A prior session's close above that average
+does not count: the cross is the first bar of *this* session.
 
-"Best at that interval" (tunable; see ``IntervalWeights``)::
+A name that has not closed above the RMA by the check-in is not bought. Among the names that have,
+the earliest cross is first. Ties break by symbol. The entry is the close of the 5-minute bar that
+ends at the check-in, not the close of the cross bar. The earliest buy is 9:45.
 
-    score = move_weight * day_move
-          + qqq_weight  * vs_qqq
-          + or_weight   * opening_range_score
-
-* ``day_move`` is the percent change from the session open (open of the 09:30–09:45 bar) to this candle's close.
-* ``vs_qqq`` is that move minus QQQ's move over the same minutes. Missing QQQ contributes nothing.
-* ``opening_range_score`` is where the close sits in the high–low of every bar from the open through this
-  candle: +1 at the high, 0 in the middle, −1 at the low.
-
-Defaults are 1, 1 and 1, so one percent of outperformance counts the same as closing at the high of the
-range built so far. Override with ``STRAT_MORNING_W_MOVE``, ``STRAT_MORNING_W_QQQ`` and
-``STRAT_MORNING_W_OR``, or pass a weights object. Ranks break ties by symbol so they are stable.
-
-Outcomes assume a fill at the candle close and a stop at that candle's low. The entry candle itself is
-not a stop: its low printed before the close. Later same-day bars are walked in order. A bar that trades
-through the stop fills at the stop and does not donate its high (the order inside one bar is unknown).
-Later sessions use the daily low the same way. Close-to-close returns are stored beside the stopped
-return; they are not replaced by it.
+The stop is the low of day so far: the lowest low from the 9:30 bar through that entry bar. The
+entry bar is not itself a stop; that low is already in the level. A later bar stops the trade when
+it trades below that low. Later same-day bars are walked in order. A bar that trades below the stop
+fills at the stop and does not donate its high (the order inside one bar is unknown). Later sessions
+use the daily low the same way. Close-to-close returns are stored beside the stopped return.
 """
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
 from datetime import time
 from statistics import median
 from typing import Iterable, Mapping, Optional, Sequence
@@ -44,13 +33,11 @@ WINDOWS: tuple[tuple[str, time], ...] = (
     ("10:45", time(10, 45)),
 )
 WINDOW_IDS: tuple[str, ...] = tuple(label for label, _ in WINDOWS)
-OPEN_WINDOW = "open"
 BENCHMARK = "QQQ"
 TOP_N = 10
 
 # The question the summary answers: which clock time has the best close-to-close return by this session.
-# The candle-low stop is reported beside it (hit rate and stop-aware expectancy). It is not the ranking,
-# because that low is one 15-minute wick and gets hit too often to separate the five times.
+# The low-of-day stop is reported beside it (hit rate and stop-aware expectancy). It is not the ranking.
 PRIMARY_HORIZON = "d3"
 
 HORIZONS: tuple[tuple[str, int, str], ...] = (
@@ -64,28 +51,8 @@ HORIZONS: tuple[tuple[str, int, str], ...] = (
 HORIZON_INDEX = {name: idx for name, idx, _ in HORIZONS}
 HORIZON_FIELD = {name: field for name, _, field in HORIZONS}
 
-
-@dataclass(frozen=True)
-class IntervalWeights:
-    """Points added to the check-in score. See the module docstring for what each one multiplies."""
-
-    move: float = 1.0
-    vs_qqq: float = 1.0
-    opening_range: float = 1.0
-
-
-def weights_from_env() -> IntervalWeights:
-    def pick(name: str, default: float) -> float:
-        raw = os.environ.get(name)
-        if raw is None or not str(raw).strip():
-            return default
-        return float(raw)
-
-    return IntervalWeights(
-        move=pick("STRAT_MORNING_W_MOVE", 1.0),
-        vs_qqq=pick("STRAT_MORNING_W_QQQ", 1.0),
-        opening_range=pick("STRAT_MORNING_W_OR", 1.0),
-    )
+# TradingView ta.rma length. The first value is the SMA of this many closes; after that Wilder.
+RMA_LENGTH = 20
 
 
 def window_end(day: str, label: str) -> pd.Timestamp:
@@ -99,62 +66,67 @@ def bars_through(day_bars: Optional[pd.DataFrame], end: pd.Timestamp) -> pd.Data
     return day_bars.loc[day_bars.index <= end]
 
 
-def interval_features(
-    day_bars: Optional[pd.DataFrame],
-    qqq_bars: Optional[pd.DataFrame],
-    end: pd.Timestamp,
-) -> Optional[dict]:
-    """Move, QQQ excess and opening-range position at one check-in. None when that candle is missing."""
-    have = bars_through(day_bars, end)
-    if have.empty or end not in have.index:
+def wilder_rma(closes: Sequence[float], length: int = RMA_LENGTH) -> list[float]:
+    """TradingView ``ta.rma``: SMA seed, then ``(src + (length - 1) * prev) / length``.
+
+    Values before the seed are NaN. A series shorter than ``length`` is all NaN.
+    """
+    n = len(closes)
+    out = [float("nan")] * n
+    if n < length or length < 1:
+        return out
+    out[length - 1] = sum(closes[:length]) / length
+    for i in range(length, n):
+        out[i] = (closes[i] + (length - 1) * out[i - 1]) / length
+    return out
+
+
+def _split_session(bars: pd.DataFrame, end: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Prior bars, then today's bars that have closed by ``end``. Later bars are dropped."""
+    day = pd.Timestamp(end).normalize()
+    prior = bars.loc[bars.index < day]
+    today = bars.loc[(bars.index >= day) & (bars.index <= end)]
+    return prior, today
+
+
+def cross_through(bars: Optional[pd.DataFrame], end: pd.Timestamp, length: int = RMA_LENGTH) -> Optional[pd.Timestamp]:
+    """End time of the first *today* bar, at or before ``end``, whose close is above the RMA.
+
+    ``bars`` may include earlier sessions; those warm the average and cannot themselves be the cross.
+    None when the average is not warmed up yet, or no bar has closed above it.
+    """
+    if bars is None or bars.empty:
         return None
-    opened = float(have.iloc[0].open)
-    close = float(have.loc[end].close)
-    if not opened or opened <= 0 or pd.isna(close):
+    prior, today = _split_session(bars, end)
+    if today.empty:
         return None
-    day_move = (close / opened - 1.0) * 100.0
-    vs_qqq = None
-    q_have = bars_through(qqq_bars, end)
-    if not q_have.empty and end in q_have.index:
-        q_open = float(q_have.iloc[0].open)
-        q_close = float(q_have.loc[end].close)
-        if q_open and q_open > 0 and not pd.isna(q_close):
-            vs_qqq = day_move - (q_close / q_open - 1.0) * 100.0
-    high = float(have.high.max())
-    low = float(have.low.min())
-    or_position = 0.5 if high <= low else (close - low) / (high - low)
-    return {
-        "day_move": day_move,
-        "vs_qqq": vs_qqq,
-        "or_position": or_position,
-        "entry_price": close,
-        "candle_low": float(have.loc[end].low),
-        "candle_high": float(have.loc[end].high),
-    }
+    combined = pd.concat([prior, today]) if not prior.empty else today
+    rma = wilder_rma([float(value) for value in combined["close"]], length)
+    offset = len(prior)
+    for i, ts in enumerate(today.index):
+        value = rma[offset + i]
+        if value == value and float(today.iloc[i].close) > value:
+            return pd.Timestamp(ts)
+    return None
 
 
-def interval_score(features: Mapping, weights: Optional[IntervalWeights] = None) -> float:
-    weights = weights or IntervalWeights()
-    vs = 0.0 if features.get("vs_qqq") is None else float(features["vs_qqq"])
-    or_score = (float(features["or_position"]) - 0.5) * 2.0
-    return weights.move * float(features["day_move"]) + weights.vs_qqq * vs + weights.opening_range * or_score
+def entry_at(bars: Optional[pd.DataFrame], end: pd.Timestamp) -> Optional[float]:
+    """Close of the bar that ends exactly at the check-in. Missing bar means no fill."""
+    if bars is None or bars.empty or end not in bars.index:
+        return None
+    price = float(bars.loc[end].close)
+    return price if price > 0 and price == price else None
 
 
-def rank_at_window(
-    features_by_symbol: Mapping[str, Optional[dict]],
-    weights: Optional[IntervalWeights] = None,
-) -> list[dict]:
-    """Best first. Symbols with no candle at this check-in are left out, not ranked last on a guess."""
-    weights = weights or IntervalWeights()
-    ranked = []
-    for symbol, features in features_by_symbol.items():
-        if not features:
-            continue
-        ranked.append({"symbol": symbol, **features, "score": interval_score(features, weights)})
-    ranked.sort(key=lambda row: (-row["score"], row["symbol"]))
-    for rank, row in enumerate(ranked, start=1):
-        row["rank"] = rank
-    return ranked
+def session_low_through(bars: Optional[pd.DataFrame], end: pd.Timestamp) -> Optional[float]:
+    """Lowest low from the 9:30 bar through ``end``. Prior sessions are not the low of today."""
+    if bars is None or bars.empty:
+        return None
+    _prior, today = _split_session(bars, end)
+    if today.empty:
+        return None
+    low = float(today["low"].min())
+    return low if low == low else None
 
 
 def _pct(entry: float, price) -> Optional[float]:
@@ -182,10 +154,11 @@ def outcome_for_entry(
     entry_day: pd.Timestamp,
     forward_days: Sequence[pd.Timestamp],
 ) -> dict:
-    """Close returns, the candle-low stop, and the excursion of the path actually traded.
+    """Close returns, the low-of-day stop, and the excursion of the path actually traded.
 
-    ``stop`` is None for the open benchmark and for QQQ (a hold, not a stopped trade).
-    ``entry_end`` is None for an entry at the session open: the whole first bar is then after the fill.
+    ``stop`` is the session low from 9:30 through the entry candle, or None for QQQ (a hold, not a
+    stopped trade). A later bar stops the trade only when its low is below that level. The entry
+    candle is already inside the level, so it is not a fill.
     """
     best_high = entry
     worst_low = entry
@@ -197,7 +170,7 @@ def outcome_for_entry(
         nonlocal best_high, worst_low, stopped, stop_day
         if stopped:
             return True
-        if stop is not None and low <= stop:
+        if stop is not None and low < stop:
             stopped = True
             stop_day = day_index
             worst_low = min(worst_low, stop)
@@ -207,10 +180,7 @@ def outcome_for_entry(
         return False
 
     bars = day_bars if day_bars is not None else pd.DataFrame()
-    if entry_end is None:
-        path = bars
-    else:
-        path = bars.loc[bars.index > entry_end] if not bars.empty else bars
+    path = bars.loc[bars.index > entry_end] if entry_end is not None and not bars.empty else bars.iloc[0:0]
     for row in path.itertuples():
         if note_bar(float(row.high), float(row.low), 0):
             break
@@ -243,19 +213,6 @@ def outcome_for_entry(
         "mfe": _pct(entry, best_high),
         "mae": _pct(entry, worst_low),
     }
-
-
-def open_entry(day_bars: Optional[pd.DataFrame], daily: Optional[pd.DataFrame], entry_day: pd.Timestamp) -> Optional[float]:
-    """The session open: the first 15-minute bar's open, else the daily open."""
-    if day_bars is not None and not day_bars.empty:
-        price = float(day_bars.iloc[0].open)
-        if price > 0:
-            return price
-    bar = _daily_on(daily, entry_day)
-    if bar is None:
-        return None
-    price = float(bar.open)
-    return price if price > 0 else None
 
 
 def realized_return(row: Mapping, horizon: str) -> Optional[float]:
@@ -291,8 +248,8 @@ def summarize_window(trades: Sequence[Mapping]) -> dict:
     """Day-equal stats. Each morning weighs the same, however many of the ten filled.
 
     Average, median and win rate use the close-to-close return (the hold). Expectancy uses the
-    stop: the candle-low fill once it has been hit, otherwise the same close. The stop-hit rate
-    is trade-level, over fills whose path through that horizon is known.
+    stop: the low-of-day fill once a later bar has traded below it, otherwise the same close.
+    The stop-hit rate is trade-level, over fills whose path through that horizon is known.
     """
     by_date: dict[str, list[Mapping]] = {}
     for trade in trades:
@@ -356,19 +313,40 @@ def _daily_basket(trades: Sequence[Mapping], horizon: str) -> dict[str, float]:
     return {day: sum(values) / len(values) for day, values in grouped.items()}
 
 
+def qualification_by_window(rank_rows: Sequence[Mapping]) -> dict[str, dict]:
+    """Names bought per morning, including mornings when nobody had crossed yet."""
+    grouped: dict[str, dict[str, int]] = {w: {} for w in WINDOW_IDS}
+    for row in rank_rows:
+        window = row.get("window")
+        if window not in grouped:
+            continue
+        day = str(row["date"])
+        grouped[window].setdefault(day, 0)
+        if row.get("qualified"):
+            grouped[window][day] += 1
+    out = {}
+    for window, days in grouped.items():
+        counts = list(days.values())
+        out[window] = {
+            "n_days": len(counts),
+            "avg": (sum(counts) / len(counts)) if counts else None,
+        }
+    return out
+
+
 def build_stats(
     leader_rows: Sequence[Mapping],
     qqq_rows: Sequence[Mapping],
-    weights: Optional[IntervalWeights] = None,
+    rank_rows: Sequence[Mapping] = (),
 ) -> dict:
-    """Per-interval aggregates, the open buy, QQQ, and the best check-in on ``PRIMARY_HORIZON``."""
-    weights = weights or IntervalWeights()
-    leaders: dict[str, list[Mapping]] = {w: [] for w in (*WINDOW_IDS, OPEN_WINDOW)}
+    """Per-interval aggregates, QQQ at the same clock, and the best check-in on ``PRIMARY_HORIZON``."""
+    qualified = qualification_by_window(rank_rows)
+    leaders: dict[str, list[Mapping]] = {w: [] for w in WINDOW_IDS}
     for row in leader_rows:
         window = row.get("window")
         if window in leaders:
             leaders[window].append(row)
-    qqq: dict[str, list[Mapping]] = {w: [] for w in (*WINDOW_IDS, OPEN_WINDOW)}
+    qqq: dict[str, list[Mapping]] = {w: [] for w in WINDOW_IDS}
     for row in qqq_rows:
         window = row.get("window")
         if window in qqq:
@@ -381,37 +359,34 @@ def build_stats(
 
     packed = {window: pack(rows) for window, rows in leaders.items()}
     qqq_packed = {window: pack(rows) for window, rows in qqq.items()}
-    open_stats = packed[OPEN_WINDOW]
     windows = {}
-    for window in (*WINDOW_IDS, OPEN_WINDOW):
+    for window in WINDOW_IDS:
         body = {k: v for k, v in packed[window].items() if k != "_daily"}
-        body["vs_open"] = {
-            name: _paired_excess(packed[window]["_daily"][name], open_stats["_daily"][name]) for name, _, _ in HORIZONS
-        }
         body["vs_qqq"] = {
             name: _paired_excess(packed[window]["_daily"][name], qqq_packed[window]["_daily"][name])
             for name, _, _ in HORIZONS
         }
+        body["avg_qualified"] = qualified[window]["avg"]
+        body["qualified_days"] = qualified[window]["n_days"]
         windows[window] = body
 
     best = _best_window(windows)
     qqq_body = {k: v for k, v in qqq_packed.get(best["window"] if best else "10:00", qqq_packed["10:00"]).items() if k != "_daily"}
     # QQQ displayed next to the intervals is the same-clock hold. Keep every window so the table can show one column.
     qqq_public = {}
-    for window in (*WINDOW_IDS, OPEN_WINDOW):
+    for window in WINDOW_IDS:
         qqq_public[window] = {k: v for k, v in qqq_packed[window].items() if k != "_daily"}
     return {
         "windows": windows,
         "qqq": qqq_public,
         "best": best,
         "primary_horizon": PRIMARY_HORIZON,
-        "weights": {"move": weights.move, "vs_qqq": weights.vs_qqq, "opening_range": weights.opening_range},
         "qqq_at_best": qqq_body,
     }
 
 
 def _best_window(windows: Mapping[str, Mapping]) -> Optional[dict]:
-    """Highest average close-to-close return at the primary horizon, then win rate. The open is not a candidate."""
+    """Highest average close-to-close return at the primary horizon, then win rate."""
     horizon = PRIMARY_HORIZON
 
     def rank_at(name: str) -> list[tuple]:
@@ -440,19 +415,18 @@ def _best_window(windows: Mapping[str, Mapping]) -> Optional[dict]:
         "stop_hit_rate": block["stop_hit_rate"],
         "n_days": block["n_days"],
         "n_trades": block["n_trades"],
-        "vs_open": windows[window]["vs_open"].get(horizon),
         "vs_qqq": windows[window]["vs_qqq"].get(horizon),
+        "avg_qualified": windows[window].get("avg_qualified"),
     }
 
 
-def definition_text(weights: Optional[IntervalWeights] = None) -> str:
-    weights = weights or IntervalWeights()
+def definition_text() -> str:
     return (
-        "Best at a check-in is the leader with the highest score from information known when that "
-        f"15-minute candle closes: {weights.move:g} × the percent move from the session open, "
-        f"{weights.vs_qqq:g} × that move minus QQQ's move, and {weights.opening_range:g} × where the "
-        "close sits in the opening range so far (+1 at the high, −1 at the low). "
-        "The entry is that candle's close. The stop is that candle's low."
+        "A name is bought at a check-in only after a 5-minute bar has closed above its 20-period RMA "
+        "(Wilder smoothing, the same average as TradingView ta.rma). Earlier sessions warm that average "
+        "so it is valid at the open; they do not count as the cross. The earliest cross is bought first. "
+        "The entry is the close of the 5-minute bar that ends at the check-in. "
+        "The stop is the low of the session from 9:30 through that bar."
     )
 
 

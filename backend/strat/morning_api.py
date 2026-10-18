@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query
 
 from . import config
 from .intraday import today_et
-from .morning import WINDOW_IDS, build_stats, definition_text, weights_from_env
+from .morning import WINDOW_IDS, build_stats, definition_text
 from .morning_store import (
     earliest_leader_date,
     latest_leader_date,
@@ -44,10 +44,13 @@ def cached_stats(force: bool = False) -> dict:
     rev = f"{config.CACHE_DB}:{revision()}"
     if not force and _CACHE["rev"] == rev and _CACHE["stats"] is not None:
         return _CACHE["stats"]
-    weights = weights_from_env()
-    stats = build_stats(results_between("0000-01-01", "9999-12-31", role="leader"), results_between("0000-01-01", "9999-12-31", role="benchmark"), weights)
+    stats = build_stats(
+        results_between("0000-01-01", "9999-12-31", role="leader"),
+        results_between("0000-01-01", "9999-12-31", role="benchmark"),
+        ranks_between("0000-01-01", "9999-12-31"),
+    )
     public = _round({k: v for k, v in stats.items() if k != "qqq_at_best"})
-    public["definition"] = definition_text(weights)
+    public["definition"] = definition_text()
     _CACHE["rev"] = rev
     _CACHE["stats"] = public
     return public
@@ -81,8 +84,11 @@ def week_payload(week: Optional[str] = None) -> dict:
         if slot is None:
             continue
         outcome = result_index.get((day, window, symbol), {})
+        qualified = int(rank.get("qualified") or 0) == 1 and int(rank["rank"]) < 100
         slot["windows"][window] = {
-            "rank": rank["rank"],
+            "rank": rank["rank"] if qualified else None,
+            "qualified": 1 if qualified else 0,
+            "cross_time": rank.get("cross_time"),
             "score": rank["score"],
             "day_move": rank["day_move"],
             "vs_qqq": rank["vs_qqq"],
@@ -100,20 +106,6 @@ def week_payload(week: Optional[str] = None) -> dict:
             "mae": outcome.get("mae"),
             "entry_price": outcome.get("entry_price"),
             "candle_low": outcome.get("candle_low"),
-        }
-    for (day, window, symbol), outcome in result_index.items():
-        if window != "open":
-            continue
-        slot = by_day.get(day, {}).get(symbol)
-        if slot is None or "open" in slot["windows"]:
-            continue
-        slot["windows"]["open"] = {
-            "eod_ret": outcome.get("eod_ret"),
-            "d1_ret": outcome.get("d1_ret"),
-            "d2_ret": outcome.get("d2_ret"),
-            "d3_ret": outcome.get("d3_ret"),
-            "d4_ret": outcome.get("d4_ret"),
-            "d5_ret": outcome.get("d5_ret"),
         }
 
     latest = latest_leader_date()

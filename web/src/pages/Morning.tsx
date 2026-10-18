@@ -77,14 +77,18 @@ function WeekRow({ row, mode }: { row: MorningRow; mode: MorningMode }) {
   const outcome = mode === "leaders" ? undefined : row.windows[mode];
   const ret = outcome?.d3_ret;
   const rank = shownRank(row, mode);
+  const skipped = mode !== "leaders" && outcome?.qualified === 0;
+  const cross = outcome?.cross_time;
   return (
-    <div className="week-row">
+    <div className={`week-row${skipped ? " is-skipped" : ""}`}>
       <span className="week-rank">{rank ?? "–"}</span>
       <TickerLogo symbol={row.symbol} />
       <Link className="week-sym" to={`/stock/${encodeURIComponent(row.symbol)}`}>
         {row.symbol}
       </Link>
-      {mode !== "leaders" && (
+      {mode !== "leaders" && cross && <span className="week-cross">{displayTime(cross)}</span>}
+      {mode !== "leaders" && skipped && <span className="week-skip">skipped</span>}
+      {mode !== "leaders" && !skipped && (
         <span className={`week-ret ${returnTone(ret)}`} title={outcomeLine(outcome)}>
           {signedPct(ret)}
         </span>
@@ -98,11 +102,21 @@ function WeekRow({ row, mode }: { row: MorningRow; mode: MorningMode }) {
   );
 }
 
-function StatCells({ stat, stopped }: { stat: WindowStat | undefined; stopped: boolean }) {
+function StatCells({
+  stat,
+  stopped,
+  qualified,
+}: {
+  stat: WindowStat | undefined;
+  stopped: boolean;
+  qualified: number | null;
+}) {
+  const qualifiedCell = <td className="num">{qualified == null ? "—" : qualified.toFixed(1)}</td>;
   if (!stat) {
     return (
       <>
         <td className="num">—</td>
+        {qualifiedCell}
         {COMPARE.map((h) => (
           <td key={h} className="num">—</td>
         ))}
@@ -116,6 +130,7 @@ function StatCells({ stat, stopped }: { stat: WindowStat | undefined; stopped: b
   return (
     <>
       <td className="num">{primary?.n_days || stat.n_days || "—"}</td>
+      {qualifiedCell}
       {COMPARE.map((h) => {
         const value = stat.horizons[h]?.avg;
         return (
@@ -179,9 +194,8 @@ export default function Morning() {
             <div className="best-time">{displayTime(best.window)}</div>
             <p>{sentence}</p>
             <p className="muted small">
-              {signedPct(best.vs_open)} versus buying the same names at the open
-              {" · "}
               {signedPct(best.vs_qqq)} versus QQQ from the same minute
+              {best.avg_qualified != null && ` · ${best.avg_qualified.toFixed(1)} names above the 20 RMA on average`}
               {" · "}
               {best.n_days} mornings. Names in one morning move together, so this is not {best.n_trades} separate bets.
             </p>
@@ -204,7 +218,7 @@ export default function Morning() {
       <p className="interval-note muted small">
         {mode === "leaders"
           ? "Top 10 at the prior close. The pill is the leadership score."
-          : `Best at ${displayTime(mode)}, from the move since the open, versus QQQ, and the opening range. The number is the +3 day return.`}
+          : `Bought once a 5-minute bar closes above the 20 RMA. Earliest cross first. The time is that cross; the number is the +3 day return. Names still under the average are skipped.`}
       </p>
 
       <section className="week-card card">
@@ -245,7 +259,7 @@ export default function Morning() {
       <section className="card morning-compare" aria-label="Check-in comparison">
         <div className="compare-head">
           <h2>How each time has done</h2>
-          <p className="muted small">Equal-weight basket of that day's top 10. Expectancy uses the candle-low stop. QQQ is the same clock, without a stop.</p>
+          <p className="muted small">Equal-weight basket of the names that had closed above the 20 RMA. Qualified is how many of the ten did, on average. The stop is the low of day through the entry bar. QQQ is the same clock, without a stop.</p>
         </div>
         <div className="table-card">
           <table className="scan-table morning-table">
@@ -253,6 +267,7 @@ export default function Morning() {
               <tr>
                 <th>Time</th>
                 <th className="num">Days</th>
+                <th className="num">Qualified</th>
                 {COMPARE.map((h) => (
                   <th key={h} className="num">{COMPARE_LABEL[h]}</th>
                 ))}
@@ -262,19 +277,15 @@ export default function Morning() {
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <th scope="row">Open</th>
-                <StatCells stat={stats?.windows.open} stopped={false} />
-              </tr>
               {CHECK_INS.map((id) => (
                 <tr key={id} className={best?.window === id ? "is-best" : undefined}>
                   <th scope="row">{displayTime(id)}</th>
-                  <StatCells stat={stats?.windows[id]} stopped />
+                  <StatCells stat={stats?.windows[id]} stopped qualified={stats?.windows[id]?.avg_qualified ?? null} />
                 </tr>
               ))}
               <tr>
                 <th scope="row">QQQ 10:00</th>
-                <StatCells stat={stats?.qqq["10:00"] as WindowStat | undefined} stopped={false} />
+                <StatCells stat={stats?.qqq["10:00"] as WindowStat | undefined} stopped={false} qualified={null} />
               </tr>
             </tbody>
           </table>

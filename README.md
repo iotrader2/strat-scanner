@@ -44,8 +44,8 @@ takes about a minute. The top bar shows a live indicator: *Updating · N symbols
 | `npm test` | Run the backend (pytest) and frontend (Vitest) unit tests |
 | `npm run typecheck` | Type-check the frontend |
 | `npm run backtest:leaders` | Cut the price cache off at historical dates and compare the old and new scoring (see [Backtest](#backtest)); add `-- --timeline` for the weekly rank of the reference leaders |
-| `npm run morning:collect` | Store each session's top 10 leaders (as of the prior close), pull the 15-minute bars Yahoo still has, and fill entry results. Safe to re-run |
-| `npm run morning:backfill` | The same window (12 months of leaders) and a rebuild of check-in ranks and outcomes from bars already stored. With `STRAT_INTRADAY_PROVIDER=alpaca` this is also how older 15-minute bars are filled |
+| `npm run morning:collect` | Store each session's top 10 leaders (as of the prior close), pull the 5-minute bars Yahoo still has, and fill entry results. Safe to re-run |
+| `npm run morning:backfill` | The same window (12 months of leaders) and a rebuild of check-in ranks and outcomes from the stored 5-minute bars. With `STRAT_INTRADAY_PROVIDER=alpaca` this is also how older 15-minute bars are filled |
 | `npm run morning:report` | Write `backend/data/morning_report.md`: win rate, average and median returns, stop-hit rate and expectancy at each morning time |
 
 Each has a `make` equivalent (`make refresh`, `make test`, ...). The `refresh`/`test` npm scripts assume a
@@ -71,7 +71,6 @@ Defaults can be changed with environment variables (the UI filters can also be c
 | `STRAT_INTRADAY_PROVIDER` | `yahoo` | Who serves 15-minute bars. `alpaca` is the optional backfill (free Basic plan, SIP, 15-minute delay) |
 | `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` | unset | Alpaca keys. `STRAT_ALPACA_KEY` and `STRAT_ALPACA_SECRET` are accepted too. Never commit them |
 | `STRAT_ALPACA_FEED` | `sip` | Alpaca feed. Leave this on `sip` for a backtest; `iex` is one exchange and a poor low |
-| `STRAT_MORNING_W_MOVE`, `STRAT_MORNING_W_QQQ`, `STRAT_MORNING_W_OR` | `1` | Weights for "best at this minute". Then `npm run morning:backfill` rebuilds ranks from stored bars |
 
 Example: `STRAT_MIN_PRICE=20 STRAT_MIN_DOLLAR_VOLUME=100000000 npm run dev`.
 
@@ -82,7 +81,7 @@ A single thread in the API process is the only thing that talks to Yahoo:
 - When the newest confirmed daily bar is older than the last completed session, it downloads history (5 days if the gap is small, 3 months if the cache is merely behind, 3 years for a symbol that has never been downloaded).
 - During the regular session (09:30–16:00 America/New_York, weekdays) it polls quotes at most every 15 minutes. Today's bar is kept beside the confirmed history, so a restart cannot overwrite a finished day with a partial one.
 - After each download it recomputes the scan and stores the rows in `scan_snapshot`. The next page load reads that snapshot immediately. Chart pages still build from the bar cache.
-- The history pass after the close also runs the morning-leader job for the last few sessions: the top 10 as of the prior close, that day's 15-minute bars, and the entry results. It does not run on the intraday quote poll.
+- The history pass after the close also runs the morning-leader job for the last few sessions: the top 10 as of the prior close, that day's 5-minute bars, and the entry results. It does not run on the intraday quote poll.
 - Browsers connect to `/ws` (proxied by Vite). They receive the snapshot on connect, a delta when the scan changes, and a ping every 15 seconds. If the socket drops, the page reconnects on its own and falls back to `GET /api/status` until it is back.
 - Splits are stored raw. A scan, a `STRAT_AS_OF` cut-off, and the backtest adjust a bar only by splits whose ex-date is on or before the date being viewed. A split that lands inside a forward-return window does not look like a crash.
 
@@ -528,27 +527,21 @@ for the direction of a change, not as a promise of future returns. The results o
 ## Morning Leaders
 
 The Morning Leaders tab is the opposite of a quote screen. It does not ask anyone to watch the tape.
-It shows the top 10 leaders at the prior close, then which of those names were strongest at **9:45, 10:00, 10:15, 10:30 and 10:45 ET**, and how buying at each of those closes has worked.
+It shows the top 10 leaders at the prior close, then which of those names had closed above the 20-period RMA by **9:45, 10:00, 10:15, 10:30 and 10:45 ET**, and how buying the ones that had has worked.
 
 ### No lookahead
 
-Leaders for session D are the live scanner's top 10 stocks (leadership score, leader gate, price and dollar-volume filters) computed on bars through **the previous session's close**. The same cut-off as `STRAT_AS_OF` and the backtest. Session D's bar is not an input. A check-in rank uses only 15-minute bars whose end is at or before that minute, and QQQ over that same span.
+Leaders for session D are the live scanner's top 10 stocks (leadership score, leader gate, price and dollar-volume filters) computed on bars through **the previous session's close**. The same cut-off as `STRAT_AS_OF` and the backtest. Session D's bar is not an input to the leader list. A check-in uses only 5-minute bars whose end is at or before that minute.
 
-### Best at that minute
+### Who gets bought
 
-Tunable, in one place (`IntervalWeights`, or the `STRAT_MORNING_W_*` variables):
+On the 5-minute chart a name qualifies once a bar **closes above** its 20-period RMA. That is Wilder's smoothing, the same average as TradingView `ta.rma`: the first value is a simple average of 20 closes, and each bar after that is `(close + 19 × previous) / 20`. Earlier sessions warm the average, so it already has a value at the open. A prior session's close above the average is not the cross. The cross is the first bar of this session.
 
-```
-score = move_weight × day move
-      + qqq_weight  × (day move − QQQ's move)
-      + or_weight   × opening-range score
-```
+A name that has not closed above the RMA by the check-in is not bought. Among the names that have, the earliest cross is first. Ties break by symbol. The cross time is stored with the pick.
 
-The day move is the percent change from the session open (the open of the 09:30 bar) to this candle's close. The opening-range score is +1 when the close is at the high of every bar so far, 0 in the middle, and −1 at the low. Missing QQQ adds nothing rather than a guess. Ties break by symbol. Defaults are 1, 1 and 1.
+The entry is the close of the 5-minute bar that ends at the check-in, not the close of the cross bar. The earliest buy is 9:45. The stop is the low of day so far: the lowest low from 9:30 through the end of that bar. The entry bar is not itself a stop (that low is already in the level). A later bar stops the trade when it trades below that low. Later bars the same day are walked in order. A bar that trades below the stop fills at the stop and does not donate its high, because the order inside one bar is unknown. Later sessions use the daily low the same way. Close-to-close returns are stored next to the stopped return.
 
-The trade buys that candle's close and stops at that candle's low. The entry candle is not itself a stop (its low printed before the close). Later bars the same day are walked in order; a bar that trades through the stop fills at the stop and does not donate its high, because the order inside one bar is unknown. Later sessions use the daily low the same way. Close-to-close returns are stored next to the stopped return.
-
-Average, median and win rate are the raw close-to-close hold, with each morning weighed once (the equal-weight basket of that day's ten). Expectancy is the same basket after the candle-low stop replaces the close on mornings that stop was hit. The summary picks the check-in with the highest average close-to-close return by **day 3**, and shows the stop-hit rate and stop-aware expectancy beside it. A one-bar wick sits too close to the fill to rank the times. The open buy (no stop) and QQQ held from the same minute are the benchmarks, paired on the mornings both sides have.
+Average, median and win rate are the raw close-to-close hold, with each morning weighed once (the equal-weight basket of the names that qualified). Expectancy is the same basket after the low-of-day stop replaces the close on trades that stop was hit. The summary picks the check-in with the highest average close-to-close return by **day 3**, and shows how many names qualified, the stop-hit rate and the stop-aware expectancy beside it. QQQ held from the same minute is the benchmark, paired on the mornings both sides have.
 
 ### What Yahoo will and will not give you
 
@@ -561,7 +554,7 @@ Checked on 2026-10-18:
 | 5-minute `period=60d` | The same 60 sessions |
 | 1-hour `period=730d` | Back to 2023-11-17 |
 
-`npm run morning:collect` stores leader snapshots for 12 months from the daily cache (no intraday vendor needed for the list) and 15-minute bars for whatever Yahoo still serves. Bars stay in SQLite, so each new session after the close extends the history. Re-running is a no-op for days that are already complete.
+`npm run morning:collect` stores leader snapshots for 12 months from the daily cache (no intraday vendor needed for the list), 5-minute bars for the leaders and QQQ inside Yahoo's window, and 15-minute bars for the same names. Bars stay in SQLite, so each new session after the close extends the history. Re-running is a no-op for days that are already complete.
 
 ### Schema
 
@@ -570,9 +563,9 @@ All in the existing cache (`STRAT_CACHE_DB`):
 | Table | Key | What it holds |
 | --- | --- | --- |
 | `leader_snapshots` | `(date, rank)` | The top 10 for that session: symbol, leadership score, RS, name, and `as_of` (the prior close) |
-| `intraday_bars` | `(symbol, ts, interval)` | Raw 15-minute bars. `ts` is the bar **end** in America/New_York (`2026-10-16T09:45:00`). `source` is `yahoo` or `alpaca` |
-| `interval_ranks` | `(date, window, rank)` | Best-at-that-minute order, the score, the day move, versus QQQ, and the opening-range position |
-| `entry_results` | `(date, symbol, window)` | Entry, candle low, EOD and +1..+5 close returns, stopped flag and day, stop return, MFE, MAE. `window` is `09:45` … `10:45` or `open`. `role` is `leader` or `benchmark` (QQQ) |
+| `intraday_bars` | `(symbol, ts, interval)` | Raw 5-minute and 15-minute bars. `ts` is the bar **end** in America/New_York (`2026-10-16T09:35:00` for the first 5-minute bar). `source` is `yahoo` or `alpaca` |
+| `interval_ranks` | `(date, window, rank)` | Who had closed above the 20 RMA, the cross time (`HH:MM`), and the buy order (earliest cross first). A name that had not crossed is stored with `qualified` 0 and is not a buy |
+| `entry_results` | `(date, symbol, window)` | Entry, low of day through the entry bar, EOD and +1..+5 close returns, stopped flag and day, stop return, MFE, MAE. Only names that qualified. `window` is `09:45` … `10:45`. `role` is `leader` or `benchmark` (QQQ) |
 | `intraday_gaps` | `(symbol, date, interval)` | A completed session the provider had nothing for, so the next run does not ask again |
 
 Prices are stored raw and adjusted on read with the same split table as the scanner. A split inside a hold is not a loss.
@@ -614,7 +607,7 @@ backend/
   strat/data.py       SQLite cache (bars, splits, session bar, scan snapshot, watchlist, positions, earnings, morning tables)
   strat/provider.py   MarketDataProvider; Yahoo is the Phase 1 daily implementation
   strat/intraday.py   15-minute providers (Yahoo, optional Alpaca)
-  strat/morning.py    check-in score, outcomes, expectancy (pure)
+  strat/morning.py    5-minute RMA cross, outcomes, expectancy (pure)
   strat/morning_collect.py  idempotent collector (`python -m strat.morning_collect`)
   strat/morning_report.py   backtest report (`python -m strat.morning_report`)
   strat/scheduler.py  when to download history vs poll the open session

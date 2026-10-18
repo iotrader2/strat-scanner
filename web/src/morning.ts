@@ -5,7 +5,9 @@ export type CheckIn = (typeof CHECK_INS)[number];
 export type MorningMode = "leaders" | CheckIn;
 
 export interface WindowOutcome {
-  rank?: number;
+  rank?: number | null;
+  qualified?: number | null;
+  cross_time?: string | null;
   score?: number;
   day_move?: number | null;
   vs_qqq?: number | null;
@@ -55,8 +57,9 @@ export interface WindowStat {
   n_days: number;
   n_trades: number;
   horizons: Record<string, HorizonStat>;
-  vs_open: Record<string, number | null>;
   vs_qqq: Record<string, number | null>;
+  avg_qualified?: number | null;
+  qualified_days?: number;
 }
 
 export interface BestWindow {
@@ -69,8 +72,8 @@ export interface BestWindow {
   stop_hit_rate: number | null;
   n_days: number;
   n_trades: number;
-  vs_open: number | null;
   vs_qqq: number | null;
+  avg_qualified?: number | null;
 }
 
 export interface MorningStats {
@@ -78,7 +81,6 @@ export interface MorningStats {
   qqq: Record<string, { n_days: number; n_trades: number; horizons: Record<string, HorizonStat> }>;
   best: BestWindow | null;
   primary_horizon: string;
-  weights: { move: number; vs_qqq: number; opening_range: number };
   definition: string;
 }
 
@@ -110,29 +112,38 @@ export function returnTone(value: number | null | undefined): "up" | "down" | "f
   return value > 0 ? "up" : "down";
 }
 
+function checkInOrder(row: MorningRow, mode: CheckIn): number {
+  const outcome = row.windows[mode];
+  if (!outcome || outcome.qualified === 0 || outcome.rank == null || outcome.rank >= 100) return 1000;
+  return outcome.rank;
+}
+
 export function orderedRows(rows: MorningRow[], mode: MorningMode): MorningRow[] {
   if (mode === "leaders") return [...rows].sort((a, b) => a.rank - b.rank || a.symbol.localeCompare(b.symbol));
-  return [...rows].sort((a, b) => {
-    const left = a.windows[mode]?.rank ?? 100;
-    const right = b.windows[mode]?.rank ?? 100;
-    return left - right || a.rank - b.rank;
-  });
+  return [...rows].sort((a, b) => checkInOrder(a, mode) - checkInOrder(b, mode) || a.rank - b.rank);
 }
 
 export function shownRank(row: MorningRow, mode: MorningMode): number | null {
   if (mode === "leaders") return row.rank;
-  const rank = row.windows[mode]?.rank;
-  return rank == null ? null : rank;
+  const outcome = row.windows[mode];
+  if (!outcome || outcome.qualified === 0 || outcome.rank == null || outcome.rank >= 100) return null;
+  return outcome.rank;
 }
 
 export function outcomeLine(outcome: WindowOutcome | undefined): string {
   if (!outcome) return "No print at this time";
+  if (outcome.qualified === 0) {
+    return outcome.cross_time
+      ? `Crossed at ${displayTime(outcome.cross_time)}, no fill at this check-in`
+      : "Has not closed above the 20 RMA";
+  }
   const hold = [
     `EOD ${signedPct(outcome.eod_ret)}`,
     `+1d ${signedPct(outcome.d1_ret)}`,
     `+3d ${signedPct(outcome.d3_ret)}`,
     `+5d ${signedPct(outcome.d5_ret)}`,
   ];
+  if (outcome.cross_time) hold.unshift(`crossed ${displayTime(outcome.cross_time)}`);
   if (outcome.stopped) {
     const when = outcome.stop_day === 0 ? "same day" : `day +${outcome.stop_day}`;
     hold.push(`stopped ${when} (${signedPct(outcome.stop_ret)})`);
@@ -152,6 +163,6 @@ export function bestSentence(best: BestWindow | null): string | null {
   const stop =
     best.stop_hit_rate == null
       ? ""
-      : ` A stop at that candle's low was hit ${Math.round(best.stop_hit_rate * 100)}% of the time (expectancy ${signedPct(best.expectancy)}).`;
-  return `Buying the day's top 10 at the ${displayTime(best.window)} close returned ${signedPct(best.avg)} on average by ${when}.${win}${stop}`;
+      : ` A stop at the low of day through that bar was hit ${Math.round(best.stop_hit_rate * 100)}% of the time (expectancy ${signedPct(best.expectancy)}).`;
+  return `Buying the names above the 20 RMA at the ${displayTime(best.window)} close returned ${signedPct(best.avg)} on average by ${when}.${win}${stop}`;
 }

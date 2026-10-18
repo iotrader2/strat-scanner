@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import config
 from .intraday import YAHOO_15M_LOOKBACK_DAYS
-from .morning import PRIMARY_HORIZON, WINDOW_IDS, definition_text, weights_from_env
+from .morning import WINDOW_IDS, definition_text
 from .morning_api import cached_stats
 from .morning_store import counts
 
@@ -29,81 +29,74 @@ def _rate(value) -> str:
     return f"{value * 100:.1f}%"
 
 
+def _count(value) -> str:
+    if value is None:
+        return "—"
+    return f"{value:.1f}"
+
+
 def render(stats: dict, meta: dict) -> str:
-    weights = stats.get("weights") or {}
     lines = [
         "# Morning leaders",
         "",
-        "Which of the five morning check-ins is the best time to buy that day's leaders.",
-        "Leaders are the scanner's top 10 stocks as of the **prior close**. The check-in rank uses only",
-        "the 15-minute bars that have closed by that time. Nothing here looks ahead.",
+        "Which of the five morning check-ins is the best time to buy the leaders that have qualified.",
+        "Leaders are the scanner's top 10 stocks as of the **prior close**. A name is bought only after a",
+        "5-minute bar has closed above its 20-period RMA. Nothing here looks ahead.",
         "",
-        definition_text(weights_from_env()),
+        definition_text(),
         "",
         "## What was collected",
         "",
         f"- Leader sessions stored: {meta['leader_days']} ({meta['leader_rows']} rows).",
-        f"- 15-minute bars stored: {meta['bar_rows']} "
-        f"({meta['bar_start'] or '—'} → {meta['bar_end'] or '—'}).",
+        f"- 5-minute bars stored: {meta.get('bar_rows_5m', 0)} "
+        f"({meta.get('bar_start_5m') or '—'} → {meta.get('bar_end_5m') or '—'}).",
+        f"- 15-minute bars stored: {meta.get('bar_rows_15m', meta['bar_rows'])} "
+        f"({meta.get('bar_start_15m') or meta['bar_start'] or '—'} → {meta.get('bar_end_15m') or meta['bar_end'] or '—'}).",
         f"- Bar sources: {meta['bar_sources'] or 'none yet'}.",
         f"- Sessions with entry results: {meta['result_days']}.",
-        f"- Yahoo 15-minute history is about the last {YAHOO_15M_LOOKBACK_DAYS} calendar days. "
-        "Older sessions keep their leader snapshot and, once a backfill provider has filled them, their bars.",
+        f"- Yahoo 5-minute and 15-minute history is about the last {YAHOO_15M_LOOKBACK_DAYS} calendar days "
+        f"(`period=60d`, 60 sessions). Older sessions keep their leader snapshot.",
         "",
-        "Sample-size caveat: each morning's ten names move together, so 40 mornings are not 400 independent bets.",
-        "The win rate and expectancy below are computed on the equal-weight basket of the day's top 10, one number per morning.",
+        "Sample-size caveat: the names bought in one morning move together, so 40 mornings are not 400 independent bets.",
+        "The win rate and expectancy below are the equal-weight basket of the names that qualified, one number per morning.",
+        "Mornings when nobody had crossed are left out of the return columns and included in the qualified average.",
         "A split inside the hold is adjusted out; it is not a loss.",
         "",
         "## By check-in",
         "",
-        "EOD through +5d are close-to-close holds (no stop). Expectancy replaces the close with the candle-low stop once that low has been hit.",
-        "The open row buys every leader at the session open. QQQ is the same clock-time hold. vs QQQ is the basket minus that hold.",
+        "Qualified is the average number of the top 10 that had closed above the 20 RMA by that check-in, including mornings when the count was zero.",
+        "EOD through +5d are close-to-close holds of the names that were bought. Expectancy replaces the close with the low-of-day stop once a later bar has traded below it.",
+        "The stop is the session low from 9:30 through the entry bar. 9:45 is the earliest buy. QQQ is the same clock-time hold, without a stop. vs QQQ is the basket minus that hold.",
         "",
     ]
-    header = "| Window | Days | EOD | +1d | +3d | +5d | Win +3d | Stop hit | Expectancy +3d | vs open +3d | vs QQQ +3d |"
+    header = "| Window | Days | Qualified | EOD | +1d | +3d | +5d | Win +3d | Stop hit | Expectancy +3d | vs QQQ +3d |"
     sep = "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     lines.extend([header, sep])
-    order = ["open", *WINDOW_IDS]
-    for window in order:
+    for window in WINDOW_IDS:
         block = (stats.get("windows") or {}).get(window)
         if not block:
             continue
         h = block["horizons"]
-        label = "Open" if window == "open" else window
         lines.append(
             "| "
             + " | ".join(
                 [
-                    label,
+                    window,
                     str(h["d3"]["n_days"] or h["eod"]["n_days"]),
+                    _count(block.get("avg_qualified")),
                     _pct(h["eod"]["avg"]),
                     _pct(h["d1"]["avg"]),
                     _pct(h["d3"]["avg"]),
                     _pct(h["d5"]["avg"]),
                     _rate(h["d3"]["win_rate"]),
-                    _rate(h["d3"]["stop_hit_rate"]) if window != "open" else "—",
-                    _pct(h["d3"]["expectancy"]) if window != "open" else _pct(h["d3"]["avg"]),
-                    _pct(block["vs_open"].get("d3")) if window != "open" else "—",
+                    _rate(h["d3"]["stop_hit_rate"]),
+                    _pct(h["d3"]["expectancy"]),
                     _pct(block["vs_qqq"].get("d3")),
                 ]
             )
             + " |"
         )
     best = stats.get("best")
-    open_days = ((stats.get("windows") or {}).get("open") or {}).get("horizons", {}).get("d3", {}).get("n_days") or 0
-    checkin_days = [
-        ((stats.get("windows") or {}).get(w) or {}).get("horizons", {}).get("d3", {}).get("n_days") or 0 for w in WINDOW_IDS
-    ]
-    widest = max(checkin_days) if checkin_days else 0
-    if open_days and widest and open_days > widest + 5:
-        lines.extend(
-            [
-                "",
-                f"The open row is {open_days} mornings of daily data. The five check-ins are {widest} mornings, "
-                "which is as far as the 15-minute bars go. \"vs open\" and \"vs QQQ\" use only the mornings both sides have.",
-                "",
-            ]
-        )
     lines.extend(["", "## Best time to buy leaders", ""])
     if not best:
         lines.append("Not enough completed holds to choose a check-in yet.")
@@ -117,34 +110,21 @@ def render(stats: dict, meta: dict) -> str:
         )
         lines.append("")
         lines.append(
-            f"A stop at that candle's low was hit {_rate(best['stop_hit_rate'])} of the time by {horizon}. "
-            f"The stop-aware expectancy is {_pct(best['expectancy'])}. "
-            "The stop is one 15-minute wick, so it sits close to the fill."
+            f"On average {_count(best.get('avg_qualified'))} of the ten leaders had closed above the 20 RMA by {best['window']}."
         )
         lines.append("")
         lines.append(
-            f"Against buying the same names at the open: {_pct(best.get('vs_open'))}. "
-            f"Against holding QQQ from the same minute: {_pct(best.get('vs_qqq'))}."
+            f"A stop at the low of day through that bar was hit {_rate(best['stop_hit_rate'])} of the time by {horizon}. "
+            f"The stop-aware expectancy is {_pct(best['expectancy'])}."
         )
+        lines.append("")
+        lines.append(f"Against holding QQQ from the same minute: {_pct(best.get('vs_qqq'))}.")
         lines.append("")
         lines.append(
             "That is a description of this sample, not a promise. Overlapping holds, a short window, and "
             "today's index membership (survivorship) all apply."
         )
-    lines.extend(
-        [
-            "",
-            "## Weights",
-            "",
-            f"- Move from the open: {weights.get('move', 1)}",
-            f"- Excess versus QQQ: {weights.get('vs_qqq', 1)}",
-            f"- Opening-range position: {weights.get('opening_range', 1)}",
-            "",
-            "Change them with `STRAT_MORNING_W_MOVE`, `STRAT_MORNING_W_QQQ` and `STRAT_MORNING_W_OR`, "
-            "then `npm run morning:backfill` to rebuild ranks and outcomes from the stored bars.",
-            "",
-        ]
-    )
+    lines.append("")
     return "\n".join(lines)
 
 

@@ -1,11 +1,11 @@
-"""Build morning-leader history: point-in-time top 10, 15-minute bars, check-in ranks, outcomes.
+"""Build morning-leader history: point-in-time top 10, 5-minute bars, RMA crosses, outcomes.
 
 Idempotent. A date that already has its snapshot, its bars and a finished +5 day result is left
-alone. ``--recompute`` rebuilds ranks and outcomes from the bars on disk without downloading
-again, which is how a weight change is applied.
+alone. ``--recompute`` rebuilds ranks and outcomes from the stored 5-minute bars.
 
 Leaders for session D are the scanner's top 10 stocks as of the previous session's close
 (the same cut-off as ``STRAT_AS_OF`` / the backtest). The session D bar is not an input.
+A name is bought at a check-in only after a 5-minute bar has closed above its 20-period RMA.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import argparse
 import sys
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -21,19 +22,16 @@ import pandas as pd
 from . import config, data
 from .adjust import apply_splits
 from .backtest import _as_of_frames
-from .intraday import get_intraday_provider, today_et
 from .leadership import BENCHMARK, is_leader
+from .intraday import YahooIntraday, get_intraday_provider, today_et
 from .morning import (
     BENCHMARK as QQQ,
-    OPEN_WINDOW,
     TOP_N,
     WINDOW_IDS,
-    IntervalWeights,
-    interval_features,
-    open_entry,
+    cross_through,
+    entry_at,
     outcome_for_entry,
-    rank_at_window,
-    weights_from_env,
+    session_low_through,
     window_end,
 )
 from .morning_store import (
@@ -42,6 +40,7 @@ from .morning_store import (
     delete_day,
     gap_dates,
     incomplete_result_dates,
+    latest_bar_day,
     leader_dates,
     load_bars,
     mark_gap,
@@ -170,55 +169,70 @@ def compute_day(
     intraday: dict[str, pd.DataFrame],
     daily: dict[str, pd.DataFrame],
     calendar: list[str],
-    weights: IntervalWeights,
 ) -> tuple[list[dict], list[dict], list[dict]]:
-    """Interval ranks, leader outcomes (including the open buy) and QQQ holds for one session."""
+    """Ranks, buys and QQQ holds for one session. 9:45 is the earliest buy.
+
+    ``intraday`` is the full 5-minute history (prior sessions included) so the 20 RMA is warm.
+    Only a close above that average *today*, at or before the check-in, qualifies a name.
+    """
     forward = [pd.Timestamp(d) for d in calendar if d > day][:5]
     entry_day = pd.Timestamp(day)
-    bars = {sym: _day_bars(intraday.get(sym), day) for sym in (*symbols, QQQ)}
+    series = {sym: intraday.get(sym) for sym in (*symbols, QQQ)}
     rank_rows: list[dict] = []
     leader_rows: list[dict] = []
     qqq_rows: list[dict] = []
-    qqq_bars = bars.get(QQQ)
+    qqq_bars = series.get(QQQ)
 
     for label in WINDOW_IDS:
         end = window_end(day, label)
-        features = {sym: interval_features(bars.get(sym), qqq_bars, end) for sym in symbols}
-        for row in rank_at_window(features, weights):
-            rank_rows.append(
+        considered = []
+        for sym in symbols:
+            bars = series.get(sym)
+            cross = cross_through(bars, end)
+            entry = entry_at(bars, end)
+            stop = session_low_through(bars, end)
+            qualified = cross is not None and entry is not None and stop is not None
+            considered.append(
                 {
-                    "window": label,
-                    "rank": row["rank"],
-                    "symbol": row["symbol"],
-                    "score": row["score"],
-                    "day_move": row["day_move"],
-                    "vs_qqq": row["vs_qqq"],
-                    "or_position": row["or_position"],
+                    "symbol": sym,
+                    "qualified": qualified,
+                    "cross": cross,
+                    "entry": entry,
+                    "stop": stop,
+                    "bars": bars,
                 }
             )
-        for sym, feat in features.items():
-            if not feat:
-                continue
-            outcome = outcome_for_entry(
-                entry=feat["entry_price"],
-                stop=feat["candle_low"],
-                day_bars=bars.get(sym),
-                entry_end=end,
-                daily=daily.get(sym),
-                entry_day=entry_day,
-                forward_days=forward,
+        bought = sorted((row for row in considered if row["qualified"]), key=lambda row: (row["cross"], row["symbol"]))
+        skipped = sorted((row for row in considered if not row["qualified"]), key=lambda row: row["symbol"])
+        for rank, row in enumerate(bought, start=1):
+            rank_rows.append(_rank_row(label, rank, row))
+            leader_rows.append(
+                {
+                    "symbol": row["symbol"],
+                    "window": label,
+                    **outcome_for_entry(
+                        entry=row["entry"],
+                        stop=row["stop"],
+                        day_bars=_session_bars(row["bars"], day),
+                        entry_end=end,
+                        daily=daily.get(row["symbol"]),
+                        entry_day=entry_day,
+                        forward_days=forward,
+                    ),
+                }
             )
-            leader_rows.append({"symbol": sym, "window": label, **outcome})
-        q_feat = interval_features(qqq_bars, qqq_bars, end)
-        if q_feat:
+        for offset, row in enumerate(skipped):
+            rank_rows.append(_rank_row(label, 100 + offset, row))
+        q_entry = entry_at(qqq_bars, end)
+        if q_entry is not None:
             qqq_rows.append(
                 {
                     "symbol": QQQ,
                     "window": label,
                     **outcome_for_entry(
-                        entry=q_feat["entry_price"],
+                        entry=q_entry,
                         stop=None,
-                        day_bars=qqq_bars,
+                        day_bars=_session_bars(qqq_bars, day),
                         entry_end=end,
                         daily=daily.get(QQQ),
                         entry_day=entry_day,
@@ -226,44 +240,30 @@ def compute_day(
                     ),
                 }
             )
-
-    for sym in symbols:
-        entry = open_entry(bars.get(sym), daily.get(sym), entry_day)
-        if entry is None:
-            continue
-        leader_rows.append(
-            {
-                "symbol": sym,
-                "window": OPEN_WINDOW,
-                **outcome_for_entry(
-                    entry=entry,
-                    stop=None,
-                    day_bars=bars.get(sym),
-                    entry_end=None,
-                    daily=daily.get(sym),
-                    entry_day=entry_day,
-                    forward_days=forward,
-                ),
-            }
-        )
-    q_entry = open_entry(qqq_bars, daily.get(QQQ), entry_day)
-    if q_entry is not None:
-        qqq_rows.append(
-            {
-                "symbol": QQQ,
-                "window": OPEN_WINDOW,
-                **outcome_for_entry(
-                    entry=q_entry,
-                    stop=None,
-                    day_bars=qqq_bars,
-                    entry_end=None,
-                    daily=daily.get(QQQ),
-                    entry_day=entry_day,
-                    forward_days=forward,
-                ),
-            }
-        )
     return rank_rows, leader_rows, qqq_rows
+
+
+def _session_bars(bars: Optional[pd.DataFrame], day: str) -> Optional[pd.DataFrame]:
+    """One regular session. The outcome walk must not see the next day's 5-minute bars."""
+    if bars is None or bars.empty:
+        return bars
+    start = pd.Timestamp(day)
+    return bars.loc[(bars.index >= start) & (bars.index < start + pd.Timedelta(days=1))]
+
+
+def _rank_row(label: str, rank: int, row: dict) -> dict:
+    cross = row["cross"]
+    return {
+        "window": label,
+        "rank": rank,
+        "symbol": row["symbol"],
+        "score": 0.0,
+        "day_move": None,
+        "vs_qqq": None,
+        "or_position": None,
+        "qualified": int(row["qualified"]),
+        "cross_time": None if cross is None else pd.Timestamp(cross).strftime("%H:%M"),
+    }
 
 
 def snapshot_leaders(
@@ -347,12 +347,16 @@ def fetch_missing_bars(
     return saved
 
 
+def _has_session(bars: Optional[pd.DataFrame], day: str) -> bool:
+    frame = _session_bars(bars, day)
+    return frame is not None and not frame.empty
+
+
 def recompute_results(
     days: list[str],
     calendar: list[str],
     raw_daily: dict[str, pd.DataFrame],
     splits: dict,
-    weights: IntervalWeights,
     db_path: Path | None,
     *,
     force: bool = False,
@@ -374,22 +378,77 @@ def recompute_results(
     symbols = sorted({sym for day in days for sym in by_day.get(day, [])} | {QQQ})
     if not symbols:
         return 0
-    start, end = min(days), max(calendar)
-    intraday = _adjust_frames(load_bars(symbols, start, end, db_path=db_path), splits, end)
+    end = max(calendar) if calendar else max(days)
+    # Every stored 5-minute bar, not only the mornings being scored: earlier sessions warm the RMA.
+    intraday = _adjust_frames(
+        load_bars(symbols, "1990-01-01", end, interval="5m", db_path=db_path),
+        splits,
+        end,
+    )
     # Daily frames are already raw. Adjust through the last session so a split inside a hold is not a crash.
-    daily = _adjust_frames(raw_daily, splits, calendar[-1] if calendar else end)
+    daily = _adjust_frames(raw_daily, splits, end)
     _log(f"Computing check-in ranks and outcomes for {len(days)} sessions")
     written = 0
     for day in days:
         names = by_day.get(day, [])
         if not names:
             continue
-        ranks, leader_rows, qqq_rows = compute_day(day, names, intraday, daily, calendar, weights)
+        # A morning with no 5-minute tape is not a zero-qualification day. Drop the old 15-minute result.
+        if not any(_has_session(intraday.get(sym), day) for sym in (*names, QQQ)):
+            replace_ranks(day, [], db_path)
+            replace_results(day, [], role="leader", db_path=db_path)
+            replace_results(day, [], role="benchmark", db_path=db_path)
+            written += 1
+            continue
+        ranks, leader_rows, qqq_rows = compute_day(day, names, intraday, daily, calendar)
         replace_ranks(day, ranks, db_path)
         replace_results(day, leader_rows, role="leader", db_path=db_path)
         replace_results(day, qqq_rows, role="benchmark", db_path=db_path)
         written += 1
     return written
+
+
+def fetch_five_minute(db_path: Path | None, calendar: list[str], today: date) -> int:
+    """Yahoo 5-minute bars for recent leaders and QQQ. An empty reply is retried next run.
+
+    The request is ``period=60d`` (about 60 sessions). Prior sessions in that window warm the
+    20-period RMA, so the average is already valid at the open. Missing days are not recorded as
+    gaps: a partial window should be asked for again.
+    """
+    last = None
+    for day in calendar:
+        if day <= today.isoformat() and session_is_complete(day, today):
+            last = day
+    if last is None:
+        return 0
+    cutoff = (date.fromisoformat(last) - timedelta(days=80)).isoformat()
+    symbols = {QQQ}
+    for row in all_leaders(db_path):
+        if cutoff <= row["date"] <= last:
+            symbols.add(row["symbol"])
+    have = latest_bar_day(symbols, "5m", db_path)
+    missing = sorted(sym for sym in symbols if have.get(sym, "") < last)
+    if not missing:
+        _log(f"5-minute bars already cover {len(symbols)} symbols through {last}")
+        return 0
+    # Older than the lookback, so the client uses period=60d and keeps the whole reply.
+    start = today - timedelta(days=120)
+    end = date.fromisoformat(last)
+    _log(f"Fetching 5-minute bars for {len(missing)} symbols through {end}, via yahoo")
+    fetched = YahooIntraday(interval="5m").fetch(missing, start, end)
+    if not fetched:
+        _log("Yahoo returned no 5-minute bars; leaving them to retry")
+        return 0
+    saved = 0
+    got = 0
+    for symbol in missing:
+        frame = fetched.get(symbol)
+        if frame is None or frame.empty:
+            continue
+        saved += save_bars(symbol, frame, "5m", "yahoo", db_path)
+        got += 1
+    _log(f"Stored {saved} five-minute bars for {got} of {len(missing)} symbols")
+    return saved
 
 
 def wanted_bars(db_path: Path | None, days: list[str]) -> set[tuple[str, str]]:
@@ -472,13 +531,10 @@ def run(
     if not skip_bars and completed:
         provider = get_intraday_provider(provider_name)
         saved = fetch_missing_bars(provider, wanted_bars(db_path, completed), db_path, today=today)
+        saved += fetch_five_minute(db_path, calendar, today)
     # Outcomes also need the forward daily bars, so pass the full calendar, not only buy_dates.
-    result_days = completed if (recompute or sessions is None) else completed
-    if sessions is not None and not recompute:
-        result_days = completed
-    updated = recompute_results(
-        result_days, calendar, raw, splits, weights_from_env(), db_path, force=recompute
-    )
+    result_days = completed
+    updated = recompute_results(result_days, calendar, raw, splits, db_path, force=recompute)
     _log(f"Done. New leader sessions: {written}. Bars upserted: {saved}. Result sessions: {updated}.")
     return {"leaders": written, "bars": saved, "results": updated}
 
@@ -489,7 +545,7 @@ def collect_recent(sessions: int = 8, db_path: Path | None = None) -> dict:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Collect morning leaders, 15-minute bars and entry results")
+    parser = argparse.ArgumentParser(description="Collect morning leaders, 5-minute bars and entry results")
     parser.add_argument("--months", type=int, default=12, help="how many months of leader sessions to keep filled (default 12)")
     parser.add_argument("--sessions", type=int, default=None, help="only the last N sessions (the daily job)")
     parser.add_argument("--recompute", action="store_true", help="rebuild ranks and outcomes from stored bars")

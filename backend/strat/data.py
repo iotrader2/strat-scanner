@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS interval_ranks (
     day_move    REAL,
     vs_qqq      REAL,
     or_position REAL,
+    qualified   INTEGER NOT NULL DEFAULT 1,
+    cross_time  TEXT,
     PRIMARY KEY (date, window, rank)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_interval_ranks_symbol ON interval_ranks(date, window, symbol);
@@ -152,6 +154,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(extra_symbols)")}
     if "industry" not in cols:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
+    rank_cols = {r[1] for r in conn.execute("PRAGMA table_info(interval_ranks)")}
+    if rank_cols and "qualified" not in rank_cols:
+        conn.execute("ALTER TABLE interval_ranks ADD COLUMN qualified INTEGER NOT NULL DEFAULT 1")
+    if rank_cols and "cross_time" not in rank_cols:
+        conn.execute("ALTER TABLE interval_ranks ADD COLUMN cross_time TEXT")
 
 _write_lock = threading.Lock()
 

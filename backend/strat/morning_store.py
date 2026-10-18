@@ -9,7 +9,9 @@ from typing import Iterable, Optional, Sequence
 from . import data
 
 LEADER_FIELDS = ("date", "rank", "symbol", "score", "rs", "name", "as_of")
-RANK_FIELDS = ("date", "window", "rank", "symbol", "score", "day_move", "vs_qqq", "or_position")
+RANK_FIELDS = (
+    "date", "window", "rank", "symbol", "score", "day_move", "vs_qqq", "or_position", "qualified", "cross_time",
+)
 RESULT_FIELDS = (
     "date", "symbol", "window", "entry_price", "candle_low",
     "eod_ret", "d1_ret", "d2_ret", "d3_ret", "d4_ret", "d5_ret",
@@ -190,14 +192,15 @@ def replace_ranks(day: str, rows: Sequence[dict], db_path: Path | None = None) -
         (
             day, r["window"], int(r["rank"]), r["symbol"], float(r["score"]),
             r.get("day_move"), r.get("vs_qqq"), r.get("or_position"),
+            int(r.get("qualified", 1)), r.get("cross_time"),
         )
         for r in rows
     ]
     with data._write_lock, data.connect(db_path) as conn:
         conn.execute("DELETE FROM interval_ranks WHERE date = ?", (day,))
         conn.executemany(
-            "INSERT INTO interval_ranks(date, window, rank, symbol, score, day_move, vs_qqq, or_position) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO interval_ranks(date, window, rank, symbol, score, day_move, vs_qqq, or_position, qualified, cross_time) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             payload,
         )
 
@@ -206,10 +209,25 @@ def ranks_between(start: str, end: str, db_path: Path | None = None) -> list[dic
     with data.connect(db_path) as conn:
         return _rows(
             conn,
-            "SELECT date, window, rank, symbol, score, day_move, vs_qqq, or_position FROM interval_ranks "
-            "WHERE date >= ? AND date <= ? ORDER BY date, window, rank",
+            "SELECT date, window, rank, symbol, score, day_move, vs_qqq, or_position, qualified, cross_time "
+            "FROM interval_ranks WHERE date >= ? AND date <= ? ORDER BY date, window, rank",
             (start, end),
         )
+
+
+def latest_bar_day(symbols: Iterable[str], interval: str, db_path: Path | None = None) -> dict[str, str]:
+    """Newest stored session (YYYY-MM-DD) per symbol for one interval."""
+    symbols = list(dict.fromkeys(symbols))
+    if not symbols:
+        return {}
+    marks = ",".join("?" for _ in symbols)
+    with data.connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT symbol, MAX(substr(ts, 1, 10)) FROM intraday_bars "
+            f"WHERE interval = ? AND symbol IN ({marks}) GROUP BY symbol",
+            (interval, *symbols),
+        ).fetchall()
+    return {symbol: day for symbol, day in rows if day}
 
 
 def replace_results(day: str, rows: Sequence[dict], *, role: str, db_path: Path | None = None) -> None:
@@ -292,7 +310,16 @@ def revision(db_path: Path | None = None) -> str:
     with data.connect(db_path) as conn:
         leaders = conn.execute("SELECT COUNT(*), MAX(date) FROM leader_snapshots").fetchone()
         results = conn.execute("SELECT COUNT(*), MAX(date) FROM entry_results").fetchone()
-    return f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}"
+        ranks = conn.execute("SELECT COUNT(*), MAX(date) FROM interval_ranks").fetchone()
+    return f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}"
+
+
+def _bar_span(conn, interval: str) -> tuple[int, Optional[str], Optional[str]]:
+    row = conn.execute(
+        "SELECT COUNT(*), MIN(ts), MAX(ts) FROM intraday_bars WHERE interval = ?",
+        (interval,),
+    ).fetchone()
+    return int(row[0] or 0), row[1], row[2]
 
 
 def counts(db_path: Path | None = None) -> dict:
@@ -300,9 +327,11 @@ def counts(db_path: Path | None = None) -> dict:
         days = conn.execute("SELECT COUNT(DISTINCT date) FROM leader_snapshots").fetchone()[0]
         names = conn.execute("SELECT COUNT(*) FROM leader_snapshots").fetchone()[0]
         bars = conn.execute("SELECT COUNT(*), MIN(ts), MAX(ts) FROM intraday_bars").fetchone()
+        five = _bar_span(conn, "5m")
+        fifteen = _bar_span(conn, "15m")
         sources = conn.execute("SELECT source, COUNT(DISTINCT symbol) FROM intraday_bars GROUP BY source").fetchall()
         results = conn.execute(
-            "SELECT COUNT(DISTINCT date) FROM entry_results WHERE role = 'leader' AND window != 'open'"
+            "SELECT COUNT(DISTINCT date) FROM entry_results WHERE role = 'leader'"
         ).fetchone()[0]
     return {
         "leader_days": int(days or 0),
@@ -310,6 +339,12 @@ def counts(db_path: Path | None = None) -> dict:
         "bar_rows": int(bars[0] or 0),
         "bar_start": bars[1],
         "bar_end": bars[2],
+        "bar_rows_5m": five[0],
+        "bar_start_5m": five[1],
+        "bar_end_5m": five[2],
+        "bar_rows_15m": fifteen[0],
+        "bar_start_15m": fifteen[1],
+        "bar_end_15m": fifteen[2],
         "bar_sources": {src: int(n) for src, n in sources},
         "result_days": int(results or 0),
     }
