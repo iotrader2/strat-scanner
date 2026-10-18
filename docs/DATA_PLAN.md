@@ -8,14 +8,17 @@ Prices and terms below were read from vendor pages on **18 October 2026** unless
 
 Build one backend fetcher and fan its result out to every browser. Swap the upstream vendor with configuration. Do not buy a personal or free plan and then show that vendor's prices to other people.
 
-| Phase | Who sees the app | Data budget | Use | Update cadence | License |
+| Stage | Who sees the app | Data budget | Use | What they see | License |
 | --- | --- | --- | --- | --- | --- |
-| 1 | You only | $0 | Yahoo Finance via `yfinance` 1.7.0, behind a provider interface | Background poll every 15 minutes in the regular session, plus one end-of-day history job | Personal / research. Not a multi-user product. |
-| 2 | You only | $29/month | [Massive](https://massive.com) Stocks Starter (formerly Polygon.io) | Same 15-minute cadence, but from one full-market snapshot. Minute aggregates exist and are 15 minutes delayed. | Personal, non-professional. Still not a multi-user product. |
-| 3 | You only | $199/month | Massive Stocks Advanced | Real-time aggregates and quotes on one upstream WebSocket | Personal, non-professional. Still not a multi-user product. |
-| Multi-user | Other people, including paid subscribers | Not inside $200 | Massive Stocks Business, list price **$2,499/month**, or a written redistribution deal from another vendor | Real-time proprietary fair-market-value on the Business plan; exchange tape is an extra add-on | Display and redistribution. This is the first tier that matches "one fetcher, N users" if those users see prices or charts. |
+| 1. Owner | You only | $0 | Yahoo via `yfinance`, one background fetcher | Full UI: prices, candles, scores | Personal. Local only. |
+| 2. Friends | A few friends | $0 until a vendor says otherwise | Same fetcher | **Derived results only** (ranks, scores, leader status, setup labels). No prices, no candles. | Still redistribution. Do not turn this on until Massive (or another vendor) confirms it in writing. |
+| 3. Founder subscribers | A few paying users | Same gate as friends | Same fetcher | Derived results only, plus in-app and email alerts that do not contain a price | Paying them does not create a license. Same written confirmation, or Stocks Business. |
+| 4. A few hundred users | The product | **$2,499/month** list | Massive Stocks Business | Full UI, including prices and charts, on the licensed feed | Display / redistribution. Startup discount is negotiated and still not a $200 plan. |
+| Owner alerts | You only | **$199/month** | Massive Stocks Advanced | Real-time prints for opening-range alerts | Personal, non-professional. You confirmed you qualify. Does not cover friends. |
 
-Phase 2 is the best personal plan inside $60. Phase 3 is the best personal real-time plan inside $200. Neither one licenses the scanner as a product other people log into. That is a licensing fact, not a reason to pick a different cheap API: Alpaca, Tiingo, EODHD, Financial Modeling Prep, Databento Standard, Interactive Brokers, and Yahoo all draw the same line.
+Phase 2's $60 cap still buys Massive Stocks Starter at $29/month: 15-minute delayed data, five years of history, one snapshot call. It does **not** buy alerts. Starter and Developer are both 15-minute delayed. The cheapest Massive tier at or under a 5-minute delay is Stocks Advanced, real-time, and it sits in the Phase 3 budget, not the $60 budget. There is no 5-minute tier.
+
+Friends, founder subscribers, and later users share one upstream fetcher. They never open their own vendor connection.
 
 Massive is still the provider to build against. The personal tiers are cheap, the Business tier is the self-serve redistribution product, the API shape (grouped daily bars, one-call snapshot, WebSocket aggregates, flat files, splits) matches this scanner, and they ship an MCP server at `https://mcp.massive.com` plus official Python and JavaScript SDKs. A later agent can talk to the same vendor the scanner uses.
 
@@ -32,11 +35,78 @@ What the current UI shows is market data, not a private score:
 
 Publishing those to anyone else is display of the underlying prices. A rank or a Strat label is closer to a derived signal. Vendors still treat a chart, a rebased price path, or a return that can be turned back into a price as the data itself. [Tiingo's terms](https://app.tiingo.com/tos/), updated 6 October 2026, say a single-name series rebased to 100 is not an allowed derived product, because one public price rebuilds the series. The same terms say rankings and scores are allowed only when they cannot be reversed into the price. Massive's [redistribution article](https://massive.com/knowledge-base/article/how-can-i-redistribute-massives-market-data) puts derived signals in between and says it is a conversation, not a rule you can apply yourself.
 
-### What each phase is allowed to do
+### Rollout, and what each stage is allowed to do
 
-**Phase 1, Yahoo via `yfinance`.** Allowed: you, on your machine, researching and backtesting. The [yfinance readme](https://github.com/ranaroussi/yfinance) says the library is unofficial, is not vetted by Yahoo, and that Yahoo's finance API is for personal use. There is no SLA. Endpoints change and IPs get throttled. Not allowed: a hosted app, a second login, a shared screenshot service, or republishing the cache.
+You are a non-professional under exchange rules and under Massive's rules, so Stocks Starter, Developer, and Advanced are plans you can buy for yourself. That classification does not extend to anyone else.
 
-**Phase 2 and 3, Massive individual plans.** [Massive's market-data terms](https://massive.com/legal/market-data-terms-of-service) grant a license "exclusively for your personal, non-business, and non-commercial purposes" and say you may not "build an application intended for use by end users other than you." The [stocks page](https://massive.com/stocks) says individual plans are for personal, non-professional use, and that brokerage, redistribution, customer-facing display, or 200+ users need Business. Advanced ($199) is also limited to non-professionals. A person who is registered with the SEC, a registered investment adviser, or employed by a bank in a role that would require registration is a professional and cannot buy these tiers. See [Massive's classification article](https://massive.com/knowledge-base/article/what-are-pro-and-non-pro-classifications-for-massives-stock-data).
+**Stage 1, you only, Yahoo.** Allowed: you, on your machine, researching and backtesting. The [yfinance readme](https://github.com/ranaroussi/yfinance) says the library is unofficial and that Yahoo's finance API is for personal use. Not allowed: a friend opening the same app, a hosted login, or republishing the cache.
+
+**Stage 2, a few friends.** This is the first stage that is redistribution. "A few" and "they are not paying" do not matter. Massive's terms say you may not build an application for end users other than you, and Yahoo's personal-use line is the same shape. Friends may see the derived-results view below only after a vendor confirms that view in writing. Until that letter exists, friends do not get a login. Breadth widgets (StockCharts, CNN, WSJ) stay on your screen only.
+
+**Stage 3, a few paying founder subscribers.** Payment does not license the underlying prices. The same derived-results gate applies. In-app and email alerts to these people are also redistribution if the alert carries a price, a candle, or an exact return. Alerts to them stay in the derived vocabulary ("NVDA, leader, opening-range break") until the license says otherwise.
+
+**Stage 4, a few hundred users.** Plan on Massive Stocks Business at the published **$2,499/month**, not on an individual key with more viewers. A few hundred is still under the "200+ users" line Massive uses as an example of who needs Business, and it is already over it. Ask for the startup discount. The base plan is proprietary fair-market-value, which is what you show. Official NBBO is the Full Market add-on at $1,999/month plus exchange per-user fees.
+
+**Your own real-time alerts** can run on Stocks Advanced while friends are still on a derived view, because that feed is licensed to you. Do not fan the real-time prices out. The alert evaluator runs once, then the fan-out strips prices for every connection that is not you.
+
+### Derived-results presentation
+
+Non-owner clients get a second projection of the same snapshot. The server computes it. The browser does not receive the owner payload and hide fields, because a hidden price in the JSON is still redistribution.
+
+| Field | Owner | Friend or subscriber, until a display license |
+| --- | --- | --- |
+| Rank, score (0–100), leader / warning / broken | Show | Show |
+| Setup label ("Inside week", "Weekly hammer", "No setup / leader") | Show | Show, without the trigger price |
+| RS percentile bucket | Exact percentile | Coarse bucket: top 1%, top 5%, top 10%, below. An exact 1M/3M/6M return is omitted. |
+| Theme name, rank inside the theme | Show | Show |
+| Distance to trigger | Exact price and percent | Three words only: triggered, close, far. No percent, because a percent plus a public prior close rebuilds a price. |
+| Last price, day change, dollar P/L, entry price | Show | Omit |
+| OHLC charts, volume, weekly/monthly candles | Show | Omit. A rebased line is omitted too: one public price rebuilds it. |
+| Earnings date | Show (Yahoo, for now) | Omit until that source is licensed for other people |
+| Breadth: $NASI, Fear & Greed, advancers | Show | Omit |
+| Opening-range alert | Symbol, range, price, time | Symbol, "opening-range break", time. No range high and no price. |
+
+What still needs a written yes from the vendor, even in this stripped view: scores, ranks, setup labels, RS buckets, and the word "opening-range break". Massive says a derived signal may or may not be redistribution depending on how much price it reveals, and that the answer is a conversation. Tiingo allows rankings only when they cannot be reversed into the data, and will not grant an exception on a Power plan. Do not treat this table as clearance.
+
+### Draft email to Massive
+
+Do not send this from the repo. Copy it when you are ready.
+
+```text
+To: sales@massive.com
+Subject: Non-professional — can derived scanner results be shown to a few users?
+
+Hello,
+
+I am a non-professional individual subscriber (not registered, not an adviser,
+not employed by a bank in a registered role). I am building a personal US
+equity scanner for about 650 symbols, growing to about 1,500. One backend
+would fetch data once and fan results out to browsers. I would not give each
+user their own API key or upstream connection.
+
+I want to know which of these, if any, an individual Stocks plan allows:
+
+1. Only I see prices, OHLC charts, and exact returns. A few friends, and later
+   a few paying subscribers, see derived results only: a 0–100 score, rank,
+   leader / warning / broken, a setup name (for example "Inside week") with
+   no trigger price, a coarse relative-strength bucket (top 1% / 5% / 10%),
+   and an alert that says a symbol had an opening-range break with no price
+   and no range. No last price, no candles, no exact percent returns.
+
+2. If (1) is not allowed on Starter, Developer, or Advanced, what is the
+   cheapest plan that permits that derived view for fewer than ten users,
+   and then for a few hundred users?
+
+3. If those users must see last price and candlestick charts, please confirm
+   that Stocks Business at the current list price is the correct license, and
+   whether the startup discount applies. I do not need the exchange NBBO
+   add-on if fair-market-value is enough for display.
+
+I am not asking you to enable redistribution on an individual key. I am asking
+which published plan matches this product before I show it to anyone else.
+
+Thank you
+```
 
 **Multi-user product.** Compliant path:
 
@@ -319,21 +389,28 @@ Massive wins the comparison on three facts that survive the license wall: one ca
 - Why not Massive Basic: five calls a minute and end-of-day only is a worse live experience than what you have, and it is still individual-only.
 - Why keep Yahoo for now: the cache, the tests, and `STRAT_AS_OF` already work, and a provider interface lets you delete the Yahoo calls later without rewriting the scan.
 
-### Phase 2 — $29, still you only, better intraday and alerts
+### Phase 2 — $29, you only, 15-minute data, no timely alerts
 
-- Provider: Massive Stocks Starter, $29/month. Annual billing was not verified in the page extract used here; do not assume a discount.
-- Cadence: still 15 minutes, because the plan is 15-minute delayed. The gain is reliability, a real snapshot, minute bars (also delayed), five years of history, and splits you can store. Opening-range alerts fire on that delayed tape, so they arrive late. See below.
-- License: unchanged. Starter does not unlock users.
-- MCP: connect an agent to `https://mcp.massive.com` with the same account when you want that. It is not required for the scanner.
-- Developer at $79 is the wrong default. It buys ten years and trades, not a faster tape and not a license. Choose it only if a longer backtest is worth breaking the $60 cap.
+- Provider: Massive Stocks Starter, **$29/month**, read from [massive.com/stocks](https://massive.com/stocks) on 18 October 2026. Annual billing was not in the text extract; do not assume a discount.
+- Cadence: 15-minute delayed. The page says Starter and Developer get 15-minute delayed data, and the per-second aggregate docs put Starter on `wss://delayed.massive.com`, not the real-time socket.
+- What the $60 cap cannot buy: anything faster than 15 minutes. Developer is $79, still 15-minute delayed, and over the cap. Five years of history is enough (your decision). Developer’s ten years is unnecessary.
+- Alerts: do not ship opening-range alerts on this tier. A 15-minute tape cannot meet a 5-minute trading decision.
+- License: you only. Friends stay off until the email above is answered.
+- Earnings stay on Yahoo for you. Breadth widgets stay on your screen.
 
-### Phase 3 — $199, you only, real-time
+### Alerts tier — real-time, $199, you only
 
-- Provider: Massive Stocks Advanced, $199/month.
-- Cadence: one upstream stock WebSocket (minute aggregates, and quotes because this tier includes them). Coalesce before broadcasting. Opening-range alerts can fire during the opening range.
-- History: the full bar archive back to 10 September 2003, which is the first time a longer, split-adjusted backtest is cheap to backfill. Survivorship of index membership is still unsolved.
-- License: non-professional, personal. If your status is professional, this tier is unavailable and Business is the next real option.
-- Do not add Full Market ($1,999) or Nasdaq Basic ($1,999) on top. Those are Business add-ons for the official venue feeds.
+Checked again on 18 October 2026. [massive.com/stocks](https://massive.com/stocks) says real-time exists on Advanced and on Business plans, and that Starter and Developer are 15-minute delayed. The aggregates docs repeat that: Basic is end-of-day, Starter and Developer are 15-minute delayed, Advanced is real-time. There is no plan whose delay is “under 5 minutes but not real-time.”
+
+The Advanced **dollar** price did not survive the text extract of the plan cards on 18 October (Starter $29, Developer $79, and Business $2,499 did). Copies of the same pricing page dated 24 September 2026 and 3 October 2026 both list Stocks Advanced at **$199/month**. Treat $199 as the price to re-check on the card before buying, and treat “Advanced is the cheapest real-time individual tier” as verified from the vendor’s own page today.
+
+That $199 is inside the Phase 3 cap and **outside** the $60 Phase 2 cap. It is a non-professional personal license, which matches your status. It lets the single fetcher see prints in real time so an opening-range alert can fire within the 5-minute bar you trade. It does not let friends see the price inside that alert.
+
+### Phase 3 product — hundreds of users
+
+- When other people can see prices and charts: Massive Stocks Business, list **$2,499/month** on the stocks page today.
+- Your real-time personal alerts can start earlier, on Advanced, without waiting for Business.
+- Do not add Full Market ($1,999) or Nasdaq Basic ($1,999) until FMV is not good enough for the prices you show.
 
 ### When there are other users
 
@@ -355,9 +432,9 @@ One evaluator on the server, after each session update, for the shared universe.
 
 **Payload.** Symbol, range high, range low, price that crossed, timestamp of the vendor event, and how delayed that timestamp is. Store it in `alerts` so a reconnect during the same session receives today's alerts once.
 
-**Phase 2 honesty.** On a 15-minute delay the range is not known until roughly 9:45–10:00 ET of *delayed* time, and a break is observed about 15 minutes after it happened. That is a poor opening-range alarm. Ship the evaluator in Phase 2 so the path exists, and treat timely delivery as a Phase 3 behavior on Advanced. Do not page yourself on a delayed cross and call it real-time.
+**When it can be honest.** The range is the first 15 minutes. The alert may fire any time after that window closes. Every alert has to be real-time or under a 5-minute delay, because entries are taken from a 5-minute chart. Starter’s 15-minute tape misses that. Build the evaluator against the provider interface now if useful, and enable delivery only when the provider delay is at most 5 minutes (Advanced for you, Business if subscribers get the priced version).
 
-**Delivery.** In-app over the same WebSocket first. Email, Slack, or push is a later adapter on the same event. No adapter calls the data vendor.
+**Delivery.** In-app over the existing WebSocket, and email. No Slack and no phone push. The point of the email is to bring the person back into the app, so the message is one line and a link, not a price table. Friends and subscribers get the derived sentence only. You get the price. No delivery path calls the data vendor.
 
 ## Rate-limit budget
 
@@ -383,7 +460,30 @@ Earnings must not share this budget. A full earnings sweep is hundreds of extra 
 - **Breadth scrapers.** They will break, and they are the weakest licensing story in the app.
 - **SQLite plus a poller.** The existing write lock is correct only if the poller, the EOD job, and request handlers keep using it. A second connection that writes around the lock will corrupt the file.
 - **Snapshot size.** The full scan JSON is small at 650 rows. Theme and market chart payloads are larger; send those on the HTTP chart routes, and keep the socket to rows plus changed candles for symbols currently on screen only if profiling says the full chart set is too big. Start simple: rows on the socket, charts over HTTP from the same bar store.
-- **Professional status.** If you are a professional subscriber, Phase 2 and Phase 3 individual plans are the wrong product and the budget has to be the Business conversation.
+- **Professional status.** You are a non-professional, so Starter and Advanced are available to you. Revisit this if that status changes. Business is still required before other people see prices.
+- **Eco dyno sleep.** A sleeping dyno skips polls and drops WebSockets. The hosting section below is why the always-on Basic dyno is the one to use later. Nothing is deployed from this plan.
+
+## Hosting later (Heroku, not deployed)
+
+Nothing in this repository is deployed. When you do host it, Heroku is the target because you already run a bot there. Render is the fallback. Prices below are from [heroku.com/pricing](https://www.heroku.com/pricing) and the routing article, read 18 October 2026.
+
+The process model stays one fetcher. On a single dyno that fetcher, the scan, and the WebSocket hub live in the web process. A second dyno is only for isolating the poller from web restarts.
+
+| Piece | Choice | Monthly | Why |
+| --- | --- | --- | --- |
+| Web | 1 Basic dyno | $7 | Always on. Holds the API, the WebSocket hub, and (at first) the scheduler. 512 MB RAM is enough for ~650–1,500 daily histories. |
+| Worker | None at first. Add 1 Basic later if deploys must not interrupt a poll. | $0, then $7 | The worker would be the only process that talks to the vendor. |
+| Postgres | Essential-0 | $5 | 1 GB. The bar store is far smaller than that at 1,500 symbols and several years of daily bars. SQLite on a dyno disk disappears on restart and on deploy. |
+| Redis | None at first | $0 | One process does not need pub/sub. Heroku Key-Value Store Mini is $3/month and 25 MB when a second web dyno must share the fan-out. |
+| Eco dyno | Do not use | $5 for 1,000 shared hours | Sleeps after 30 minutes without HTTP traffic. A sleeping app misses the 15-minute poll, serves a stale snapshot on wake, and kills every WebSocket. Eco is also limited to personal accounts and two process types. |
+
+**Total to leave running:** $12/month (Basic web + Essential-0 Postgres) before any market-data invoice. $19/month if you split a worker dyno. $22/month if you also add the $3 key-value store. That is hosting, not data.
+
+**WebSockets.** Supported on every Heroku app ([routing](https://devcenter.heroku.com/articles/http-routing)). After the connection is up, each byte from either side resets a rolling **55-second** window. A quiet socket is closed with H15 or H28. The hub’s 15-second heartbeat exists for this, not only for the browser. The first response byte has to leave within **30 seconds** (H12). Send the snapshot immediately on connect; do not wait for a Yahoo poll.
+
+**Scheduler.** An in-process loop on the always-on dyno. Heroku Scheduler runs a one-off dyno and then exits, so it is the wrong tool for a session that must poll every 15 minutes and keep sockets open. Do not scale the web formation above one dyno until the fetcher is pinned to a single worker. Two web dynos would be two upstream connections.
+
+**Render fallback.** Use an always-on paid instance, not a free web service that sleeps. Put Postgres in Render’s managed database for the same reason as Essential-0. Confirm the instance price on Render’s page before choosing it over the $12 Heroku pair. The application shape does not change.
 
 ## Implementation steps
 
@@ -402,26 +502,35 @@ No step below is in scope for this pull request.
 
 Steps 1–6 are the Phase 1 product. Step 7 is the Phase 2 swap. Steps 8–9 follow the key you buy. Step 10 waits on licensing, not on code.
 
-## Open questions
+## Decisions recorded 18 October 2026
 
-1. **Who is in each phase?** Just you, a handful of people you know, a beta, or paying subscribers? A second person changes the legal plan even if the architecture does not.
-2. **Must other users see raw prices, OHLC charts, and exact percent returns?** If yes, budget a redistribution license before they get a login. If no, a derived-only view (rank, leader status, setup name, no price and no candle) might be negotiable, and it needs a written yes from the vendor.
-3. **Where will the single backend run, and what is the Phase 1 hosting budget?** A home machine and a small VPS are the same architecture. The data plan does not include a deploy.
-4. **Is a 15-minute-late opening-range alert worth building in Phase 2, or is the alert only valuable if it fires during the opening range?** The second answer means Phase 3 ($199) is the real alert budget, and Phase 2 is data quality only.
-5. **Where should alerts be delivered?** In-app only, email, Slack, or a phone push? The evaluator is the same; the adapter is not.
-6. **How far can the universe grow?** 650 names is a trivial snapshot. A few thousand still is, on Massive's one-call snapshot. "All US stocks" is still one call there, and it is a different story on Yahoo, IBKR, or a per-symbol plan.
-7. **Are you a non-professional under exchange rules?** Registered, adviser, or bank-employed status removes Massive Starter and Advanced as options.
-8. **Is split adjustment allowed to change historical backtest numbers?** It should. Confirm you want that re-run before the adjustment work, because weight tuning since the last run may need another pass.
-9. **Keep the StockCharts / CNN / WSJ breadth widgets for a personal deployment, or drop them before anyone else can see them?**
-10. **Keep Yahoo as the earnings source after prices move to Massive?** It is a reasonable split while you are the only user. It is another unlicensed feed if earnings dates are shown to customers.
-11. **Is five years of history enough?** Starter includes five. Ten years is the $79 Developer plan, which is over the $60 cap and still delayed.
-12. **If a startup discount on Massive Business is offered, what monthly data cost is actually acceptable once there are paying users?** The list price is $2,499 before exchange add-ons. The Phase 3 cap of $200 does not reach a compliant multi-user tape.
+Answered:
+
+1. Rollout is you, then a few friends, then a few paying founder subscribers, then a few hundred users. Friends are already redistribution. See the rollout section.
+2. Other people need the scanner’s results (rank, score, leader status, setups). They do not need raw quotes. The derived-results view is the design. It still needs Massive’s written answer before anyone else logs in.
+3. Host on Heroku later. Render is the fallback. See the hosting section. Do not deploy as part of this work.
+4. Opening-range alerts start after the first 15 minutes, and each alert must be real-time or under a 5-minute delay. That rules out Starter. Advanced at about $199/month is the personal tier that qualifies.
+5. Alerts go in-app and by email only, to bring people back into the app.
+6. You are a non-professional. Starter and Advanced are plans you can hold yourself.
+
+Defaults for the rest:
+
+7. Five years of history is enough. Starter’s window covers it. Do not buy Developer for ten years.
+8. The backtest uses split-adjusted prices. Adjustment is point-in-time: a split applies only on and after its ex-date, so `STRAT_AS_OF` and each backtest cut-off do not see a split that had not happened yet. Dividend (total-return) adjustment stays off.
+9. Earnings dates stay on Yahoo for now, and only on your screen.
+10. Breadth widgets stay owner-only until their sources are licensed.
+11. The universe stays about 650 names, with headroom to about 1,500. One Massive snapshot still covers that. Yahoo batching gets tighter and should be replaced before the list gets much larger.
+12. The acceptable Business-plan cost once there are paying users is still open. The list price is $2,499/month before exchange add-ons. The email above asks about the startup discount. Do not assume it lands near $200.
 
 ## Sources
 
 Checked 18 October 2026 unless noted.
 
-- Massive stocks overview and plan cards ($0 / $29 / $79 / $199 / Business $2,499, delay by tier, MCP): https://massive.com/stocks
+- Massive stocks overview (Starter $29 and Developer $79 are 15-minute delayed; Advanced and Business are real-time; Business list $2,499; Starter and Developer dollar prices and the delay sentence read 18 October 2026): https://massive.com/stocks
+- Massive per-second aggregates, delayed vs real-time host, plan recency table: https://massive.com/docs/websocket/stocks/aggregates-per-second
+- Advanced listed at $199/month on copies of the pricing page (24 September 2026 and 3 October 2026). The 18 October text extract dropped that dollar figure: https://www.itechguides.com/products/massive-formerly-polygon-io/pricing/ and https://stockmarketstack.com/tools/massive
+- Heroku dyno, Postgres Essential-0 ($5), and Key-Value Store Mini ($3): https://www.heroku.com/pricing/
+- Heroku routing, WebSockets, 30-second initial window, 55-second rolling idle window: https://devcenter.heroku.com/articles/http-routing
 - Massive business stocks (FMV, no exchange fees on the base plan, startup discount, add-on prices): https://massive.com/business-stocks
 - Massive redistribution explainer: https://massive.com/knowledge-base/article/how-can-i-redistribute-massives-market-data
 - Massive market-data terms (personal use, no app for other end users): https://massive.com/legal/market-data-terms-of-service
