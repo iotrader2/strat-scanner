@@ -218,7 +218,7 @@ export default function Positions() {
       {error && <div className="banner error">{error}</div>}
       {notice && <div className="banner">{notice}</div>}
       {missing.length > 0 && (
-        <div className="banner">No cached data yet for {missing.join(", ")}; they appear after the next refresh.</div>
+        <div className="banner">No cached data yet for {missing.join(", ")}; they appear once their history is downloaded.</div>
       )}
       {data !== null && held.length === 0 ? (
         <div className="card empty-state">

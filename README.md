@@ -9,7 +9,8 @@ Monthly, Weekly and Daily candles are all classified and shown as context (Strat
 
 It runs on your machine only (API and UI bind to `127.0.0.1`). There is no deploy or hosting config.
 Data comes from Yahoo Finance via [yfinance](https://github.com/ranaroussi/yfinance) (no API key needed)
-and is cached in a local SQLite file.
+and is cached in a local SQLite file. One background fetcher keeps that cache current and fans the
+result out to every open browser over a WebSocket. The page has no refresh button.
 
 ## Quick start
 
@@ -26,15 +27,16 @@ whichever tab you used last.
 
 `npm run dev` does everything on first run: it creates `backend/.venv`, installs the Python requirements and the
 web dependencies, starts the FastAPI backend on `127.0.0.1:8000` and the Vite UI on `127.0.0.1:5173`.
-If the cache is empty, the first download (~550 symbols, 3 years of daily bars) starts automatically and
-takes about a minute; the top bar shows progress. Press `Ctrl+C` to stop both servers.
+If the cache is empty, the first download (646 symbols, 3 years of daily bars) starts automatically and
+takes about a minute. The top bar shows a live indicator: *Updating · N symbols* while that runs, then
+*15-min delayed · updated 3:45 PM ET* once a scan is saved. Press `Ctrl+C` to stop both servers.
 
 ### Other commands
 
 | Command | What it does |
 | --- | --- |
 | `npm run setup` | Install/update Python + web dependencies only |
-| `npm run refresh` | Download the latest bars into the cache from the CLI (the **↻ Refresh data** button also updates earnings dates) |
+| `npm run refresh` | Download the latest bars into the cache from the CLI. The running app does this itself; there is no refresh button |
 | `npm run refresh:universe` | Rebuild the S&P 500 / Nasdaq-100 list from Wikipedia, then refresh |
 | `npm run themes:report` | Validate `backend/data/themes.yaml` against 6 months of return correlations and write `backend/data/themes_report.md` (see [Themes](#themes-the-sector-unit)) |
 | `npm run themes:sync` | Add theme tickers that are missing from the universe when they pass the liquidity filters, and prune theme-only names no theme lists any more (`--dry-run` through `python -m strat.themes sync --dry-run`) |
@@ -55,12 +57,28 @@ Defaults can be changed with environment variables (the UI filters can also be c
 | `STRAT_MIN_PRICE` | `10` | Minimum last price |
 | `STRAT_MIN_DOLLAR_VOLUME` | `50000000` | Minimum average daily dollar volume |
 | `STRAT_ADV_LOOKBACK_DAYS` | `20` | Days used for average dollar volume / range |
-| `STRAT_HISTORY_PERIOD` | `3y` | History fetched for new symbols / full refresh |
+| `STRAT_HISTORY_PERIOD` | `3y` | History fetched for new symbols / a full catch-up |
+| `STRAT_INCREMENTAL_PERIOD` | `3mo` | Window used when the cache is behind by more than a few sessions |
+| `STRAT_POLL_SECONDS` | `900` | Minimum gap between intraday quote polls (15 minutes) |
+| `STRAT_DATA_PROVIDER` | `yahoo` | Market-data provider. `yahoo` is the only implementation |
+| `STRAT_SCHEDULER` | `1` | Set to `0` to disable the background fetcher (the test suite does this) |
 | `STRAT_API_PORT` / `STRAT_WEB_PORT` | `8000` / `5173` | Local ports |
 | `STRAT_CACHE_DB` | `backend/data/cache.sqlite3` | Cache location |
-| `STRAT_AS_OF` | unset | Cut the cached history off at this date (`YYYY-MM-DD`) to see the scanner as it looked then, e.g. `STRAT_AS_OF=2026-08-13 npm run dev`. The top bar then reads *cut-off view, data through …* |
+| `STRAT_AS_OF` | unset | Cut the cached history off at this date (`YYYY-MM-DD`) to see the scanner as it looked then, e.g. `STRAT_AS_OF=2026-08-13 npm run dev`. The top bar then reads *Cut-off view, data through …*. Live polling is skipped |
 
 Example: `STRAT_MIN_PRICE=20 STRAT_MIN_DOLLAR_VOLUME=100000000 npm run dev`.
+
+### How prices stay current
+
+A single thread in the API process is the only thing that talks to Yahoo:
+
+- When the newest confirmed daily bar is older than the last completed session, it downloads history (5 days if the gap is small, 3 months if the cache is merely behind, 3 years for a symbol that has never been downloaded).
+- During the regular session (09:30–16:00 America/New_York, weekdays) it polls quotes at most every 15 minutes. Today's bar is kept beside the confirmed history, so a restart cannot overwrite a finished day with a partial one.
+- After each download it recomputes the scan and stores the rows in `scan_snapshot`. The next page load reads that snapshot immediately. Chart pages still build from the bar cache.
+- Browsers connect to `/ws` (proxied by Vite). They receive the snapshot on connect, a delta when the scan changes, and a ping every 15 seconds. If the socket drops, the page reconnects on its own and falls back to `GET /api/status` until it is back.
+- Splits are stored raw. A scan, a `STRAT_AS_OF` cut-off, and the backtest adjust a bar only by splits whose ex-date is on or before the date being viewed. A split that lands inside a forward-return window does not look like a crash.
+
+`POST /api/refresh` is still there for operators and `npm run refresh`. The UI does not call it.
 
 ## What it computes
 
@@ -435,8 +453,8 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
   - Dates come from yfinance (`Ticker.calendar` for the date; `get_earnings_dates` for the scheduled time).
   - A time before 09:30 ET is BMO, 16:00 ET or later is AMC, and anything else (including date-only entries) is
     time TBD.
-  - Results are cached in the `earnings` table and re-fetched on every data refresh. On startup, entries older
-    than 12 hours are refreshed in the background.
+  - Results are cached in the `earnings` table. The end-of-day history job refreshes them. On startup, entries older
+    than 12 hours are refreshed in the background. The 15-minute quote poll does not.
   - When the source has no date, no icon is shown; nothing is guessed. ETFs never show it.
 - **Sticky selections**: the last tab (including the Stock Scanner's theme filter) and the M/W/D timeframe on the
   detail, Themes and State of the Market views are saved in `localStorage`. They survive navigation and full reloads, and opening the bare
@@ -445,11 +463,11 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
 - **Loading states**: anything still loading shows a blue spinner with pulsing text (e.g. “Loading weekly setups…”).
   - Tables (Stock Scanner, Watchlist, Positions) show shimmering skeleton rows, and the chart views (State of the Market,
     Themes, detail page) show skeleton cards with a shimmering chart area, until the first data arrives.
-  - During a data refresh a pulsing progress banner sits under the sticky tabs, e.g. “Refreshing data… 120/546 ·
-    Downloading AMD…AMZN (5d)”, then “Refreshing earnings dates… 60/519”. It has a progress bar and disappears when
-    the refresh is done. The header also shows the percentage.
+  - The top bar is a live indicator, not a button. A grey dot means *Connecting* or *Reconnecting*. A blue dot means
+    *Updating · 80/646 symbols*. A green dot means *15-min delayed · updated 3:45 PM ET*. A yellow dot means
+    *Cut-off view, data through 2026-08-13*. A failed download shows *Price update failed* under the tabs.
   - With `prefers-reduced-motion: reduce` there is no pulsing, shimmer or spinning: the spinner becomes a static blue
-    ring and the skeletons and banner are drawn flat, with the same text and progress bar.
+    ring and the skeletons are drawn flat.
 
 ## Backtest
 
@@ -461,7 +479,8 @@ npm run backtest:leaders -- --dates 2026-05-15 2026-08-13 --no-old
 
 **The objective is rank quality for big winners:** the highest scores should go to the stocks that go up the most, found
 early and kept near #1 while the run lasts. For every other Friday from the start of the cache (2024-05-10) the script hides
-every price after that date (the same cut-off as `STRAT_AS_OF`), scores the whole universe with the **old** Strat-first score
+every price after that date (the same cut-off as `STRAT_AS_OF`) and adjusts earlier bars only for splits that had
+already happened, scores the whole universe with the **old** Strat-first score
 (`legacy_scoring.py`, weekly-setup rows only) and the **new** leadership score (leaders only), and compares them with what
 happened next, over the liquid stocks (price >= $10, 20-day average dollar volume >= $50M). Per period it reports:
 
@@ -511,12 +530,16 @@ backend/
   strat/change.py     RS change vs 5 sessions ago and NEW breakdown / NEW leader flags (prior-session ranks, pure functions)
   strat/themes.py     theme map loader/validator, equal-weight theme index, universe sync (`python -m strat.themes`)
   strat/themes_report.py  correlation validation and clustering report (`npm run themes:report`)
-  strat/data.py       SQLite cache (bars, watchlist, positions, added symbols, earnings), yfinance download, resampling
+  strat/data.py       SQLite cache (bars, splits, session bar, scan snapshot, watchlist, positions, earnings)
+  strat/provider.py   MarketDataProvider; Yahoo is the Phase 1 implementation
+  strat/scheduler.py  when to download history vs poll the open session
+  strat/adjust.py     point-in-time split adjustment
+  strat/hub.py        WebSocket fan-out (one upstream fetcher, N browsers)
   strat/members.py    effective universe = universe + watched/held off-universe symbols
   strat/earnings.py   upcoming earnings dates and BMO/AMC timing from yfinance
   strat/scanner.py    per-symbol scan + chart payloads
   strat/universe.py   S&P 500 / Nasdaq-100 / ETF / theme-addition universe (snapshot in data/universe.csv)
-  strat/api.py        FastAPI app (localhost only)
+  strat/api.py        FastAPI app (localhost only), including `GET /ws`
   data/themes.yaml    curated theme map (source of truth), data/themes_report.md = latest validation report
   tests/              pytest suite
 web/                  React + Vite + lightweight-charts UI
@@ -525,7 +548,7 @@ scripts/              setup + dev launcher used by `npm run dev`
 
 ### Local API
 
-The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`):
+The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` and `/ws`):
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -542,6 +565,8 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api`)
 | `PUT /api/positions/{symbol}` | Edit `entry_price`, `shares` and `entry_date` |
 | `DELETE /api/positions/{symbol}` | Close (remove) a position |
 | `POST /api/positions/{symbol}/watchlist` | Move a position back to the watchlist |
-| `GET /api/status`, `POST /api/refresh` | Cache status and data refresh |
+| `GET /api/status` | Cache status: `updating`, `version`, `computed_at`, `delay` (`15m` on Yahoo) |
+| `WS /ws` | Snapshot on connect, deltas after a rescan, `ping` every 15 seconds |
+| `POST /api/refresh` | Operator hook for a download. The scheduler calls the same job; the UI does not |
 
 Not investment advice. Yahoo Finance data is unofficial and can be delayed or incomplete.

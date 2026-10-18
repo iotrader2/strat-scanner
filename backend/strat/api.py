@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import threading
+import time
 from datetime import date
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from . import config, data, earnings
+from .hub import hub
+from .scheduler import decide, fetch_period, now_et
 from .breadth import fetch_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
@@ -41,6 +45,7 @@ class State:
     qqq: dict[str, Optional[float]] = {}
     prior: dict = {}
     theme_map: Optional[ThemeMap] = None
+    version: int = 0
 
 
 def _universe() -> list[Member]:
@@ -74,16 +79,18 @@ def _rescan_symbol(member: Member) -> None:
     State.scan = sorted(rows, key=lambda r: r["score"], reverse=True)
 
 
-def _run_refresh(full: bool) -> None:
+def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True) -> None:
     try:
         symbols = [m.symbol for m in _universe()]
 
         def progress(done: int, total: int, message: str) -> None:
             State.progress = {"done": done, "total": total, "message": message}
+            _publish_status()
 
-        data.refresh(symbols, full=full, progress=progress)
-        backfill_industries(_universe())
-        _refresh_earnings(max_age_hours=0, progress=progress)
+        data.refresh(symbols, full=full, progress=progress, period=period)
+        if with_earnings:
+            backfill_industries(_universe())
+            _refresh_earnings(max_age_hours=0, progress=progress)
         State.error = None
     except Exception as exc:
         log.exception("refresh failed")
@@ -107,54 +114,170 @@ def _with_earnings(rows: list[dict]) -> list[dict]:
     ]
 
 
-def start_refresh(full: bool = False) -> bool:
+def _publish_status() -> None:
+    hub.publish({"type": "status", "version": State.version, "status": _status_body()})
+
+
+def start_refresh(full: bool = False, period: str | None = None, with_earnings: bool = True) -> bool:
     with State.lock:
         if State.refreshing:
             return False
         State.refreshing = True
+        State.error = None
         State.progress = {"done": 0, "total": 0, "message": "Starting"}
-    threading.Thread(target=_run_refresh, args=(full,), daemon=True).start()
+    _publish_status()
+    threading.Thread(target=_run_refresh, args=(full, period, with_earnings), daemon=True).start()
     return True
+
+
+def _row_sig(row: dict) -> tuple:
+    return (
+        row.get("price"),
+        row.get("score"),
+        row.get("change_pct"),
+        row.get("leader_status"),
+        row.get("setup"),
+        row.get("rs"),
+    )
+
+
+def _wire_message(kind: str, previous: Optional[list[dict]] = None) -> dict:
+    rows = State.scan
+    removed: list[str] = []
+    changed = rows
+    if kind == "delta" and previous is not None:
+        prev = {r["symbol"]: r for r in previous}
+        changed = [r for r in rows if _row_sig(prev.get(r["symbol"], {})) != _row_sig(r)]
+        removed = [s for s in prev if s not in {r["symbol"] for r in rows}]
+        if len(changed) > max(40, len(rows) // 2):
+            kind, changed, removed = "snapshot", rows, []
+    return {
+        "type": kind,
+        "version": State.version,
+        "computed_at": State.scan_key,
+        "status": _status_body(),
+        "changed": changed,
+        "removed": removed,
+    }
 
 
 def _ensure_scan(force: bool = False) -> list[dict]:
     key = data.get_meta("last_refresh")
-    if force or key != State.scan_key or not State.scan:
-        daily = data.load_all_daily()
-        State.daily = daily
-        State.theme_map = _load_theme_map()
-        result = scan_all(_universe(), daily, State.theme_map)
-        State.result, State.scan = result, result.rows
-        State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
-        State.scan_key = key
+    if not force and key == State.scan_key and State.scan and State.result is not None:
+        return State.scan
+    if not force and key == State.scan_key and State.scan:
+        return State.scan
+    previous = list(State.scan)
+    daily = data.load_all_daily()
+    State.daily = daily
+    State.theme_map = _load_theme_map()
+    result = scan_all(_universe(), daily, State.theme_map)
+    State.result, State.scan = result, result.rows
+    State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
+    State.scan_key = key
+    State.version += 1
+    data.save_snapshot(State.version, key or "", State.scan)
+    hub.publish(_wire_message("delta" if previous else "snapshot", previous))
     return State.scan
 
 
-@app.on_event("startup")
-def _startup() -> None:
+def _ensure_charts() -> None:
+    """Chart routes need the full scan. The table can render from the saved snapshot before that finishes."""
+    if State.result is not None and State.daily:
+        return
+    _ensure_scan(force=True)
+
+
+def _hydrate() -> None:
+    snap = data.load_snapshot()
+    if not snap:
+        return
+    State.scan = snap["rows"]
+    State.scan_key = snap["computed_at"]
+    State.version = snap["version"]
+
+
+def _boot() -> None:
+    if config.AS_OF:
+        _ensure_scan(force=True)
+        return
     if not data.cached_symbols():
         log.info("Cache is empty, starting the initial download")
         start_refresh(full=True)
-    else:
-        threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
+        return
+    threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
+    _ensure_scan(force=True)
+    _scheduler_loop()
 
 
-@app.get("/api/status")
-def status():
+def _scheduler_loop() -> None:
+    last_poll = None
+    while True:
+        time.sleep(20)
+        if config.AS_OF or State.refreshing:
+            continue
+        now = now_et()
+        kind = decide(now, data.newest_bar_date(), last_poll)
+        if kind is None:
+            continue
+        if kind == "intraday":
+            last_poll = now
+            start_refresh(full=False, period="5d", with_earnings=False)
+        else:
+            newest = data.newest_bar_date()
+            window = fetch_period(now, newest)
+            start_refresh(full=window == config.HISTORY_PERIOD, period=None if window == config.HISTORY_PERIOD else window)
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    hub.attach(asyncio.get_running_loop())
+    asyncio.create_task(hub.heartbeat())
+    _hydrate()
+    if config.scheduler_enabled():
+        threading.Thread(target=_boot, daemon=True).start()
+
+
+def _status_body() -> dict:
     universe = {m.symbol for m in _universe()}
     return {
         "last_refresh": data.get_meta("last_refresh"),
         "as_of": config.AS_OF,
         "refreshing": State.refreshing,
+        "updating": State.refreshing,
         "progress": State.progress,
         "error": State.error,
         "symbols_cached": len(universe & set(data.cached_symbols())),
         "universe_size": len(universe),
+        "version": State.version,
+        "computed_at": State.scan_key,
+        "delay": "15m",
     }
+
+
+@app.get("/api/status")
+def status():
+    return _status_body()
+
+
+@app.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket):
+    """Snapshot on connect, then deltas. Heartbeats keep the socket inside a host's idle timeout."""
+    await websocket.accept()
+    hub.add(websocket)
+    try:
+        await websocket.send_json(_wire_message("snapshot"))
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.discard(websocket)
 
 
 @app.post("/api/refresh")
 def refresh(full: bool = False):
+    """Operator hook. The UI does not call this; the scheduler does."""
     return {"started": start_refresh(full=full)}
 
 
@@ -198,7 +321,7 @@ def scan(
 @app.get("/api/symbol/{symbol}")
 def symbol_detail(symbol: str):
     symbol = symbol.upper()
-    _ensure_scan()
+    _ensure_charts()
     member = _find_member(symbol)
     daily = State.daily.get(symbol)
     if member is None or daily is None or daily.empty:
@@ -255,6 +378,9 @@ def _fetch_off_universe(symbol: str) -> None:
         raise HTTPException(404, f"{symbol} was not found on Yahoo Finance")
     except data.LookupFailed as exc:
         raise HTTPException(502, f"Could not look up {symbol} right now: {exc}")
+    from .provider import splits_in
+
+    data.save_splits(symbol, splits_in(bars))
     data.save_bars(symbol, bars)
     data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"], meta.get("industry", ""))
     if meta["kind"] == "stock":
@@ -387,7 +513,7 @@ def position_to_watchlist(symbol: str):
 @app.get("/api/themes")
 def themes(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
     """Theme cards, strongest first: equal-weight index candles, score row and member chips."""
-    _ensure_scan()
+    _ensure_charts()
     by_symbol = {r["symbol"]: r for r in State.scan}
     result = State.result or ScanResult(State.scan)
     return {"tf": tf, "as_of": State.scan_key, "themes": theme_cards(result, by_symbol, tf, bars)}
@@ -402,7 +528,7 @@ def breadth():
 @app.get("/api/market")
 def market(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
     """State of the Market cards: QQQ, SPY and IWM, in that order."""
-    _ensure_scan()
+    _ensure_charts()
     by_symbol = {r["symbol"]: r for r in State.scan}
     out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars)
     return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily)}

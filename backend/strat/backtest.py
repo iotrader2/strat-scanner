@@ -65,7 +65,12 @@ def cut_off(daily_by_symbol: Mapping[str, pd.DataFrame], as_of: pd.Timestamp) ->
     return out
 
 
-def forward_return(daily: pd.DataFrame, as_of: pd.Timestamp, months: int = FORWARD_MONTHS) -> Optional[float]:
+def forward_return(
+    daily: pd.DataFrame,
+    as_of: pd.Timestamp,
+    months: int = FORWARD_MONTHS,
+    splits: Sequence[tuple] = (),
+) -> Optional[float]:
     """Percent return from the last close on or before ``as_of`` to the last close on or before one month later.
 
     None when the history does not run to the end of that window (or the symbol had no bars at ``as_of``).
@@ -76,6 +81,15 @@ def forward_return(daily: pd.DataFrame, as_of: pd.Timestamp, months: int = FORWA
         return None
     base = float(close[:as_of].iloc[-1])
     final = float(close[:end].iloc[-1])
+    # A split inside the forward window would otherwise look like a crash. Adjust the base only
+    # for splits that happen after the cut-off, so the cut-off price itself stays as it was then.
+    factor = 1.0
+    for ex_date, ratio in splits:
+        ex = pd.Timestamp(ex_date)
+        if as_of < ex <= end and ratio:
+            factor *= float(ratio)
+    if factor and factor != 1.0:
+        base = base / factor
     return (final / base - 1.0) * 100.0 if base > 0 else None
 
 
@@ -114,7 +128,7 @@ def rank_dates(daily_by_symbol: Mapping[str, pd.DataFrame], start: str = RANK_ST
     return [d.strftime("%Y-%m-%d") for d in pd.date_range(start, last_bar, freq=freq)]
 
 
-def slim_row(row: dict, daily: pd.DataFrame, ts: pd.Timestamp, listed: bool) -> dict:
+def slim_row(row: dict, daily: pd.DataFrame, ts: pd.Timestamp, listed: bool, splits: Sequence[tuple] = ()) -> dict:
     """The fields of a scan row the rank-quality metrics need, plus its forward 1M and 3M return."""
     return {
         "symbol": row["symbol"],
@@ -125,9 +139,19 @@ def slim_row(row: dict, daily: pd.DataFrame, ts: pd.Timestamp, listed: bool) -> 
         "listed": listed,
         "breakout": row.get("breakout"),
         "failed": row.get("failed_breakout"),
-        "fwd1": forward_return(daily, ts),
-        "fwd3": forward_return(daily, ts, months=3),
+        "fwd1": forward_return(daily, ts, splits=splits),
+        "fwd3": forward_return(daily, ts, months=3, splits=splits),
     }
+
+
+def _as_of_frames(daily_by_symbol: Mapping[str, pd.DataFrame], as_of: pd.Timestamp, splits: Optional[Mapping] = None):
+    """Bars up to ``as_of``, split-adjusted only by splits that had already happened."""
+    from .adjust import apply_splits
+
+    sliced = cut_off(daily_by_symbol, as_of)
+    if not splits:
+        return sliced
+    return {sym: apply_splits(df, splits.get(sym, ()), as_of) for sym, df in sliced.items()}
 
 
 def collect(
@@ -137,6 +161,7 @@ def collect(
     dates: Sequence[str],
     method: str = LEADERS,
     progress: bool = False,
+    splits: Optional[Mapping] = None,
 ) -> dict[str, list[dict]]:
     """Scan the market as of every date: liquid stocks with their score, status and what they did next.
 
@@ -148,9 +173,15 @@ def collect(
         if progress:
             print(f"[backtest] {method} {d}", file=sys.stderr, flush=True)
         ts = pd.Timestamp(d)
-        result = scan_all(members, cut_off(daily_by_symbol, ts), themes, method=method, changes=False)
+        result = scan_all(members, _as_of_frames(daily_by_symbol, ts, splits), themes, method=method, changes=False)
         out[d] = [
-            slim_row(r, daily_by_symbol[r["symbol"]], ts, bool(r["has_setup"] if method == LEGACY else r["is_leader"]))
+            slim_row(
+                r,
+                daily_by_symbol[r["symbol"]],
+                ts,
+                bool(r["has_setup"] if method == LEGACY else r["is_leader"]),
+                splits.get(r["symbol"], ()) if splits else (),
+            )
             for r in liquid_stocks(result.rows)
         ]
     return out
@@ -633,9 +664,19 @@ def setup_stats(
     return SetupStats(names, names / n_dates if n_dates else None, mean(m1), mean(m3), mean(q1), mean(q3), share(q1), share(q3))
 
 
-def benchmark_returns(daily: pd.DataFrame, dates: Sequence[str]) -> dict[str, tuple[Optional[float], Optional[float]]]:
+def benchmark_returns(
+    daily: pd.DataFrame,
+    dates: Sequence[str],
+    splits: Sequence[tuple] = (),
+) -> dict[str, tuple[Optional[float], Optional[float]]]:
     """QQQ's forward 1M and 3M return from every cut-off date."""
-    return {d: (forward_return(daily, pd.Timestamp(d)), forward_return(daily, pd.Timestamp(d), months=3)) for d in dates}
+    return {
+        d: (
+            forward_return(daily, pd.Timestamp(d), splits=splits),
+            forward_return(daily, pd.Timestamp(d), months=3, splits=splits),
+        )
+        for d in dates
+    }
 
 
 def render_setups(
@@ -742,12 +783,13 @@ def run_timeline(
     end: str,
     reference: Sequence[str] = REFERENCE,
     freq: str = "W-FRI",
+    splits: Optional[Mapping] = None,
 ) -> dict[str, list[TimelinePoint]]:
     """Weekly new-score rank/status of each reference name between ``start`` and ``end`` (breakdown detection)."""
     series: dict[str, list[TimelinePoint]] = {s: [] for s in reference}
     last_bar = max(df.index[-1] for df in daily_by_symbol.values())
     for ts in pd.date_range(start, min(pd.Timestamp(end), last_bar), freq=freq):
-        cut = cut_off(daily_by_symbol, ts)
+        cut = _as_of_frames(daily_by_symbol, ts, splits)
         result = scan_all(members, cut, themes, method=LEADERS, changes=False)
         picks = new_list(result)
         by_sym = {r["symbol"]: r for r in result.rows}
@@ -815,7 +857,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--no-old", action="store_true", help="skip the old-score comparison")
     args = parser.parse_args(argv)
 
-    daily = data.load_all_daily()
+    daily = data.load_all_daily(adjust=False)
+    splits = data.load_splits()
     if not daily:
         print("The price cache is empty. Run `npm run refresh` first.", file=sys.stderr)
         return 1
@@ -826,15 +869,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         themes = None
 
     dates = args.dates or rank_dates(daily, args.start)
-    new_rows = collect(daily, members, themes, dates, LEADERS, progress=True)
+    new_rows = collect(daily, members, themes, dates, LEADERS, progress=True, splits=splits)
     variants: dict[str, list[DateRank]] = {}
     if not args.no_old:
-        variants["Old"] = rank_all(collect(daily, members, themes, dates, LEGACY, progress=True))
+        variants["Old"] = rank_all(collect(daily, members, themes, dates, LEGACY, progress=True, splits=splits))
     variants["New"] = rank_all(new_rows)
-    print(render_report(variants, new_rows, tuple(args.reference), args.test_start, benchmark_returns(daily["QQQ"], dates)))
+    print(render_report(
+        variants, new_rows, tuple(args.reference), args.test_start,
+        benchmark_returns(daily["QQQ"], dates, splits.get("QQQ", ())),
+    ))
     if args.timeline:
         print()
-        series = run_timeline(daily, members, themes, args.timeline_start, args.timeline_end, tuple(args.reference))
+        series = run_timeline(
+            daily, members, themes, args.timeline_start, args.timeline_end, tuple(args.reference), splits=splits,
+        )
         print(render_timeline(series))
     return 0
 

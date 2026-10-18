@@ -16,6 +16,12 @@ ADV_LOOKBACK_DAYS = int(os.environ.get("STRAT_ADV_LOOKBACK_DAYS", "20"))
 HISTORY_PERIOD = os.environ.get("STRAT_HISTORY_PERIOD", "3y")
 INCREMENTAL_PERIOD = os.environ.get("STRAT_INCREMENTAL_PERIOD", "3mo")
 DOWNLOAD_BATCH = int(os.environ.get("STRAT_DOWNLOAD_BATCH", "80"))
+POLL_SECONDS = int(os.environ.get("STRAT_POLL_SECONDS", "900"))
+
+
+def scheduler_enabled() -> bool:
+    """Background fetcher. Tests set STRAT_SCHEDULER=0 so importing the API does not call Yahoo."""
+    return os.environ.get("STRAT_SCHEDULER", "1").strip().lower() not in ("0", "false", "no")
 
 # Cut the cached history off at this date (YYYY-MM-DD) to see the scanner as it would have looked then.
 AS_OF = os.environ.get("STRAT_AS_OF") or None

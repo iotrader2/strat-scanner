@@ -223,10 +223,17 @@ export interface Status {
   /** Set when the server runs on history cut off at a past date (STRAT_AS_OF). */
   as_of: string | null;
   refreshing: boolean;
+  /** Same as refreshing: the background fetcher is downloading or recomputing. */
+  updating?: boolean;
   progress: { done: number; total: number; message: string };
   error: string | null;
   symbols_cached: number;
   universe_size: number;
+  /** Bumps when a new scan snapshot is published. */
+  version?: number;
+  computed_at?: string | null;
+  /** Quote delay label from the provider. Phase 1 is always 15 minutes. */
+  delay?: string;
 }
 
 export interface AppConfig {
