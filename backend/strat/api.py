@@ -39,6 +39,7 @@ class State:
     strengths: dict = {}
     ranks: MomentumRanks = MomentumRanks({})
     qqq: dict[str, Optional[float]] = {}
+    prior: dict = {}
     theme_map: Optional[ThemeMap] = None
 
 
@@ -62,7 +63,7 @@ def _load_theme_map() -> Optional[ThemeMap]:
 
 def _scan_one(member: Member, daily) -> Optional[dict]:
     """Scan one symbol against the current theme ranking and momentum distributions."""
-    return scan_symbol(member, daily, State.strengths, State.ranks, State.theme_map, State.qqq)
+    return scan_symbol(member, daily, State.strengths, State.ranks, State.theme_map, State.qqq, prior=State.prior)
 
 
 def _rescan_symbol(member: Member) -> None:
@@ -124,7 +125,7 @@ def _ensure_scan(force: bool = False) -> list[dict]:
         State.theme_map = _load_theme_map()
         result = scan_all(_universe(), daily, State.theme_map)
         State.result, State.scan = result, result.rows
-        State.strengths, State.ranks, State.qqq = result.strengths, result.ranks, result.qqq
+        State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
         State.scan_key = key
     return State.scan
 
