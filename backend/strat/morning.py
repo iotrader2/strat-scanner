@@ -131,6 +131,153 @@ def session_low_through(bars: Optional[pd.DataFrame], end: pd.Timestamp) -> Opti
     return low if low == low else None
 
 
+# The single-entry study is separate from the 1% check-in holds above.
+# 1R there is the distance from the entry down to the low of day through the entry bar.
+EMA_LENGTH = 20
+EMA_EARLIEST = time(9, 45)
+SINGLE_CLOCK = "10:30"
+PCT_FIELD = {name: f"{name}_pct" if name != "eod" else "eod_pct" for name, _, _ in HORIZONS}
+# (id, stored rule, first-name only, label)
+SINGLE_BOOKS: tuple[tuple[str, str, bool, str], ...] = (
+    ("rma_all", "rma1030", False, "10:30 all"),
+    ("rma_first", "rma1030", True, "10:30 first"),
+    ("ema_all", "ema", False, "EMA all"),
+    ("ema_first", "ema", True, "EMA first"),
+)
+
+
+def ema(closes: Sequence[float], length: int = EMA_LENGTH) -> list[float]:
+    """TradingView ``ta.ema``: SMA seed, then ``alpha * src + (1 - alpha) * prev``, ``alpha = 2 / (length + 1)``."""
+    n = len(closes)
+    out = [float("nan")] * n
+    if n < length or length < 1:
+        return out
+    out[length - 1] = sum(closes[:length]) / length
+    alpha = 2.0 / (length + 1)
+    for i in range(length, n):
+        out[i] = alpha * closes[i] + (1.0 - alpha) * out[i - 1]
+    return out
+
+
+def first_close_above_ema(
+    bars: Optional[pd.DataFrame],
+    day: str,
+    length: int = EMA_LENGTH,
+    earliest: time = EMA_EARLIEST,
+) -> Optional[pd.Timestamp]:
+    """First bar of ``day`` at or after 9:45 whose close is above the 20 EMA.
+
+    Earlier sessions warm the average. A bar that ends before 9:45 cannot be the entry, even when
+    its close is already above the average. Close must be strictly above.
+    """
+    if bars is None or bars.empty:
+        return None
+    start = pd.Timestamp(day)
+    prior = bars.loc[bars.index < start]
+    today = bars.loc[(bars.index >= start) & (bars.index < start + pd.Timedelta(days=1))]
+    if today.empty:
+        return None
+    combined = pd.concat([prior, today]) if not prior.empty else today
+    values = ema([float(value) for value in combined["close"]], length)
+    offset = len(prior)
+    for i, ts in enumerate(today.index):
+        stamp = pd.Timestamp(ts)
+        if stamp.time() < earliest:
+            continue
+        value = values[offset + i]
+        if value == value and float(today.iloc[i].close) > value:
+            return stamp
+    return None
+
+
+def to_pct(entry: float, price) -> Optional[float]:
+    """Percent change from the entry. A close 3% above the entry is +3."""
+    if price is None or pd.isna(price) or entry <= 0:
+        return None
+    return (float(price) / entry - 1.0) * 100.0
+
+
+def lod_outcome(
+    *,
+    entry: float,
+    stop: Optional[float],
+    day_bars: Optional[pd.DataFrame],
+    entry_end: Optional[pd.Timestamp],
+    daily: Optional[pd.DataFrame],
+    entry_day: pd.Timestamp,
+    forward_days: Sequence[pd.Timestamp],
+) -> dict:
+    """Low-of-day stop. A touch exits at the stop; a gap through it exits at the open.
+
+    ``stop`` is the session low from 9:30 through the entry bar. None means a hold with no stop
+    (QQQ). The entry bar is not a fill. Later 5-minute bars cover the rest of the session and the
+    next five sessions. A forward session with no 5-minute bars uses that day's daily bar. The
+    stopping bar's high is not credited. Close-to-close percent is stored beside the exit.
+    """
+    use_stop = stop is not None and stop == stop and entry > 0 and stop < entry
+    level = float(stop) if use_stop else None
+    best_high = entry
+    stopped = False
+    stop_day: Optional[int] = None
+    gapped = 0
+    exit_price: Optional[float] = None
+
+    def note_bar(high: float, low: float, open_: float, day_index: int) -> bool:
+        nonlocal best_high, stopped, stop_day, gapped, exit_price
+        if stopped:
+            return True
+        if level is not None and low <= level:
+            stopped = True
+            stop_day = day_index
+            gapped = int(open_ < level)
+            exit_price = open_ if gapped else level
+            return True
+        best_high = max(best_high, high)
+        return False
+
+    bars = day_bars if day_bars is not None else pd.DataFrame()
+    sessions: list[tuple[int, pd.Timestamp, Optional[pd.Timestamp]]] = [
+        (0, pd.Timestamp(entry_day).normalize(), entry_end)
+    ]
+    for offset, day in enumerate(forward_days[:5], start=1):
+        sessions.append((offset, pd.Timestamp(day).normalize(), None))
+    for offset, day, after in sessions:
+        chunk = _bars_on(bars, day, after)
+        if not chunk.empty:
+            for row in chunk.itertuples():
+                if note_bar(float(row.high), float(row.low), float(row.open), offset):
+                    break
+        elif offset > 0:
+            bar = _daily_on(daily, day)
+            if bar is not None:
+                note_bar(float(bar.high), float(bar.low), float(bar.open), offset)
+        if stopped:
+            break
+
+    today = _daily_on(daily, entry_day)
+    eod_price = None if today is None else today.close
+    if eod_price is None and not bars.empty:
+        same_day = _bars_on(bars, pd.Timestamp(entry_day), None)
+        if not same_day.empty:
+            eod_price = float(same_day.iloc[-1].close)
+    closes = {"eod_pct": to_pct(entry, eod_price)}
+    for offset, (name, _idx, _field) in enumerate(HORIZONS[1:], start=1):
+        bar = _daily_on(daily, forward_days[offset - 1]) if offset <= len(forward_days) else None
+        closes[PCT_FIELD[name]] = None if bar is None else to_pct(entry, bar.close)
+    stop_pct = ((entry - level) / entry * 100.0) if level is not None and entry > 0 else None
+    return {
+        "entry_price": entry,
+        "stop_price": level,
+        "stop_pct": stop_pct,
+        **closes,
+        "stopped": int(stopped),
+        "stop_day": stop_day,
+        "exit_pct": to_pct(entry, exit_price),
+        "gapped": gapped,
+        "mfe_pct": to_pct(entry, best_high),
+    }
+
+
 def to_r(entry: float, price) -> Optional[float]:
     """Distance from the entry in R. A close 3% above the entry is +3R."""
     if price is None or pd.isna(price) or entry <= 0:
@@ -491,3 +638,283 @@ def definition_text() -> str:
 
 def iter_windows() -> Iterable[str]:
     return WINDOW_IDS
+
+
+def _clock_minutes(hhmm: str) -> int:
+    hour, minute = str(hhmm).split(":")
+    return int(hour) * 60 + int(minute)
+
+
+def format_clock(minutes: Optional[float]) -> Optional[str]:
+    """Nearest minute, without a leading zero on the hour."""
+    if minutes is None:
+        return None
+    total = int(round(minutes)) % (24 * 60)
+    hour, minute = divmod(total, 60)
+    return f"{hour}:{minute:02d}"
+
+
+def realized_pct(row: Mapping, horizon: str) -> Optional[float]:
+    """Stop-aware percent. From the stop day on this is the exit, at the stop or at the gap open."""
+    idx = HORIZON_INDEX[horizon]
+    stop_day = row.get("stop_day")
+    if row.get("stopped") and stop_day is not None and int(stop_day) <= idx:
+        ret = row.get("exit_pct")
+        return None if ret is None else float(ret)
+    ret = row.get(PCT_FIELD[horizon])
+    return None if ret is None else float(ret)
+
+
+def realized_lod_r(row: Mapping, horizon: str) -> Optional[float]:
+    """Stop-aware R. 1R is the entry-to-stop distance. A gap can be worse than −1R."""
+    pct = realized_pct(row, horizon)
+    risk = row.get("stop_pct")
+    if pct is None or risk is None or float(risk) <= 0:
+        return None
+    return pct / float(risk)
+
+
+def _mfe_r(row: Mapping) -> Optional[float]:
+    mfe = row.get("mfe_pct")
+    risk = row.get("stop_pct")
+    if mfe is None or risk is None or float(risk) <= 0:
+        return None
+    return float(mfe) / float(risk)
+
+
+def _horizon_done(rows: Sequence[Mapping], horizon: str) -> bool:
+    """A morning still in progress would otherwise contribute only the names that already stopped."""
+    idx = HORIZON_INDEX[horizon]
+    field = PCT_FIELD[horizon]
+    return any(row.get(field) is not None for row in rows) or all(
+        row.get("stopped") and row.get("stop_day") is not None and int(row["stop_day"]) <= idx for row in rows
+    )
+
+
+def _summarize_book(trades: Sequence[Mapping], qqq: Mapping[tuple, Mapping]) -> dict:
+    """Day-equal average. Expectancy, win rate, and the distribution are per fill.
+
+    QQQ is keyed by (date, entry clock). A morning's benchmark is the equal-weight QQQ hold from
+    each fill's own entry minute.
+    """
+    by_date: dict[str, list[Mapping]] = {}
+    for trade in trades:
+        by_date.setdefault(str(trade["date"]), []).append(trade)
+    entry_minutes = [_clock_minutes(str(trade["entry_time"])) for trade in trades if trade.get("entry_time")]
+    risks = [float(trade["stop_pct"]) for trade in trades if trade.get("stop_pct") is not None and float(trade["stop_pct"]) > 0]
+    horizons = {}
+    for name, idx, _field in HORIZONS:
+        daily_pct: list[float] = []
+        daily_r: list[float] = []
+        daily_excess: list[float] = []
+        trade_pct: list[float] = []
+        trade_r: list[float] = []
+        mfes: list[float] = []
+        resolved = 0
+        stopped_n = 0
+        gaps = 0
+        for day, rows in by_date.items():
+            if not _horizon_done(rows, name):
+                continue
+            morning_pct: list[float] = []
+            morning_r: list[float] = []
+            paired_pct: list[float] = []
+            paired_qqq: list[float] = []
+            for row in rows:
+                pct = realized_pct(row, name)
+                if pct is None:
+                    continue
+                resolved += 1
+                morning_pct.append(pct)
+                trade_pct.append(pct)
+                r_value = realized_lod_r(row, name)
+                if r_value is not None:
+                    morning_r.append(r_value)
+                    trade_r.append(r_value)
+                mfe = _mfe_r(row)
+                if mfe is not None:
+                    mfes.append(mfe)
+                stop_day = row.get("stop_day")
+                if row.get("stopped") and stop_day is not None and int(stop_day) <= idx:
+                    stopped_n += 1
+                    if row.get("gapped"):
+                        gaps += 1
+                benchmark = qqq.get((day, str(row.get("entry_time"))))
+                q_pct = realized_pct(benchmark, name) if benchmark else None
+                if q_pct is not None:
+                    paired_pct.append(pct)
+                    paired_qqq.append(q_pct)
+            if morning_pct:
+                daily_pct.append(sum(morning_pct) / len(morning_pct))
+            if morning_r:
+                daily_r.append(sum(morning_r) / len(morning_r))
+            if paired_pct:
+                daily_excess.append(sum(paired_pct) / len(paired_pct) - sum(paired_qqq) / len(paired_qqq))
+        horizons[name] = {
+            "n_days": len(daily_pct),
+            "n_trades": len(trade_pct),
+            "avg_pct": _mean(daily_pct),
+            "avg_r": _mean(daily_r),
+            "win_rate": (sum(v > 0 for v in trade_pct) / len(trade_pct)) if trade_pct else None,
+            "stop_hit_rate": (stopped_n / resolved) if resolved else None,
+            "gap_count": gaps,
+            "total_r": sum(trade_r) if trade_r else None,
+            "expectancy": _mean(trade_r),
+            "avg_mfe": _mean(mfes),
+            "median_r": float(median(trade_r)) if trade_r else None,
+            "best_r": max(trade_r) if trade_r else None,
+            "worst_r": min(trade_r) if trade_r else None,
+            "median_pct": float(median(trade_pct)) if trade_pct else None,
+            "best_pct": max(trade_pct) if trade_pct else None,
+            "worst_pct": min(trade_pct) if trade_pct else None,
+            "vs_qqq": _mean(daily_excess),
+        }
+    return {
+        "n_fills": len(trades),
+        "avg_entry": format_clock(_mean(entry_minutes) if entry_minutes else None),
+        "median_entry": format_clock(float(median(entry_minutes))) if entry_minutes else None,
+        "avg_stop_pct": _mean(risks),
+        "horizons": horizons,
+    }
+
+
+def build_single_stats(leader_rows: Sequence[Mapping], qqq_rows: Sequence[Mapping]) -> dict:
+    """Four books: 10:30 RMA and first-EMA-close, each as all names and as the first name only."""
+    qqq = {(str(row["date"]), str(row["entry_time"])): row for row in qqq_rows}
+    books = {}
+    for book_id, rule, first_only, label in SINGLE_BOOKS:
+        rows = [row for row in leader_rows if row.get("rule") == rule]
+        if first_only:
+            rows = [row for row in rows if int(row.get("rank") or 0) == 1]
+        body = _summarize_book(rows, qqq)
+        body["id"] = book_id
+        body["label"] = label
+        body["rule"] = rule
+        books[book_id] = body
+    return {"books": books, "order": [book_id for book_id, *_rest in SINGLE_BOOKS]}
+
+
+def single_entry_text() -> str:
+    return (
+        "Two entry rules, each with every qualifying name and with only the first name that day. "
+        "The 10:30 book buys a top-10 leader at the 10:30 close once a 5-minute bar has closed above "
+        "the 20 RMA. The EMA book buys at the close of the first 5-minute bar at or after 9:45 that "
+        "closes above the 20-period EMA; earlier sessions warm that average, and nothing before 9:45 "
+        "is an entry. The stop is the low from 9:30 through the entry bar. One R is that distance. "
+        "A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at "
+        "the open and is counted as a gap. Ties break by symbol."
+    )
+
+
+def single_entries_for_day(
+    day: str,
+    symbols: Sequence[str],
+    intraday: Mapping[str, pd.DataFrame],
+    daily: Mapping[str, pd.DataFrame],
+    calendar: Sequence[str],
+) -> tuple[list[dict], list[dict]]:
+    """Low-of-day outcomes for the 10:30 RMA book and the EMA book, plus QQQ at each entry clock."""
+    forward = [pd.Timestamp(d) for d in calendar if d > day][:5]
+    entry_day = pd.Timestamp(day)
+    end_1030 = window_end(day, SINGLE_CLOCK)
+    leaders: list[dict] = []
+
+    rma_rows = []
+    for sym in symbols:
+        bars = intraday.get(sym)
+        cross = cross_through(bars, end_1030)
+        entry = entry_at(bars, end_1030)
+        stop = session_low_through(bars, end_1030)
+        if cross is None or entry is None or stop is None or stop >= entry:
+            continue
+        rma_rows.append(
+            {
+                "symbol": sym,
+                "cross": cross,
+                "entry_time": SINGLE_CLOCK,
+                "bars": bars,
+                "entry": entry,
+                "stop": stop,
+            }
+        )
+    rma_rows.sort(key=lambda row: (row["cross"], row["symbol"]))
+    for rank, row in enumerate(rma_rows, start=1):
+        leaders.append(
+            {
+                "symbol": row["symbol"],
+                "rule": "rma1030",
+                "entry_time": row["entry_time"],
+                "rank": rank,
+                "cross_time": pd.Timestamp(row["cross"]).strftime("%H:%M"),
+                **lod_outcome(
+                    entry=row["entry"],
+                    stop=row["stop"],
+                    day_bars=row["bars"],
+                    entry_end=end_1030,
+                    daily=daily.get(row["symbol"]),
+                    entry_day=entry_day,
+                    forward_days=forward,
+                ),
+            }
+        )
+
+    ema_rows = []
+    for sym in symbols:
+        bars = intraday.get(sym)
+        cross = first_close_above_ema(bars, day)
+        if cross is None:
+            continue
+        entry = entry_at(bars, cross)
+        stop = session_low_through(bars, cross)
+        if entry is None or stop is None or stop >= entry:
+            continue
+        ema_rows.append({"symbol": sym, "cross": cross, "bars": bars, "entry": entry, "stop": stop})
+    ema_rows.sort(key=lambda row: (row["cross"], row["symbol"]))
+    for rank, row in enumerate(ema_rows, start=1):
+        leaders.append(
+            {
+                "symbol": row["symbol"],
+                "rule": "ema",
+                "entry_time": pd.Timestamp(row["cross"]).strftime("%H:%M"),
+                "rank": rank,
+                "cross_time": pd.Timestamp(row["cross"]).strftime("%H:%M"),
+                **lod_outcome(
+                    entry=row["entry"],
+                    stop=row["stop"],
+                    day_bars=row["bars"],
+                    entry_end=pd.Timestamp(row["cross"]),
+                    daily=daily.get(row["symbol"]),
+                    entry_day=entry_day,
+                    forward_days=forward,
+                ),
+            }
+        )
+
+    clocks = {row["entry_time"] for row in leaders}
+    clocks.add(SINGLE_CLOCK)
+    qqq_bars = intraday.get(BENCHMARK)
+    qqq_rows = []
+    for clock in sorted(clocks):
+        end = window_end(day, clock)
+        price = entry_at(qqq_bars, end)
+        if price is None:
+            continue
+        qqq_rows.append(
+            {
+                "symbol": BENCHMARK,
+                "rule": "qqq",
+                "entry_time": clock,
+                "rank": None,
+                "cross_time": None,
+                **lod_outcome(
+                    entry=price,
+                    stop=None,
+                    day_bars=qqq_bars,
+                    entry_end=end,
+                    daily=daily.get(BENCHMARK),
+                    entry_day=entry_day,
+                    forward_days=forward,
+                ),
+            }
+        )
+    return leaders, qqq_rows

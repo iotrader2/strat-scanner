@@ -1,19 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import {
   CHECK_INS,
+  SINGLE_HORIZONS,
+  SINGLE_METRICS,
+  SINGLE_RULES,
   bestSentence,
   displayTime,
+  entryNote,
   orderedRows,
   outcomeLine,
   realizedR,
   returnTone,
   shownRank,
+  signedPct,
   signedR,
   type MorningMode,
   type MorningRow,
   type MorningWeek,
+  type SingleHorizon,
   type WindowStat,
 } from "../morning";
 
@@ -100,6 +106,74 @@ function WeekRow({ row, mode }: { row: MorningRow; mode: MorningMode }) {
       </span>
       {mode !== "leaders" && <div className="week-tip">{outcomeLine(outcome)}</div>}
     </div>
+  );
+}
+
+function formatSingle(horizon: SingleHorizon | undefined, key: keyof SingleHorizon, kind: "count" | "pct" | "r" | "rate" | "r1"): string {
+  const value = horizon?.[key];
+  if (value == null) return "—";
+  if (kind === "count") return String(value);
+  if (kind === "rate") return `${Math.round(Number(value) * 100)}%`;
+  if (kind === "pct") return signedPct(Number(value), 2);
+  if (kind === "r1") return signedR(Number(value), 1);
+  return signedR(Number(value), 2);
+}
+
+function SingleEntryTable({ stats }: { stats: MorningWeek["stats"]["single_entry"] }) {
+  if (!stats?.order?.length) return null;
+  return (
+    <section className="card single-entry" aria-label="Single entry study">
+      <div className="compare-head">
+        <h2>Single entry, low of day</h2>
+        <p className="muted small">{stats.definition}</p>
+      </div>
+      <div className="single-grid">
+        {SINGLE_RULES.map((rule) => (
+          <div className="single-rule" key={rule.title}>
+            <h3>{rule.title}</h3>
+            {rule.books.map((id) => (
+              <p className="muted small" key={id}>{entryNote(stats.books[id])}</p>
+            ))}
+            <div className="table-card">
+              <table className="scan-table morning-table single-table">
+                <thead>
+                  <tr>
+                    <th> </th>
+                    {rule.books.map((id) => (
+                      <th className="num" key={id}>{stats.books[id]?.label ?? id}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {SINGLE_HORIZONS.map((horizon) => (
+                    <Fragment key={horizon}>
+                      <tr className="single-horizon">
+                        <th colSpan={1 + rule.books.length}>{COMPARE_LABEL[horizon]}</th>
+                      </tr>
+                      {SINGLE_METRICS.map((metric) => (
+                        <tr key={`${horizon}-${metric.key}`}>
+                          <th scope="row">{metric.label}</th>
+                          {rule.books.map((id) => {
+                            const block = stats.books[id]?.horizons[horizon];
+                            const raw = block?.[metric.key];
+                            const tone = metric.kind === "pct" || metric.kind === "r" || metric.kind === "r1" ? returnTone(typeof raw === "number" ? raw : null) : "";
+                            return (
+                              <td className={`num ${tone}`} key={id}>
+                                {formatSingle(block, metric.key, metric.kind)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -303,6 +377,8 @@ export default function Morning() {
           </table>
         </div>
       </section>
+
+      <SingleEntryTable stats={stats?.single_entry} />
     </div>
   );
 }

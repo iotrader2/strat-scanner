@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query
 
 from . import config
 from .intraday import today_et
-from .morning import WINDOW_IDS, build_stats, definition_text
+from .morning import WINDOW_IDS, build_single_stats, build_stats, definition_text, single_entry_text
 from .morning_store import (
     earliest_leader_date,
     latest_leader_date,
@@ -17,6 +17,7 @@ from .morning_store import (
     ranks_between,
     results_between,
     revision,
+    single_entries_between,
 )
 
 router = APIRouter()
@@ -49,8 +50,15 @@ def cached_stats(force: bool = False) -> dict:
         results_between("0000-01-01", "9999-12-31", role="benchmark"),
         ranks_between("0000-01-01", "9999-12-31"),
     )
+    single_rows = single_entries_between("0000-01-01", "9999-12-31")
+    single = build_single_stats(
+        [row for row in single_rows if row["rule"] != "qqq"],
+        [row for row in single_rows if row["rule"] == "qqq"],
+    )
+    single["definition"] = single_entry_text()
     public = _round({k: v for k, v in stats.items() if k != "qqq_at_best"})
     public["definition"] = definition_text()
+    public["single_entry"] = _round(single)
     _CACHE["rev"] = rev
     _CACHE["stats"] = public
     return public

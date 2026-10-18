@@ -38,6 +38,48 @@ def _count(value) -> str:
     return f"{value:.1f}"
 
 
+def _dist(value) -> str:
+    if value is None:
+        return "—"
+    return f"{abs(value):.2f}%"
+
+
+def _pct(value, digits: int = 2) -> str:
+    if value is None:
+        return "—"
+    text = f"{abs(value):.{digits}f}"
+    if float(text) == 0:
+        return f"{0:.{digits}f}%"
+    return f"{'+' if value > 0 else '-'}{text}%"
+
+
+def _num(value) -> str:
+    if value is None:
+        return "—"
+    return str(int(value))
+
+
+_SINGLE_METRICS = (
+    ("n_days", "days", _num),
+    ("n_trades", "fills", _num),
+    ("avg_pct", "avg %", _pct),
+    ("avg_r", "avg R", _r),
+    ("win_rate", "win", _rate),
+    ("stop_hit_rate", "stop", _rate),
+    ("gap_count", "gaps", _num),
+    ("total_r", "total R", lambda value: _r(value, 1)),
+    ("expectancy", "expectancy", _r),
+    ("avg_mfe", "avg MFE", _r),
+    ("median_r", "median R", _r),
+    ("best_r", "best R", _r),
+    ("worst_r", "worst R", _r),
+    ("median_pct", "median %", _pct),
+    ("best_pct", "best %", _pct),
+    ("worst_pct", "worst %", _pct),
+    ("vs_qqq", "vs QQQ", _pct),
+)
+
+
 def render(stats: dict, meta: dict) -> str:
     lines = [
         "# Morning leaders",
@@ -139,8 +181,54 @@ def render(stats: dict, meta: dict) -> str:
             "That is a description of this sample, not a promise. Overlapping holds, a short window, and "
             "today's index membership (survivorship) all apply."
         )
+    _append_single(lines, stats)
     lines.append("")
     return "\n".join(lines)
+
+
+def _append_single(lines: list[str], stats: dict) -> None:
+    single = stats.get("single_entry") or {}
+    books = single.get("books") or {}
+    order = [book_id for book_id in (single.get("order") or []) if book_id in books]
+    lines.extend(["", "## Single entry: 10:30 RMA and the 20 EMA", ""])
+    if single.get("definition"):
+        lines.append(single["definition"])
+        lines.append("")
+    ready = [
+        book_id
+        for book_id in order
+        if (books[book_id].get("horizons") or {}).get("eod", {}).get("n_days")
+    ]
+    if not ready:
+        lines.append("Not enough completed holds for the single-entry study yet.")
+        return
+    bits = []
+    for book_id in order:
+        book = books[book_id]
+        when = book.get("avg_entry") or "—"
+        median = book.get("median_entry")
+        clock = when if not median or median == when else f"{when} on average (median {median})"
+        bits.append(
+            f"**{book['label']}** enters at {clock} "
+            f"with an average stop {_dist(book.get('avg_stop_pct'))} under the entry"
+        )
+    lines.append("Average entry time and average stop distance, per fill: " + "; ".join(bits) + ".")
+    lines.append("")
+    lines.append(
+        "Average % and average R give each morning one vote. Expectancy, win rate, the stop-hit rate, "
+        "and best, median, and worst are per fill. Total R sums those fills. From the stop day on the "
+        "result is the exit: the stop price, or the open when the bar gapped through. vs QQQ is that "
+        "morning's stop-aware percent minus QQQ held from the same minute, with no stop on QQQ. "
+        "MFE is the best R reached before the stop or the end of the +5 day hold."
+    )
+    lines.append("")
+    labels = [books[book_id]["label"] for book_id in order]
+    lines.append("| | " + " | ".join(labels) + " |")
+    lines.append("| --- | " + " | ".join("---:" for _ in labels) + " |")
+    for name, title in HORIZON_LABEL.items():
+        for key, metric, fmt in _SINGLE_METRICS:
+            cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in order]
+            lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
 
 
 def main(argv: list[str] | None = None) -> None:

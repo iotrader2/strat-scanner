@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bestSentence,
   displayTime,
+  entryNote,
   orderedRows,
   outcomeLine,
   returnTone,
@@ -78,5 +79,20 @@ describe("morning check-in view", () => {
     expect(text).toContain("20 RMA");
     expect(text).toContain("1% stop");
     expect(bestSentence(null)).toBeNull();
+  });
+
+  it("notes the EMA book's average entry time and stop distance", () => {
+    expect(
+      entryNote({
+        id: "ema_all",
+        label: "EMA all",
+        rule: "ema",
+        n_fills: 4,
+        avg_entry: "10:22",
+        median_entry: "9:45",
+        avg_stop_pct: 0.82,
+        horizons: {},
+      }),
+    ).toBe("EMA all enters at 10:22 on average (median 9:45). The stop averages 0.82% under the entry.");
   });
 });

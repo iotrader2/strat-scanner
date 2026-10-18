@@ -12,12 +12,19 @@ from strat.backtest import _as_of_frames
 from strat.intraday import clamp_start, to_session_ends
 from strat.morning import (
     HORIZONS,
+    build_single_stats,
     build_stats,
     cross_through,
+    ema,
     entry_at,
+    first_close_above_ema,
+    lod_outcome,
     outcome_for_entry,
+    realized_lod_r,
+    realized_pct,
     realized_return,
     session_low_through,
+    single_entries_for_day,
     wilder_rma,
     window_end,
 )
@@ -506,3 +513,149 @@ def test_compute_day_buys_the_earliest_cross_and_skips_the_rest():
     ten = next(r for r in ranks if r["window"] == "10:00" and r["symbol"] == "CCC")
     assert ten["qualified"] == 0
     assert len(HORIZONS) == 6
+
+
+def test_ema_seeds_with_the_sma_and_ignores_bars_before_945():
+    out = ema([1, 2, 3, 4, 5], 3)
+    assert out[0] != out[0] and out[1] != out[1]
+    assert out[2] == pytest.approx(2)
+    alpha = 2 / 4
+    assert out[3] == pytest.approx(alpha * 4 + (1 - alpha) * 2)
+    prior = _five("2026-10-15 09:30", [100.0] * 20)
+    # 9:35 closes above the EMA, which is too early. 9:45 is back under it. 9:50 closes above.
+    today = _five("2026-10-16 09:30", [110.0, 100.0, 100.0, 110.0])
+    bars = pd.concat([prior, today])
+    assert first_close_above_ema(bars, "2026-10-16") == pd.Timestamp("2026-10-16 09:50")
+    already = _five("2026-10-16 09:30", [110.0, 110.0, 110.0])
+    assert first_close_above_ema(pd.concat([prior, already]), "2026-10-16") == pd.Timestamp("2026-10-16 09:45")
+
+
+def test_low_of_day_touch_exits_at_the_stop_and_a_gap_exits_at_the_open():
+    idx = pd.to_datetime(["2026-10-16 10:30", "2026-10-16 10:35", "2026-10-16 10:40"])
+    bars = pd.DataFrame(
+        {"open": [100.0, 100.0, 99.5], "high": [101.0, 103.0, 110.0], "low": [98.0, 99.0, 97.0], "close": [100.0, 101.0, 99.0], "volume": 1e5},
+        index=idx,
+    )
+    daily = _daily([101, 110, 111, 112, 113, 114], start="2026-10-16")
+    out = lod_outcome(
+        entry=100,
+        stop=98,
+        day_bars=bars,
+        entry_end=pd.Timestamp("2026-10-16 10:30"),
+        daily=daily,
+        entry_day=pd.Timestamp("2026-10-16"),
+        forward_days=list(daily.index[1:]),
+    )
+    assert out["stopped"] == 1 and out["stop_day"] == 0 and out["gapped"] == 0
+    assert out["stop_pct"] == pytest.approx(2)
+    assert out["exit_pct"] == pytest.approx(-2)
+    assert out["mfe_pct"] == pytest.approx(3)
+    assert out["eod_pct"] == pytest.approx(1)  # the close is stored beside the exit
+    assert realized_pct(out, "d3") == pytest.approx(-2)
+    assert realized_lod_r(out, "eod") == pytest.approx(-1)
+
+    # The entry bar's low is the stop, and with no later bar it is not a fill.
+    alone = bars.iloc[:1]
+    held = lod_outcome(
+        entry=100,
+        stop=98,
+        day_bars=alone,
+        entry_end=pd.Timestamp("2026-10-16 10:30"),
+        daily=daily,
+        entry_day=pd.Timestamp("2026-10-16"),
+        forward_days=[],
+    )
+    assert held["stopped"] == 0
+    assert realized_pct(held, "eod") == pytest.approx(1)
+
+    gap_day = pd.DataFrame(
+        {"open": [95.0], "high": [110.0], "low": [90.0], "close": [96.0], "volume": 1e5},
+        index=pd.to_datetime(["2026-10-17 09:35"]),
+    )
+    gapped = lod_outcome(
+        entry=100,
+        stop=98,
+        day_bars=pd.concat([alone, gap_day]),
+        entry_end=pd.Timestamp("2026-10-16 10:30"),
+        daily=daily,
+        entry_day=pd.Timestamp("2026-10-16"),
+        forward_days=[pd.Timestamp("2026-10-17")],
+    )
+    assert gapped["gapped"] == 1 and gapped["stop_day"] == 1
+    assert gapped["exit_pct"] == pytest.approx(-5)  # filled at the open, not at 90 and not at the stop
+    assert realized_lod_r(gapped, "d1") == pytest.approx(-2.5)
+    assert gapped["mfe_pct"] == pytest.approx(0)  # the gap bar's high is ignored
+
+
+def test_single_entry_books_keep_the_first_name_and_skip_an_unfinished_morning():
+    trades = [
+        {"date": "2026-10-01", "rule": "rma1030", "rank": 1, "symbol": "AAA", "entry_time": "10:30", "stop_pct": 2.0, "stopped": 0, "stop_day": None, "gapped": 0, "eod_pct": 2.0, "d3_pct": 4.0, "exit_pct": None, "mfe_pct": 6.0},
+        {"date": "2026-10-01", "rule": "rma1030", "rank": 2, "symbol": "BBB", "entry_time": "10:30", "stop_pct": 1.0, "stopped": 1, "stop_day": 0, "gapped": 1, "eod_pct": 9.0, "d3_pct": 9.0, "exit_pct": -3.0, "mfe_pct": 1.0},
+        {"date": "2026-10-02", "rule": "rma1030", "rank": 1, "symbol": "AAA", "entry_time": "10:30", "stop_pct": 2.0, "stopped": 0, "stop_day": None, "gapped": 0, "eod_pct": 2.0, "d3_pct": None, "exit_pct": None, "mfe_pct": 2.0},
+        {"date": "2026-10-02", "rule": "ema", "rank": 1, "symbol": "AAA", "entry_time": "09:50", "stop_pct": 1.0, "stopped": 0, "stop_day": None, "gapped": 0, "eod_pct": 1.0, "d3_pct": 1.0, "exit_pct": None, "mfe_pct": 2.0},
+    ]
+    qqq = [
+        {"date": "2026-10-01", "entry_time": "10:30", "stopped": 0, "stop_day": None, "eod_pct": 0.5, "d3_pct": 0.5},
+        {"date": "2026-10-02", "entry_time": "09:50", "stopped": 0, "stop_day": None, "eod_pct": 0.2, "d3_pct": 0.2},
+    ]
+    stats = build_single_stats(trades, qqq)
+    book = stats["books"]["rma_all"]["horizons"]["d3"]
+    # Day 1 is mean(+4%, −3%) and mean(+2R, −3R). Day 2 has no day-3 close and is not stopped.
+    assert book["n_days"] == 1 and book["n_trades"] == 2
+    assert book["avg_pct"] == pytest.approx(0.5)
+    assert book["avg_r"] == pytest.approx(-0.5)
+    assert book["total_r"] == pytest.approx(-1)
+    assert book["expectancy"] == pytest.approx(-0.5)
+    assert book["win_rate"] == pytest.approx(0.5)
+    assert book["stop_hit_rate"] == pytest.approx(0.5)
+    assert book["gap_count"] == 1
+    assert book["best_r"] == pytest.approx(2) and book["worst_r"] == pytest.approx(-3)
+    assert book["median_r"] == pytest.approx(-0.5)
+    assert book["avg_mfe"] == pytest.approx(2)
+    assert book["vs_qqq"] == pytest.approx(0)
+    assert stats["books"]["rma_first"]["horizons"]["d3"]["n_trades"] == 1
+    assert stats["books"]["rma_first"]["horizons"]["d3"]["avg_r"] == pytest.approx(2)
+    assert stats["books"]["rma_all"]["avg_entry"] == "10:30"
+    assert stats["books"]["rma_all"]["avg_stop_pct"] == pytest.approx(5 / 3)
+    assert stats["books"]["ema_all"]["avg_entry"] == "9:50"
+    assert stats["books"]["ema_all"]["median_entry"] == "9:50"
+    assert stats["books"]["ema_first"]["horizons"]["d3"]["vs_qqq"] == pytest.approx(0.8)
+    done = [
+        {"date": "2026-10-15", "rule": "rma1030", "rank": 1, "symbol": "AAA", "entry_time": "10:30", "stop_pct": 1.0, "stopped": 1, "stop_day": 0, "gapped": 0, "eod_pct": 5.0, "d3_pct": None, "exit_pct": -1.0, "mfe_pct": 0.2},
+        {"date": "2026-10-15", "rule": "rma1030", "rank": 2, "symbol": "BBB", "entry_time": "10:30", "stop_pct": 2.0, "stopped": 1, "stop_day": 1, "gapped": 0, "eod_pct": 0.4, "d3_pct": None, "exit_pct": -2.0, "mfe_pct": 0.4},
+    ]
+    both = build_single_stats(done, [])
+    assert both["books"]["rma_all"]["horizons"]["d3"]["n_days"] == 1
+    assert both["books"]["rma_all"]["horizons"]["d3"]["avg_r"] == pytest.approx(-1)
+
+
+def test_the_ema_entry_is_not_the_1030_close_and_the_first_name_is_the_earliest():
+    prior = _five("2026-10-15 09:30", [100.0] * 25, low=90.0)
+    # 12 bars: 9:35 through 10:30. AAA is above the average at 9:45. BBB waits until 10:15.
+    # A lower low at 10:05 widens the 10:30 stop and is invisible to an entry at 9:45.
+    aaa_today = _five("2026-10-16 09:30", [100.0, 100.0, 102.0, 102.0, 102.0, 102.0, 102.0, 102.0, 102.0, 102.0, 102.0, 104.0])
+    aaa_today["low"] = 99.0
+    aaa_today.iloc[6, aaa_today.columns.get_loc("low")] = 96.0
+    bbb_today = _five("2026-10-16 09:30", [100.0] * 8 + [103.0, 103.0, 103.0, 105.0])
+    bbb_today["low"] = 100.0
+    calendar = ["2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"]
+    daily = {sym: _daily([100, 101, 102, 103, 104, 105], start="2026-10-16") for sym in ("AAA", "BBB", "QQQ")}
+    leaders, qqq = single_entries_for_day(
+        "2026-10-16",
+        ["AAA", "BBB"],
+        {"AAA": pd.concat([prior, aaa_today]), "BBB": pd.concat([prior, bbb_today]), "QQQ": pd.concat([prior, _five("2026-10-16 09:30", [100.0] * 12)])},
+        daily,
+        calendar,
+    )
+    rma = [row for row in leaders if row["rule"] == "rma1030"]
+    ema_rows = [row for row in leaders if row["rule"] == "ema"]
+    assert [row["symbol"] for row in rma] == ["AAA", "BBB"]
+    assert all(row["entry_time"] == "10:30" for row in rma)
+    assert rma[0]["entry_price"] == pytest.approx(104)
+    assert rma[0]["stop_price"] == pytest.approx(96)
+    assert [row["symbol"] for row in ema_rows] == ["AAA", "BBB"]
+    assert ema_rows[0]["entry_time"] == "09:45"
+    assert ema_rows[0]["entry_price"] == pytest.approx(102)
+    assert ema_rows[0]["stop_price"] == pytest.approx(99)
+    assert ema_rows[1]["entry_time"] == "10:15"
+    assert {row["entry_time"] for row in qqq} >= {"10:30", "09:45", "10:15"}

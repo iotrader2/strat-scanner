@@ -17,6 +17,11 @@ RESULT_FIELDS = (
     "eod_ret", "d1_ret", "d2_ret", "d3_ret", "d4_ret", "d5_ret",
     "stopped", "stop_day", "stop_ret", "mfe", "mae", "gapped", "role",
 )
+SINGLE_FIELDS = (
+    "date", "symbol", "rule", "entry_time", "entry_price", "stop_price", "stop_pct",
+    "eod_pct", "d1_pct", "d2_pct", "d3_pct", "d4_pct", "d5_pct",
+    "stopped", "stop_day", "exit_pct", "gapped", "mfe_pct", "rank", "cross_time",
+)
 
 
 def _rows(conn, sql: str, params: tuple = ()) -> list[dict]:
@@ -32,6 +37,8 @@ def delete_day(day: str, db_path: Path | None = None) -> None:
         conn.execute("DELETE FROM interval_ranks WHERE date = ?", (day,))
         conn.execute("DELETE FROM entry_results WHERE date = ?", (day,))
         conn.execute("DELETE FROM intraday_gaps WHERE date = ?", (day,))
+        conn.execute("DELETE FROM single_entry WHERE date = ?", (day,))
+        conn.execute("DELETE FROM single_entry_day WHERE date = ?", (day,))
 
 
 def leader_dates(db_path: Path | None = None) -> set[str]:
@@ -307,12 +314,53 @@ def incomplete_result_dates(calendar: Sequence[str], role: str = "leader", db_pa
     return ready | (future - have)
 
 
+def replace_single_entries(day: str, rows: Sequence[dict], db_path: Path | None = None) -> None:
+    """Replace one session of the low-of-day study and mark the session built, even with no fills."""
+    payload = []
+    for r in rows:
+        payload.append(
+            (
+                day, r["symbol"], r["rule"], r["entry_time"], float(r["entry_price"]),
+                r.get("stop_price"), r.get("stop_pct"),
+                r.get("eod_pct"), r.get("d1_pct"), r.get("d2_pct"), r.get("d3_pct"), r.get("d4_pct"), r.get("d5_pct"),
+                int(r.get("stopped") or 0), r.get("stop_day"), r.get("exit_pct"), int(r.get("gapped") or 0),
+                r.get("mfe_pct"), r.get("rank"), r.get("cross_time"),
+            )
+        )
+    with data._write_lock, data.connect(db_path) as conn:
+        conn.execute("DELETE FROM single_entry WHERE date = ?", (day,))
+        conn.executemany(
+            "INSERT INTO single_entry(date, symbol, rule, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, rank, cross_time) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            payload,
+        )
+        conn.execute("INSERT OR REPLACE INTO single_entry_day(date) VALUES (?)", (day,))
+
+
+def single_entries_between(start: str, end: str, db_path: Path | None = None) -> list[dict]:
+    with data.connect(db_path) as conn:
+        return _rows(
+            conn,
+            "SELECT date, symbol, rule, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, rank, cross_time "
+            "FROM single_entry WHERE date >= ? AND date <= ? ORDER BY date, rule, rank, symbol",
+            (start, end),
+        )
+
+
+def single_entry_days(db_path: Path | None = None) -> set[str]:
+    with data.connect(db_path) as conn:
+        return {r[0] for r in conn.execute("SELECT date FROM single_entry_day")}
+
+
 def revision(db_path: Path | None = None) -> str:
     with data.connect(db_path) as conn:
         leaders = conn.execute("SELECT COUNT(*), MAX(date) FROM leader_snapshots").fetchone()
         results = conn.execute("SELECT COUNT(*), MAX(date) FROM entry_results").fetchone()
         ranks = conn.execute("SELECT COUNT(*), MAX(date) FROM interval_ranks").fetchone()
-    return f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}"
+        single = conn.execute("SELECT COUNT(*), MAX(date) FROM single_entry").fetchone()
+    return f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}:{single[0]}:{single[1]}"
 
 
 def _bar_span(conn, interval: str) -> tuple[int, Optional[str], Optional[str]]:
@@ -334,6 +382,10 @@ def counts(db_path: Path | None = None) -> dict:
         results = conn.execute(
             "SELECT COUNT(DISTINCT date) FROM entry_results WHERE role = 'leader'"
         ).fetchone()[0]
+        single_days = conn.execute("SELECT COUNT(*) FROM single_entry_day").fetchone()[0]
+        single_rows = conn.execute(
+            "SELECT COUNT(*) FROM single_entry WHERE rule != 'qqq'"
+        ).fetchone()[0]
     return {
         "leader_days": int(days or 0),
         "leader_rows": int(names or 0),
@@ -348,4 +400,6 @@ def counts(db_path: Path | None = None) -> dict:
         "bar_end_15m": fifteen[2],
         "bar_sources": {src: int(n) for src, n in sources},
         "result_days": int(results or 0),
+        "single_days": int(single_days or 0),
+        "single_rows": int(single_rows or 0),
     }

@@ -31,6 +31,7 @@ from .morning import (
     cross_through,
     entry_at,
     outcome_for_entry,
+    single_entries_for_day,
     window_end,
 )
 from .morning_store import (
@@ -46,7 +47,9 @@ from .morning_store import (
     replace_leaders,
     replace_ranks,
     replace_results,
+    replace_single_entries,
     save_bars,
+    single_entry_days,
 )
 from .scanner import scan_all
 
@@ -367,9 +370,11 @@ def recompute_results(
         if row["date"] in set(days):
             by_day.setdefault(row["date"], []).append(row["symbol"])
     if not force:
-        # Days with no results yet, and days whose +5 close was unknown and is knowable now.
+        # Days with no results yet, days whose +5 close was unknown, and days not yet in the
+        # low-of-day single-entry study.
         pending = incomplete_result_dates(calendar, db_path=db_path)
-        days = [day for day in days if day in pending]
+        built = single_entry_days(db_path)
+        days = [day for day in days if day in pending or day not in built]
     if not days:
         _log("Entry results are already filled in")
         return 0
@@ -390,18 +395,22 @@ def recompute_results(
     for day in days:
         names = by_day.get(day, [])
         if not names:
+            replace_single_entries(day, [], db_path)
             continue
         # A morning with no 5-minute tape is not a zero-qualification day. Drop the old 15-minute result.
         if not any(_has_session(intraday.get(sym), day) for sym in (*names, QQQ)):
             replace_ranks(day, [], db_path)
             replace_results(day, [], role="leader", db_path=db_path)
             replace_results(day, [], role="benchmark", db_path=db_path)
+            replace_single_entries(day, [], db_path)
             written += 1
             continue
         ranks, leader_rows, qqq_rows = compute_day(day, names, intraday, daily, calendar)
+        single_leaders, single_qqq = single_entries_for_day(day, names, intraday, daily, calendar)
         replace_ranks(day, ranks, db_path)
         replace_results(day, leader_rows, role="leader", db_path=db_path)
         replace_results(day, qqq_rows, role="benchmark", db_path=db_path)
+        replace_single_entries(day, [*single_leaders, *single_qqq], db_path)
         written += 1
     return written
 

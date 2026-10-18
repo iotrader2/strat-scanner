@@ -543,6 +543,12 @@ The entry is the close of the 5-minute bar that ends at the check-in, not the cl
 
 Average R gives each morning one vote. Expectancy is the mean R per fill. Win rate and the stop-hit rate are per fill. The summary picks the check-in with the highest average stop-aware R by **day 3**, and shows how many names qualified, the total R, the stop-hit rate, how many gapped through the stop, and the average maximum favorable excursion. QQQ held from the same minute is the benchmark, without a stop.
 
+### Single entry at the low of day
+
+A second study keeps one entry per name per day and stops at the low of day, the session low from 9:30 through the entry bar. One R is that distance, so the same percent move is a different R on a tight stop than on a wide one. A later 5-minute bar at or below the stop exits at the stop. A bar that opens below the stop exits at that open and is counted as a gap.
+
+Two rules sit side by side, and each rule has two books. The **10:30** book buys every top-10 name that has closed above the 20 RMA by 10:30, at the 10:30 close, plus a book that keeps only the name that crossed first. The **EMA** book buys at the close of the first 5-minute bar at or after 9:45 that closes above the 20-period EMA (earlier sessions warm the average; nothing before 9:45 is an entry), plus a book that keeps only the first of those names. The report shows percent and R at the close and through day 5, with win rate, stop-hit rate, total R, expectancy, MFE, and the best, median, and worst fill, against QQQ from the same minute. The EMA book's average entry time is in the report.
+
 ### What Yahoo will and will not give you
 
 Checked on 2026-10-18:

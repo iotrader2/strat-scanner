@@ -89,6 +89,44 @@ export interface MorningStats {
   best: BestWindow | null;
   primary_horizon: string;
   definition: string;
+  single_entry?: SingleEntryStats;
+}
+
+export interface SingleHorizon {
+  n_days: number;
+  n_trades: number;
+  avg_pct: number | null;
+  avg_r: number | null;
+  win_rate: number | null;
+  stop_hit_rate: number | null;
+  gap_count: number | null;
+  total_r: number | null;
+  expectancy: number | null;
+  avg_mfe: number | null;
+  median_r: number | null;
+  best_r: number | null;
+  worst_r: number | null;
+  median_pct: number | null;
+  best_pct: number | null;
+  worst_pct: number | null;
+  vs_qqq: number | null;
+}
+
+export interface SingleBook {
+  id: string;
+  label: string;
+  rule: string;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  horizons: Record<string, SingleHorizon>;
+}
+
+export interface SingleEntryStats {
+  books: Record<string, SingleBook>;
+  order: string[];
+  definition: string;
 }
 
 export interface MorningWeek {
@@ -192,4 +230,40 @@ export function bestSentence(best: BestWindow | null): string | null {
       ? ""
       : ` A 1% stop was hit ${Math.round(best.stop_hit_rate * 100)}% of the time (expectancy ${signedR(best.expectancy, 2)} per trade).`;
   return `Buying the names above the 20 RMA at the ${displayTime(best.window)} close returned ${signedR(best.avg, 2)} on average by ${when}.${win}${stop}${gaps}`;
+}
+
+export const SINGLE_HORIZONS = ["eod", "d1", "d2", "d3", "d4", "d5"] as const;
+
+export const SINGLE_METRICS: { key: keyof SingleHorizon; label: string; kind: "count" | "pct" | "r" | "rate" | "r1" }[] = [
+  { key: "n_days", label: "Days", kind: "count" },
+  { key: "n_trades", label: "Fills", kind: "count" },
+  { key: "avg_pct", label: "Avg %", kind: "pct" },
+  { key: "avg_r", label: "Avg R", kind: "r" },
+  { key: "win_rate", label: "Win", kind: "rate" },
+  { key: "stop_hit_rate", label: "Stop", kind: "rate" },
+  { key: "gap_count", label: "Gaps", kind: "count" },
+  { key: "total_r", label: "Total R", kind: "r1" },
+  { key: "expectancy", label: "Expectancy", kind: "r" },
+  { key: "avg_mfe", label: "Avg MFE", kind: "r" },
+  { key: "median_r", label: "Median R", kind: "r" },
+  { key: "best_r", label: "Best R", kind: "r" },
+  { key: "worst_r", label: "Worst R", kind: "r" },
+  { key: "median_pct", label: "Median %", kind: "pct" },
+  { key: "best_pct", label: "Best %", kind: "pct" },
+  { key: "worst_pct", label: "Worst %", kind: "pct" },
+  { key: "vs_qqq", label: "vs QQQ", kind: "pct" },
+];
+
+export const SINGLE_RULES = [
+  { title: "10:30 close, above the 20 RMA", books: ["rma_all", "rma_first"] },
+  { title: "First close above the 20 EMA", books: ["ema_all", "ema_first"] },
+] as const;
+
+/** Where the EMA book actually got in. The 10:30 book is always 10:30. */
+export function entryNote(book: SingleBook | undefined): string {
+  if (!book) return "";
+  const when = book.avg_entry ?? "—";
+  const clock = book.median_entry && book.median_entry !== book.avg_entry ? `${when} on average (median ${book.median_entry})` : when;
+  const stop = book.avg_stop_pct == null ? "—" : `${Math.abs(book.avg_stop_pct).toFixed(2)}%`;
+  return `${book.label} enters at ${clock}. The stop averages ${stop} under the entry.`;
 }
