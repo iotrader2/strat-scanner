@@ -328,6 +328,7 @@ th.num { text-align: right; }
 .rs-chip.broken { color: var(--red); border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.08); }
 .rs-delta.up { color: var(--green); }
 .rs-delta.down { color: var(--red); }
+.rs-delta.flat { color: var(--muted); font-weight: 400; }
 .rs-new { font-size: 8.5px; font-weight: 800; letter-spacing: 0.06em; color: #07090d; background: var(--accent); border-radius: 3px; padding: 0 3px; }
 .rs-new.warning { background: #fbbf24; }
 .rs-new.broken { background: var(--red); color: #fff; }

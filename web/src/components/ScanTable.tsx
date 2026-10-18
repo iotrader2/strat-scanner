@@ -9,14 +9,13 @@ import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
 
-/** Relative-strength percentile chip: RS change vs a week ago, a flag when the leader is weakening or broken, and a NEW marker for fresh transitions. */
+/** Relative-strength change chip: RS change vs a week ago (the RS value is in the tooltip), a flag when the leader is weakening or broken, and a NEW marker for fresh transitions. */
 function RsChip({ row }: { row: ScanRow }) {
   const view = rsChipView(row);
   if (!view) return null;
   return (
     <span className={`rs-chip ${view.level}`} title={view.title}>
-      RS {view.rs}
-      {view.delta && <span className={`rs-delta ${view.delta.dir}`}> {view.delta.text}</span>}
+      <span className={`rs-delta ${view.delta ? view.delta.dir : "flat"}`}>{view.delta ? view.delta.text : "–"}</span>
       {view.newMarker && (
         <>
           {" · "}

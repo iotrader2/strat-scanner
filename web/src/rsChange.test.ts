@@ -62,13 +62,20 @@ describe("rsChipView", () => {
     expect(rsChipView(row(null))).toBeNull();
   });
 
-  it("shows RS, the change arrow and the usual flag", () => {
+  it("shows the change arrow and the usual flag, not the RS value", () => {
     const v = rsChipView(row(0.914, { rs_prev: 0.984, rs_prev_date: "2026-10-09", rs_change: -7 }, { breakdown: "warning" }))!;
-    expect(v.rs).toBe(91);
+    expect(v).not.toHaveProperty("rs");
+    expect(v.title).toContain("Relative strength P91");
     expect(v.delta?.text).toBe("▼7");
     expect(v.flag).toBe("weakening");
     expect(v.level).toBe("warning");
     expect(v.newMarker).toBeNull();
+  });
+
+  it("has no arrow under 3 points (the chip shows a muted dash) but keeps both readings in the tooltip", () => {
+    const v = rsChipView(row(0.92, { rs_prev: 0.9, rs_prev_date: "2026-10-09", rs_change: 2 }))!;
+    expect(v.delta).toBeNull();
+    expect(v.title).toContain("P90 on 2026-10-09 → P92");
   });
 
   it("drops the duplicate flag when the NEW marker already says it", () => {

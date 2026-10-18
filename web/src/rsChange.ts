@@ -21,7 +21,7 @@ export interface RsDelta {
   text: string;
 }
 
-/** The RS change to show on the chip: null when unknown or smaller than `RS_CHANGE_MIN` points. */
+/** The RS change to show on the chip: null when unknown or smaller than `RS_CHANGE_MIN` points (the chip shows a muted dash). */
 export function rsDelta(r: Pick<RsChangeFields, "rs_change">, min: number = RS_CHANGE_MIN): RsDelta | null {
   const c = r.rs_change;
   if (c === null || c === undefined || Math.abs(c) < min) return null;
@@ -77,8 +77,6 @@ export function rsTitle(r: RsChangeFields & NewFields): string {
 }
 
 export interface RsChipView {
-  /** Whole percentile points, as in "RS 91". */
-  rs: number;
   level: "none" | "warning" | "broken";
   delta: RsDelta | null;
   newMarker: NewMarker | null;
@@ -88,7 +86,7 @@ export interface RsChipView {
   title: string;
 }
 
-/** Everything the RS chip shows; null when the symbol has no RS yet. */
+/** Everything the chip shows (the change, not the RS value itself, which is in the tooltip); null when the symbol has no RS yet. */
 export function rsChipView(row: ScanRow): RsChipView | null {
   if (row.rs === null || row.rs === undefined) return null;
   const level = row.leadership?.breakdown ?? "none";
@@ -96,7 +94,6 @@ export function rsChipView(row: ScanRow): RsChipView | null {
   const flag = level === "broken" ? "broken" : level === "warning" ? "weakening" : "";
   const kill = row.kill_candle && row.kill_candle.penalty > 0 ? ` · kill candle ${row.kill_candle.date.slice(5)}` : "";
   return {
-    rs: Math.round(row.rs * 100),
     level,
     delta: rsDelta(row),
     newMarker: marker,
