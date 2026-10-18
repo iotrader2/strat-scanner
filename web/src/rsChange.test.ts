@@ -72,7 +72,7 @@ describe("rsChipView", () => {
     expect(v.newMarker).toBeNull();
   });
 
-  it("has no arrow under 3 points (the chip shows a muted dash) but keeps both readings in the tooltip", () => {
+  it("has no arrow under 3 points but keeps both readings in the title", () => {
     const v = rsChipView(row(0.92, { rs_prev: 0.9, rs_prev_date: "2026-10-09", rs_change: 2 }))!;
     expect(v.delta).toBeNull();
     expect(v.title).toContain("P90 on 2026-10-09 → P92");

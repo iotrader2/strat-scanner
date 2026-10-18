@@ -1,7 +1,7 @@
 import type { ScanRow } from "./api";
 import { fmtRs } from "./leadership";
 
-/** Smaller moves than this many percentile points are not shown on the chip (they stay in the tooltip); matches the README. */
+/** Smaller moves than this many percentile points are not shown on the chip. */
 export const RS_CHANGE_MIN = 3;
 /** Sessions between the two RS readings (backend `RS_LOOKBACK`). */
 export const RS_LOOKBACK_SESSIONS = 5;
@@ -21,7 +21,7 @@ export interface RsDelta {
   text: string;
 }
 
-/** The RS change to show on the chip: null when unknown or smaller than `RS_CHANGE_MIN` points (the chip shows a muted dash). */
+/** The RS change to show on the chip: null when unknown or smaller than `RS_CHANGE_MIN` points. */
 export function rsDelta(r: Pick<RsChangeFields, "rs_change">, min: number = RS_CHANGE_MIN): RsDelta | null {
   const c = r.rs_change;
   if (c === null || c === undefined || Math.abs(c) < min) return null;

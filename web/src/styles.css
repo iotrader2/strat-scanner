@@ -343,7 +343,7 @@ th.num { text-align: right; }
 .added-chip { margin-left: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 5px; padding: 1px 4px; vertical-align: 2px; }
 .detail-symbol .added-chip { font-size: 10px; vertical-align: 5px; }
 .sym .earnings-icon, .sym .added-chip { margin-left: 0; }
-.earnings-icon { display: inline-block; margin-left: 5px; color: #fbbf24; font-size: 13px; line-height: 1; cursor: help; vertical-align: 1px; }
+.earnings-icon { display: inline-block; margin-left: 5px; color: #fbbf24; font-size: 13px; line-height: 1; vertical-align: 1px; }
 .earnings-icon:focus-visible { outline: 1px solid #fbbf24; border-radius: 3px; }
 .detail-symbol .earnings-icon { font-size: 20px; margin-left: 8px; vertical-align: 3px; }
 .earnings-tooltip { position: fixed; z-index: 1000; min-width: 220px; padding: 10px 12px; border-radius: 10px; background: #111823; border: 1px solid rgba(251, 191, 36, 0.45); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55); font-size: 13px; line-height: 1.5; color: var(--text); pointer-events: none; }

@@ -232,7 +232,7 @@ weights. The sessions are QQQ's trading calendar, so every symbol is compared on
 
 | Marker | Definition | Shown as |
 | --- | --- | --- |
-| **RS change** | today's blended RS percentile minus the same measure **5 sessions earlier**, in whole percentile points between the two chip values (`RS 91` vs `RS 98` = −7). Moves smaller than **3 points** show a muted `–` on the chip (the values stay in the tooltip) | `▼7` in red, `▲12` in green |
+| **RS change** | today's blended RS percentile minus the same measure **5 sessions earlier**, in whole percentile points between the two chip values (`RS 91` vs `RS 98` = −7). Moves smaller than **3 points** are left off the chip | `▼7` in red, `▲12` in green |
 | **NEW weakening / broken** | the breakdown level is worse today than on at least one of the **last 3 sessions**: none → weakening, none → broken or weakening → broken. The date is the first session at the new (or a worse) level, so `since` is today when it happened today. Unchanged or improving levels never count; the marker disappears 3 sessions after the change | `– · NEW · weakening`, `▼9 · NEW · broken` |
 | **NEW leader** (extra) | RS is at or above **P90** (`LEADER_MIN_RS`) with the trend not broken today, and was below P90 on at least one of the last 3 sessions. A new worsening takes the place of this marker. It uses the fixed P90 gate, not the Min RS slider | `▲9 · NEW · leader` |
 
@@ -380,8 +380,8 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     RevStrat and Hammer triggered), **Inside week** and **Weekly hammer**. The
     "To trigger" column is sortable by closeness to the weekly trigger.
   - The **RS chip** under each symbol shows the change in RS percentile vs 5 sessions ago (`▼7` red for drops, `▲12` green for
-    rises, a muted `–` under 3 points; the RS value is not repeated, it is in the score and the tooltip) and a `NEW` marker for a breakdown that just worsened or a leader that just crossed P90 (last 3
-    sessions); hover it for the RS percentile, both readings, the dates and the breakdown reasons. See [What changed lately](#how-scoring-works).
+    rises; moves under 3 points are left off) and a `NEW` marker for a breakdown that just worsened or a leader that just crossed P90 (last 3
+    sessions). A name with no change and no flag shows no chip. See [What changed lately](#how-scoring-works).
   - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders* and both
     *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:

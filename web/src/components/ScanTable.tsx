@@ -9,22 +9,31 @@ import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
 
-/** Relative-strength change chip: RS change vs a week ago (the RS value is in the tooltip), a flag when the leader is weakening or broken, and a NEW marker for fresh transitions. */
+/** Relative-strength change chip: the change vs a week ago, a flag when the leader is weakening or broken, and a NEW marker for fresh transitions. A name with none of those shows nothing. */
 function RsChip({ row }: { row: ScanRow }) {
   const view = rsChipView(row);
   if (!view) return null;
+  const parts: ReactNode[] = [];
+  if (view.delta) parts.push(<span key="delta" className={`rs-delta ${view.delta.dir}`}>{view.delta.text}</span>);
+  if (view.newMarker) {
+    parts.push(
+      <span key="new">
+        <span className={`rs-new ${view.newMarker.kind}`}>NEW</span>
+        {` · ${view.newMarker.label}`}
+      </span>,
+    );
+  }
+  if (view.flag) parts.push(<span key="flag">{view.flag}</span>);
+  if (view.kill) parts.push(<span key="kill">{view.kill.replace(/^ · /, "")}</span>);
+  if (parts.length === 0) return null;
   return (
-    <span className={`rs-chip ${view.level}`} title={view.title}>
-      <span className={`rs-delta ${view.delta ? view.delta.dir : "flat"}`}>{view.delta ? view.delta.text : "–"}</span>
-      {view.newMarker && (
-        <>
-          {" · "}
-          <span className={`rs-new ${view.newMarker.kind}`}>NEW</span>
-          {` · ${view.newMarker.label}`}
-        </>
-      )}
-      {view.flag ? ` · ${view.flag}` : ""}
-      {view.kill}
+    <span className={`rs-chip ${view.level}`}>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 ? " · " : null}
+          {part}
+        </span>
+      ))}
     </span>
   );
 }
