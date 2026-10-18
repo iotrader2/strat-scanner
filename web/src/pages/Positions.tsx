@@ -187,9 +187,8 @@ export default function Positions() {
         <div>
           <h1>Positions</h1>
           <p className="muted">
-            Names you bought, tracked against your entry with the same Strat badges, weekly trigger and score as the
-            Watchlist. Move a name here from the Watchlist once you are in, or add any ticker below. Use the ⋯ menu to edit
-            the entry, move it back to the Watchlist or close it. Saved in the local SQLite cache.
+            Stocks you bought. Move one here from the Watchlist after you buy, or add a ticker below. Use the ⋯ menu to
+            edit it, send it back, or close it.
           </p>
         </div>
         <div className="stat-cards">

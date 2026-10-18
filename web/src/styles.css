@@ -105,8 +105,8 @@ main { flex: 1; }
 
 .table-meta { display: flex; justify-content: space-between; align-items: center; margin: 4px 2px 10px; gap: 12px; flex-wrap: wrap; }
 .chip { margin-left: 10px; background: rgba(56, 189, 248, 0.1); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
-.legend { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
-.legend .tf-badge { gap: 6px; padding: 8px 14px; }
+.legend { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.legend .tf-badge { gap: 8px; padding: 10px 16px; }
 .legend-note { margin-left: 6px; }
 
 .table-card { overflow: auto; }
@@ -133,21 +133,21 @@ th.num { text-align: right; }
 .trig-chip { font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: var(--green); background: rgba(34, 197, 94, 0.1); border-radius: 5px; padding: 1px 5px; margin-left: 6px; }
 .empty-state { padding: 24px; margin-bottom: 14px; text-align: center; color: var(--muted); }
 
-.tf-badges { display: inline-flex; gap: 4px; }
+.tf-badges { display: inline-flex; gap: 6px; }
 .tf-badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  border-radius: 8px; padding: 8px 12px;
+  display: inline-flex; align-items: center; gap: 8px;
+  border-radius: 8px; padding: 9px 13px;
   font-size: 11.5px; font-weight: 700;
   border: 1px solid transparent;
   white-space: nowrap;
-  line-height: 1;
+  line-height: 1.3;
 }
 .tf-badge.green { background: rgba(34, 197, 94, 0.13); }
 .tf-badge.red { background: rgba(244, 63, 94, 0.13); }
 .tf-badge.flat { background: rgba(139, 147, 167, 0.13); }
 .tf-badge.empty { color: var(--muted); border-color: var(--border); }
 .tf-label { color: var(--muted); font-weight: 600; font-size: 10px; }
-.tf-strat { font-size: 10px; letter-spacing: 0.03em; line-height: 1; }
+.tf-strat { font-size: 10px; letter-spacing: 0.03em; line-height: 1.3; }
 .tf-badge.s1 { border-color: rgba(250, 204, 21, 0.55); }
 .tf-badge.s1 .tf-strat, .legend .s1 .tf-label { color: var(--yellow); }
 .tf-badge.s2u { border-color: rgba(34, 197, 94, 0.55); }
@@ -156,7 +156,7 @@ th.num { text-align: right; }
 .tf-badge.s2d .tf-strat, .legend .s2d .tf-label { color: var(--red); }
 .tf-badge.s3 { border-color: rgba(167, 139, 250, 0.55); }
 .tf-badge.s3 .tf-strat, .legend .s3 .tf-label { color: var(--purple); }
-.tf-flag { font-size: 9px; color: #0b1220; background: var(--accent); border-radius: 4px; padding: 0 3px; }
+.tf-flag { font-size: 9px; color: #0b1220; background: var(--accent); border-radius: 4px; padding: 2px 4px; line-height: 1.2; }
 
 .score-pill { display: inline-block; min-width: 38px; text-align: center; border-radius: 999px; padding: 3px 9px; font-weight: 700; font-size: 12.5px; }
 .score-pill.hi { background: rgba(34, 197, 94, 0.16); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35); }

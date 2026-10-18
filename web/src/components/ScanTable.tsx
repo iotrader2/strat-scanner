@@ -62,7 +62,8 @@ export type SortKey =
   | "change_pct"
   | "trigger_distance_pct"
   | "avg_dollar_volume"
-  | "avg_volume"
+  | "atr"
+  | "atr_pct"
   | "theme"
   | PerfSort;
 
@@ -143,9 +144,10 @@ export function ScanTable({
   const ascendingFirst = (key: string) =>
     custom.find((c) => c.key === key)?.ascendingFirst ?? ASCENDING_FIRST.includes(key as SortKey);
 
-  const header = (key: string, label: string, cls = "") => (
+  const header = (key: string, label: string, cls = "", title?: string) => (
     <th
       key={key}
+      title={title}
       className={`sortable ${cls} ${sort.key === key ? "active" : ""}`}
       onClick={() => setSort((s) => ({ key, dir: s.key === key ? ((-s.dir) as 1 | -1) : ascendingFirst(key) ? 1 : -1 }))}
     >
@@ -172,8 +174,9 @@ export function ScanTable({
             <th>Weekly setup</th>
             <th className="num">Trigger</th>
             {header("trigger_distance_pct", "To trigger", "num")}
-            {header("avg_volume", "Avg vol", "num")}
             {header("avg_dollar_volume", "Avg $vol", "num")}
+            {header("atr", "ATR", "num", "14-day average true range")}
+            {header("atr_pct", "ATR %", "num", "14-day ATR as a percent of price")}
             {header("score", "Score", actions ? "num" : "num score-col")}
             {actions && <th className="actions-col">{actionsLabel}</th>}
           </tr>
@@ -267,8 +270,9 @@ export function ScanTable({
                 )}
               </td>
               <TriggerCells row={r} />
-              <td className="num">{fmtCompact(r.avg_volume)}</td>
               <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
+              <td className="num">{r.atr == null ? "—" : r.atr.toFixed(2)}</td>
+              <td className="num">{r.atr_pct == null ? "—" : `${r.atr_pct.toFixed(2)}%`}</td>
               <td className={actions ? "num" : "num score-col"}>
                 <ScorePill score={r.score} row={r} />
               </td>

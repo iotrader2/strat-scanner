@@ -1,6 +1,6 @@
 import pandas as pd
 
-from strat.scanner import scan_symbol
+from strat.scanner import ATR_PERIOD, average_true_range, scan_symbol
 from strat.universe import Member
 
 
@@ -16,6 +16,16 @@ def test_avg_volume_is_20_day_mean_of_shares():
     row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), df)
     assert row["avg_volume"] == df.volume.tail(20).mean() == 2_950_000
     assert row["avg_dollar_volume"] == (df.close * df.volume).tail(20).mean()
+
+
+def test_atr_is_the_14_day_average_true_range():
+    df = _daily()
+    atr, atr_pct = average_true_range(df)
+    row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), df)
+    assert ATR_PERIOD == 14
+    assert row["atr"] == round(atr, 2)
+    assert row["atr_pct"] == round(atr_pct, 2)
+    assert row["atr_pct"] == round(atr / float(df.close.iloc[-1]) * 100, 2)
 
 
 def test_row_carries_score_breakdown():

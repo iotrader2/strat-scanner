@@ -225,11 +225,7 @@ export default function Scanner({ version }: { version: string | null }) {
       <section className="hero">
         <div>
           <h1>Stock Scanner</h1>
-          <p className="muted">
-            Market leaders first (S&amp;P 500 + Nasdaq-100 + theme additions + sector ETFs): 1M/3M/6M relative strength versus the
-            universe and QQQ, theme strength and trend quality. Weekly Strat setups are a timing bonus, not a gate, and names that are
-            losing their trend are demoted.
-          </p>
+          <p className="muted">Pick a group, then narrow the list with the filters.</p>
         </div>
         <div className="stat-cards" role="group" aria-label="Leadership totals">
           {HERO_CHIPS.map((chip) => {
