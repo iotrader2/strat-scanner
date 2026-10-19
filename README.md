@@ -574,3 +574,17 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 | `POST /api/refresh` | Operator hook for a download. The scheduler calls the same job; the UI does not |
 
 Not investment advice. Yahoo Finance data is unofficial and can be delayed or incomplete.
+
+## Heroku staging
+
+A password-protected staging copy runs as one Heroku web dyno (`Procfile`). The Node buildpack
+builds `web/` (`heroku-postbuild`), the Python buildpack installs `backend/requirements.txt`, and
+uvicorn serves the API, the `/ws` WebSocket and the built UI from `web/dist` on `$PORT`, with the
+background fetcher in the same process.
+
+- Basic auth guards everything when `STAGE_USER` and `STAGE_PASS` are set; local dev never sets them.
+- `STRAT_LOG_LEVEL=info` prints fetcher progress to `heroku logs`.
+- The SQLite cache (including watchlist and positions) is ephemeral on Heroku: every dyno restart
+  (at least daily) starts empty and re-downloads history.
+
+Redeploy: `git push heroku heroku-staging:main` (or merge to that branch and push again).

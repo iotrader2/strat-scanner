@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from . import config, data, earnings
 from .hub import hub
+from .stage import BasicAuthMiddleware, configure_logging, mount_ui
 from .scheduler import decide, fetch_period, now_et
 from .breadth import fetch_breadth
 from .trend import index_trend
@@ -25,8 +26,11 @@ from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol
 from .themes import ThemeError, ThemeMap, load_themes
 from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
 
+configure_logging()
 log = logging.getLogger(__name__)
 app = FastAPI(title="TiltKiller (local)")
+# No-op unless STAGE_USER and STAGE_PASS are set (Heroku staging).
+app.add_middleware(BasicAuthMiddleware)
 
 CHART_LIMITS = {"M": 60, "W": 156, "D": 260}
 
@@ -532,3 +536,7 @@ def market(tf: str = Query("W", pattern="^(M|W|D|3M|6M)$"), bars: int = Query(60
     by_symbol = {r["symbol"]: r for r in State.scan}
     out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars)
     return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily)}
+
+
+# Last, so every /api route above wins over the UI catch-all. No-op without a built web/dist.
+mount_ui(app)

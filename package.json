@@ -15,7 +15,8 @@
     "themes:check": "node scripts/setup.mjs && cd backend && .venv/bin/python -m strat.themes check",
     "test": "node scripts/setup.mjs && cd backend && .venv/bin/python -m pytest -q && cd ../web && npm test",
     "typecheck": "cd web && npx tsc -b",
-    "test:web": "cd web && npm test"
+    "test:web": "cd web && npm test",
+    "heroku-postbuild": "cd web && npm ci --include=dev --no-audit --no-fund && npm run build"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
