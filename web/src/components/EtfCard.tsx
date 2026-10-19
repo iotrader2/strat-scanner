@@ -44,11 +44,11 @@ export function EtfCard({ etf, chartHeight = 180 }: { etf: MarketEtf; chartHeigh
   );
 }
 
-const INDEX_FRAMES: readonly (Tf | HigherTf)[] = ["M", "W", "D", "3M", "6M"];
+const INDEX_FRAMES: readonly (Tf | HigherTf)[] = ["D", "W", "M", "3M", "6M"];
 
 const CHART_LABEL = { M: "Monthly", W: "Weekly", D: "Daily", "3M": "3M", "6M": "6M" } as const;
 export type ChartTf = keyof typeof CHART_LABEL;
-const DEFAULT_FRAMES = ["M", "W", "D"] as const satisfies readonly ChartTf[];
+const DEFAULT_FRAMES = ["D", "W", "M"] as const satisfies readonly ChartTf[];
 
 export function TfToggle<T extends ChartTf>({
   tf,

@@ -8,12 +8,15 @@ import { filterThemes, sortThemes, THEME_SORTS, type ThemeSort } from "../themeC
 
 const PAGE = 24;
 const LEADERS = 12;
+type RankDir = "top" | "bottom";
 
 export default function Themes({ version }: { version: string | null }) {
   const [storedTf, setTf] = usePersisted<Tf>("themesTf", "W");
   const tf: Tf = isTimeframe(storedTf) ? storedTf : "W";
   const [storedSort, setSort] = usePersisted<ThemeSort>("themesSort", "score");
   const sort: ThemeSort = THEME_SORTS.some((s) => s.key === storedSort) ? storedSort : "score";
+  const [storedRank, setRankDir] = usePersisted<RankDir>("themesRank", "top");
+  const rankDir: RankDir = storedRank === "bottom" ? "bottom" : "top";
   const [themes, setThemes] = useState<ThemeCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,14 +39,24 @@ export default function Themes({ version }: { version: string | null }) {
   useEffect(() => setShown(PAGE), [tf]);
 
   const ranked = useMemo(() => sortThemes(themes, "score"), [themes]);
-  const visible = useMemo(() => sortThemes(filterThemes(themes, query), sort), [themes, query, sort]);
+  const byScore = useMemo(() => (rankDir === "bottom" ? [...ranked].reverse() : ranked), [ranked, rankDir]);
+  const visible = useMemo(() => {
+    const sorted = sortThemes(filterThemes(themes, query), sort);
+    return sort === "score" && rankDir === "bottom" ? [...sorted].reverse() : sorted;
+  }, [themes, query, sort, rankDir]);
   const jumpTo = (e: MouseEvent<HTMLAnchorElement>, id: string) => {
     e.preventDefault();
     setQuery("");
     setShown(themes.length);
     window.setTimeout(() => document.getElementById(`theme-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
   };
-  const leaders = allLeaders ? ranked : ranked.slice(0, LEADERS);
+  const leaders = allLeaders ? byScore : byScore.slice(0, LEADERS);
+  const showBottom = () => {
+    setRankDir("bottom");
+    setSort("score");
+    setAllLeaders(false);
+    setShown(PAGE);
+  };
 
   return (
     <div className="page">
@@ -56,7 +69,15 @@ export default function Themes({ version }: { version: string | null }) {
       </section>
 
       <div className="card leaderboard">
-        <span className="muted small">Strongest → weakest:</span>
+        <div className="seg" role="group" aria-label="Score rank">
+          <button type="button" className={rankDir === "top" ? "active" : ""} onClick={() => { setRankDir("top"); setAllLeaders(false); }}>
+            Top 12
+          </button>
+          <button type="button" className={rankDir === "bottom" ? "active" : ""} onClick={showBottom}>
+            Bottom 12
+          </button>
+        </div>
+        <span className="muted small">{rankDir === "bottom" ? "Weakest → strongest:" : "Strongest → weakest:"}</span>
         {loading && themes.length === 0 && <LoadingIndicator label="Ranking…" className="small" />}
         {leaders.map((t, i) => (
           <a key={t.id} href={`#theme-${t.id}`} className={`lb-item ${t.row.mw_green ? "green" : "red"}`} onClick={(e) => jumpTo(e, t.id)}>
@@ -65,7 +86,7 @@ export default function Themes({ version }: { version: string | null }) {
         ))}
         {ranked.length > LEADERS && (
           <button type="button" className="chip" onClick={() => setAllLeaders((v) => !v)}>
-            {allLeaders ? "show top 12" : `show all ${ranked.length}`}
+            {allLeaders ? (rankDir === "bottom" ? "show bottom 12" : "show top 12") : `show all ${ranked.length}`}
           </button>
         )}
       </div>

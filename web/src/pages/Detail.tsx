@@ -124,7 +124,7 @@ export default function Detail({ version }: { version: string | null }) {
         <section className="card chart-card">
           <div className="chart-toolbar">
             <div className="seg">
-              {(["M", "W", "D"] as Tf[]).map((t) => (
+              {(["D", "W", "M"] as Tf[]).map((t) => (
                 <button key={t} className={t === activeTf ? "active" : ""} onClick={() => setTf(t)}>
                   {TF_NAME[t]}
                 </button>
@@ -157,7 +157,7 @@ export default function Detail({ version }: { version: string | null }) {
                 <tr><th /><th>Strat</th><th className="num">Open</th><th className="num">High</th><th className="num">Low</th><th>Flags</th></tr>
               </thead>
               <tbody>
-                {(["M", "W", "D"] as Tf[]).map((t) => {
+                {(["D", "W", "M"] as Tf[]).map((t) => {
                   const st = row.tf[t];
                   return (
                     <tr key={t} className={t === activeTf ? "active" : ""} onClick={() => setTf(t)}>
@@ -167,7 +167,7 @@ export default function Detail({ version }: { version: string | null }) {
                       <td className="num">{st?.high.toFixed(2)}</td>
                       <td className="num">{st?.low.toFixed(2)}</td>
                       <td className="small">
-                        {st?.inside && <span className="flag">inside {TF_NAME[t].toLowerCase().replace("ly", "")}</span>}
+                        {st?.inside && <span className="flag">inside bar</span>}
                         {st?.hammer && <span className="flag hammer">hammer</span>}
                       </td>
                     </tr>

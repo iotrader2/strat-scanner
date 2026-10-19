@@ -106,7 +106,7 @@ main { flex: 1; }
 .filters label, .filters .field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
 .input { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13px; text-transform: none; letter-spacing: 0; outline: none; }
 .input:focus { border-color: var(--accent); }
-.search-field { position: relative; flex: 1; min-width: 140px; display: flex; align-items: center; }
+.search-field { position: relative; flex: 0 0 210px; width: 210px; display: flex; align-items: center; }
 .search-field .input.search { flex: 1; width: 100%; min-width: 0; padding-right: 28px; }
 .search-clear {
   position: absolute; right: 8px; background: none; border: 0; color: var(--muted);
@@ -172,7 +172,7 @@ th.num { text-align: right; }
 .score-pill { display: inline-block; min-width: 38px; text-align: center; border-radius: 999px; padding: 3px 9px; font-weight: 700; font-size: 12.5px; }
 .score-pill.hi { background: rgba(34, 197, 94, 0.16); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35); }
 .score-pill.mid { background: rgba(56, 189, 248, 0.12); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); }
-.score-pill.lo { background: rgba(139, 147, 167, 0.1); color: var(--muted); border: 1px solid var(--border-2); }
+.score-pill.lo { background: rgba(244, 63, 94, 0.12); color: var(--red); border: 1px solid rgba(244, 63, 94, 0.35); }
 
 .back { color: var(--muted); font-size: 13px; display: inline-block; margin-bottom: 12px; }
 .back:hover { color: var(--text); }
@@ -301,9 +301,11 @@ th.num { text-align: right; }
 .breakdown { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .breakdown td { padding: 5px 0; border-top: 1px solid var(--border); vertical-align: top; }
 .breakdown tr:first-child td { border-top: none; }
-.breakdown .bd-pts { color: #4ade80; font-weight: 600; white-space: nowrap; padding-left: 12px; }
-.breakdown tr.zero .bd-pts, .breakdown tr.zero .bd-label { color: var(--muted); }
-.breakdown tr.neg .bd-pts { color: var(--red); }
+.breakdown .bd-pts { font-weight: 600; white-space: nowrap; padding-left: 12px; }
+.breakdown tr.good .bd-pts { color: #4ade80; }
+.breakdown tr.bad .bd-pts { color: var(--red); }
+.breakdown tr.bd-total.good td, .breakdown tr.bd-score.good td { color: #4ade80; }
+.breakdown tr.bd-total.bad td, .breakdown tr.bd-score.bad td { color: var(--red); }
 .bd-max { color: var(--muted); font-weight: 400; }
 .bd-weight { color: var(--muted); font-weight: 400; }
 .bd-sub { font-size: 10.5px; color: var(--muted); margin-top: 1px; line-height: 1.35; }

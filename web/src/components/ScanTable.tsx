@@ -183,7 +183,7 @@ export function ScanTable({
             {extraColumns.map((c) => header(c.key, c.label, c.className))}
             {header("change_pct", "Day", "num")}
             {PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
-            <th>M · W · D</th>
+            <th>D · W · M</th>
             <th>Weekly setup</th>
             <th className="num">Trigger</th>
             {header("trigger_distance_pct", "To trigger", "num")}

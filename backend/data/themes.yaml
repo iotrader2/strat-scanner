@@ -14,7 +14,7 @@
 #   clustering, flagged members). The report only suggests; the map below always wins.
 #
 # Bump `version` whenever the membership changes.
-version: 3
+version: 4
 
 themes:
   # ---- Technology -------------------------------------------------------------------------------------------------
@@ -170,7 +170,8 @@ themes:
   biotech:
     name: Biotech
     description: "Large-cap biotechnology."
-    members: "AMGN GILD VRTX REGN BIIB INCY"
+    members: "AMGN GILD VRTX REGN BIIB INCY MRNA"
+    keep: "MRNA"
 
   pharma:
     name: Pharma
