@@ -17,6 +17,7 @@ import {
   displayTime,
   pullbackNote,
   pullbackSentence,
+  sweepSentence,
   windowNote,
   windowSentence,
   reclaimNote,
@@ -36,6 +37,8 @@ import {
   type MorningWeek,
   type SingleHorizon,
   type StratHorizon,
+  type SweepBook,
+  type SweepExample,
   type WindowStat,
 } from "../morning";
 
@@ -405,6 +408,7 @@ export default function Morning() {
       </section>
 
       <SingleEntryTable stats={stats?.single_entry} />
+      <StopSweepTable stats={stats?.stop_sweep} />
       <PullbackTable pullback={stats?.strat_pullback} single={stats?.single_entry} />
       <WindowPullbackTable pullback={stats?.strat_pullback} single={stats?.single_entry} />
       <StratReversalTable stats={stats?.strat_reversal} />
@@ -412,6 +416,229 @@ export default function Morning() {
       <ReclaimTable stats={stats?.ema_reclaim} />
     </div>
   );
+}
+
+function rate(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function money(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `$${Math.abs(value).toFixed(2)}`;
+}
+
+function StopSweepTable({ stats }: { stats: MorningWeek["stats"]["stop_sweep"] }) {
+  const books = (stats?.book_order ?? []).map((id) => stats?.books[id]).filter((book): book is SweepBook => !!book?.order?.length);
+  if (!books.length) return null;
+  return (
+    <section className="card single-entry sweep-entry" aria-label="10:30 stop sweep">
+      <div className="compare-head">
+        <h2>Stop sweep, 10:30 rank tie</h2>
+        <p className="muted small">{stats?.definition}</p>
+        <p className="muted small">{stats?.noise}</p>
+        {books.map((book) => {
+          const sentence = sweepSentence(book);
+          return sentence ? <p className="strat-best" key={book.id}>{sentence}</p> : null;
+        })}
+      </div>
+      <SweepExampleBlock example={stats?.example} />
+      {books.map((book) => (
+        <div className="single-rule wide" key={book.id}>
+          <h3>{book.label}</h3>
+          <div className="table-card">
+            <table className="scan-table morning-table single-table strat-table">
+              <thead>
+                <tr>
+                  <th>Stop</th>
+                  <th className="num">Stop %</th>
+                  <th className="num">Skip</th>
+                  <th className="num">R/trade</th>
+                  <th className="num">Total R</th>
+                  <th className="num">Avg %</th>
+                  <th className="num">Total %</th>
+                  <th className="num">Win</th>
+                  <th className="num">Stop</th>
+                  <th className="num">Gaps</th>
+                  <th className="num">MFE</th>
+                  <th className="num">Median</th>
+                  <th className="num">Best</th>
+                  <th className="num">Worst</th>
+                  <th className="num">30m</th>
+                  <th className="num">Slip R</th>
+                </tr>
+              </thead>
+              <tbody>
+                {book.order.map((id) => {
+                  const stop = book.stops[id];
+                  const d3 = stop?.horizons.d3;
+                  if (!stop || !d3) return null;
+                  const klass = id === book.best_r ? "is-best" : id === book.tight ? "is-tight" : undefined;
+                  return (
+                    <tr key={id} className={klass}>
+                      <th scope="row">{stop.label}</th>
+                      <td className="num">{stop.avg_stop_pct == null ? "—" : `${Math.abs(stop.avg_stop_pct).toFixed(2)}%`}</td>
+                      <td className="num">{stop.n_skipped}</td>
+                      <td className={`num ${returnTone(d3.r_per_trade)}`}>{signedR(d3.r_per_trade, 2)}</td>
+                      <td className={`num ${returnTone(d3.total_r)}`}>{signedR(d3.total_r, 1)}</td>
+                      <td className={`num ${returnTone(d3.avg_pct)}`}>{signedPct(d3.avg_pct, 2)}</td>
+                      <td className={`num ${returnTone(d3.total_pct)}`}>{signedPct(d3.total_pct, 1)}</td>
+                      <td className="num">{rate(d3.win_rate)}</td>
+                      <td className="num">{rate(d3.stop_hit_rate)}</td>
+                      <td className="num">{d3.gap_count ?? "—"}</td>
+                      <td className={`num ${returnTone(d3.avg_mfe)}`}>{signedR(d3.avg_mfe, 2)}</td>
+                      <td className={`num ${returnTone(d3.median_r)}`}>{signedR(d3.median_r, 2)}</td>
+                      <td className={`num ${returnTone(d3.best_r)}`}>{signedR(d3.best_r, 2)}</td>
+                      <td className={`num ${returnTone(d3.worst_r)}`}>{signedR(d3.worst_r, 2)}</td>
+                      <td className="num">{rate(stop.fast_stop_rate)}</td>
+                      <td className={`num ${returnTone(d3.slip_r_per_trade)}`}>{signedR(d3.slip_r_per_trade, 2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="table-card">
+            <table className="scan-table morning-table single-table strat-table">
+              <thead>
+                <tr>
+                  <th>Stop</th>
+                  {COMPARE.map((horizon) => <th className="num" key={horizon}>{COMPARE_LABEL[horizon]} R</th>)}
+                  {COMPARE.map((horizon) => <th className="num" key={`${horizon}-pct`}>{COMPARE_LABEL[horizon]} %</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {book.order.map((id) => {
+                  const stop = book.stops[id];
+                  if (!stop) return null;
+                  return (
+                    <tr key={`${id}-path`} className={id === book.tight ? "is-tight" : undefined}>
+                      <th scope="row">{stop.label}</th>
+                      {COMPARE.map((horizon) => {
+                        const value = stop.horizons[horizon]?.r_per_trade;
+                        return <td className={`num ${returnTone(value)}`} key={horizon}>{signedR(value, 2)}</td>;
+                      })}
+                      {COMPARE.map((horizon) => {
+                        const value = stop.horizons[horizon]?.avg_pct;
+                        return <td className={`num ${returnTone(value)}`} key={`${horizon}-pct`}>{signedPct(value, 2)}</td>;
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function SweepExampleBlock({ example }: { example?: SweepExample | null }) {
+  if (!example) return null;
+  const tight = example.tight;
+  return (
+    <div className="single-rule wide">
+      <h3>One rank-tie morning</h3>
+      <p className="muted small">
+        {example.date} {example.symbol}{example.name ? ` (${example.name})` : ""}, leader rank {example.leader_rank ?? "—"}.
+        Cross at {example.cross_time}
+        {example.cross_close != null ? `, close ${money(example.cross_close)}` : ""}
+        {example.cross_rma != null ? `, 20 RMA ${money(example.cross_rma)}` : ""}.
+        {" "}{example.why}
+      </p>
+      <p className="muted small">
+        10:30 entry {money(example.entry)}. Low of day {money(example.stop)}, {example.stop_pct == null ? "—" : `${Math.abs(example.stop_pct).toFixed(2)}%`} under the entry, 1R {money(example.risk)}.
+        Day 3 books {signedR(example.day3_r, 2)} against the book average {signedR(example.book_avg_r, 2)}.
+        {example.symbol_first && example.symbol_first !== example.symbol ? ` The symbol tie-break buys ${example.symbol_first} first.` : ""}
+        {" "}{example.stopped ? `The low-of-day stop was hit.${hitDetail(example.hit)}` : "The low-of-day stop was not hit through the day-5 close."}
+      </p>
+      {tight && !tight.missing && (
+        <p className="muted small">
+          {intight(tight, example)}
+        </p>
+      )}
+      {example.path?.length > 0 && (
+        <div className="table-card">
+          <table className="scan-table morning-table single-table strat-table">
+            <thead>
+              <tr>
+                <th> </th>
+                <th>Date</th>
+                <th className="num">Close</th>
+                <th className="num">Close %</th>
+                <th className="num">Close R</th>
+                <th className="num">Booked %</th>
+                <th className="num">Booked R</th>
+              </tr>
+            </thead>
+            <tbody>
+              {example.path.map((item) => (
+                <tr key={item.horizon}>
+                  <th scope="row">{COMPARE_LABEL[item.horizon as keyof typeof COMPARE_LABEL] ?? item.horizon}</th>
+                  <td>{item.date}</td>
+                  <td className="num">{money(item.close)}</td>
+                  <td className={`num ${returnTone(item.close_pct)}`}>{signedPct(item.close_pct, 2)}</td>
+                  <td className={`num ${returnTone(item.close_r)}`}>{signedR(item.close_r, 2)}</td>
+                  <td className={`num ${returnTone(item.booked_pct)}`}>{signedPct(item.booked_pct, 2)}</td>
+                  <td className={`num ${returnTone(item.booked_r)}`}>{signedR(item.booked_r, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {tight && !tight.missing && !tight.skipped && (tight.path?.length ?? 0) > 0 && (
+        <div className="table-card">
+          <table className="scan-table morning-table single-table strat-table">
+            <caption className="muted small">{tight.label} on this fill. Close is the unstopped session close. Booked is what this stop keeps.</caption>
+            <thead>
+              <tr>
+                <th> </th>
+                <th>Date</th>
+                <th className="num">Close</th>
+                <th className="num">Close %</th>
+                <th className="num">Close R</th>
+                <th className="num">Booked %</th>
+                <th className="num">Booked R</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tight.path!.map((item) => (
+                <tr key={`tight-${item.horizon}`}>
+                  <th scope="row">{COMPARE_LABEL[item.horizon as keyof typeof COMPARE_LABEL] ?? item.horizon}</th>
+                  <td>{item.date}</td>
+                  <td className="num">{money(item.close)}</td>
+                  <td className={`num ${returnTone(item.close_pct)}`}>{signedPct(item.close_pct, 2)}</td>
+                  <td className={`num ${returnTone(item.close_r)}`}>{signedR(item.close_r, 2)}</td>
+                  <td className={`num ${returnTone(item.booked_pct)}`}>{signedPct(item.booked_pct, 2)}</td>
+                  <td className={`num ${returnTone(item.booked_r)}`}>{signedR(item.booked_r, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function hitDetail(hit?: SweepExample["hit"]): string {
+  if (!hit?.clock) return "";
+  const offset = hit.offset ?? 0;
+  const session = hit.session ? ` (${hit.session})` : "";
+  const label = offset === 0 ? "on the entry session" : `on the +${offset} session`;
+  const how = hit.gapped ? "opened through the stop" : "traded down to the stop";
+  return ` It was hit ${label}${session}, the 5-minute bar ending ${hit.clock}. The bar ${how} (open ${money(hit.open)}, low ${money(hit.low)}).`;
+}
+
+function intight(tight: NonNullable<SweepExample["tight"]>, example: SweepExample): string {
+  if (tight.skipped) {
+    return `The tightest stop near the top, ${tight.label}, is ${money(tight.stop)}, which is not under the ${money(example.entry)} entry, so this variant skips the trade.`;
+  }
+  const fast = tight.fast_stop ? " It was inside the first 30 minutes." : "";
+  const booked = tight.day3_pct == null ? "" : ` and ${signedPct(tight.day3_pct, 2)}`;
+  return `The tightest stop near the top is ${tight.label} at ${money(tight.stop)} (${tight.stop_pct == null ? "—" : `${Math.abs(tight.stop_pct).toFixed(2)}%`}, 1R ${money(tight.risk)}). Day 3 books ${signedR(tight.day3_r, 2)}${booked}.${fast}${hitDetail(tight.hit)}`;
 }
 
 function PullbackTable({

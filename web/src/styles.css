@@ -633,7 +633,9 @@ button.this-week:hover { color: var(--text); border-color: var(--border-2); }
 }
 .strat-entry .strat-best, .cross-entry .strat-best, .reclaim-entry .strat-best, .pullback-entry .strat-best { margin: 8px 0 0; font-size: 14px; }
 .reclaim-grid, .pullback-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
-.pullback-entry .table-card { overflow-x: auto; }
+.pullback-entry .table-card, .sweep-entry .table-card { overflow-x: auto; }
+.morning-table tr.is-tight { background: rgba(56, 189, 248, 0.1); }
+.sweep-entry caption { caption-side: top; text-align: left; padding: 10px 8px 4px; }
 .cross-entry .single-rule { padding-bottom: 12px; }
 .strat-table th, .strat-table td { padding: 6px 4px; font-size: 12px; }
 .strat-table thead th { font-size: 10px; }

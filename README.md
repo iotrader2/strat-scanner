@@ -577,6 +577,10 @@ The stop is the low from 9:30 through the entry bar. One R is that distance. Fir
 
 A second cut of that study keeps a fill only when its time is from 10:00 through 10:30. The pullback bar can print earlier. A trigger before 10:00 is skipped. One trade per name. The books are the first name and the first two, ordered by trigger time (tie-break leader rank, then symbol) and, separately, by leader rank among the names that triggered in the window. Those sit next to the 10:30 rank-tie first and first-2 books.
 
+### 10:30 stop sweep
+
+The rank-tie First and First 2 books keep the 10:30 close. A sweep replaces only the stop: fixed percentages, multiples of the prior-close daily ATR(14), multiples of the 5-minute ATR(14) at 10:30, and several candle lows including the low of day. A stop that is not under the entry is skipped. R per trade sizes every fill to risk 1R. Average percent keeps the same position size. Stop exits are also filled 0.05% worse, because a 5-minute bar is a coarse tape for a tight stop.
+
 ### What Yahoo will and will not give you
 
 Checked on 2026-10-18:
@@ -604,6 +608,7 @@ All in the existing cache (`STRAT_CACHE_DB`):
 | `strat_reversal` | `(date, symbol, timeframe, entry_time)` | The 15- and 30-minute reversal study. `timeframe` is 15, 30, or 0 for QQQ. Pattern, whether the 20 RMA had been crossed by the fill, and whether the entry candle finished as a 2U |
 | `cross_trigger` | `(date, symbol, rule, entry_time)` | The first 5-minute close from 9:45 above the 20 RMA, 20 SMA, or 20 EMA. `rule` is `rma`, `sma`, `ema`, or `qqq`. The stop is the entry bar's low. `opened_above` marks a 9:30 open already above the prior session's average |
 | `ema_reclaim` | `(date, symbol, rule, entry_time)` | The first 5-minute close from 9:45 back above the 20 EMA after a close below it today. `rule` is `reclaim` (entry-bar low), `pullback` (pullback low), `lod` (low of day through the entry), or `qqq` |
+| `stop_sweep` | `(date, symbol, stop_id)` | The 10:30 rank-tie first and first-two names under each stop variant. `slot` 1 is the first name. `skipped` is 1 when the stop is not under the entry |
 | `intraday_gaps` | `(symbol, date, interval)` | A completed session the provider had nothing for, so the next run does not ask again |
 
 Prices are stored raw and adjusted on read with the same split table as the scanner. A split inside a hold is not a loss.

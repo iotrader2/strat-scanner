@@ -279,6 +279,33 @@ CREATE TABLE IF NOT EXISTS strat_pullback_day (
     date     TEXT PRIMARY KEY,
     had_tape INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS stop_sweep (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    stop_id     TEXT NOT NULL,
+    slot        INTEGER NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    fast_stop   INTEGER NOT NULL DEFAULT 0,
+    skipped     INTEGER NOT NULL DEFAULT 0,
+    cross_time  TEXT,
+    PRIMARY KEY (date, symbol, stop_id)
+);
+CREATE TABLE IF NOT EXISTS stop_sweep_day (
+    date TEXT PRIMARY KEY
+);
 """
 
 

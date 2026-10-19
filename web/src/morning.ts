@@ -94,6 +94,7 @@ export interface MorningStats {
   cross_trigger?: CrossStats;
   ema_reclaim?: ReclaimStats;
   strat_pullback?: PullbackStats;
+  stop_sweep?: StopSweepStats;
 }
 
 export interface SingleHorizon {
@@ -530,4 +531,145 @@ export function windowSentence(stats: PullbackWindow | undefined, benchmark: Pul
   const paired = best.vs_rank_first == null ? "" : ` Paired against the rank-tie first book it is ${signedR(best.vs_rank_first, 2)}.`;
   const pairedTwo = best.vs_rank_two == null ? "" : ` Against first 2 it is ${signedR(best.vs_rank_two, 2)}.`;
   return `${best.label} is the best of these 10:00 to 10:30 books by day 3 at ${signedR(best.avg_r, 2)} per morning.${firstText}${twoText}${paired}${pairedTwo}`;
+}
+
+export interface SweepHorizon {
+  n_days: number;
+  n_trades: number;
+  r_per_trade: number | null;
+  total_r: number | null;
+  avg_pct: number | null;
+  total_pct: number | null;
+  win_rate: number | null;
+  stop_hit_rate: number | null;
+  gap_count: number | null;
+  avg_mfe: number | null;
+  median_r: number | null;
+  best_r: number | null;
+  worst_r: number | null;
+  slip_r_per_trade: number | null;
+  slip_total_r: number | null;
+}
+
+export interface SweepStop {
+  id: string;
+  label: string;
+  family: string;
+  n_considered: number;
+  n_skipped: number;
+  n_fills: number;
+  avg_stop_pct: number | null;
+  fast_stop_rate: number | null;
+  horizons: Record<string, SweepHorizon>;
+}
+
+export interface SweepBook {
+  id: string;
+  label: string;
+  order: string[];
+  order_total: string[];
+  best_r: string | null;
+  best_total: string | null;
+  tight: string | null;
+  stops: Record<string, SweepStop>;
+}
+
+export interface SweepExamplePath {
+  horizon: string;
+  date: string;
+  close: number | null;
+  close_pct: number | null;
+  close_r: number | null;
+  booked_pct: number | null;
+  booked_r: number | null;
+}
+
+export interface SweepHit {
+  session?: string;
+  clock?: string;
+  offset?: number;
+  gapped?: boolean | number;
+  open?: number | null;
+  low?: number | null;
+}
+
+export interface SweepExample {
+  date: string;
+  symbol: string;
+  name?: string;
+  leader_rank: number | null;
+  cross_time: string;
+  cross_close: number | null;
+  cross_rma: number | null;
+  why: string;
+  symbol_first?: string | null;
+  entry: number;
+  stop: number | null;
+  stop_pct: number | null;
+  risk: number | null;
+  stopped: number;
+  day3_r: number | null;
+  book_avg_r: number | null;
+  best_r: number | null;
+  best_date?: string;
+  best_symbol?: string;
+  hit?: SweepHit | null;
+  path: SweepExamplePath[];
+  tight?: {
+    id: string;
+    label: string;
+    skipped?: number;
+    missing?: boolean;
+    stop: number | null;
+    stop_pct: number | null;
+    risk: number | null;
+    stopped: number;
+    day3_r: number | null;
+    day3_pct: number | null;
+    fast_stop?: number;
+    hit?: SweepHit | null;
+    path?: SweepExamplePath[];
+  } | null;
+}
+
+export interface StopSweepStats {
+  books: Record<string, SweepBook>;
+  book_order: string[];
+  definition: string;
+  noise: string;
+  near_r: number;
+  example?: SweepExample | null;
+}
+
+function stopWidth(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `${Math.abs(value).toFixed(2)}%`;
+}
+
+/** Day-3 ranking for one 10:30 book, the low-of-day baseline, and the tightest stop near that best. */
+export function sweepSentence(book: SweepBook | undefined): string | null {
+  const bestId = book?.best_r;
+  const best = bestId ? book?.stops[bestId] : undefined;
+  const d3 = best?.horizons.d3;
+  if (!book || !best || d3?.r_per_trade == null) return null;
+  const lod = book.stops.lod?.horizons.d3;
+  const lodText = lod?.r_per_trade == null ? "" : ` Low of day is ${signedR(lod.r_per_trade, 2)} per trade, total ${signedR(lod.total_r, 1)}.`;
+  const totalId = book.best_total;
+  const total = totalId ? book.stops[totalId] : undefined;
+  const totalText = !total || total.horizons.d3?.total_r == null
+    ? ""
+    : totalId === bestId
+      ? " The same stop also leads on total R."
+      : ` ${total.label} leads on total R at ${signedR(total.horizons.d3.total_r, 1)}.`;
+  const tight = book.tight ? book.stops[book.tight] : undefined;
+  const tightD3 = tight?.horizons.d3;
+  let tightText = "";
+  if (tight && tightD3?.r_per_trade != null && book.tight === bestId) {
+    const slip = tightD3.slip_r_per_trade == null ? "" : ` With 0.05% slippage on the stop exit it is ${signedR(tightD3.slip_r_per_trade, 2)} per trade.`;
+    tightText = ` That stop is the tightest within 0.05R of the best. Its average stop is ${stopWidth(tight.avg_stop_pct)}.${slip}`;
+  } else if (tight && tightD3?.r_per_trade != null) {
+    const slip = tightD3.slip_r_per_trade == null ? "" : ` With 0.05% slippage on the stop exit it is ${signedR(tightD3.slip_r_per_trade, 2)} per trade.`;
+    tightText = ` The tightest stop within 0.05R of that best is ${tight.label} at ${signedR(tightD3.r_per_trade, 2)} per trade, average stop ${stopWidth(tight.avg_stop_pct)}.${slip}`;
+  }
+  return `${best.label} is the best day-3 R per trade on ${book.label} at ${signedR(d3.r_per_trade, 2)} (${d3.n_trades} fills, total ${signedR(d3.total_r, 1)}).${lodText}${totalText}${tightText}`;
 }

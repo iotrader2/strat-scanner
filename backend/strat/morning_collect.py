@@ -36,6 +36,7 @@ from .morning import (
 )
 from .cross_trigger import cross_triggers_for_day
 from .ema_reclaim import ema_reclaims_for_day
+from .stop_sweep import sweeps_for_day
 from .strat_pullback import prepare_pullbacks, pullbacks_for_day
 from .strat_reversal import prepare_candles, strat_reversals_for_day
 from .morning_store import (
@@ -53,6 +54,7 @@ from .morning_store import (
     replace_cross_triggers,
     replace_ema_reclaims,
     replace_leaders,
+    replace_stop_sweeps,
     replace_strat_pullbacks,
     replace_ranks,
     replace_results,
@@ -60,6 +62,7 @@ from .morning_store import (
     replace_strat_reversals,
     save_bars,
     single_entry_days,
+    stop_sweep_days,
     strat_pullback_days,
     strat_reversal_days,
 )
@@ -392,10 +395,12 @@ def recompute_results(
         cross_built = cross_trigger_days(db_path)
         reclaim_built = ema_reclaim_days(db_path)
         pullback_built = strat_pullback_days(db_path)
+        sweep_built = stop_sweep_days(db_path)
         days = [
             day for day in days
             if day in pending or day not in single_built or day not in strat_built
             or day not in cross_built or day not in reclaim_built or day not in pullback_built
+            or day not in sweep_built
         ]
     if not days:
         _log("Entry results are already filled in")
@@ -424,6 +429,7 @@ def recompute_results(
             replace_cross_triggers(day, [], db_path, had_tape=False)
             replace_ema_reclaims(day, [], db_path, had_tape=False)
             replace_strat_pullbacks(day, [], db_path, had_tape=False)
+            replace_stop_sweeps(day, [], db_path)
             continue
         # A morning with no 5-minute tape is not a zero-qualification day. Drop the old 15-minute result.
         if not any(_has_session(intraday.get(sym), day) for sym in (*names, QQQ)):
@@ -435,6 +441,7 @@ def recompute_results(
             replace_cross_triggers(day, [], db_path, had_tape=False)
             replace_ema_reclaims(day, [], db_path, had_tape=False)
             replace_strat_pullbacks(day, [], db_path, had_tape=False)
+            replace_stop_sweeps(day, [], db_path)
             written += 1
             continue
         ranks, leader_rows, qqq_rows = compute_day(day, names, intraday, daily, calendar)
@@ -446,6 +453,9 @@ def recompute_results(
             day, names, intraday, daily, calendar,
             ranks=rank_of.get(day), prepared=prepared_pullbacks,
         )
+        sweep_rows = sweeps_for_day(
+            day, single_leaders, intraday, daily, calendar, ranks=rank_of.get(day),
+        )
         replace_ranks(day, ranks, db_path)
         replace_results(day, leader_rows, role="leader", db_path=db_path)
         replace_results(day, qqq_rows, role="benchmark", db_path=db_path)
@@ -454,6 +464,7 @@ def recompute_results(
         replace_cross_triggers(day, cross_rows, db_path, had_tape=True)
         replace_ema_reclaims(day, reclaim_rows, db_path, had_tape=True)
         replace_strat_pullbacks(day, pullback_rows, db_path, had_tape=True)
+        replace_stop_sweeps(day, sweep_rows, db_path)
         written += 1
     return written
 

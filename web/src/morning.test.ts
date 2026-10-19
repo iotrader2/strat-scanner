@@ -5,6 +5,7 @@ import {
   crossSentence,
   pullbackNote,
   pullbackSentence,
+  sweepSentence,
   windowNote,
   windowSentence,
   reclaimNote,
@@ -277,5 +278,54 @@ describe("morning check-in view", () => {
       "10:00–10:30, first 2 by time is the best of these 10:00 to 10:30 books by day 3 at +0.20R per morning. The 10:30 rank-tie first book is +0.85R by day 3. First 2 is +0.68R. Paired against the rank-tie first book it is -0.65R. Against first 2 it is -0.48R.",
     );
     expect(windowSentence(undefined, null)).toBeNull();
+  });
+
+  it("ranks a 10:30 stop sweep by day-3 R and names the tight stop", () => {
+    const horizon = (r: number, total: number, slip: number) => ({
+      n_days: 10,
+      n_trades: 10,
+      r_per_trade: r,
+      total_r: total,
+      avg_pct: r,
+      total_pct: total,
+      win_rate: 0.4,
+      stop_hit_rate: 0.5,
+      gap_count: 1,
+      avg_mfe: 2,
+      median_r: -1,
+      best_r: 4,
+      worst_r: -1.2,
+      slip_r_per_trade: slip,
+      slip_total_r: slip * 10,
+    });
+    const stop = (id: string, label: string, r: number, width: number, slip: number) => ({
+      id,
+      label,
+      family: "percent",
+      n_considered: 10,
+      n_skipped: 0,
+      n_fills: 10,
+      avg_stop_pct: width,
+      fast_stop_rate: 0.2,
+      horizons: { d3: horizon(r, r * 10, slip) },
+    });
+    const book = {
+      id: "first",
+      label: "First",
+      order: ["pct_050", "pct_025", "lod"],
+      order_total: ["lod", "pct_050", "pct_025"],
+      best_r: "pct_050",
+      best_total: "lod",
+      tight: "pct_025",
+      stops: {
+        pct_050: stop("pct_050", "0.50%", 1.1, 0.5, 0.9),
+        pct_025: stop("pct_025", "0.25%", 1.08, 0.25, 0.7),
+        lod: stop("lod", "Low of day", 0.85, 2.0, 0.84),
+      },
+    };
+    expect(sweepSentence(book)).toBe(
+      "0.50% is the best day-3 R per trade on First at +1.10R (10 fills, total +11.0R). Low of day is +0.85R per trade, total +8.5R. Low of day leads on total R at +8.5R. The tightest stop within 0.05R of that best is 0.25% at +1.08R per trade, average stop 0.25%. With 0.05% slippage on the stop exit it is +0.70R per trade.",
+    );
+    expect(sweepSentence(undefined)).toBeNull();
   });
 });

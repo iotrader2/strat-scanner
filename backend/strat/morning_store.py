@@ -47,6 +47,8 @@ def delete_day(day: str, db_path: Path | None = None) -> None:
         conn.execute("DELETE FROM ema_reclaim_day WHERE date = ?", (day,))
         conn.execute("DELETE FROM strat_pullback WHERE date = ?", (day,))
         conn.execute("DELETE FROM strat_pullback_day WHERE date = ?", (day,))
+        conn.execute("DELETE FROM stop_sweep WHERE date = ?", (day,))
+        conn.execute("DELETE FROM stop_sweep_day WHERE date = ?", (day,))
 
 
 def leader_dates(db_path: Path | None = None) -> set[str]:
@@ -581,6 +583,48 @@ def strat_pullback_tape_days(db_path: Path | None = None) -> list[str]:
         )]
 
 
+def replace_stop_sweeps(day: str, rows: Sequence[dict], db_path: Path | None = None) -> None:
+    """Replace one session of the stop sweep and mark it built, even with no fills."""
+    payload = []
+    for r in rows:
+        payload.append(
+            (
+                day, r["symbol"], r["stop_id"], int(r["slot"]), float(r["entry_price"]),
+                r.get("stop_price"), r.get("stop_pct"),
+                r.get("eod_pct"), r.get("d1_pct"), r.get("d2_pct"), r.get("d3_pct"), r.get("d4_pct"), r.get("d5_pct"),
+                int(r.get("stopped") or 0), r.get("stop_day"), r.get("exit_pct"), int(r.get("gapped") or 0),
+                r.get("mfe_pct"), int(r.get("fast_stop") or 0), int(r.get("skipped") or 0), r.get("cross_time"),
+            )
+        )
+    with data._write_lock, data.connect(db_path) as conn:
+        conn.execute("DELETE FROM stop_sweep WHERE date = ?", (day,))
+        conn.executemany(
+            "INSERT INTO stop_sweep(date, symbol, stop_id, slot, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, "
+            "fast_stop, skipped, cross_time) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            payload,
+        )
+        conn.execute("INSERT OR REPLACE INTO stop_sweep_day(date) VALUES (?)", (day,))
+
+
+def stop_sweeps_between(start: str, end: str, db_path: Path | None = None) -> list[dict]:
+    with data.connect(db_path) as conn:
+        return _rows(
+            conn,
+            "SELECT date, symbol, stop_id, slot, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, "
+            "fast_stop, skipped, cross_time "
+            "FROM stop_sweep WHERE date >= ? AND date <= ? ORDER BY date, slot, symbol, stop_id",
+            (start, end),
+        )
+
+
+def stop_sweep_days(db_path: Path | None = None) -> set[str]:
+    with data.connect(db_path) as conn:
+        return {r[0] for r in conn.execute("SELECT date FROM stop_sweep_day")}
+
+
 def revision(db_path: Path | None = None) -> str:
     with data.connect(db_path) as conn:
         leaders = conn.execute("SELECT COUNT(*), MAX(date) FROM leader_snapshots").fetchone()
@@ -591,10 +635,11 @@ def revision(db_path: Path | None = None) -> str:
         cross = conn.execute("SELECT COUNT(*), MAX(date) FROM cross_trigger").fetchone()
         reclaim = conn.execute("SELECT COUNT(*), MAX(date) FROM ema_reclaim").fetchone()
         pullback = conn.execute("SELECT COUNT(*), MAX(date) FROM strat_pullback").fetchone()
+        sweep = conn.execute("SELECT COUNT(*), MAX(date) FROM stop_sweep").fetchone()
     return (
         f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}:"
         f"{single[0]}:{single[1]}:{strat[0]}:{strat[1]}:{cross[0]}:{cross[1]}:"
-        f"{reclaim[0]}:{reclaim[1]}:{pullback[0]}:{pullback[1]}"
+        f"{reclaim[0]}:{reclaim[1]}:{pullback[0]}:{pullback[1]}:{sweep[0]}:{sweep[1]}"
     )
 
 
@@ -637,6 +682,8 @@ def counts(db_path: Path | None = None) -> dict:
         pullback_rows = conn.execute(
             "SELECT COUNT(*) FROM strat_pullback WHERE cutoff != 'qqq'"
         ).fetchone()[0]
+        sweep_days = conn.execute("SELECT COUNT(*) FROM stop_sweep_day").fetchone()[0]
+        sweep_rows = conn.execute("SELECT COUNT(*) FROM stop_sweep WHERE skipped = 0").fetchone()[0]
     return {
         "leader_days": int(days or 0),
         "leader_rows": int(names or 0),
@@ -661,4 +708,6 @@ def counts(db_path: Path | None = None) -> dict:
         "reclaim_rows": int(reclaim_rows or 0),
         "pullback_days": int(pullback_days or 0),
         "pullback_rows": int(pullback_rows or 0),
+        "sweep_days": int(sweep_days or 0),
+        "sweep_rows": int(sweep_rows or 0),
     }

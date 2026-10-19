@@ -313,6 +313,289 @@ Skipped:
 
 - **CTVA** (Corteva, Inc.), leader rank 1: no 5-minute close above the 20 RMA by 10:30.
 
+## Stop sweep, 10:30 rank tie
+
+First and First 2 of the 10:30 rank-tie book. The entry stays the 10:30 close after a 5-minute bar has closed above the 20 RMA. The order is the earliest cross, then the leader rank, then the symbol. Only the stop changes. Each stop is set at 10:30 from prices known then and is never moved. A stop that is not strictly under the entry is skipped, and a later name does not take the slot. One R is the distance from the entry down to that stop. R per trade and total R size every fill to risk 1R. Average percent and total percent keep the same position size on every fill, so a tight stop does not inflate them.
+
+These stops are judged on 5-minute bars. A very tight stop is sensitive to that bar size and to slippage: the low of a 5-minute bar can trade through a stop that a finer tape would have filled, and the order inside the bar is unknown. The slippage variant fills every stop exit 0.05% worse than the stop or the gap open. The risk unit stays the original stop, so a touch can book worse than -1R.
+
+Candidates are ranked by day-3 R per trade, and again by day-3 total R. The tightest stop near the top is the smallest average stop among those within 0.05R of the best day-3 R per trade. Low of day is the current baseline.
+
+
+### First
+
+**0.25%** is the best day-3 R per trade on First at +1.85R (59 fills, total +109.4R). Low of day is +0.85R per trade, total +49.2R. The same stop also leads on total R. That stop is the tightest within 0.05R of the best. Its average stop is 0.25%. With 0.05% slippage on the stop exit it is +1.67R per trade (total +98.6R).
+
+| Stop | Stop % | Skipped | Fills | R/trade | Total R | Win | Stop | Gaps | Avg % | Total % | MFE | Median R | Best | Worst | 30m | Slip R | Slip total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **0.25%** (best R, tightest near top) | 0.25% | 0 | 59 | +1.85R | +109.4R | 8.5% | 91.5% | 6 | +0.46% | +27.3% | +6.91R | -1.00R | +63.19R | -11.06R | 69.5% | +1.67R | +98.6R |
+| 20 RMA | 1.25% | 13 | 45 | +1.78R | +80.0R | 22.2% | 77.8% | 7 | +0.12% | +5.2% | +5.63R | -1.00R | +59.67R | -5.09R | 15.2% | +1.68R | +75.7R |
+| RMA - 0.1 ATR | 1.57% | 6 | 52 | +1.50R | +77.9R | 25.0% | 75.0% | 8 | +0.26% | +13.3% | +4.53R | -1.00R | +34.83R | -2.21R | 11.3% | +1.44R | +74.6R |
+| 10:30 bar | 0.26% | 2 | 57 | +1.44R | +82.3R | 8.8% | 91.2% | 4 | +0.54% | +30.9% | +7.25R | -1.00R | +61.61R | -9.69R | 64.9% | +1.00R | +57.3R |
+| 0.50% | 0.50% | 0 | 59 | +1.15R | +68.1R | 11.9% | 88.1% | 5 | +0.58% | +34.1% | +5.66R | -1.00R | +33.78R | -5.53R | 37.3% | +1.07R | +63.0R |
+| Last 2 bars | 0.39% | 1 | 58 | +1.06R | +61.4R | 10.3% | 89.7% | 6 | +0.38% | +22.0% | +6.48R | -1.00R | +61.61R | -14.60R | 51.7% | +0.79R | +45.9R |
+| 0.10x daily ATR | 0.52% | 0 | 59 | +1.05R | +62.1R | 11.9% | 88.1% | 5 | +0.56% | +32.9% | +4.92R | -1.00R | +31.04R | -3.91R | 40.7% | +0.96R | +56.8R |
+| Last 3 bars | 0.49% | 0 | 59 | +0.98R | +58.0R | 10.2% | 89.8% | 6 | +0.28% | +16.4% | +6.04R | -1.00R | +61.61R | -14.60R | 47.5% | +0.77R | +45.3R |
+| 15-min low | 0.49% | 0 | 59 | +0.98R | +58.0R | 10.2% | 89.8% | 6 | +0.28% | +16.4% | +6.04R | -1.00R | +61.61R | -14.60R | 47.5% | +0.77R | +45.3R |
+| Low since cross | 2.07% | 0 | 58 | +0.85R | +49.2R | 29.3% | 69.0% | 8 | +0.74% | +42.8% | +3.89R | -1.00R | +21.56R | -2.52R | 8.5% | +0.82R | +47.4R |
+| Low of day | 2.07% | 0 | 58 | +0.85R | +49.2R | 29.3% | 69.0% | 8 | +0.74% | +42.8% | +3.89R | -1.00R | +21.56R | -2.52R | 8.5% | +0.82R | +47.4R |
+| 0.75% | 0.75% | 0 | 59 | +0.60R | +35.5R | 15.2% | 84.8% | 8 | +0.45% | +26.6% | +4.05R | -1.00R | +22.52R | -3.69R | 30.5% | +0.55R | +32.2R |
+| 1x 5-min ATR | 0.66% | 0 | 59 | +0.59R | +34.9R | 11.9% | 88.1% | 7 | +0.43% | +25.1% | +4.35R | -1.00R | +23.38R | -5.31R | 33.9% | +0.52R | +30.7R |
+| 0.20x daily ATR | 1.05% | 0 | 59 | +0.56R | +32.8R | 18.6% | 81.4% | 5 | +0.67% | +39.6% | +3.54R | -1.00R | +15.52R | -1.96R | 22.0% | +0.51R | +30.4R |
+| 0.15x daily ATR | 0.79% | 0 | 59 | +0.55R | +32.3R | 15.2% | 84.8% | 7 | +0.42% | +24.9% | +3.93R | -1.00R | +20.69R | -2.61R | 32.2% | +0.49R | +28.9R |
+| 30-min low | 0.74% | 0 | 59 | +0.50R | +29.4R | 13.6% | 86.4% | 8 | +0.11% | +6.7% | +5.03R | -1.00R | +34.40R | -8.23R | 35.6% | +0.36R | +21.1R |
+| 1.5x 5-min ATR | 0.98% | 0 | 59 | +0.44R | +25.9R | 17.0% | 83.0% | 6 | +0.48% | +28.4% | +3.54R | -1.00R | +15.58R | -3.54R | 23.7% | +0.39R | +23.2R |
+| 1.50% | 1.50% | 0 | 58 | +0.35R | +20.5R | 24.1% | 75.9% | 6 | +0.53% | +30.7% | +3.14R | -1.00R | +11.26R | -2.48R | 1.7% | +0.33R | +19.0R |
+| 2x 5-min ATR | 1.31% | 0 | 58 | +0.31R | +17.9R | 22.4% | 77.6% | 11 | +0.50% | +29.0% | +3.37R | -1.00R | +11.69R | -3.23R | 8.5% | +0.28R | +16.0R |
+| 0.25x daily ATR | 1.31% | 0 | 59 | +0.29R | +17.3R | 20.3% | 79.7% | 8 | +0.47% | +27.7% | +3.10R | -1.00R | +12.41R | -2.96R | 13.6% | +0.26R | +15.4R |
+| 1.00% | 1.00% | 0 | 58 | +0.27R | +15.8R | 15.5% | 84.5% | 7 | +0.27% | +15.8% | +3.18R | -1.00R | +16.89R | -2.76R | 17.0% | +0.23R | +13.4R |
+| 3x 5-min ATR | 1.97% | 0 | 57 | +0.20R | +11.3R | 29.8% | 70.2% | 9 | +0.76% | +43.3% | +2.46R | -1.00R | +7.79R | -2.15R | 1.7% | +0.18R | +10.1R |
+| 0.50x daily ATR | 2.62% | 0 | 56 | +0.19R | +10.5R | 39.3% | 60.7% | 8 | +0.69% | +38.5% | +2.07R | -1.00R | +6.21R | -2.07R | 0.0% | +0.17R | +9.8R |
+| 0.33x daily ATR | 1.73% | 0 | 57 | +0.17R | +9.7R | 26.3% | 73.7% | 8 | +0.38% | +21.5% | +2.68R | -1.00R | +9.40R | -2.52R | 3.4% | +0.15R | +8.4R |
+
+R per trade from the close through day 5. This is the fixed 1R-risk view.
+
+| Stop | EOD | +1d | +2d | +3d | +4d | +5d |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **0.25%** (best R, tightest near top) | +1.04R | +2.01R | +1.75R | +1.85R | +1.61R | +2.18R |
+| 20 RMA | +0.85R | +1.94R | +1.92R | +1.78R | +1.35R | +1.87R |
+| RMA - 0.1 ATR | +0.56R | +0.98R | +1.20R | +1.50R | +1.17R | +0.82R |
+| 10:30 bar | +1.54R | +2.48R | +1.35R | +1.44R | +1.12R | +1.05R |
+| 0.50% | +0.71R | +1.40R | +1.03R | +1.15R | +0.94R | +1.17R |
+| Last 2 bars | +1.19R | +1.97R | +1.01R | +1.06R | +0.71R | +0.75R |
+| 0.10x daily ATR | +0.51R | +1.08R | +0.85R | +1.05R | +0.83R | +1.01R |
+| Last 3 bars | +0.98R | +1.67R | +0.91R | +0.98R | +0.67R | +0.76R |
+| 15-min low | +0.98R | +1.67R | +0.91R | +0.98R | +0.67R | +0.76R |
+| Low since cross | +0.57R | +0.90R | +0.74R | +0.85R | +0.87R | +1.12R |
+| Low of day | +0.57R | +0.90R | +0.74R | +0.85R | +0.87R | +1.12R |
+| 0.75% | +0.33R | +0.72R | +0.47R | +0.60R | +0.45R | +0.66R |
+| 1x 5-min ATR | +0.39R | +0.85R | +0.51R | +0.59R | +0.42R | +0.55R |
+| 0.20x daily ATR | +0.16R | +0.61R | +0.39R | +0.56R | +0.55R | +0.74R |
+| 0.15x daily ATR | +0.33R | +0.71R | +0.42R | +0.55R | +0.38R | +0.56R |
+| 30-min low | +0.90R | +1.18R | +0.56R | +0.50R | +0.38R | +0.76R |
+| 1.5x 5-min ATR | +0.21R | +0.49R | +0.25R | +0.44R | +0.38R | +0.50R |
+| 1.50% | +0.29R | +0.59R | +0.30R | +0.35R | +0.48R | +0.60R |
+| 2x 5-min ATR | +0.29R | +0.56R | +0.29R | +0.31R | +0.34R | +0.49R |
+| 0.25x daily ATR | +0.16R | +0.45R | +0.23R | +0.29R | +0.31R | +0.40R |
+| 1.00% | +0.25R | +0.39R | +0.17R | +0.27R | +0.15R | +0.31R |
+| 3x 5-min ATR | +0.17R | +0.32R | +0.20R | +0.20R | +0.23R | +0.29R |
+| 0.50x daily ATR | +0.18R | +0.28R | +0.19R | +0.19R | +0.26R | +0.21R |
+| 0.33x daily ATR | +0.20R | +0.36R | +0.16R | +0.17R | +0.24R | +0.32R |
+
+Average percent from the close through day 5. This is the same position size on every fill.
+
+| Stop | EOD | +1d | +2d | +3d | +4d | +5d |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **0.25%** (best R, tightest near top) | +0.26% | +0.50% | +0.44% | +0.46% | +0.40% | +0.54% |
+| 20 RMA | +0.49% | +0.56% | +0.26% | +0.12% | -0.14% | +0.11% |
+| RMA - 0.1 ATR | +0.46% | +0.44% | +0.34% | +0.26% | -0.02% | +0.13% |
+| 10:30 bar | +0.37% | +0.73% | +0.52% | +0.54% | +0.48% | +0.60% |
+| 0.50% | +0.36% | +0.70% | +0.51% | +0.58% | +0.47% | +0.59% |
+| Last 2 bars | +0.34% | +0.61% | +0.36% | +0.38% | +0.28% | +0.40% |
+| 0.10x daily ATR | +0.33% | +0.61% | +0.46% | +0.56% | +0.45% | +0.57% |
+| Last 3 bars | +0.30% | +0.50% | +0.26% | +0.28% | +0.17% | +0.29% |
+| 15-min low | +0.30% | +0.50% | +0.26% | +0.28% | +0.17% | +0.29% |
+| Low since cross | +0.59% | +0.93% | +0.63% | +0.74% | +0.61% | +0.71% |
+| Low of day | +0.59% | +0.93% | +0.63% | +0.74% | +0.61% | +0.71% |
+| 0.75% | +0.25% | +0.54% | +0.35% | +0.45% | +0.34% | +0.49% |
+| 1x 5-min ATR | +0.28% | +0.56% | +0.36% | +0.43% | +0.31% | +0.43% |
+| 0.20x daily ATR | +0.29% | +0.78% | +0.51% | +0.67% | +0.72% | +0.95% |
+| 0.15x daily ATR | +0.37% | +0.60% | +0.32% | +0.42% | +0.31% | +0.46% |
+| 30-min low | +0.42% | +0.49% | +0.10% | +0.11% | 0.00% | +0.18% |
+| 1.5x 5-min ATR | +0.30% | +0.51% | +0.27% | +0.48% | +0.44% | +0.59% |
+| 1.50% | +0.43% | +0.89% | +0.44% | +0.53% | +0.72% | +0.89% |
+| 2x 5-min ATR | +0.48% | +0.81% | +0.49% | +0.50% | +0.56% | +0.81% |
+| 0.25x daily ATR | +0.31% | +0.71% | +0.39% | +0.47% | +0.54% | +0.71% |
+| 1.00% | +0.25% | +0.39% | +0.17% | +0.27% | +0.15% | +0.31% |
+| 3x 5-min ATR | +0.40% | +0.79% | +0.67% | +0.76% | +0.74% | +0.94% |
+| 0.50x daily ATR | +0.55% | +0.86% | +0.68% | +0.69% | +0.84% | +0.75% |
+| 0.33x daily ATR | +0.42% | +0.70% | +0.33% | +0.38% | +0.50% | +0.68% |
+
+R per trade with 0.05% slippage on stop exits.
+
+| Stop | EOD | +1d | +2d | +3d | +4d | +5d |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **0.25%** (best R, tightest near top) | +0.88R | +1.84R | +1.58R | +1.67R | +1.43R | +2.00R |
+| 20 RMA | +0.77R | +1.86R | +1.83R | +1.68R | +1.25R | +1.77R |
+| RMA - 0.1 ATR | +0.51R | +0.93R | +1.14R | +1.44R | +1.11R | +0.75R |
+| 10:30 bar | +1.12R | +2.06R | +0.91R | +1.00R | +0.68R | +0.61R |
+| 0.50% | +0.64R | +1.33R | +0.94R | +1.07R | +0.85R | +1.08R |
+| Last 2 bars | +0.95R | +1.71R | +0.75R | +0.79R | +0.44R | +0.48R |
+| 0.10x daily ATR | +0.44R | +1.00R | +0.77R | +0.96R | +0.74R | +0.92R |
+| Last 3 bars | +0.79R | +1.47R | +0.69R | +0.77R | +0.46R | +0.54R |
+| 15-min low | +0.79R | +1.47R | +0.69R | +0.77R | +0.46R | +0.54R |
+| Low since cross | +0.56R | +0.88R | +0.71R | +0.82R | +0.84R | +1.08R |
+| Low of day | +0.56R | +0.88R | +0.71R | +0.82R | +0.84R | +1.08R |
+| 0.75% | +0.29R | +0.67R | +0.41R | +0.55R | +0.39R | +0.60R |
+| 1x 5-min ATR | +0.34R | +0.78R | +0.44R | +0.52R | +0.34R | +0.48R |
+| 0.20x daily ATR | +0.13R | +0.58R | +0.35R | +0.51R | +0.51R | +0.69R |
+| 0.15x daily ATR | +0.29R | +0.66R | +0.37R | +0.49R | +0.32R | +0.50R |
+| 30-min low | +0.78R | +1.05R | +0.42R | +0.36R | +0.23R | +0.61R |
+| 1.5x 5-min ATR | +0.18R | +0.45R | +0.20R | +0.39R | +0.33R | +0.46R |
+| 1.50% | +0.28R | +0.57R | +0.27R | +0.33R | +0.45R | +0.57R |
+| 2x 5-min ATR | +0.27R | +0.54R | +0.26R | +0.28R | +0.30R | +0.45R |
+| 0.25x daily ATR | +0.14R | +0.42R | +0.20R | +0.26R | +0.28R | +0.37R |
+| 1.00% | +0.22R | +0.36R | +0.13R | +0.23R | +0.11R | +0.27R |
+| 3x 5-min ATR | +0.16R | +0.31R | +0.19R | +0.18R | +0.21R | +0.27R |
+| 0.50x daily ATR | +0.18R | +0.28R | +0.18R | +0.17R | +0.25R | +0.20R |
+| 0.33x daily ATR | +0.19R | +0.35R | +0.14R | +0.15R | +0.22R | +0.29R |
+
+
+### First 2
+
+**10:30 bar** is the best day-3 R per trade on First 2 at +1.51R (113 fills, total +170.2R). Low of day is +0.68R per trade, total +79.4R. The same stop also leads on total R. That stop is the tightest within 0.05R of the best. Its average stop is 0.26%. With 0.05% slippage on the stop exit it is +1.01R per trade (total +114.1R).
+
+| Stop | Stop % | Skipped | Fills | R/trade | Total R | Win | Stop | Gaps | Avg % | Total % | MFE | Median R | Best | Worst | 30m | Slip R | Slip total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **10:30 bar** (best R, tightest near top) | 0.26% | 5 | 113 | +1.51R | +170.2R | 6.2% | 93.8% | 8 | +0.25% | +28.2% | +6.70R | -1.00R | +80.93R | -9.69R | 71.7% | +1.01R | +114.1R |
+| Last 2 bars | 0.43% | 2 | 116 | +1.42R | +164.9R | 7.8% | 92.2% | 11 | +0.13% | +15.0% | +6.59R | -1.00R | +80.93R | -14.60R | 60.3% | +1.07R | +124.2R |
+| Last 3 bars | 0.53% | 1 | 117 | +1.41R | +164.5R | 7.7% | 92.3% | 11 | +0.03% | +3.6% | +6.33R | -1.00R | +80.93R | -14.60R | 53.8% | +1.18R | +138.1R |
+| 15-min low | 0.53% | 1 | 117 | +1.41R | +164.5R | 7.7% | 92.3% | 11 | +0.03% | +3.6% | +6.33R | -1.00R | +80.93R | -14.60R | 53.8% | +1.18R | +138.1R |
+| RMA - 0.1 ATR | 1.76% | 15 | 101 | +1.39R | +140.7R | 22.8% | 74.3% | 13 | -0.03% | -2.9% | +4.36R | -1.00R | +63.12R | -2.60R | 12.6% | +1.34R | +135.3R |
+| 30-min low | 0.78% | 1 | 117 | +1.21R | +141.1R | 10.3% | 89.7% | 12 | -0.17% | -19.6% | +5.91R | -1.00R | +80.93R | -8.23R | 36.8% | +1.05R | +123.3R |
+| 0.25% | 0.25% | 0 | 118 | +0.93R | +109.9R | 6.8% | 93.2% | 6 | +0.23% | +27.5% | +5.51R | -1.00R | +63.19R | -11.06R | 72.0% | +0.75R | +88.0R |
+| Low since cross | 2.05% | 0 | 116 | +0.71R | +82.0R | 25.9% | 71.5% | 13 | +0.28% | +32.1% | +3.45R | -1.00R | +22.74R | -3.00R | 11.9% | +0.65R | +74.9R |
+| Low of day | 2.08% | 0 | 116 | +0.68R | +79.4R | 25.9% | 71.5% | 13 | +0.26% | +29.8% | +3.42R | -1.00R | +22.74R | -3.00R | 11.9% | +0.62R | +72.2R |
+| 0.50% | 0.50% | 0 | 118 | +0.59R | +70.2R | 10.2% | 89.8% | 7 | +0.30% | +35.1% | +4.33R | -1.00R | +33.78R | -5.53R | 44.9% | +0.51R | +59.6R |
+| 20 RMA | 1.46% | 28 | 88 | +0.55R | +48.3R | 13.6% | 84.1% | 10 | -0.51% | -45.1% | +3.50R | -1.00R | +59.67R | -5.09R | 22.2% | +0.46R | +40.1R |
+| 0.10x daily ATR | 0.52% | 0 | 118 | +0.54R | +63.9R | 10.2% | 89.8% | 8 | +0.27% | +32.3% | +3.92R | -1.00R | +31.04R | -5.69R | 50.8% | +0.45R | +52.8R |
+| 0.20x daily ATR | 1.04% | 0 | 118 | +0.28R | +32.5R | 16.1% | 83.9% | 10 | +0.38% | +44.6% | +3.01R | -1.00R | +15.52R | -4.26R | 19.5% | +0.23R | +27.3R |
+| 0.75% | 0.75% | 0 | 118 | +0.23R | +26.8R | 12.7% | 87.3% | 12 | +0.17% | +20.1% | +3.31R | -1.00R | +22.52R | -3.69R | 33.9% | +0.17R | +20.0R |
+| 0.15x daily ATR | 0.78% | 0 | 118 | +0.18R | +20.8R | 12.7% | 87.3% | 12 | +0.12% | +14.0% | +3.21R | -1.00R | +20.69R | -5.68R | 35.6% | +0.12R | +13.6R |
+| 1x 5-min ATR | 0.67% | 0 | 118 | +0.12R | +14.7R | 10.2% | 89.8% | 11 | +0.10% | +11.7% | +3.46R | -1.00R | +23.38R | -5.74R | 42.4% | +0.05R | +5.6R |
+| 0.25x daily ATR | 1.30% | 0 | 118 | +0.06R | +6.6R | 17.8% | 82.2% | 16 | +0.17% | +20.4% | +2.70R | -1.00R | +12.41R | -3.41R | 11.9% | +0.02R | +2.5R |
+| 1.5x 5-min ATR | 1.00% | 0 | 116 | +0.04R | +4.7R | 13.8% | 86.2% | 12 | +0.05% | +6.2% | +2.88R | -1.00R | +15.58R | -3.83R | 20.3% | -0.01R | -1.0R |
+| 1.50% | 1.50% | 0 | 114 | +0.01R | +1.4R | 20.2% | 79.0% | 14 | +0.02% | +2.0% | +2.46R | -1.00R | +11.26R | -3.65R | 3.4% | -0.01R | -1.6R |
+| 1.00% | 1.00% | 0 | 116 | +0.01R | +1.1R | 13.8% | 86.2% | 12 | +0.01% | +1.1% | +2.72R | -1.00R | +16.89R | -5.48R | 21.2% | -0.03R | -3.9R |
+| 3x 5-min ATR | 2.00% | 0 | 112 | -0.02R | -2.2R | 24.1% | 75.0% | 17 | +0.10% | +11.5% | +2.12R | -1.00R | +9.62R | -2.47R | 0.9% | -0.04R | -4.6R |
+| 0.50x daily ATR | 2.60% | 0 | 112 | -0.03R | -3.1R | 33.0% | 66.1% | 16 | +0.08% | +8.8% | +1.74R | -1.00R | +6.21R | -2.07R | 0.9% | -0.04R | -4.7R |
+| 0.33x daily ATR | 1.71% | 0 | 114 | -0.05R | -6.1R | 21.9% | 78.1% | 17 | 0.00% | +0.5% | +2.23R | -1.00R | +9.40R | -2.58R | 4.2% | -0.08R | -9.0R |
+| 2x 5-min ATR | 1.33% | 0 | 114 | -0.06R | -6.7R | 17.5% | 82.5% | 19 | -0.05% | -5.3% | +2.58R | -1.00R | +11.69R | -3.23R | 9.3% | -0.09R | -10.7R |
+
+R per trade from the close through day 5. This is the fixed 1R-risk view.
+
+| Stop | EOD | +1d | +2d | +3d | +4d | +5d |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **10:30 bar** (best R, tightest near top) | +0.98R | +1.73R | +1.31R | +1.51R | +1.09R | +2.08R |
+| Last 2 bars | +0.86R | +1.68R | +1.30R | +1.42R | +1.01R | +2.14R |
+| Last 3 bars | +0.76R | +1.56R | +1.27R | +1.41R | +1.01R | +2.15R |
+| 15-min low | +0.76R | +1.56R | +1.27R | +1.41R | +1.01R | +2.15R |
+| RMA - 0.1 ATR | +0.51R | +0.83R | +1.14R | +1.39R | +1.21R | +1.50R |
+| 30-min low | +0.81R | +1.33R | +1.23R | +1.21R | +1.08R | +2.37R |
+| 0.25% | +0.45R | +1.16R | +0.96R | +0.93R | +0.87R | +1.49R |
+| Low since cross | +0.24R | +0.51R | +0.56R | +0.71R | +0.71R | +0.64R |
+| Low of day | +0.24R | +0.50R | +0.54R | +0.68R | +0.69R | +0.61R |
+| 0.50% | +0.20R | +0.63R | +0.48R | +0.59R | +0.49R | +0.49R |
+| 20 RMA | +0.18R | +0.69R | +0.66R | +0.55R | +0.33R | +0.55R |
+| 0.10x daily ATR | +0.10R | +0.45R | +0.39R | +0.54R | +0.43R | +0.43R |
+| 0.20x daily ATR | -0.06R | +0.21R | +0.12R | +0.28R | +0.31R | +0.31R |
+| 0.75% | +0.04R | +0.31R | +0.15R | +0.23R | +0.15R | +0.14R |
+| 0.15x daily ATR | +0.02R | +0.22R | +0.10R | +0.18R | +0.09R | +0.09R |
+| 1x 5-min ATR | +0.03R | +0.24R | +0.10R | +0.12R | +0.10R | +0.15R |
+| 0.25x daily ATR | +0.01R | +0.08R | -0.03R | +0.06R | +0.09R | +0.05R |
+| 1.5x 5-min ATR | -0.03R | +0.08R | -0.03R | +0.04R | +0.05R | +0.07R |
+| 1.50% | +0.09R | +0.16R | 0.00R | +0.01R | +0.08R | +0.04R |
+| 1.00% | +0.06R | +0.06R | -0.05R | +0.01R | -0.05R | -0.07R |
+| 3x 5-min ATR | +0.03R | +0.06R | -0.06R | -0.02R | +0.05R | +0.03R |
+| 0.50x daily ATR | +0.02R | +0.03R | -0.05R | -0.03R | +0.05R | -0.03R |
+| 0.33x daily ATR | +0.06R | +0.03R | -0.09R | -0.05R | +0.01R | -0.03R |
+| 2x 5-min ATR | +0.03R | +0.09R | -0.04R | -0.06R | -0.02R | +0.01R |
+
+Average percent from the close through day 5. This is the same position size on every fill.
+
+| Stop | EOD | +1d | +2d | +3d | +4d | +5d |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **10:30 bar** (best R, tightest near top) | +0.15% | +0.33% | +0.22% | +0.25% | +0.20% | +0.34% |
+| Last 2 bars | +0.08% | +0.26% | +0.12% | +0.13% | +0.06% | +0.24% |
+| Last 3 bars | +0.02% | +0.16% | +0.02% | +0.03% | -0.04% | +0.14% |
+| 15-min low | +0.02% | +0.16% | +0.02% | +0.03% | -0.04% | +0.14% |
+| RMA - 0.1 ATR | +0.12% | -0.03% | -0.03% | -0.03% | -0.05% | +0.08% |
+| 30-min low | +0.09% | +0.08% | -0.15% | -0.17% | -0.21% | +0.01% |
+| 0.25% | +0.11% | +0.29% | +0.24% | +0.23% | +0.22% | +0.37% |
+| Low since cross | +0.12% | +0.18% | +0.17% | +0.28% | +0.30% | +0.24% |
+| Low of day | +0.12% | +0.16% | +0.15% | +0.26% | +0.28% | +0.22% |
+| 0.50% | +0.10% | +0.32% | +0.24% | +0.30% | +0.25% | +0.25% |
+| 20 RMA | +0.04% | -0.14% | -0.38% | -0.51% | -0.62% | -0.59% |
+| 0.10x daily ATR | +0.09% | +0.27% | +0.20% | +0.27% | +0.22% | +0.22% |
+| 0.20x daily ATR | 0.00% | +0.33% | +0.18% | +0.38% | +0.46% | +0.48% |
+| 0.75% | +0.03% | +0.23% | +0.11% | +0.17% | +0.11% | +0.11% |
+| 0.15x daily ATR | +0.07% | +0.20% | +0.07% | +0.12% | +0.06% | +0.06% |
+| 1x 5-min ATR | +0.04% | +0.15% | +0.05% | +0.10% | +0.05% | +0.05% |
+| 0.25x daily ATR | +0.07% | +0.21% | +0.03% | +0.17% | +0.26% | +0.23% |
+| 1.5x 5-min ATR | +0.02% | +0.07% | -0.05% | +0.05% | +0.03% | +0.02% |
+| 1.50% | +0.13% | +0.25% | 0.00% | +0.02% | +0.12% | +0.06% |
+| 1.00% | +0.06% | +0.06% | -0.05% | +0.01% | -0.05% | -0.07% |
+| 3x 5-min ATR | +0.13% | +0.14% | -0.04% | +0.10% | +0.16% | +0.11% |
+| 0.50x daily ATR | +0.08% | +0.16% | -0.02% | +0.08% | +0.28% | +0.09% |
+| 0.33x daily ATR | +0.12% | +0.13% | -0.10% | 0.00% | +0.14% | +0.08% |
+| 2x 5-min ATR | +0.10% | +0.12% | -0.04% | -0.05% | -0.02% | 0.00% |
+
+R per trade with 0.05% slippage on stop exits.
+
+| Stop | EOD | +1d | +2d | +3d | +4d | +5d |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **10:30 bar** (best R, tightest near top) | +0.50R | +1.24R | +0.82R | +1.01R | +0.59R | +1.58R |
+| Last 2 bars | +0.53R | +1.34R | +0.96R | +1.07R | +0.66R | +1.78R |
+| Last 3 bars | +0.55R | +1.34R | +1.05R | +1.18R | +0.79R | +1.93R |
+| 15-min low | +0.55R | +1.34R | +1.05R | +1.18R | +0.79R | +1.93R |
+| RMA - 0.1 ATR | +0.47R | +0.78R | +1.09R | +1.34R | +1.16R | +1.44R |
+| 30-min low | +0.67R | +1.19R | +1.08R | +1.05R | +0.92R | +2.22R |
+| 0.25% | +0.28R | +0.98R | +0.78R | +0.75R | +0.69R | +1.30R |
+| Low since cross | +0.19R | +0.46R | +0.50R | +0.65R | +0.65R | +0.58R |
+| Low of day | +0.19R | +0.45R | +0.48R | +0.62R | +0.63R | +0.55R |
+| 0.50% | +0.12R | +0.55R | +0.40R | +0.51R | +0.40R | +0.40R |
+| 20 RMA | +0.10R | +0.60R | +0.57R | +0.46R | +0.24R | +0.45R |
+| 0.10x daily ATR | +0.02R | +0.36R | +0.30R | +0.45R | +0.34R | +0.33R |
+| 0.20x daily ATR | -0.10R | +0.17R | +0.07R | +0.23R | +0.26R | +0.26R |
+| 0.75% | -0.01R | +0.25R | +0.10R | +0.17R | +0.09R | +0.08R |
+| 0.15x daily ATR | -0.03R | +0.17R | +0.04R | +0.12R | +0.03R | +0.02R |
+| 1x 5-min ATR | -0.04R | +0.17R | +0.02R | +0.05R | +0.02R | +0.07R |
+| 0.25x daily ATR | -0.01R | +0.05R | -0.06R | +0.02R | +0.05R | +0.02R |
+| 1.5x 5-min ATR | -0.07R | +0.04R | -0.07R | -0.01R | 0.00R | +0.02R |
+| 1.50% | +0.08R | +0.14R | -0.02R | -0.01R | +0.05R | +0.02R |
+| 1.00% | +0.03R | +0.03R | -0.09R | -0.03R | -0.09R | -0.11R |
+| 3x 5-min ATR | +0.02R | +0.04R | -0.08R | -0.04R | +0.03R | 0.00R |
+| 0.50x daily ATR | +0.02R | +0.02R | -0.06R | -0.04R | +0.03R | -0.04R |
+| 0.33x daily ATR | +0.05R | +0.01R | -0.11R | -0.08R | -0.01R | -0.06R |
+| 2x 5-min ATR | +0.01R | +0.06R | -0.07R | -0.09R | -0.05R | -0.02R |
+
+
+### One 10:30 rank-tie morning
+
+**2026-08-27**, **TEAM** (Atlassian Corporation), prior-close leader rank 1. Day 3 on the low-of-day stop is +0.38R. The rank-tie first book averages +0.85R by day 3. This is the winner closest to that average. The best fill in that book is +21.56R on 2026-07-31 (CRWD), and this morning is not that one.
+
+The first 5-minute bar of the session to close above the 20 RMA ended at 9:35. That close was $177.38 and the RMA was $168.91.
+5 names crossed on the bar ending 9:35. TEAM is first among them because leader rank 1 is the best on that bar. The others on that bar: CRL rank 4, CRWD rank 6, VEEV rank 9, IQV rank 10.
+The symbol tie-break would have bought CRL first. This fill is the rank-tie book, the +0.85R study.
+
+The entry is the 10:30 close, $181.99. The low-of-day stop is $168.73, 7.29% under the entry, so 1R is $13.26.
+
+The low-of-day stop was not hit through the day-5 close.
+
+The close columns are the session close against the entry, with no stop. The booked columns are what this stop keeps.
+
+| | Date | Close | Close % | Close R | Booked % | Booked R |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| EOD | 2026-08-27 | $185.62 | +1.99% | +0.27R | +1.99% | +0.27R |
+| +1d | 2026-08-28 | $190.41 | +4.63% | +0.64R | +4.63% | +0.64R |
+| +2d | 2026-08-31 | $194.17 | +6.69% | +0.92R | +6.69% | +0.92R |
+| +3d | 2026-09-01 | $187.03 | +2.77% | +0.38R | +2.77% | +0.38R |
+| +4d | 2026-09-02 | $186.44 | +2.45% | +0.34R | +2.45% | +0.34R |
+| +5d | 2026-09-03 | $194.68 | +6.97% | +0.96R | +6.97% | +0.96R |
+
+The tightest stop near the top of the First book is **0.25%**. On this trade that stop is $181.53, 0.25% under the entry, so 1R is $0.46. Day 3 books -1.00R and -0.25%. It was inside the first 30 minutes after entry. That stop was hit on the entry session (2026-08-27), the 5-minute bar ending 10:35. The bar traded down to the stop (open $181.80, low $181.26).
+
+The close columns are the session close against the entry, with no stop. The booked columns are what this stop keeps.
+
+| | Date | Close | Close % | Close R | Booked % | Booked R |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| EOD | 2026-08-27 | $185.62 | +1.99% | +7.98R | -0.25% | -1.00R |
+| +1d | 2026-08-28 | $190.41 | +4.63% | +18.52R | -0.25% | -1.00R |
+| +2d | 2026-08-31 | $194.17 | +6.69% | +26.77R | -0.25% | -1.00R |
+| +3d | 2026-09-01 | $187.03 | +2.77% | +11.08R | -0.25% | -1.00R |
+| +4d | 2026-09-02 | $186.44 | +2.45% | +9.78R | -0.25% | -1.00R |
+| +5d | 2026-09-03 | $194.68 | +6.97% | +27.89R | -0.25% | -1.00R |
+
 ## 5-minute Strat pullback
 
 A top-10 leader qualifies when a 5-minute bar closes above the 20 RMA. After that, the next trade waits for a pullback, a 2D or an inside bar, and buys the first trade above that bar's high. The patterns are 2d-2u, 2d-1-2u, 3-1-2u, 1-2d-2u, and 1-2u. A bar that opens above the prior high fills at the open. The earliest fill is 9:45. One book stops taking new fills at 11:00 and one at 10:30. The stop is the low from 9:30 through the entry bar. One R is that distance. First, first 2, and first 3 are the best leader-list ranks among the names that filled, rank 1 ahead of rank 2. The columns beside them are the 10:30 rank-tie books, bought at the 10:30 close.

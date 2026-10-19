@@ -185,6 +185,7 @@ def render(stats: dict, meta: dict) -> str:
             "today's index membership (survivorship) all apply."
         )
     _append_single(lines, stats)
+    _append_sweep(lines, stats)
     _append_pullback(lines, stats)
     _append_window(lines, stats)
     _append_strat(lines, stats)
@@ -524,6 +525,268 @@ def _dollars(value) -> str:
     if value is None:
         return "—"
     return f"${float(value):,.2f}"
+
+
+def _sweep_mark(book: dict, sid: str) -> str:
+    stop = (book.get("stops") or {})[sid]
+    notes = []
+    if sid == book.get("best_r"):
+        notes.append("best R")
+    if sid == book.get("best_total") and sid != book.get("best_r"):
+        notes.append("best total")
+    if sid == book.get("tight"):
+        notes.append("tightest near top")
+    label = stop["label"]
+    if not notes:
+        return label
+    return f"**{label}** ({', '.join(notes)})"
+
+
+def _append_sweep(lines: list[str], stats: dict) -> None:
+    study = stats.get("stop_sweep") or {}
+    books = study.get("books") or {}
+    if not any((books.get(book_id) or {}).get("order") for book_id in ("first", "two")):
+        return
+    lines.extend(["", "## Stop sweep, 10:30 rank tie", ""])
+    if study.get("definition"):
+        lines.append(study["definition"])
+        lines.append("")
+    if study.get("noise"):
+        lines.append(study["noise"])
+        lines.append("")
+    near = study.get("near_r", 0.05)
+    lines.append(
+        "Candidates are ranked by day-3 R per trade, and again by day-3 total R. "
+        f"The tightest stop near the top is the smallest average stop among those within {near:.2f}R "
+        "of the best day-3 R per trade. Low of day is the current baseline."
+    )
+    lines.append("")
+    for book_id in ("first", "two"):
+        book = books.get(book_id) or {}
+        if book.get("order"):
+            lines.extend(_sweep_book_lines(book))
+    lines.extend(_sweep_example_lines(study.get("example")))
+
+
+def _sweep_book_lines(book: dict) -> list[str]:
+    stops = book.get("stops") or {}
+    order = list(book.get("order") or [])
+    lines = ["", f"### {book.get('label', '')}", ""]
+    best = stops.get(book.get("best_r") or "")
+    tight = stops.get(book.get("tight") or "")
+    total = stops.get(book.get("best_total") or "")
+    lod = stops.get("lod") or {}
+    best_d3 = (best or {}).get("horizons", {}).get("d3", {})
+    tight_d3 = (tight or {}).get("horizons", {}).get("d3", {})
+    total_d3 = (total or {}).get("horizons", {}).get("d3", {})
+    lod_d3 = (lod.get("horizons") or {}).get("d3", {})
+    prose = []
+    if best:
+        prose.append(
+            f"**{best['label']}** is the best day-3 R per trade on {book.get('label')} at {_r(best_d3.get('r_per_trade'))} "
+            f"({_num(best_d3.get('n_trades'))} fills, total {_r(best_d3.get('total_r'), 1)}). "
+            f"Low of day is {_r(lod_d3.get('r_per_trade'))} per trade, total {_r(lod_d3.get('total_r'), 1)}."
+        )
+    if total and book.get("best_total") == book.get("best_r"):
+        prose.append("The same stop also leads on total R.")
+    elif total:
+        prose.append(
+            f"**{total['label']}** leads on total R at {_r(total_d3.get('total_r'), 1)} "
+            f"({_r(total_d3.get('r_per_trade'))} per trade)."
+        )
+    if tight and book.get("tight") == book.get("best_r"):
+        prose.append(
+            f"That stop is the tightest within 0.05R of the best. Its average stop is {_dist(tight.get('avg_stop_pct'))}. "
+            f"With 0.05% slippage on the stop exit it is {_r(tight_d3.get('slip_r_per_trade'))} per trade "
+            f"(total {_r(tight_d3.get('slip_total_r'), 1)})."
+        )
+    elif tight:
+        prose.append(
+            f"The tightest stop within 0.05R of that best is **{tight['label']}** at {_r(tight_d3.get('r_per_trade'))} "
+            f"per trade, average stop {_dist(tight.get('avg_stop_pct'))}. "
+            f"With 0.05% slippage on the stop exit it is {_r(tight_d3.get('slip_r_per_trade'))} per trade "
+            f"(total {_r(tight_d3.get('slip_total_r'), 1)})."
+        )
+    if prose:
+        lines.append(" ".join(prose))
+        lines.append("")
+    header = (
+        "| Stop | Stop % | Skipped | Fills | R/trade | Total R | Win | Stop | Gaps | Avg % | Total % | "
+        "MFE | Median R | Best | Worst | 30m | Slip R | Slip total |"
+    )
+    lines.append(header)
+    lines.append("| --- | " + " | ".join("---:" for _ in range(17)) + " |")
+    for sid in order:
+        stop = stops[sid]
+        d3 = (stop.get("horizons") or {}).get("d3") or {}
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _sweep_mark(book, sid),
+                    _dist(stop.get("avg_stop_pct")),
+                    _num(stop.get("n_skipped")),
+                    _num(d3.get("n_trades")),
+                    _r(d3.get("r_per_trade")),
+                    _r(d3.get("total_r"), 1),
+                    _rate(d3.get("win_rate")),
+                    _rate(d3.get("stop_hit_rate")),
+                    _num(d3.get("gap_count")),
+                    _pct(d3.get("avg_pct")),
+                    _pct(d3.get("total_pct"), 1),
+                    _r(d3.get("avg_mfe")),
+                    _r(d3.get("median_r")),
+                    _r(d3.get("best_r")),
+                    _r(d3.get("worst_r")),
+                    _rate(stop.get("fast_stop_rate")),
+                    _r(d3.get("slip_r_per_trade")),
+                    _r(d3.get("slip_total_r"), 1),
+                ]
+            )
+            + " |"
+        )
+    lines.append("")
+    lines.append("R per trade from the close through day 5. This is the fixed 1R-risk view.")
+    lines.append("")
+    lines.append("| Stop | EOD | +1d | +2d | +3d | +4d | +5d |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for sid in order:
+        cells = []
+        for name in HORIZON_LABEL:
+            cells.append(_r(((stops[sid].get("horizons") or {}).get(name) or {}).get("r_per_trade")))
+        lines.append(f"| {_sweep_mark(book, sid)} | " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append("Average percent from the close through day 5. This is the same position size on every fill.")
+    lines.append("")
+    lines.append("| Stop | EOD | +1d | +2d | +3d | +4d | +5d |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for sid in order:
+        cells = []
+        for name in HORIZON_LABEL:
+            cells.append(_pct(((stops[sid].get("horizons") or {}).get(name) or {}).get("avg_pct")))
+        lines.append(f"| {_sweep_mark(book, sid)} | " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append("R per trade with 0.05% slippage on stop exits.")
+    lines.append("")
+    lines.append("| Stop | EOD | +1d | +2d | +3d | +4d | +5d |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for sid in order:
+        cells = []
+        for name in HORIZON_LABEL:
+            cells.append(_r(((stops[sid].get("horizons") or {}).get(name) or {}).get("slip_r_per_trade")))
+        lines.append(f"| {_sweep_mark(book, sid)} | " + " | ".join(cells) + " |")
+    lines.append("")
+    return lines
+
+
+def _sweep_example_lines(example: dict | None) -> list[str]:
+    if not example:
+        return []
+    lines = ["", "### One 10:30 rank-tie morning", ""]
+    lines.append(
+        f"**{example.get('date')}**, **{example.get('symbol')}** ({example.get('name') or example.get('symbol')}), "
+        f"prior-close leader rank {example.get('leader_rank')}. "
+        f"Day 3 on the low-of-day stop is {_r(example.get('day3_r'))}. "
+        f"The rank-tie first book averages {_r(example.get('book_avg_r'))} by day 3. "
+        f"This is the winner closest to that average. "
+        f"The best fill in that book is {_r(example.get('best_r'))} on {example.get('best_date')} "
+        f"({example.get('best_symbol')}), and this morning is not that one."
+    )
+    lines.append("")
+    if example.get("cross_close") is None:
+        lines.append(f"The stored cross is {example.get('cross_time')}.")
+    else:
+        lines.append(
+            f"The first 5-minute bar of the session to close above the 20 RMA ended at {example.get('cross_time')}. "
+            f"That close was {_px(example.get('cross_close'))} and the RMA was {_px(example.get('cross_rma'))}."
+        )
+    lines.append(example.get("why") or "")
+    if example.get("symbol_first") and example.get("symbol_first") != example.get("symbol"):
+        lines.append(
+            f"The symbol tie-break would have bought {example.get('symbol_first')} first. "
+            "This fill is the rank-tie book, the +0.85R study."
+        )
+    else:
+        lines.append("The symbol tie-break picks the same first name on this morning.")
+    lines.append("")
+    lines.append(
+        f"The entry is the 10:30 close, {_px(example.get('entry'))}. "
+        f"The low-of-day stop is {_px(example.get('stop'))}, {_dist(example.get('stop_pct'))} under the entry, "
+        f"so 1R is {_px(example.get('risk'))}."
+    )
+    lines.append("")
+    lines.append(_hit_sentence(example, "The low-of-day stop"))
+    lines.append("")
+    lines.extend(_example_path(example.get("path") or []))
+    tight = example.get("tight") or {}
+    lines.append("")
+    lines.append(_tight_sentence(example, tight))
+    if tight.get("path"):
+        lines.append("")
+        lines.extend(_example_path(tight.get("path") or []))
+    return lines
+
+
+def _hit_sentence(example: dict, subject: str) -> str:
+    if not int(example.get("stopped") or 0):
+        return f"{subject} was not hit through the day-5 close."
+    hit = example.get("hit") or {}
+    if not hit:
+        return f"{subject} was hit. The 5-minute bar that touched it was not in the stored tape."
+    when = _hit_when(hit)
+    how = "opened through the stop" if hit.get("gapped") else "traded down to the stop"
+    return (
+        f"{subject} was hit {when}. The bar {how} "
+        f"(open {_px(hit.get('open'))}, low {_px(hit.get('low'))})."
+    )
+
+
+def _hit_when(hit: dict) -> str:
+    offset = int(hit.get("offset") or 0)
+    session = hit.get("session") or "a later session"
+    if offset == 0:
+        label = "on the entry session"
+    else:
+        label = f"on the +{offset} session"
+    return f"{label} ({session}), the 5-minute bar ending {hit.get('clock')}"
+
+
+def _tight_sentence(example: dict, tight: dict) -> str:
+    if not tight or tight.get("missing"):
+        return "The tightest stop from the sweep is not stored on this fill."
+    label = tight.get("label") or tight.get("id")
+    if int(tight.get("skipped") or 0):
+        return (
+            f"The tightest stop near the top of the First book is **{label}** at {_px(tight.get('stop'))}. "
+            f"That price is not under the 10:30 close, so this variant skips the trade."
+        )
+    fast = " It was inside the first 30 minutes after entry." if int(tight.get("fast_stop") or 0) else ""
+    gap = " The exit was a gap through the stop." if int(tight.get("gapped") or 0) else ""
+    return (
+        f"The tightest stop near the top of the First book is **{label}**. "
+        f"On this trade that stop is {_px(tight.get('stop'))}, {_dist(tight.get('stop_pct'))} under the entry, "
+        f"so 1R is {_px(tight.get('risk'))}. "
+        f"Day 3 books {_r(tight.get('day3_r'))} and {_pct(tight.get('day3_pct'))}.{fast}{gap} "
+        + _hit_sentence(tight, "That stop")
+    )
+
+
+def _example_path(path: list) -> list[str]:
+    lines = [
+        "The close columns are the session close against the entry, with no stop. "
+        "The booked columns are what this stop keeps.",
+        "",
+        "| | Date | Close | Close % | Close R | Booked % | Booked R |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    labels = {"eod": "EOD", "d1": "+1d", "d2": "+2d", "d3": "+3d", "d4": "+4d", "d5": "+5d"}
+    for item in path:
+        lines.append(
+            f"| {labels.get(item.get('horizon'), item.get('horizon'))} | {item.get('date')} | "
+            f"{_px(item.get('close'))} | {_pct(item.get('close_pct'))} | {_r(item.get('close_r'))} | "
+            f"{_pct(item.get('booked_pct'))} | {_r(item.get('booked_r'))} |"
+        )
+    return lines
 
 
 def _append_pullback(lines: list[str], stats: dict) -> None:

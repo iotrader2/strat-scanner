@@ -17,6 +17,7 @@ from .morning_store import (
     cross_triggers_between,
     ema_reclaim_tape_days,
     ema_reclaims_between,
+    stop_sweeps_between,
     strat_pullback_tape_days,
     strat_pullbacks_between,
     all_leaders,
@@ -29,6 +30,7 @@ from .morning_store import (
     single_entries_between,
     strat_reversals_between,
 )
+from .stop_sweep import build_sweep_stats, load_rank_example
 from .strat_pullback import build_pullback_stats, pullback_text
 from .strat_reversal import build_reversal_stats, reversal_text
 
@@ -106,6 +108,18 @@ def cached_stats(force: bool = False) -> dict:
         strat_pullback_tape_days(),
     )
     pullback["definition"] = pullback_text()
+    sweep_rows = stop_sweeps_between("0000-01-01", "9999-12-31")
+    sweep = build_sweep_stats(sweep_rows)
+    first_book = (sweep.get("books") or {}).get("first") or {}
+    tight_id = first_book.get("tight")
+    lod_r = (((first_book.get("stops") or {}).get("lod") or {}).get("horizons") or {}).get("d3", {}).get("r_per_trade")
+    sweep["example"] = load_rank_example(
+        [row for row in single_rows if row["rule"] == "rma1030"],
+        score_ranks,
+        sweep_rows,
+        tight_id,
+        book_avg=lod_r,
+    )
     public = _round({k: v for k, v in stats.items() if k != "qqq_at_best"})
     public["definition"] = definition_text()
     public["single_entry"] = _round(single)
@@ -113,6 +127,7 @@ def cached_stats(force: bool = False) -> dict:
     public["cross_trigger"] = _round(cross)
     public["ema_reclaim"] = _round(reclaim)
     public["strat_pullback"] = _round(pullback)
+    public["stop_sweep"] = _round(sweep)
     _CACHE["rev"] = rev
     _CACHE["stats"] = public
     return public
