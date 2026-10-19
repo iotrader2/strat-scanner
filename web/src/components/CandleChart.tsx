@@ -4,7 +4,6 @@ import {
   ColorType,
   CrosshairMode,
   HistogramSeries,
-  LineStyle,
   createChart,
   createSeriesMarkers,
   type SeriesMarker,
@@ -12,21 +11,14 @@ import {
 } from "lightweight-charts";
 import type { ChartCandle } from "../api";
 
-export interface PriceLine {
-  price: number;
-  color: string;
-  title: string;
-}
-
 interface Props {
   candles: ChartCandle[];
-  lines?: PriceLine[];
   height?: number;
   visibleBars?: number;
   compact?: boolean;
 }
 
-export function CandleChart({ candles, lines = [], height = 420, visibleBars = 60, compact = false }: Props) {
+export function CandleChart({ candles, height = 420, visibleBars = 60, compact = false }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,6 +53,7 @@ export function CandleChart({ candles, lines = [], height = 420, visibleBars = 6
       borderDownColor: "#f43f5e",
       wickUpColor: "#22c55e",
       wickDownColor: "#f43f5e",
+      priceLineVisible: false,
     });
     series.setData(
       candles.map((c) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close })),
@@ -71,6 +64,8 @@ export function CandleChart({ candles, lines = [], height = 420, visibleBars = 6
         priceFormat: { type: "volume" },
         priceScaleId: "vol",
         color: "rgba(139,147,167,0.25)",
+        priceLineVisible: false,
+        lastValueVisible: false,
       });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
       volume.setData(
@@ -95,22 +90,11 @@ export function CandleChart({ candles, lines = [], height = 420, visibleBars = 6
     }
     createSeriesMarkers(series, markers);
 
-    for (const line of lines) {
-      series.createPriceLine({
-        price: line.price,
-        color: line.color,
-        lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: compact ? "" : line.title,
-      });
-    }
-
-    const visible = compact ? candles.length : Math.min(candles.length, visibleBars);
+    const visible = Math.min(candles.length, visibleBars);
     chart.timeScale().setVisibleLogicalRange({ from: candles.length - visible - 0.5, to: candles.length + (compact ? 1 : 4) });
 
     return () => chart.remove();
-  }, [candles, lines, height, visibleBars, compact]);
+  }, [candles, height, visibleBars, compact]);
 
   return <div ref={ref} className="chart" style={{ height }} />;
 }

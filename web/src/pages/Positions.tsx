@@ -2,7 +2,6 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import type { Position, ScanRow } from "../api";
 import { ActionMenu } from "../components/ActionMenu";
-import { Legend } from "../components/Badges";
 import { SkeletonTable } from "../components/Loading";
 import { ConfirmModal, EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
@@ -213,7 +212,6 @@ export default function Positions() {
 
       <div className="table-meta">
         {data !== null && <span className="muted">{`${held.length} open positions`}</span>}
-        <Legend />
       </div>
       {error && <div className="banner error">{error}</div>}
       {notice && <div className="banner">{notice}</div>}

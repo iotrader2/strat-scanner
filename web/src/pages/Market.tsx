@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Breadth, type MarketEtf, type Tf, type Trend } from "../api";
+import { api, type Breadth, type HigherTf, type MarketEtf, type Tf, type Trend } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
-import { Legend } from "../components/Badges";
 import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
 import { BreadthPanel } from "../components/Breadth";
 import { TrendBanner } from "../components/TrendBanner";
 import { marketRead } from "../market";
 import { SkeletonCards } from "../components/Loading";
 
+type IndexTf = Tf | HigherTf;
+const INDEX_CHARTS: readonly IndexTf[] = ["M", "W", "D", "3M", "6M"];
+
+function isIndexTf(v: unknown): v is IndexTf {
+  return v === "3M" || v === "6M" || isTimeframe(v);
+}
+
 export default function Market({ version }: { version: string | null }) {
-  const [storedTf, setTf] = usePersisted<Tf>("marketTf", "W");
-  const tf: Tf = isTimeframe(storedTf) ? storedTf : "W";
+  const [storedTf, setTf] = usePersisted<IndexTf>("marketTf", "W");
+  const tf: IndexTf = isIndexTf(storedTf) ? storedTf : "W";
   const [etfs, setEtfs] = useState<MarketEtf[]>([]);
   const [trend, setTrend] = useState<Trend | null>(null);
   const [breadth, setBreadth] = useState<Breadth | null>(null);
@@ -70,10 +76,9 @@ export default function Market({ version }: { version: string | null }) {
           ))}
         </div>
       )}
-      <Legend />
       {breadth && <BreadthPanel breadth={breadth} />}
       <div className="market-tf">
-        <TfToggle tf={tf} onChange={setTf} />
+        <TfToggle tf={tf} frames={INDEX_CHARTS} onChange={setTf} />
       </div>
 
       {error && <div className="banner error">{error}</div>}

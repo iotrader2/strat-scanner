@@ -1,7 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import type { ScanRow } from "../api";
-import { Legend } from "../components/Badges";
 import { SkeletonTable } from "../components/Loading";
 import { EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
@@ -95,7 +94,6 @@ export default function Watchlist() {
 
       <div className="table-meta">
         {data !== null && <span className="muted">{`${rows.length} watched names`}</span>}
-        <Legend />
       </div>
       {error && <div className="banner error">{error}</div>}
       {missing.length > 0 && (
@@ -112,10 +110,10 @@ export default function Watchlist() {
       ) : (
         <ScanTable
           rows={rows}
-          actionsLabel="Bought?"
+          actionsLabel=""
           actions={(r) => (
             <button type="button" className="btn small move-btn" onClick={() => setMoving(r)} title="Record the entry and track it on the Positions tab">
-              Move to Positions →
+              Bought →
             </button>
           )}
         />

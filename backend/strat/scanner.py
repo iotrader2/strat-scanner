@@ -39,6 +39,7 @@ from .themes import Theme, ThemeMap, build_theme_index
 from .universe import Member
 
 TIMEFRAMES = ("M", "W", "D")
+HIGHER_TFS = ("3M", "6M")  # shown on the index cards, not part of the score
 LEADERS = "leaders"
 LEGACY = "legacy"  # the previous Strat-first score, for the backtest comparison only
 ATR_PERIOD = 14
@@ -407,13 +408,16 @@ def etf_cards(
         row = rows_by_symbol.get(sym)
         if daily is None or row is None:
             continue
+        higher = dict(row.get("tf") or {})
+        for period in HIGHER_TFS:
+            higher[period] = _tf_payload(timeframe_state(period, to_candles(resample(daily, period))))
         out.append(
             {
                 "symbol": sym,
                 "name": name,
                 "sector": sector,
                 "group": group,
-                "row": row,
+                "row": {**row, "tf": higher},
                 "candles": chart_payload(daily, tf, bars),
             }
         )

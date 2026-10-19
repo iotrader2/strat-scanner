@@ -1,18 +1,13 @@
-import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { fmtPct, type MarketEtf } from "../api";
+import { fmtPct, type HigherTf, type MarketEtf, type Tf } from "../api";
 import { ScorePill, TfBadges } from "./Badges";
-import { CandleChart, type PriceLine } from "./CandleChart";
+import { CandleChart } from "./CandleChart";
 import { PerfStrip } from "./PerfStrip";
 import { WatchButton } from "./Watch";
 
 /** Index ETF card on State of the Market: candles with H/I markers, M/W/D badges, score and + watch. */
 export function EtfCard({ etf, chartHeight = 180 }: { etf: MarketEtf; chartHeight?: number }) {
   const r = etf.row;
-  const lines = useMemo<PriceLine[]>(() => {
-    const s = r.setups?.find((x) => !x.triggered) ?? r.setups?.[0];
-    return s ? [{ price: s.trigger, color: "#38bdf8", title: "trigger" }] : [];
-  }, [r.setups]);
   const setup = r.setups?.[0];
 
   return (
@@ -29,11 +24,11 @@ export function EtfCard({ etf, chartHeight = 180 }: { etf: MarketEtf; chartHeigh
         <WatchButton symbol={etf.symbol} />
       </div>
       <div className="sector-badges">
-        <TfBadges tf={r.tf} />
+        <TfBadges tf={r.tf} frames={INDEX_FRAMES} />
         <ScorePill score={r.score} row={r} />
       </div>
       <PerfStrip perf={r.perf} label={`${etf.symbol} price performance`} />
-      <CandleChart candles={etf.candles} lines={lines} height={chartHeight} compact />
+      <CandleChart candles={etf.candles} height={chartHeight} compact />
       <div className="sector-foot">
         <span className="small">
           {setup ? (
@@ -49,14 +44,27 @@ export function EtfCard({ etf, chartHeight = 180 }: { etf: MarketEtf; chartHeigh
   );
 }
 
-const TF_LABEL = { M: "Monthly", W: "Weekly", D: "Daily" } as const;
+const INDEX_FRAMES: readonly (Tf | HigherTf)[] = ["M", "W", "D", "3M", "6M"];
 
-export function TfToggle({ tf, onChange }: { tf: keyof typeof TF_LABEL; onChange: (tf: keyof typeof TF_LABEL) => void }) {
+const CHART_LABEL = { M: "Monthly", W: "Weekly", D: "Daily", "3M": "3M", "6M": "6M" } as const;
+export type ChartTf = keyof typeof CHART_LABEL;
+const DEFAULT_FRAMES = ["M", "W", "D"] as const satisfies readonly ChartTf[];
+
+export function TfToggle<T extends ChartTf>({
+  tf,
+  onChange,
+  frames,
+}: {
+  tf: T;
+  onChange: (tf: T) => void;
+  frames?: readonly T[];
+}) {
+  const list = frames ?? DEFAULT_FRAMES;
   return (
     <div className="seg">
-      {(["M", "W", "D"] as const).map((t) => (
-        <button key={t} className={t === tf ? "active" : ""} onClick={() => onChange(t)}>
-          {TF_LABEL[t]}
+      {list.map((t) => (
+        <button key={t} type="button" className={t === tf ? "active" : ""} onClick={() => onChange(t as T)}>
+          {CHART_LABEL[t]}
         </button>
       ))}
     </div>
@@ -64,4 +72,4 @@ export function TfToggle({ tf, onChange }: { tf: keyof typeof TF_LABEL; onChange
 }
 
 /** Bars to show per timeframe on the compact ETF charts. */
-export const CARD_BARS = { M: 30, W: 36, D: 45 } as const;
+export const CARD_BARS: Record<ChartTf, number> = { M: 30, W: 36, D: 45, "3M": 16, "6M": 12 };

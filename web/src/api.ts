@@ -1,4 +1,6 @@
 export type Tf = "M" | "W" | "D";
+/** Quarterly and half-year Strat tags shown on the index cards. */
+export type HigherTf = "3M" | "6M";
 export type Strat = "1" | "2U" | "2D" | "3" | null;
 
 export interface Setup {
@@ -183,7 +185,7 @@ export interface ScanRow {
   nearest_trigger_label: string | null;
   nearest_trigger_distance_pct: number | null;
   reason: string;
-  tf: Record<Tf, TfState | null>;
+  tf: Record<Tf, TfState | null> & Partial<Record<HigherTf, TfState | null>>;
   earnings?: Earnings | null;
   setups?: (Setup & { tf: Tf; points: number })[];
 }
@@ -386,8 +388,8 @@ export const api = {
   /** Theme cards, strongest first. */
   themes: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; themes: ThemeCard[] }>(`/api/themes?tf=${tf}&bars=${bars}`),
   /** QQQ, SPY and IWM for the State of the Market tab. */
-  market: (tf: Tf, bars = 60) =>
-    get<{ tf: Tf; as_of: string | null; etfs: MarketEtf[]; trend: Trend | null }>(`/api/market?tf=${tf}&bars=${bars}`),
+  market: (tf: Tf | HigherTf, bars = 60) =>
+    get<{ tf: Tf | HigherTf; as_of: string | null; etfs: MarketEtf[]; trend: Trend | null }>(`/api/market?tf=${tf}&bars=${bars}`),
   /** $NASI, Fear & Greed and advancers vs decliners. */
   breadth: () => get<Breadth>("/api/breadth"),
   watchlist: () => get<Watchlist>("/api/watchlist"),
