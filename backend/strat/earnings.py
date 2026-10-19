@@ -128,10 +128,24 @@ def refresh_earnings(
     with ThreadPoolExecutor(max_workers=8) as pool:
         for i, result in enumerate(pool.map(_safe(fetch), stale)):
             results.append(result)
+            _drop_yfinance_responses()
             if progress and i % 10 == 0:
                 progress(i, len(stale), f"Earnings dates {i}/{len(stale)}")
     data.save_earnings([r for r in results if r is not None], db_path)
     return len(stale)
+
+
+def _drop_yfinance_responses() -> None:
+    """yfinance keeps its last 64 raw responses in an lru_cache; earnings pages are a few MB each.
+
+    Nothing here re-reads them, so clearing keeps a 600-symbol earnings pass from holding ~200 MB.
+    """
+    try:
+        from yfinance.data import YfData
+
+        YfData.cache_get.cache_clear()
+    except Exception:  # different yfinance internals: just skip
+        pass
 
 
 def _safe(fetch: Callable[[str], dict]) -> Callable[[str], Optional[dict]]:
