@@ -27,12 +27,12 @@ def _strength(theme, score, rank=2, top="memory", top_score=80.0):
 
 class TestPoints:
     def test_top_ranked_theme_gets_full_points(self):
-        assert theme_strength_points(_strength("memory", 80.0, rank=1)) == THEME_POINTS == 10
+        assert theme_strength_points(_strength("memory", 80.0, rank=1)) == THEME_POINTS == 25
 
     def test_points_fall_with_the_rank_among_all_themes(self):
-        assert theme_strength_points(_strength("a", 40.0, rank=2)) == pytest.approx(10 * 81 / 82)
-        assert theme_strength_points(_strength("b", 20.0, rank=41)) == pytest.approx(10 * 42 / 82)
-        assert theme_strength_points(_strength("c", 0.0, rank=82)) == pytest.approx(10 / 82)
+        assert theme_strength_points(_strength("a", 40.0, rank=2)) == pytest.approx(THEME_POINTS * 81 / 82)
+        assert theme_strength_points(_strength("b", 20.0, rank=41)) == pytest.approx(THEME_POINTS * 42 / 82)
+        assert theme_strength_points(_strength("c", 0.0, rank=82)) == pytest.approx(THEME_POINTS / 82)
 
     def test_missing_or_degenerate_rankings_give_zero(self):
         assert theme_strength_points(None) == 0
@@ -101,7 +101,7 @@ class TestScan:
         assert f1["theme_strength"]["theme"] == "fast"
         assert f1["theme_strength"]["score"] == result.theme_rows["fast"]["score"]
         assert comp["points"] == pytest.approx(theme_strength_points(result.strengths["fast"]), abs=0.01)
-        assert comp["max_points"] == 10 and "Fast movers" in comp["label"] and "Fast movers" in comp["detail"]
+        assert comp["max_points"] == THEME_POINTS == 25 and "Fast movers" in comp["label"] and "Fast movers" in comp["detail"]
         assert f1["score_max_raw"] == 100
         assert f1["score"] == pytest.approx(min(100, f1["score_raw"] * 100 / 100), abs=0.06)
 
@@ -116,15 +116,15 @@ class TestScan:
         lone = rows["LONE"]
         comp = next(c for c in lone["score_breakdown"] if c["key"] == "theme_strength")
         assert lone["theme"] is None and lone["theme_strength"] is None
-        assert comp["points"] == 0 and comp["max_points"] == 10 and "not in any theme" in comp["detail"]
+        assert comp["points"] == 0 and comp["max_points"] == THEME_POINTS == 25 and "not in any theme" in comp["detail"]
 
     def test_etfs_and_themes_have_no_theme_strength(self):
         result = scan_all(_members(), _history(), MAP)
         xlk = next(r for r in result.rows if r["symbol"] == "XLK")
         keys = [c["key"] for c in xlk["score_breakdown"]]
-        assert "theme_strength" not in keys and xlk["score_max_raw"] == 90 and xlk["theme_strength"] is None
+        assert "theme_strength" not in keys and xlk["score_max_raw"] == 75 and xlk["theme_strength"] is None
         fast = result.theme_rows["fast"]
-        assert "theme_strength" not in [c["key"] for c in fast["score_breakdown"]] and fast["score_max_raw"] == 85
+        assert "theme_strength" not in [c["key"] for c in fast["score_breakdown"]] and fast["score_max_raw"] == 70
         assert "liquidity" not in [c["key"] for c in fast["score_breakdown"]]
         assert fast["kind"] == "theme" and fast["name"] == "Fast movers"
 

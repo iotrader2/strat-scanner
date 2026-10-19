@@ -54,11 +54,13 @@ from .perf import MOMENTUM_WEIGHTS, PERIOD_LABELS, PERIODS, Momentum
 
 __all__ = ["ThemeStrength", "Score", "score_symbol", "trigger_distance_pct", "liquidity_points", "max_raw_points"]
 
-# Leadership (80 of 100, plus 5 for range tightness and 5 for liquidity). Chosen with the rank-quality backtest (README):
-# the size of the outperformance over QQQ ranks big winners far better than the percentile, which saturates at P99.
+# Leadership is 80 of 100 (RS 15, Vs QQQ 30, theme 25, trend 10), plus 5 for range tightness and 5 for liquidity.
+# Vs QQQ stays the largest single factor. Theme was raised from 10 to 25, and Vs QQQ cut from 45 to 30, so a stock
+# that leads its theme is not capped by a middling QQQ comparison. The earlier 45/10 split came from the rank-quality
+# backtest (README): outperformance over QQQ ranks big winners better than a percentile, which saturates at P99.
 RS_POINTS = 15.0  # blended 1M/3M/6M return percentile within the peer group
-QQQ_POINTS = 45.0  # outperformance over QQQ
-THEME_POINTS = 10.0  # rank of the stock's primary theme on the Themes page
+QQQ_POINTS = 30.0  # outperformance over QQQ
+THEME_POINTS = 25.0  # rank of the stock's primary theme on the Themes page
 TREND_POINTS = 10.0  # price above a rising 10-day and a rising 20-day average
 TIGHTNESS_POINTS = 5.0  # calm, contracting daily ranges
 LIQUIDITY_POINTS = 5.0

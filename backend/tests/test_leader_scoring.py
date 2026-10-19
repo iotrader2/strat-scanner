@@ -20,6 +20,7 @@ from strat.scoring import (
     ThemeStrength,
     qqq_points,
     score_symbol,
+    theme_strength_points,
     trend_points,
 )
 from strat.themes import parse_themes
@@ -75,7 +76,7 @@ class TestScale:
 
     def test_etfs_and_themes_drop_the_components_they_cannot_have(self):
         assert ETF_MAX_RAW_POINTS == 100 - THEME_POINTS
-        assert THEME_MAX_RAW_POINTS == ETF_MAX_RAW_POINTS - 5 and (ETF_MAX_RAW_POINTS, THEME_MAX_RAW_POINTS) == (90, 85)
+        assert THEME_MAX_RAW_POINTS == ETF_MAX_RAW_POINTS - 5 and (ETF_MAX_RAW_POINTS, THEME_MAX_RAW_POINTS) == (75, 70)
 
     def test_the_strat_overlay_is_a_modest_bonus(self):
         assert STRAT_OVERLAY_MAX == 10
@@ -96,15 +97,40 @@ class TestWeights:
     def test_stock_weights_are_the_max_points_and_add_up_to_100(self):
         s = _score(NO_SETUP, LEADER_PERF, theme=TOP_THEME, theme_name="Memory")
         by = {c.key: c for c in s.breakdown}
-        assert by["rs"].weight_pct == 15 and by["qqq"].weight_pct == 45 and by["theme_strength"].weight_pct == 10
+        assert by["rs"].weight_pct == 15 and by["qqq"].weight_pct == 30 and by["theme_strength"].weight_pct == 25
         assert by["trend"].weight_pct == 10 and by["tightness"].weight_pct == 5 and by["liquidity"].weight_pct == 5
+        strat = (
+            by["weekly_setup"].weight_pct + by["proximity"].weight_pct
+            + by["continuity"].weight_pct + by["monthly_2u"].weight_pct
+        )
+        assert (by["weekly_setup"].max_points, by["proximity"].max_points, by["continuity"].max_points, by["monthly_2u"].max_points) == (
+            4, 2.5, 2, 1.5,
+        )
+        assert strat == pytest.approx(10.0)
         assert sum(c.weight_pct for c in s.breakdown) == pytest.approx(100.0, abs=0.2)
+
+    def test_a_number_one_theme_is_worth_25_and_lifts_the_refiners_example(self):
+        # SCORE BREAKDOWN for a #1-of-82 theme (Refiners), under the previous 45/10 split.
+        rs, qqq_old, theme_old, trend, tightness = 14.5, 16.3, 10.0, 10.0, 4.1
+        setup, proximity, continuity, monthly_2u, liquidity = 3.7, 2.5, 2.0, 1.5, 3.5
+        before = rs + qqq_old + theme_old + trend + tightness + setup + proximity + continuity + monthly_2u + liquidity
+        top = ThemeStrength("refiners", "Refiners", 90.0, 1, 82, "refiners", 90.0, "Refiners")
+        assert theme_strength_points(top) == THEME_POINTS == 25
+        qqq_new = qqq_old * QQQ_POINTS / 45.0  # same outperformance fraction, new 30-point max
+        after = rs + qqq_new + THEME_POINTS + trend + tightness + setup + proximity + continuity + monthly_2u + liquidity
+        assert qqq_new == pytest.approx(10.8667, abs=1e-3)
+        assert after == pytest.approx(before + 15 - qqq_old * 15 / 45)
+        assert after == pytest.approx(77.6667, abs=1e-3)
+        # The tooltip's raw total was 67.9; the lines above are those points rounded to 0.1 (they sum to 68.1).
+        assert before == pytest.approx(68.1, abs=1e-9)
+        assert 67.9 + (after - before) == pytest.approx(77.4667, abs=1e-3)
 
     def test_etf_weights_are_rescaled_to_100(self):
         s = _score(NO_SETUP, LEADER_PERF, kind="etf")
         assert "theme_strength" not in {c.key for c in s.breakdown}
         assert sum(c.weight_pct for c in s.breakdown) == pytest.approx(100.0, abs=0.2)
-        assert {c.key: c.weight_pct for c in s.breakdown}["rs"] == pytest.approx(15 / 90 * 100, abs=0.05)
+        assert {c.key: c.weight_pct for c in s.breakdown}["rs"] == pytest.approx(15 / ETF_MAX_RAW_POINTS * 100, abs=0.05)
+        assert {c.key: c.weight_pct for c in s.breakdown}["qqq"] == pytest.approx(30 / ETF_MAX_RAW_POINTS * 100, abs=0.05)
 
     def test_penalties_have_no_weight(self):
         s = _score(NO_SETUP, LEADER_PERF, trend_break=Breakdown("broken", ["below the 50-day average"]))
@@ -136,10 +162,15 @@ class TestLeadershipComesFirst:
 
     def test_a_leader_without_a_setup_is_not_filtered_by_the_score(self):
         s = _score(NO_SETUP, LEADER_PERF)
-        assert s.is_leader and s.score >= 60
+        assert s.is_leader
         assert "No weekly setup" in s.reasons
         setup_part = next(c for c in s.breakdown if c.key == "weekly_setup")
         assert setup_part.points == 0 and "leader still scores" in setup_part.detail
+        # This fixture has no theme, so the lower Vs QQQ cap (30, was 45) leaves it in the 50s.
+        # The same leader in the #1 theme gains the full 25 and stays a high score with no setup.
+        themed = _score(NO_SETUP, LEADER_PERF, theme=TOP_THEME)
+        assert themed.is_leader and themed.score == pytest.approx(s.score + THEME_POINTS, abs=0.1)
+        assert themed.score >= 70
 
     def test_relative_strength_dominates_between_otherwise_equal_names(self):
         hi, lo = _score(NO_SETUP, LEADER_PERF), _score(NO_SETUP, LAGGARD_PERF)
