@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { api, type ThemeCard as ThemeCardData, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { CARD_BARS, TfToggle } from "../components/EtfCard";
+import { MA_WARMUP } from "../movingAverage";
 import { LoadingIndicator, SkeletonCards } from "../components/Loading";
 import { ThemeCard } from "../components/ThemeCard";
 import { filterThemes, sortThemes, THEME_SORTS, type ThemeSort } from "../themeCards";
@@ -27,7 +28,7 @@ export default function Themes({ version }: { version: string | null }) {
   useEffect(() => {
     setLoading(true);
     api
-      .themes(tf, CARD_BARS[tf])
+      .themes(tf, CARD_BARS[tf] + MA_WARMUP)
       .then((r) => {
         setThemes(r.themes);
         setError(null);

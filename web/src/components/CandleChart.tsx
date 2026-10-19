@@ -1,25 +1,33 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
   HistogramSeries,
+  LineSeries,
   createChart,
   createSeriesMarkers,
   type SeriesMarker,
   type Time,
 } from "lightweight-charts";
 import type { ChartCandle } from "../api";
+import { CHART_AVERAGES, sma } from "../movingAverage";
 
 interface Props {
   candles: ChartCandle[];
   height?: number;
   visibleBars?: number;
   compact?: boolean;
+  /** Simple moving averages of close, drawn across the candles. */
+  averages?: readonly { period: number; color: string }[];
 }
 
-export function CandleChart({ candles, height = 420, visibleBars = 60, compact = false }: Props) {
+export function CandleChart({ candles, height = 420, visibleBars = 60, compact = false, averages }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const lines = useMemo(
+    () => (averages ?? CHART_AVERAGES).filter((average) => candles.length >= average.period + 1),
+    [averages, candles],
+  );
 
   useEffect(() => {
     const el = ref.current;
@@ -59,6 +67,19 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       candles.map((c) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close })),
     );
 
+    for (const average of lines) {
+      const points = sma(candles, average.period);
+      if (points.length < 2) continue;
+      const line = chart.addSeries(LineSeries, {
+        color: average.color,
+        lineWidth: compact ? 1 : 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      line.setData(points.map((p) => ({ time: p.time as Time, value: p.value })));
+    }
+
     if (!compact) {
       const volume = chart.addSeries(HistogramSeries, {
         priceFormat: { type: "volume" },
@@ -94,7 +115,21 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
     chart.timeScale().setVisibleLogicalRange({ from: candles.length - visible - 0.5, to: candles.length + (compact ? 1 : 4) });
 
     return () => chart.remove();
-  }, [candles, height, visibleBars, compact]);
+  }, [candles, height, visibleBars, compact, lines]);
 
-  return <div ref={ref} className="chart" style={{ height }} />;
+  return (
+    <div className="chart-block">
+      {lines.length > 0 && (
+        <div className="ma-legend" title="Simple moving averages of the candles on this chart">
+          {lines.map((average) => (
+            <span key={average.period}>
+              <i style={{ background: average.color }} />
+              {average.period}
+            </span>
+          ))}
+        </div>
+      )}
+      <div ref={ref} className="chart" style={{ height }} />
+    </div>
+  );
 }

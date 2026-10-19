@@ -6,7 +6,16 @@ import { PerfStrip } from "./PerfStrip";
 import { WatchButton } from "./Watch";
 
 /** Index ETF card on State of the Market: candles with H/I markers, M/W/D badges, score and + watch. */
-export function EtfCard({ etf, chartHeight = 180 }: { etf: MarketEtf; chartHeight?: number }) {
+export function EtfCard({
+  etf,
+  chartHeight = 180,
+  visibleBars,
+}: {
+  etf: MarketEtf;
+  chartHeight?: number;
+  /** How many of the fetched candles to show. Extra candles warm up the moving averages. */
+  visibleBars?: number;
+}) {
   const r = etf.row;
   const setup = r.setups?.[0];
 
@@ -28,7 +37,7 @@ export function EtfCard({ etf, chartHeight = 180 }: { etf: MarketEtf; chartHeigh
         <ScorePill score={r.score} row={r} />
       </div>
       <PerfStrip perf={r.perf} label={`${etf.symbol} price performance`} />
-      <CandleChart candles={etf.candles} height={chartHeight} compact />
+      <CandleChart candles={etf.candles} height={chartHeight} visibleBars={visibleBars} compact />
       <div className="sector-foot">
         <span className="small">
           {setup ? (
