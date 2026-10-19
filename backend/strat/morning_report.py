@@ -235,6 +235,270 @@ def _append_single(lines: list[str], stats: dict) -> None:
         for key, metric, fmt in _SINGLE_METRICS:
             cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in order]
             lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
+    _append_rma_caps(lines, single)
+    lines.extend(_rma_example_lines())
+
+
+_CAP_HEAD = {
+    "rma_first": "First",
+    "rma_first_rank": "First, rank tie",
+    "rma_two": "First 2",
+    "rma_three": "First 3",
+    "rma_all": "All",
+}
+
+
+def _append_rma_caps(lines: list[str], single: dict) -> None:
+    books = single.get("books") or {}
+    caps = [book_id for book_id in (single.get("caps") or []) if book_id in books]
+    if len(caps) < 2:
+        return
+    lines.extend(["", "### 10:30 RMA, first two and first three", ""])
+    if single.get("caps_note"):
+        lines.append(single["caps_note"])
+        lines.append("")
+    lines.append(
+        "Every one of these buys at the 10:30 close. The stop is the low from 9:30 through that bar. "
+        "One R is that distance. R per trade is the expectancy, the mean R per fill. Average R gives "
+        "each morning one vote. First is the existing book. All is every name that had closed above "
+        "the 20 RMA by 10:30."
+    )
+    lines.append("")
+    stops = []
+    for book_id in caps:
+        book = books[book_id]
+        stops.append(f"**{_CAP_HEAD.get(book_id, book['label'])}** stop {_dist(book.get('avg_stop_pct'))}")
+    lines.append("Average stop under the entry: " + "; ".join(stops) + ".")
+    lines.append("")
+    labels = [_CAP_HEAD.get(book_id, books[book_id]["label"]) for book_id in caps]
+    lines.append("| | " + " | ".join(labels) + " |")
+    lines.append("| --- | " + " | ".join("---:" for _ in labels) + " |")
+    for name, title in HORIZON_LABEL.items():
+        for key, metric, fmt in _SINGLE_METRICS:
+            cells = [fmt((books[book_id].get("horizons") or {}).get(name, {}).get(key)) for book_id in caps]
+            lines.append(f"| {title} {metric} | " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append("Average R from the close through day 5, one number per book in the column order above:")
+    lines.append("")
+    for book_id in caps:
+        path = []
+        for name in HORIZON_LABEL:
+            path.append(_r((books[book_id].get("horizons") or {}).get(name, {}).get("avg_r")))
+        lines.append(f"- **{_CAP_HEAD.get(book_id, book_id)}**: " + ", ".join(path) + ".")
+
+
+def _rma_example_lines() -> list[str]:
+    """One stored 10:30 first-name morning, the recent typical one, written out bar by bar."""
+    from datetime import date, timedelta
+
+    import pandas as pd
+
+    from .data import load_all_daily
+    from .morning import (
+        first_stop_bar,
+        format_clock,
+        pick_typical_rma_first,
+        realized_lod_r,
+        realized_pct,
+        rma_at,
+        to_pct,
+        window_end,
+    )
+    from .morning_store import all_leaders, load_bars, single_entries_between
+
+    rows = [row for row in single_entries_between("0000-01-01", "9999-12-31") if row.get("rule") == "rma1030"]
+    picked = pick_typical_rma_first(rows)
+    if not picked:
+        return []
+    row = picked["row"]
+    day = str(row["date"])
+    symbol = str(row["symbol"])
+    leaders = [item for item in all_leaders() if item["date"] == day]
+    by_symbol = {item["symbol"]: item for item in leaders}
+    symbols = [item["symbol"] for item in leaders] or [symbol]
+    if symbol not in symbols:
+        symbols.append(symbol)
+    start = (date.fromisoformat(day) - timedelta(days=40)).isoformat()
+    end = (date.fromisoformat(day) + timedelta(days=21)).isoformat()
+    bars = load_bars(symbols, start, end, interval="5m")
+    daily = load_all_daily()
+    qqq = daily.get("QQQ")
+    calendar = [] if qqq is None or qqq.empty else [pd.Timestamp(ts).strftime("%Y-%m-%d") for ts in qqq.index]
+    forward = [pd.Timestamp(stamp) for stamp in calendar if stamp > day][:5]
+    entry_end = window_end(day, "10:30")
+    reading = rma_at(bars.get(symbol), entry_end)
+    leader = by_symbol.get(symbol) or {}
+    rank = leader.get("rank")
+    name = leader.get("name") or symbol
+    entry = float(row["entry_price"])
+    stop = float(row["stop_price"])
+    risk = entry - stop
+    cross_clock = "—"
+    cross_close = None
+    rma_value = None
+    if reading is not None:
+        cross_ts, cross_close, rma_value = reading
+        cross_clock = format_clock(cross_ts.hour * 60 + cross_ts.minute) or "—"
+    touch = first_stop_bar(bars.get(symbol), entry_end, stop, forward) if row.get("stopped") else None
+    day_rows = [item for item in rows if item["date"] == day]
+    score = {item["symbol"]: int(item["rank"]) for item in leaders}
+
+    def _rank_key(item):
+        return (str(item.get("cross_time") or ""), score.get(item["symbol"], 10**9), item["symbol"])
+
+    rank_order = sorted(day_rows, key=_rank_key)
+    symbol_order = sorted(day_rows, key=lambda item: (int(item.get("rank") or 99), item["symbol"]))
+    qualified = {item["symbol"] for item in day_rows}
+    lines = ["", "### One 10:30 first morning", ""]
+    lines.append(
+        f"**{day}**, **{symbol}** ({name}), prior-close leader rank {rank}. "
+        f"Day 3 on this fill is {_r(picked['day3_r'])}, the median of the {picked['pool_n']} completed "
+        f"first fills other than the best, {_r(picked['best_r'])} on {picked['best_date']}. "
+        f"It is the most recent fill in that typical group with a day-5 close. "
+        f"It is the existing First book: earliest cross, then the symbol. "
+        + (
+            "The rank tie-break picks the same name that morning."
+            if not rank_order or rank_order[0]["symbol"] == symbol
+            else f"The rank tie-break that morning would have bought {rank_order[0]['symbol']} first."
+        )
+    )
+    lines.append("")
+    if reading is None:
+        lines.append(f"The stored cross is {row.get('cross_time')}. The 5-minute bars for that RMA were not on hand.")
+    else:
+        lines.append(
+            f"The first 5-minute bar of the session to close above the 20 RMA ended at {cross_clock}. "
+            f"That close was {_px(cross_close)} and the RMA was {_px(rma_value)}."
+        )
+    lines.append(
+        f"The entry is the 10:30 close, {_px(entry)}. "
+        f"The stop is the low from 9:30 through that bar, {_px(stop)}. "
+        f"The stop sits {_dist(row.get('stop_pct'))} under the entry, so 1R is {_px(risk)}."
+    )
+    lines.append("")
+    if int(row.get("stopped") or 0) and touch is not None:
+        when = _stop_when(touch, day, forward)
+        how = "opened through the stop" if touch["gapped"] else "traded down to the stop"
+        exit_at = touch["open"] if touch["gapped"] else stop
+        lines.append(
+            f"The stop was hit {when}. The bar {how} "
+            f"(open {_px(touch['open'])}, low {_px(touch['low'])}) and the exit is {_px(exit_at)}."
+        )
+    elif int(row.get("stopped") or 0):
+        lines.append(
+            f"The stop was hit on session offset {row.get('stop_day')}. "
+            f"The 5-minute bar that touched it was not in the stored tape, so the clock is the stored stop day."
+        )
+    else:
+        lines.append("The stop was not hit through the day-5 close.")
+    lines.append("")
+    lines.append(
+        "The close columns are the session close against the entry, with no stop. "
+        "The booked columns are what the study keeps: from the stop session on, the exit."
+    )
+    lines.append("")
+    lines.append("| | Date | Close | Close % | Close R | Booked % | Booked R |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: |")
+    horizon_days = [("eod", day)] + [(name, pd.Timestamp(stamp).strftime("%Y-%m-%d")) for name, stamp in zip(("d1", "d2", "d3", "d4", "d5"), forward)]
+    frame = daily.get(symbol)
+    risk_pct = row.get("stop_pct")
+    for horizon, stamp in horizon_days:
+        close = _daily_close(frame, stamp)
+        close_pct = to_pct(entry, close)
+        close_r = None if close_pct is None or not risk_pct else close_pct / float(risk_pct)
+        lines.append(
+            f"| {HORIZON_LABEL[horizon]} | {stamp} | {_px(close) if close is not None else '—'} | "
+            f"{_pct(close_pct)} | {_r(close_r)} | {_pct(realized_pct(row, horizon))} | {_r(realized_lod_r(row, horizon))} |"
+        )
+    lines.append("")
+    lines.append(
+        "Qualified that morning, in the existing symbol order, then the rank order. "
+        "A name qualifies when a 5-minute bar has closed above the 20 RMA by 10:30 and the low from "
+        "9:30 through 10:30 is under that close."
+    )
+    lines.append("")
+    lines.append(_name_list("Symbol order", symbol_order, by_symbol))
+    lines.append(_name_list("Rank order", rank_order, by_symbol))
+    skipped = [item for item in leaders if item["symbol"] not in qualified]
+    if not skipped:
+        lines.append("")
+        lines.append("Every top-10 name qualified.")
+        return lines
+    lines.append("")
+    lines.append("Skipped:")
+    lines.append("")
+    for item in skipped:
+        reason = _skip_reason(bars.get(item["symbol"]), entry_end)
+        lines.append(f"- **{item['symbol']}** ({item.get('name') or item['symbol']}), leader rank {item['rank']}: {reason}.")
+    return lines
+
+
+def _name_list(title: str, rows: list, leaders: dict) -> str:
+    bits = []
+    for item in rows:
+        leader = leaders.get(item["symbol"]) or {}
+        bits.append(
+            f"{item['symbol']} rank {leader.get('rank', '—')} at {item.get('cross_time')}"
+        )
+    return f"**{title}:** " + "; ".join(bits) + "."
+
+
+def _daily_close(frame, day: str):
+    import pandas as pd
+
+    if frame is None or frame.empty:
+        return None
+    stamp = pd.Timestamp(day).normalize()
+    if stamp not in frame.index:
+        return None
+    close = frame.loc[stamp].close
+    try:
+        value = float(close)
+    except (TypeError, ValueError):
+        return None
+    return None if value != value else value
+
+
+def _px(value) -> str:
+    if value is None:
+        return "—"
+    return f"${float(value):,.2f}"
+
+
+def _stop_when(touch: dict, day: str, forward: list) -> str:
+    import pandas as pd
+
+    from .morning import format_clock
+
+    offset = int(touch["day_index"])
+    if offset == 0:
+        session = day
+        label = "on the entry session"
+    elif offset <= len(forward):
+        session = pd.Timestamp(forward[offset - 1]).strftime("%Y-%m-%d")
+        label = f"on the +{offset} session"
+    else:
+        session = "a later session"
+        label = "later"
+    clock = format_clock(touch["ts"].hour * 60 + touch["ts"].minute)
+    return f"{label} ({session}), the 5-minute bar ending {clock}"
+
+
+def _skip_reason(bars, entry_end) -> str:
+    from .morning import cross_through, entry_at, session_low_through
+
+    if bars is None or bars.empty:
+        return "no stored 5-minute bars"
+    cross = cross_through(bars, entry_end)
+    if cross is None:
+        return "no 5-minute close above the 20 RMA by 10:30"
+    price = entry_at(bars, entry_end)
+    if price is None:
+        return "no 10:30 bar"
+    stop = session_low_through(bars, entry_end)
+    if stop is None or stop >= price:
+        return "the low from 9:30 through 10:30 was not under the 10:30 close"
+    return "it met the rule and was still left out of the stored book"
 
 
 def _append_strat(lines: list[str], stats: dict) -> None:

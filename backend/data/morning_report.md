@@ -52,7 +52,7 @@ That is a description of this sample, not a promise. Overlapping holds, a short 
 
 ## Single entry: 10:30 RMA and the 20 EMA
 
-Two entry rules, each with every qualifying name and with only the first name that day. The 10:30 book buys a top-10 leader at the 10:30 close once a 5-minute bar has closed above the 20 RMA. The EMA book buys at the close of the first 5-minute bar at or after 9:45 that closes above the 20-period EMA; earlier sessions warm that average, and nothing before 9:45 is an entry. The stop is the low from 9:30 through the entry bar. One R is that distance. A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at the open and is counted as a gap. Ties break by symbol.
+Two entry rules, each with every qualifying name and with only the first name that day. The 10:30 book buys a top-10 leader at the 10:30 close once a 5-minute bar has closed above the 20 RMA. The EMA book buys at the close of the first 5-minute bar at or after 9:45 that closes above the 20-period EMA; earlier sessions warm that average, and nothing before 9:45 is an entry. The stop is the low from 9:30 through the entry bar. One R is that distance. A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at the open and is counted as a gap. The existing first name is the earliest cross, and a tie breaks by symbol. The 10:30 caps take the first two and the first three names in a different tie-break: earliest cross, then the leader-list rank, then the symbol. Rank 1 is the best prior-close score. When that rank tie-break picks a different first name, both first books are shown.
 
 Average entry time and average stop distance, per fill: **10:30 all** enters at 10:30 with an average stop 1.90% under the entry; **10:30 first** enters at 10:30 with an average stop 1.61% under the entry; **EMA all** enters at 10:22 on average (median 9:45) with an average stop 1.82% under the entry; **EMA first** enters at 9:46 on average (median 9:45) with an average stop 1.53% under the entry.
 
@@ -162,6 +162,156 @@ Average % and average R give each morning one vote. Expectancy, win rate, the st
 | +5d best % | +20.97% | +15.85% | +27.14% | +14.83% |
 | +5d worst % | -19.77% | -4.99% | -18.45% | -5.20% |
 | +5d vs QQQ | -0.93% | -0.84% | -0.61% | -1.54% |
+
+### 10:30 RMA, first two and first three
+
+First 2 and First 3 are the earliest 20 RMA crosses, then the better leader-list rank, then the symbol. The First column is the existing book, which breaks a tie by symbol. On 38 mornings the rank tie-break picks a different first name, so that book is shown beside it.
+
+Every one of these buys at the 10:30 close. The stop is the low from 9:30 through that bar. One R is that distance. R per trade is the expectancy, the mean R per fill. Average R gives each morning one vote. First is the existing book. All is every name that had closed above the 20 RMA by 10:30.
+
+Average stop under the entry: **First** stop 1.61%; **First, rank tie** stop 2.07%; **First 2** stop 2.08%; **First 3** stop 2.00%; **All** stop 1.90%.
+
+| | First | First, rank tie | First 2 | First 3 | All |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| EOD days | 59 | 59 | 59 | 59 | 59 |
+| EOD fills | 59 | 59 | 118 | 177 | 451 |
+| EOD avg % | +0.16% | +0.59% | +0.12% | +0.16% | +0.11% |
+| EOD avg R | +0.12R | +0.57R | +0.24R | +0.17R | +0.04R |
+| EOD win | 44.1% | 54.2% | 40.7% | 44.1% | 40.4% |
+| EOD stop | 39.0% | 27.1% | 32.2% | 32.8% | 36.1% |
+| EOD gaps | 1 | 1 | 2 | 2 | 3 |
+| EOD total R | +6.9R | +33.7R | +27.8R | +29.7R | +4.8R |
+| EOD expectancy | +0.12R | +0.57R | +0.24R | +0.17R | +0.01R |
+| EOD avg MFE | +2.57R | +3.85R | +3.39R | +3.28R | +2.41R |
+| EOD median R | -0.19R | +0.06R | -0.20R | -0.15R | -0.24R |
+| EOD best R | +4.88R | +14.35R | +14.35R | +14.35R | +14.35R |
+| EOD worst R | -1.03R | -1.03R | -3.00R | -3.00R | -3.00R |
+| EOD median % | -0.15% | +0.24% | -0.17% | -0.12% | -0.18% |
+| EOD best % | +6.14% | +6.14% | +6.14% | +6.14% | +6.30% |
+| EOD worst % | -3.33% | -3.33% | -6.28% | -6.28% | -6.28% |
+| EOD vs QQQ | +0.14% | +0.57% | +0.09% | +0.13% | +0.09% |
+| +1d days | 59 | 59 | 59 | 59 | 58 |
+| +1d fills | 59 | 59 | 118 | 177 | 442 |
+| +1d avg % | -0.32% | +0.93% | +0.16% | +0.18% | +0.03% |
+| +1d avg R | -0.08R | +0.90R | +0.50R | +0.33R | +0.03R |
+| +1d win | 23.7% | 40.7% | 33.1% | 33.9% | 32.8% |
+| +1d stop | 62.7% | 47.5% | 55.1% | 54.2% | 56.1% |
+| +1d gaps | 6 | 4 | 9 | 12 | 26 |
+| +1d total R | -4.8R | +53.2R | +59.2R | +58.2R | +8.6R |
+| +1d expectancy | -0.08R | +0.90R | +0.50R | +0.33R | +0.02R |
+| +1d avg MFE | +2.57R | +3.85R | +3.39R | +3.28R | +2.45R |
+| +1d median R | -1.00R | -0.64R | -1.00R | -1.00R | -1.00R |
+| +1d best R | +15.13R | +15.13R | +16.52R | +16.52R | +16.52R |
+| +1d worst R | -4.56R | -2.52R | -3.00R | -4.56R | -4.56R |
+| +1d median % | -0.73% | -0.57% | -0.69% | -0.62% | -0.53% |
+| +1d best % | +9.30% | +15.08% | +15.08% | +15.08% | +15.08% |
+| +1d worst % | -4.22% | -5.37% | -6.68% | -6.77% | -9.18% |
+| +1d vs QQQ | -0.43% | +0.85% | +0.06% | +0.07% | -0.10% |
+| +2d days | 58 | 58 | 58 | 58 | 57 |
+| +2d fills | 58 | 58 | 116 | 174 | 438 |
+| +2d avg % | -0.29% | +0.63% | +0.15% | +0.13% | -0.01% |
+| +2d avg R | +0.07R | +0.74R | +0.54R | +0.41R | +0.01R |
+| +2d win | 19.0% | 31.0% | 28.4% | 29.9% | 28.1% |
+| +2d stop | 77.6% | 62.1% | 68.1% | 65.5% | 67.8% |
+| +2d gaps | 9 | 7 | 12 | 16 | 38 |
+| +2d total R | +4.3R | +42.8R | +63.0R | +70.8R | -5.7R |
+| +2d expectancy | +0.07R | +0.74R | +0.54R | +0.41R | -0.01R |
+| +2d avg MFE | +2.59R | +3.89R | +3.42R | +3.31R | +2.45R |
+| +2d median R | -1.00R | -1.00R | -1.00R | -1.00R | -1.00R |
+| +2d best R | +22.75R | +22.75R | +22.75R | +22.75R | +22.75R |
+| +2d worst R | -4.56R | -2.52R | -3.00R | -4.71R | -4.71R |
+| +2d median % | -1.13% | -1.03% | -0.93% | -0.78% | -0.75% |
+| +2d best % | +13.99% | +13.99% | +13.99% | +13.99% | +19.13% |
+| +2d worst % | -4.22% | -4.16% | -6.68% | -19.77% | -19.77% |
+| +2d vs QQQ | -0.51% | +0.42% | -0.08% | -0.10% | -0.26% |
+| +3d days | 58 | 58 | 58 | 58 | 57 |
+| +3d fills | 58 | 58 | 116 | 174 | 438 |
+| +3d avg % | -0.17% | +0.74% | +0.26% | +0.22% | -0.08% |
+| +3d avg R | +0.29R | +0.85R | +0.68R | +0.51R | -0.01R |
+| +3d win | 19.0% | 29.3% | 25.9% | 25.9% | 23.3% |
+| +3d stop | 77.6% | 69.0% | 71.5% | 70.1% | 73.3% |
+| +3d gaps | 9 | 8 | 13 | 18 | 43 |
+| +3d total R | +17.1R | +49.2R | +79.4R | +88.6R | -21.1R |
+| +3d expectancy | +0.29R | +0.85R | +0.68R | +0.51R | -0.05R |
+| +3d avg MFE | +2.59R | +3.89R | +3.42R | +3.31R | +2.45R |
+| +3d median R | -1.00R | -1.00R | -1.00R | -1.00R | -1.00R |
+| +3d best R | +21.56R | +21.56R | +22.74R | +22.74R | +22.74R |
+| +3d worst R | -4.56R | -2.52R | -3.00R | -4.71R | -8.06R |
+| +3d median % | -1.13% | -1.03% | -1.00% | -0.97% | -0.93% |
+| +3d best % | +16.89% | +16.89% | +16.89% | +16.89% | +16.89% |
+| +3d worst % | -4.22% | -4.16% | -6.68% | -19.77% | -19.77% |
+| +3d vs QQQ | -0.58% | +0.37% | -0.14% | -0.19% | -0.51% |
+| +4d days | 58 | 58 | 58 | 58 | 56 |
+| +4d fills | 58 | 58 | 116 | 174 | 429 |
+| +4d avg % | -0.27% | +0.61% | +0.28% | +0.10% | -0.18% |
+| +4d avg R | +0.16R | +0.87R | +0.69R | +0.33R | -0.11R |
+| +4d win | 17.2% | 24.1% | 23.3% | 21.8% | 20.3% |
+| +4d stop | 77.6% | 70.7% | 73.3% | 73.6% | 76.9% |
+| +4d gaps | 9 | 8 | 13 | 20 | 42 |
+| +4d total R | +9.2R | +50.7R | +79.9R | +56.7R | -53.3R |
+| +4d expectancy | +0.16R | +0.87R | +0.69R | +0.33R | -0.12R |
+| +4d avg MFE | +2.59R | +3.89R | +3.42R | +3.31R | +2.47R |
+| +4d median R | -1.00R | -1.00R | -1.00R | -1.00R | -1.00R |
+| +4d best R | +19.39R | +19.39R | +23.88R | +23.88R | +23.88R |
+| +4d worst R | -4.56R | -2.52R | -3.00R | -18.68R | -18.68R |
+| +4d median % | -1.21% | -1.18% | -1.03% | -1.00% | -1.02% |
+| +4d best % | +16.14% | +17.64% | +17.64% | +17.64% | +17.64% |
+| +4d worst % | -4.22% | -4.16% | -6.68% | -19.77% | -19.77% |
+| +4d vs QQQ | -0.77% | +0.14% | -0.24% | -0.43% | -0.78% |
+| +5d days | 58 | 58 | 58 | 58 | 56 |
+| +5d fills | 58 | 58 | 116 | 174 | 429 |
+| +5d avg % | -0.22% | +0.71% | +0.22% | +0.11% | -0.18% |
+| +5d avg R | +0.33R | +1.12R | +0.61R | +0.33R | -0.15R |
+| +5d win | 15.5% | 24.1% | 22.4% | 21.3% | 18.6% |
+| +5d stop | 81.0% | 75.9% | 76.7% | 76.4% | 79.2% |
+| +5d gaps | 9 | 9 | 15 | 23 | 46 |
+| +5d total R | +19.2R | +64.8R | +70.7R | +58.3R | -53.1R |
+| +5d expectancy | +0.33R | +1.12R | +0.61R | +0.33R | -0.12R |
+| +5d avg MFE | +2.59R | +3.89R | +3.42R | +3.31R | +2.47R |
+| +5d median R | -1.00R | -1.00R | -1.00R | -1.00R | -1.00R |
+| +5d best R | +25.56R | +25.56R | +36.12R | +36.12R | +36.12R |
+| +5d worst R | -4.56R | -2.52R | -35.26R | -35.26R | -35.26R |
+| +5d median % | -1.33% | -1.18% | -1.07% | -1.08% | -1.08% |
+| +5d best % | +15.85% | +20.97% | +20.97% | +20.97% | +20.97% |
+| +5d worst % | -4.99% | -4.99% | -14.00% | -19.77% | -19.77% |
+| +5d vs QQQ | -0.84% | +0.10% | -0.44% | -0.56% | -0.93% |
+
+Average R from the close through day 5, one number per book in the column order above:
+
+- **First**: +0.12R, -0.08R, +0.07R, +0.29R, +0.16R, +0.33R.
+- **First, rank tie**: +0.57R, +0.90R, +0.74R, +0.85R, +0.87R, +1.12R.
+- **First 2**: +0.24R, +0.50R, +0.54R, +0.68R, +0.69R, +0.61R.
+- **First 3**: +0.17R, +0.33R, +0.41R, +0.51R, +0.33R, +0.33R.
+- **All**: +0.04R, +0.03R, +0.01R, -0.01R, -0.11R, -0.15R.
+
+### One 10:30 first morning
+
+**2026-10-09**, **CRWD** (CrowdStrike), prior-close leader rank 7. Day 3 on this fill is -1.00R, the median of the 53 completed first fills other than the best, +21.56R on 2026-07-31. It is the most recent fill in that typical group with a day-5 close. It is the existing First book: earliest cross, then the symbol. The rank tie-break that morning would have bought TEAM first.
+
+The first 5-minute bar of the session to close above the 20 RMA ended at 9:35. That close was $267.64 and the RMA was $264.30.
+The entry is the 10:30 close, $266.65. The stop is the low from 9:30 through that bar, $262.44. The stop sits 1.58% under the entry, so 1R is $4.21.
+
+The stop was hit on the +1 session (2026-10-12), the 5-minute bar ending 13:15. The bar traded down to the stop (open $263.05, low $262.17) and the exit is $262.44.
+
+The close columns are the session close against the entry, with no stop. The booked columns are what the study keeps: from the stop session on, the exit.
+
+| | Date | Close | Close % | Close R | Booked % | Booked R |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| EOD | 2026-10-09 | $275.04 | +3.15% | +1.99R | +3.15% | +1.99R |
+| +1d | 2026-10-12 | $263.01 | -1.37% | -0.86R | -1.58% | -1.00R |
+| +2d | 2026-10-13 | $261.21 | -2.04% | -1.29R | -1.58% | -1.00R |
+| +3d | 2026-10-14 | $249.29 | -6.51% | -4.12R | -1.58% | -1.00R |
+| +4d | 2026-10-15 | $244.57 | -8.28% | -5.24R | -1.58% | -1.00R |
+| +5d | 2026-10-16 | $227.39 | -14.72% | -9.33R | -1.58% | -1.00R |
+
+Qualified that morning, in the existing symbol order, then the rank order. A name qualifies when a 5-minute bar has closed above the 20 RMA by 10:30 and the low from 9:30 through 10:30 is under that close.
+
+**Symbol order:** CRWD rank 7 at 09:35; DELL rank 6 at 09:35; HPE rank 4 at 09:35; MRNA rank 3 at 09:35; OKTA rank 5 at 09:35; P rank 8 at 09:35; TEAM rank 2 at 09:35; MPC rank 9 at 09:40; VLO rank 10 at 09:45.
+**Rank order:** TEAM rank 2 at 09:35; MRNA rank 3 at 09:35; HPE rank 4 at 09:35; OKTA rank 5 at 09:35; DELL rank 6 at 09:35; CRWD rank 7 at 09:35; P rank 8 at 09:35; MPC rank 9 at 09:40; VLO rank 10 at 09:45.
+
+Skipped:
+
+- **CTVA** (Corteva, Inc.), leader rank 1: no 5-minute close above the 20 RMA by 10:30.
 
 ## Strat reversal: 15-minute and 30-minute
 

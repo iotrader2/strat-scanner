@@ -626,6 +626,7 @@ button.this-week:hover { color: var(--text); border-color: var(--border-2); }
 .single-entry h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: -0.02em; }
 .single-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .single-rule { min-width: 0; padding: 0 8px 8px; }
+.single-rule.wide { grid-column: 1 / -1; }
 .single-rule .muted { margin: 0 0 4px; }
 .single-table .single-horizon th {
   padding-top: 14px; color: var(--text); font-size: 12px; letter-spacing: 0.04em;

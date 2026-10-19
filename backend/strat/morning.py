@@ -778,20 +778,201 @@ def _summarize_book(trades: Sequence[Mapping], qqq: Mapping[tuple, Mapping]) -> 
     }
 
 
-def build_single_stats(leader_rows: Sequence[Mapping], qqq_rows: Sequence[Mapping]) -> dict:
-    """Four books: 10:30 RMA and first-EMA-close, each as all names and as the first name only."""
+def _score_rank(row: Mapping, score_ranks: Optional[Mapping[str, Mapping[str, int]]]) -> int:
+    """Leader-list rank for this symbol. Missing ranks sort last."""
+    raw = None
+    if score_ranks:
+        raw = score_ranks.get(str(row.get("date")), {}).get(str(row.get("symbol")))
+    try:
+        return int(raw) if raw is not None else 10**9
+    except (TypeError, ValueError):
+        return 10**9
+
+
+def _symbol_order_key(row: Mapping) -> tuple:
+    """The stored first book: earliest cross, then symbol. ``rank`` is that order."""
+    return (int(row.get("rank") or 10**9), str(row.get("symbol") or ""))
+
+
+def _rank_order_key(row: Mapping, score_ranks: Optional[Mapping[str, Mapping[str, int]]]) -> tuple:
+    """Earliest cross, then a better leader-list rank, then the symbol.
+
+    Rows stored before the cross time existed fall back to the symbol order.
+    """
+    cross = row.get("cross_time")
+    if not cross:
+        return (int(row.get("rank") or 10**9), 0, str(row.get("symbol") or ""))
+    return (str(cross), _score_rank(row, score_ranks), str(row.get("symbol") or ""))
+
+
+def _cap_rows(rows: Sequence[Mapping], limit: int, key) -> list:
+    grouped: dict[str, list] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("date")), []).append(row)
+    chosen = []
+    for group in grouped.values():
+        chosen.extend(sorted(group, key=key)[:limit])
+    return chosen
+
+
+def _book(book_id: str, label: str, rule: str, rows: Sequence[Mapping], qqq: Mapping) -> dict:
+    body = _summarize_book(list(rows), qqq)
+    body["id"] = book_id
+    body["label"] = label
+    body["rule"] = rule
+    return body
+
+
+def build_single_stats(
+    leader_rows: Sequence[Mapping],
+    qqq_rows: Sequence[Mapping],
+    score_ranks: Optional[Mapping[str, Mapping[str, int]]] = None,
+) -> dict:
+    """10:30 RMA and first-EMA-close, plus 10:30 caps at the first two and first three names.
+
+    The stored ``rank`` of 1 is the existing first name: earliest cross, then symbol. The caps
+    use the leader-list rank before the symbol. ``rma_first_rank`` is included only when that
+    tie-break changes which name is first.
+    """
     qqq = {(str(row["date"]), str(row["entry_time"])): row for row in qqq_rows}
     books = {}
     for book_id, rule, first_only, label in SINGLE_BOOKS:
         rows = [row for row in leader_rows if row.get("rule") == rule]
         if first_only:
             rows = [row for row in rows if int(row.get("rank") or 0) == 1]
-        body = _summarize_book(rows, qqq)
-        body["id"] = book_id
-        body["label"] = label
-        body["rule"] = rule
-        books[book_id] = body
-    return {"books": books, "order": [book_id for book_id, *_rest in SINGLE_BOOKS]}
+        books[book_id] = _book(book_id, label, rule, rows, qqq)
+
+    rma_rows = [row for row in leader_rows if row.get("rule") == "rma1030"]
+    rank_key = lambda row: _rank_order_key(row, score_ranks)
+    grouped: dict[str, list] = {}
+    for row in rma_rows:
+        grouped.setdefault(str(row.get("date")), []).append(row)
+    changed = sorted(
+        day
+        for day, group in grouped.items()
+        if sorted(group, key=_symbol_order_key)[0]["symbol"] != sorted(group, key=rank_key)[0]["symbol"]
+    )
+    books["rma_two"] = _book("rma_two", "10:30 first 2", "rma1030", _cap_rows(rma_rows, 2, rank_key), qqq)
+    books["rma_three"] = _book("rma_three", "10:30 first 3", "rma1030", _cap_rows(rma_rows, 3, rank_key), qqq)
+    caps = ["rma_first"]
+    if changed:
+        books["rma_first_rank"] = _book(
+            "rma_first_rank",
+            "10:30 first, rank tie",
+            "rma1030",
+            _cap_rows(rma_rows, 1, rank_key),
+            qqq,
+        )
+        caps.append("rma_first_rank")
+    caps.extend(["rma_two", "rma_three", "rma_all"])
+    if changed:
+        note = (
+            f"First 2 and First 3 are the earliest 20 RMA crosses, then the better leader-list rank, "
+            f"then the symbol. The First column is the existing book, which breaks a tie by symbol. "
+            f"On {len(changed)} mornings the rank tie-break picks a different first name, so that book "
+            f"is shown beside it."
+        )
+    else:
+        note = (
+            "First 2 and First 3 are the earliest 20 RMA crosses, then the better leader-list rank, "
+            "then the symbol. That tie-break picks the same first name as the symbol tie-break, so "
+            "there is one First column."
+        )
+    return {
+        "books": books,
+        "order": [book_id for book_id, *_rest in SINGLE_BOOKS],
+        "caps": caps,
+        "caps_note": note,
+        "rank_tie_mornings": len(changed),
+    }
+
+
+def pick_typical_rma_first(rows: Sequence[Mapping]) -> Optional[dict]:
+    """The most recent completed 10:30 first fill whose day-3 R is a typical one.
+
+    The single best day-3 R is set aside. Typical means within 0.05R of the median of what
+    remains, which is the stopped −1R cluster rather than an older day that matches the median
+    in the fifteenth decimal. The row has to carry a day-5 close so the path can be shown through
+    the end of the hold. Returns None when no completed first-name fill exists.
+    """
+    scored = []
+    for row in rows:
+        if row.get("rule") not in (None, "rma1030"):
+            continue
+        if int(row.get("rank") or 0) != 1 or row.get("d5_pct") is None:
+            continue
+        result = realized_lod_r(row, "d3")
+        if result is None:
+            continue
+        scored.append((str(row.get("date")), float(result), row))
+    if not scored:
+        return None
+    best = max(item[1] for item in scored)
+    best_date = min(item[0] for item in scored if item[1] == best)
+    pool = [item for item in scored if item[1] < best] or scored
+    middle = float(median([item[1] for item in pool]))
+    band = [item for item in pool if abs(item[1] - middle) <= 0.05] or pool
+    band.sort(key=lambda item: (-int(item[0].replace("-", "")), abs(item[1] - middle)))
+    _date, result, row = band[0]
+    return {
+        "row": row,
+        "day3_r": result,
+        "median_r": middle,
+        "best_r": best,
+        "best_date": best_date,
+        "n": len(scored),
+        "pool_n": len(pool),
+    }
+
+
+def rma_at(bars: Optional[pd.DataFrame], end: pd.Timestamp, length: int = RMA_LENGTH) -> Optional[tuple]:
+    """First bar of the session, at or before ``end``, that closes above the RMA.
+
+    The tuple is the bar's end, its close, and the RMA at that close. None when nothing has crossed.
+    """
+    if bars is None or bars.empty:
+        return None
+    prior, today = _split_session(bars, end)
+    if today.empty:
+        return None
+    combined = pd.concat([prior, today]) if not prior.empty else today
+    values = wilder_rma([float(value) for value in combined["close"]], length)
+    offset = len(prior)
+    for i, ts in enumerate(today.index):
+        value = values[offset + i]
+        close = float(today.iloc[i].close)
+        if value == value and close > value:
+            return pd.Timestamp(ts), close, float(value)
+    return None
+
+
+def first_stop_bar(
+    bars: Optional[pd.DataFrame],
+    entry_end: pd.Timestamp,
+    stop: float,
+    forward_days: Sequence[pd.Timestamp],
+) -> Optional[dict]:
+    """First 5-minute bar after the entry that trades at or below the stop. The entry bar is skipped."""
+    if bars is None or bars.empty or stop is None or stop != stop:
+        return None
+    sessions: list[tuple[int, pd.Timestamp, Optional[pd.Timestamp]]] = [
+        (0, pd.Timestamp(entry_end).normalize(), entry_end)
+    ]
+    for offset, day in enumerate(forward_days, start=1):
+        sessions.append((offset, pd.Timestamp(day).normalize(), None))
+    for offset, day, after in sessions:
+        chunk = _bars_on(bars, day, after)
+        for ts, bar in chunk.iterrows():
+            if float(bar.low) <= float(stop):
+                opened = float(bar.open)
+                return {
+                    "day_index": offset,
+                    "ts": pd.Timestamp(ts),
+                    "open": opened,
+                    "low": float(bar.low),
+                    "gapped": opened < float(stop),
+                }
+    return None
 
 
 def single_entry_text() -> str:
@@ -802,7 +983,11 @@ def single_entry_text() -> str:
         "closes above the 20-period EMA; earlier sessions warm that average, and nothing before 9:45 "
         "is an entry. The stop is the low from 9:30 through the entry bar. One R is that distance. "
         "A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at "
-        "the open and is counted as a gap. Ties break by symbol."
+        "the open and is counted as a gap. The existing first name is the earliest cross, and a tie "
+        "breaks by symbol. The 10:30 caps take the first two and the first three names in a different "
+        "tie-break: earliest cross, then the leader-list rank, then the symbol. Rank 1 is the best "
+        "prior-close score. When that rank tie-break picks a different first name, both first books "
+        "are shown."
     )
 
 

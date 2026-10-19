@@ -18,6 +18,8 @@ from strat.morning import (
     ema,
     entry_at,
     first_close_above_ema,
+    pick_typical_rma_first,
+    rma_at,
     lod_outcome,
     outcome_for_entry,
     realized_lod_r,
@@ -659,3 +661,86 @@ def test_the_ema_entry_is_not_the_1030_close_and_the_first_name_is_the_earliest(
     assert ema_rows[0]["stop_price"] == pytest.approx(99)
     assert ema_rows[1]["entry_time"] == "10:15"
     assert {row["entry_time"] for row in qqq} >= {"10:30", "09:45", "10:15"}
+
+
+def _rma_fill(symbol, rank, cross, pct, stop_pct=1.0, stopped=0, stop_day=None, exit_pct=None):
+    return {
+        "date": "2026-10-01",
+        "rule": "rma1030",
+        "rank": rank,
+        "symbol": symbol,
+        "entry_time": "10:30",
+        "cross_time": cross,
+        "stop_pct": stop_pct,
+        "stopped": stopped,
+        "stop_day": stop_day,
+        "gapped": 0,
+        "eod_pct": pct,
+        "d3_pct": pct,
+        "d5_pct": pct,
+        "exit_pct": exit_pct,
+        "mfe_pct": 1.0,
+    }
+
+
+def test_rma_caps_use_leader_rank_and_keep_the_symbol_first_when_it_differs():
+    trades = [
+        _rma_fill("AAA", 1, "09:35", 2.0),
+        _rma_fill("BBB", 2, "09:35", -1.0, stopped=1, stop_day=0, exit_pct=-1.0),
+        _rma_fill("CCC", 3, "10:00", 3.0),
+    ]
+    stats = build_single_stats(trades, [], {"2026-10-01": {"AAA": 8, "BBB": 1, "CCC": 4}})
+    assert stats["rank_tie_mornings"] == 1
+    assert stats["caps"] == ["rma_first", "rma_first_rank", "rma_two", "rma_three", "rma_all"]
+    assert stats["books"]["rma_first"]["horizons"]["d3"]["avg_r"] == pytest.approx(2)
+    assert stats["books"]["rma_first_rank"]["horizons"]["d3"]["avg_r"] == pytest.approx(-1)
+    # Same minute: BBB (leader rank 1) then AAA (leader rank 8). CCC crossed later.
+    two = stats["books"]["rma_two"]["horizons"]["d3"]
+    assert two["n_trades"] == 2 and two["avg_r"] == pytest.approx(0.5) and two["expectancy"] == pytest.approx(0.5)
+    three = stats["books"]["rma_three"]["horizons"]["d3"]
+    assert three["n_trades"] == 3 and three["avg_r"] == pytest.approx((2 - 1 + 3) / 3)
+    assert "different first name" in stats["caps_note"]
+
+
+def test_rank_tie_is_omitted_when_the_first_name_does_not_change():
+    trades = [
+        _rma_fill("BBB", 1, "09:35", 2.0),
+        _rma_fill("AAA", 2, "09:40", 1.0),
+    ]
+    stats = build_single_stats(trades, [], {"2026-10-01": {"BBB": 5, "AAA": 1}})
+    assert stats["rank_tie_mornings"] == 0
+    assert "rma_first_rank" not in stats["books"]
+    assert stats["caps"] == ["rma_first", "rma_two", "rma_three", "rma_all"]
+    assert stats["books"]["rma_two"]["horizons"]["d3"]["n_trades"] == 2
+    assert "same first name" in stats["caps_note"]
+
+
+def test_typical_first_morning_is_recent_and_not_the_best_fill():
+    def row(day, pct):
+        return {
+            "date": day, "rule": "rma1030", "rank": 1, "symbol": "AAA", "stop_pct": 1.0,
+            "stopped": 0, "stop_day": None, "d3_pct": pct, "d5_pct": pct, "exit_pct": None,
+        }
+
+    picked = pick_typical_rma_first([
+        row("2026-07-31", 20.0),
+        row("2026-10-01", -1.0),
+        row("2026-10-02", 4.0),
+        row("2026-10-09", -1.0),
+    ])
+    assert picked["row"]["date"] == "2026-10-09"
+    assert picked["best_date"] == "2026-07-31"
+    assert picked["best_r"] == pytest.approx(20)
+    assert picked["median_r"] == pytest.approx(-1)
+
+
+def test_rma_at_reports_the_average_on_the_crossing_bar():
+    prior = _five("2026-10-15 09:30", [10.0] * 3)
+    today = _five("2026-10-16 09:30", [13.0, 13.0])
+    found = rma_at(pd.concat([prior, today]), pd.Timestamp("2026-10-16 10:30"), length=3)
+    assert found is not None
+    ts, close, value = found
+    assert ts == pd.Timestamp("2026-10-16 09:35")
+    assert close == pytest.approx(13)
+    # The seed is the SMA of the three prior closes. This bar updates it before the comparison.
+    assert value == pytest.approx((13 + 20) / 3)

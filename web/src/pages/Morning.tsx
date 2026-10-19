@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import {
   CHECK_INS,
+  RMA_CAP_LABEL,
   SINGLE_HORIZONS,
   SINGLE_METRICS,
   SINGLE_RULES,
@@ -133,15 +134,21 @@ function formatSingle(
 
 function SingleEntryTable({ stats }: { stats: MorningWeek["stats"]["single_entry"] }) {
   if (!stats?.order?.length) return null;
+  const rmaBooks = (stats.caps?.length ? stats.caps : ["rma_all", "rma_first"]).filter((id) => stats.books[id]);
+  const rules = [
+    { title: "10:30 close, above the 20 RMA", books: rmaBooks, wide: rmaBooks.length > 2, caps: true },
+    { title: SINGLE_RULES[1].title, books: [...SINGLE_RULES[1].books], wide: false, caps: false },
+  ];
   return (
     <section className="card single-entry" aria-label="Single entry study">
       <div className="compare-head">
         <h2>Single entry, low of day</h2>
         <p className="muted small">{stats.definition}</p>
+        {stats.caps_note && <p className="muted small">{stats.caps_note}</p>}
       </div>
       <div className="single-grid">
-        {SINGLE_RULES.map((rule) => (
-          <div className="single-rule" key={rule.title}>
+        {rules.map((rule) => (
+          <div className={rule.wide ? "single-rule wide" : "single-rule"} key={rule.title}>
             <h3>{rule.title}</h3>
             {rule.books.map((id) => (
               <p className="muted small" key={id}>{entryNote(stats.books[id])}</p>
@@ -152,7 +159,7 @@ function SingleEntryTable({ stats }: { stats: MorningWeek["stats"]["single_entry
                   <tr>
                     <th> </th>
                     {rule.books.map((id) => (
-                      <th className="num" key={id}>{stats.books[id]?.label ?? id}</th>
+                      <th className="num" key={id}>{rule.caps ? (RMA_CAP_LABEL[id] ?? stats.books[id]?.label ?? id) : (stats.books[id]?.label ?? id)}</th>
                     ))}
                   </tr>
                 </thead>

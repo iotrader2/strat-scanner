@@ -17,6 +17,7 @@ from .morning_store import (
     cross_triggers_between,
     ema_reclaim_tape_days,
     ema_reclaims_between,
+    all_leaders,
     earliest_leader_date,
     latest_leader_date,
     leaders_between,
@@ -59,9 +60,13 @@ def cached_stats(force: bool = False) -> dict:
         ranks_between("0000-01-01", "9999-12-31"),
     )
     single_rows = single_entries_between("0000-01-01", "9999-12-31")
+    score_ranks: dict[str, dict[str, int]] = {}
+    for leader in all_leaders():
+        score_ranks.setdefault(leader["date"], {})[leader["symbol"]] = int(leader["rank"])
     single = build_single_stats(
         [row for row in single_rows if row["rule"] != "qqq"],
         [row for row in single_rows if row["rule"] == "qqq"],
+        score_ranks,
     )
     single["definition"] = single_entry_text()
     reversal_rows = strat_reversals_between("0000-01-01", "9999-12-31")

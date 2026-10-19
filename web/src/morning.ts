@@ -129,8 +129,19 @@ export interface SingleBook {
 export interface SingleEntryStats {
   books: Record<string, SingleBook>;
   order: string[];
+  caps?: string[];
+  caps_note?: string;
   definition: string;
 }
+
+/** Column titles for the 10:30 cap table. The panel title already says 10:30. */
+export const RMA_CAP_LABEL: Record<string, string> = {
+  rma_first: "First",
+  rma_first_rank: "First, rank tie",
+  rma_two: "First 2",
+  rma_three: "First 3",
+  rma_all: "All",
+};
 
 export interface MorningWeek {
   week_of: string;
