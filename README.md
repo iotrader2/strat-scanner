@@ -582,7 +582,12 @@ builds `web/` (`heroku-postbuild`), the Python buildpack installs `backend/requi
 uvicorn serves the API, the `/ws` WebSocket and the built UI from `web/dist` on `$PORT`, with the
 background fetcher in the same process.
 
-- Basic auth guards everything when `STAGE_USER` and `STAGE_PASS` are set; local dev never sets them.
+- Access is by secret link when `STAGE_TOKEN` is set: open `/k/<token>` (or `/?k=<token>`) once and
+  the server sets a 400-day HttpOnly, Secure, SameSite=Lax cookie (an HMAC of the token) and redirects
+  to `/`. Without that cookie every request, including the API and `/ws`, gets a plain 404. Rotate the
+  token (`heroku config:set STAGE_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')`)
+  to revoke every browser. Without `STAGE_TOKEN`, `STAGE_USER`/`STAGE_PASS` turn on basic auth instead.
+  Local dev sets none of these.
 - `STRAT_LOG_LEVEL=info` prints fetcher progress to `heroku logs`.
 - `STRAT_FETCH_SUBPROCESS=1` runs each Yahoo refresh in a short-lived child process and
   `MALLOC_ARENA_MAX=2` trims glibc fragmentation, so the 512 MB Basic dyno stays around 330 MB

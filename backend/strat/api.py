@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from . import config, data, earnings, fetch_worker
 from .hub import hub
-from .stage import BasicAuthMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
+from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .scheduler import decide, fetch_period, now_et
 from .breadth import fetch_breadth
 from .trend import index_trend
@@ -29,8 +29,8 @@ from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
 configure_logging()
 log = logging.getLogger(__name__)
 app = FastAPI(title="TiltKiller (local)")
-# No-op unless STAGE_USER and STAGE_PASS are set (Heroku staging).
-app.add_middleware(BasicAuthMiddleware)
+# No-op unless STAGE_TOKEN (secret link) or STAGE_USER/STAGE_PASS are set (Heroku staging).
+app.add_middleware(StageGateMiddleware)
 
 CHART_LIMITS = {"M": 60, "W": 156, "D": 260}
 
