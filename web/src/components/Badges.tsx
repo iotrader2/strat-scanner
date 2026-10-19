@@ -20,7 +20,7 @@ export function TfBadge({ tf, state }: { tf: Tf | HigherTf; state: TfState | nul
 
 export function TfBadges({
   tf,
-  frames = ["M", "W", "D"],
+  frames = ["D", "W", "M"],
 }: {
   tf: Partial<Record<Tf | HigherTf, TfState | null>>;
   frames?: readonly (Tf | HigherTf)[];

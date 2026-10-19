@@ -7,12 +7,20 @@ type ScoreFields = Pick<ScanRow, "score" | "score_raw" | "score_max_raw" | "scor
 
 const fmt = (v: number) => (Math.abs(v) < 0.05 ? "0" : v.toFixed(1).replace(/\.0$/, ""));
 
+/** Green once a line earns half of what it is worth; a penalty or a weak share is red. */
+function scoreTone(points: number, max: number): "good" | "bad" {
+  if (max > 0) return points / max >= 0.5 ? "good" : "bad";
+  return points < 0 ? "bad" : "good";
+}
+
 export function BreakdownTable({ row, showDetail = false }: { row: ScoreFields; showDetail?: boolean }) {
+  const parts = [...row.score_breakdown].sort((a, b) => b.weight_pct - a.weight_pct);
+  const totalTone = scoreTone(row.score_raw, row.score_max_raw);
   return (
     <table className="breakdown">
       <tbody>
-        {row.score_breakdown.map((c) => (
-          <tr key={c.key} className={c.points < 0 ? "neg" : c.points === 0 ? "zero" : ""}>
+        {parts.map((c) => (
+          <tr key={c.key} className={scoreTone(c.points, c.max_points)}>
             <td>
               <div className="bd-label">
                 {c.label}
@@ -28,14 +36,14 @@ export function BreakdownTable({ row, showDetail = false }: { row: ScoreFields; 
             </td>
           </tr>
         ))}
-        <tr className="bd-total">
+        <tr className={`bd-total ${totalTone}`}>
           <td>Raw total</td>
           <td className="num">
             {fmt(row.score_raw)}
             <span className="bd-max"> / {row.score_max_raw}</span>
           </td>
         </tr>
-        <tr className="bd-score">
+        <tr className={`bd-score ${totalTone}`}>
           <td>
             Score <span className="bd-max">= raw × 100 / {row.score_max_raw}</span>
           </td>

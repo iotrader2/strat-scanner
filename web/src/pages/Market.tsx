@@ -9,7 +9,7 @@ import { marketRead } from "../market";
 import { SkeletonCards } from "../components/Loading";
 
 type IndexTf = Tf | HigherTf;
-const INDEX_CHARTS: readonly IndexTf[] = ["M", "W", "D", "3M", "6M"];
+const INDEX_CHARTS: readonly IndexTf[] = ["D", "W", "M", "3M", "6M"];
 
 function isIndexTf(v: unknown): v is IndexTf {
   return v === "3M" || v === "6M" || isTimeframe(v);
