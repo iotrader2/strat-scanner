@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -89,6 +90,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
 
 _write_lock = threading.Lock()
+WAL = os.environ.get("STRAT_SQLITE_WAL", "").strip().lower() in ("1", "true", "yes")
 
 
 @contextmanager
@@ -96,6 +98,9 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     path = Path(db_path or config.CACHE_DB)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30)
+    if WAL:
+        # Readers (the API) and the writer (the fetcher, possibly a child process) stop blocking each other.
+        conn.execute("PRAGMA journal_mode=WAL")
     try:
         conn.executescript(SCHEMA)
         _migrate(conn)

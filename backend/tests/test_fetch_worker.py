@@ -1,5 +1,7 @@
 """STRAT_FETCH_SUBPROCESS routes the refresh through the child-process fetcher."""
 
+import threading
+
 from strat import api, data, fetch_worker
 
 
@@ -32,3 +34,38 @@ def test_child_error_surfaces_in_state(monkeypatch):
     api._run_refresh(full=True)
     assert "exited" in api.State.error
     api.State.error = None
+
+
+def test_requests_do_not_scan_while_fetching(monkeypatch):
+    called = []
+    monkeypatch.setattr(api, "_compute_scan", lambda key: called.append(key) or [])
+    monkeypatch.setattr(api.State, "scan", [{"symbol": "OLD"}])
+    monkeypatch.setattr(api.State, "scan_key", "old")
+    monkeypatch.setattr(api.State, "refreshing", True)
+    assert api._ensure_scan(force=True) == [{"symbol": "OLD"}]
+    assert called == []
+
+
+def test_requests_do_not_wait_for_another_scan(monkeypatch):
+    called = []
+    monkeypatch.setattr(api, "_compute_scan", lambda key: called.append(key) or [])
+    monkeypatch.setattr(api.State, "scan", [])
+    monkeypatch.setattr(api.State, "refreshing", False)
+    held, release = threading.Event(), threading.Event()
+
+    def other_scan():
+        with api._scan_lock:
+            held.set()
+            release.wait(5)
+
+    t = threading.Thread(target=other_scan)
+    t.start()
+    held.wait(5)
+    try:
+        assert api._ensure_scan(force=True) == []
+    finally:
+        release.set()
+        t.join()
+    assert called == []
+    api._ensure_scan(force=True)
+    assert len(called) == 1

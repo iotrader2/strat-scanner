@@ -33,9 +33,10 @@ def fetch(full: bool, period: Optional[str], with_earnings: bool, progress: Prog
 
 
 def _child(full: bool, period: Optional[str], with_earnings: bool, queue) -> None:
-    from .stage import configure_logging
+    from .stage import configure_logging, use_private_yfinance_cache
 
     configure_logging()
+    use_private_yfinance_cache()
     try:
         fetch(full, period, with_earnings, lambda d, t, m: queue.put(("progress", d, t, m)))
         queue.put(("done",))

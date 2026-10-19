@@ -97,3 +97,19 @@ def configure_logging() -> None:
     level = os.environ.get("STRAT_LOG_LEVEL")
     if level:
         logging.basicConfig(level=level.upper(), format="%(levelname)s %(name)s: %(message)s")
+
+
+def use_private_yfinance_cache() -> None:
+    """Give this process its own writable yfinance tz/cookie cache when STRAT_YF_CACHE_DIR is set.
+
+    yfinance keeps a small SQLite cache in ~/.cache/py-yfinance; the API process and a fetch child
+    sharing it is what logged "database is locked" on Heroku.
+    """
+    base = os.environ.get("STRAT_YF_CACHE_DIR")
+    if not base:
+        return
+    path = Path(base) / f"pid-{os.getpid()}"
+    path.mkdir(parents=True, exist_ok=True)
+    import yfinance as yf
+
+    yf.set_tz_cache_location(str(path))
