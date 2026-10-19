@@ -164,24 +164,24 @@ Its M/W/D Strat badges, weekly setups, continuity and H/I markers are computed o
 ## How scoring works
 
 **The highest scores go to the stocks that go up the most; the Strat setup is a small timing bonus.** The score is 0–100.
-Of the 100 points, 90 describe leadership and price behaviour and 10 are Strat timing. The weights were chosen with the
-[rank-quality backtest](#backtest) (not by taste): the size of a stock's outperformance over QQQ ranks the big multi-month
-winners much better than a percentile does, because a percentile saturates at P99.
+Of the 100 points, 90 describe leadership and price behaviour and 10 are Strat timing. Vs QQQ is still the largest single
+factor (30): the size of a stock's outperformance over QQQ ranks big multi-month winners better than a percentile, which
+saturates at P99. Theme strength is 25, so a name in the top theme is not held down by a middling QQQ comparison.
 
 ```
 score = raw × breakdown factor × (1 − kill-candle penalty) × 100 / max        (0–100, rounded to 0.1)
-max: 100 for stocks · 90 for ETFs (no Theme strength) · 85 for themes (no Theme strength, no Liquidity)
+max: 100 for stocks · 75 for ETFs (no Theme strength) · 70 for themes (no Theme strength, no Liquidity)
 ```
 
 **Weights.** A line's *weight* is its share of the 100-point stock score (max points ÷ 100 for stocks; for ETFs and themes the
-same points are rescaled by their smaller max of 90 / 85, e.g. relative strength is 15/90 ≈ 16.7% of an ETF's score). The tooltip
-shows the weight next to each label (`Vs QQQ (45%)  +35.6 / 45`) and the sub-weights under it.
+same points are rescaled by their smaller max of 75 / 70, e.g. relative strength is 15/75 = 20% of an ETF's score). The tooltip
+shows the weight next to each label (`Vs QQQ (30%)  +23.8 / 30`) and the sub-weights under it.
 
 | Component | Max points | Weight (stock) | Sub-weights | How it is computed |
 | --- | ---: | ---: | --- | --- |
 | **Relative strength** | 15 | 15% | 1M 20% · 3M 40% · 6M 40% | `15 × blended percentile` of the 1M / 3M / 6M price returns within the peer group (stocks vs stocks, ETFs vs ETFs, themes vs themes). |
-| **Vs QQQ** | 45 | 45% | 1M 20% · 3M 40% · 6M 40%; full credit at +45 / +120 / +210 pts | Return minus **QQQ's return** (QQQ only, not SPY) over the same period, credited linearly up to **+45 / +120 / +210 points** (1M / 3M / 6M) and weighted 20/40/40. A name that only keeps up with QQQ earns nothing. This is the magnitude that percentiles hide, and the biggest lever for ranking the biggest winners first. |
-| **Theme strength** | 10 | 10% | none | Stocks only. `10 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 10). Themes are ranked by their own leadership score. 0 for a stock in no theme. |
+| **Vs QQQ** | 30 | 30% | 1M 20% · 3M 40% · 6M 40%; full credit at +45 / +120 / +210 pts | Return minus **QQQ's return** (QQQ only, not SPY) over the same period, credited linearly up to **+45 / +120 / +210 points** (1M / 3M / 6M) and weighted 20/40/40. A name that only keeps up with QQQ earns nothing. This is the magnitude that percentiles hide. It is still the largest single factor, and it used to be 45. |
+| **Theme strength** | 25 | 25% | none | Stocks only. `25 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 25). Themes are ranked by their own leadership score. 0 for a stock in no theme. Raised from 10 so a #1-theme name can reach the top of the list. |
 | **Trend** | 10 | 10% | 10-day 5 pts · 20-day 5 pts; each = price above the average 3 + average rising 2 | Only the **10-day and 20-day** averages score. For each: +3 when the close is above it and +2 when it is rising (above its value 5 bars ago), so a name above a rising 10-day and a rising 20-day gets all 10. The 50-day average and the distance from the highs do not score; they only feed the breakdown rules below. |
 | **Range tightness** | 5 | 5% | last-10 vs 50-day range 60% · last-5 vs 20-day contraction 40% | Calm, contracting daily ranges score high and loose, expanding ones low. See below. |
 | **Strat timing · weekly setup** | 4 | 4% | none | `4 × setup points / 25`: the strongest weekly setup plus 25% of the others, capped at 25 setup points (2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8). 0 with no setup. |
@@ -190,15 +190,19 @@ shows the weight next to each label (`Vs QQQ (45%)  +35.6 / 45`) and the sub-wei
 | **Strat timing · Monthly 2U** | 1.5 | 1.5% | none | +1.5 when the current monthly candle is a 2U. |
 | **Liquidity** | 5 | 5% | none | `5 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 5 at $5B or more. Not used for themes. |
 | **Kill candle** | penalty | 0 (multiplier) | up to −25%, fading to 0 over 10 sessions | A multiplier on the whole score, shown in the tooltip as `Kill candle (2026-10-05)` with the points removed. See below. |
-| **Total** | **100** | **100%** | | Leadership 80% (RS 15 + Vs QQQ 45 + Theme 10 + Trend 10), range tightness 5%, liquidity 5% and the Strat overlay 10% (4 + 2.5 + 2 + 1.5). |
+| **Total** | **100** | **100%** | | Leadership 80% (RS 15 + Vs QQQ 30 + Theme 25 + Trend 10), range tightness 5%, liquidity 5% and the Strat overlay 10% (4 + 2.5 + 2 + 1.5). |
 
 The Strat overlay is **at most 10 points** (4 + 2.5 + 2 + 1.5), so a perfect setup cannot lift a non-leader, and the same
 leader scores at most 10 points higher with the best setup than with none.
 
 **What changed from the first version, and why (evidence in the [backtest](#backtest)).** The requested weights were
 RS 32 / Vs QQQ 15 / Theme 20 / Trend 13 / Strat 15 / Liquidity 5. The scanner at those weights (without the tightness and kill-candle rules) ranked the biggest winners worse than
-the final one on both the train and the test dates, so the defaults were moved to the table above, and the requested variant
-is reported next to them in the pull request. That comparison changes several things at once, so it does not isolate Theme and Trend. To go back, edit the constants at the top of `backend/strat/scoring.py`
+RS 15 / Vs QQQ 45 / Theme 10 / Trend 10 / Strat 10 / Liquidity 5 on both the train and the test dates, so that second set became the default (range tightness 5 was added in the same family of changes), and the requested variant
+is reported next to them in the pull request. That comparison changes several things at once, so it does not isolate Theme and Trend.
+
+Theme was later raised from 10 to 25 and Vs QQQ cut from 45 to 30 (the table above). A stock that is #1 in its theme was earning only 10 points there, while a middling Vs QQQ score, worth up to 45, kept it off the top of the list. Vs QQQ stays the largest single factor. The other weights are unchanged: RS 15, Trend 10, range tightness 5, Strat overlay 10 (4 + 2.5 + 2 + 1.5) and Liquidity 5.
+
+To change them, edit the constants at the top of `backend/strat/scoring.py`
 (`RS_POINTS`, `QQQ_POINTS`, `THEME_POINTS`, `TREND_ABOVE_POINTS` / `TREND_RISING_POINTS`, the Strat overlay points) and
 `FULL_EXCESS_PCT` in `backend/strat/leadership.py`; the maximum points and weights in the tooltip follow from them.
 
@@ -335,13 +339,13 @@ and closeness, with a small preference for setups that have not triggered yet.
 | Component | Points | Why |
 | --- | ---: | --- |
 | Relative strength | 14.54 / 15 | 1M +15.8% (P86), 3M +102.8% (P100), 6M +320.9% (P100) among 618 stocks: `0.20×0.86 + 0.40×1.00 + 0.40×1.00 = 0.97` |
-| Vs QQQ | 35.64 / 45 | +12.9 / +100.3 / +299.3 points over QQQ (full credit at +45 / +120 / +210): `0.2×0.29 + 0.4×0.84 + 0.4×1.00 = 0.79` |
-| Theme strength | 9.88 / 10 | AI hardware & servers, #2 of 82 themes |
+| Vs QQQ | 23.76 / 30 | +12.9 / +100.3 / +299.3 points over QQQ (full credit at +45 / +120 / +210): `0.2×0.29 + 0.4×0.84 + 0.4×1.00 = 0.79`, then × 30 |
+| Theme strength | 24.70 / 25 | AI hardware & servers, #2 of 82 themes (`25 × 81 / 82`) |
 | Trend | 10 / 10 | above a rising 10-day (5) and a rising 20-day (5) average |
 | Range tightness | 3.80 / 5 | 10-day range 7.7% of price vs 7.9% over 50 days (0.97×); last 5 days 7.0% vs 8.2% (0.85×) |
 | Strat timing | 3 / 10 | no weekly setup (0), Monthly and Weekly green (1.5), Monthly 2U (1.5) |
 | Liquidity | 4.29 / 5 | $2.6B/day |
-| **Raw total** | **81.15 / 100** | score 81.2; nearest trigger 514.00 (+3.9%, this week's high) |
+| **Raw total** | **84.09 / 100** | score 84.1; nearest trigger 514.00 (+3.9%, this week's high) |
 
 **The same family after a breakdown (HPE, Oct 16 2026):** RS fell to P83 (1M -2.7%), the close is below the 50-day average
 and 25% under the 6-month high, so the raw 37.0 is multiplied by 0.5 (a −18.5 *Breakdown penalty*) for a score of 18.5, and
