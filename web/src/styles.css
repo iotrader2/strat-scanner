@@ -532,3 +532,118 @@ th.num { text-align: right; }
 
 /* The Score column stays in view when the table is wider than its card (narrow windows or long setup names). */
 .scan-table th.score-col, .scan-table td.score-col { position: sticky; right: 0; background: var(--card); padding-right: 12px; box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.5); }
+
+.morning-page .hero { margin-bottom: 14px; }
+.morning-page .hero p { max-width: 560px; }
+.best-panel { padding: 18px 22px 16px; margin-bottom: 16px; }
+.best-kicker { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.best-time { font-size: 40px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; margin: 4px 0 8px; }
+.best-panel p { margin: 0 0 6px; max-width: 760px; line-height: 1.45; }
+
+.interval-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
+.interval-tabs button {
+  background: transparent; color: var(--muted); border: 1px solid transparent;
+  border-radius: 999px; padding: 6px 12px; cursor: pointer; font-weight: 600;
+}
+.interval-tabs button:hover { color: var(--text); }
+.interval-tabs button.active { color: var(--text); background: var(--card-2); border-color: var(--border-2); }
+.interval-note { margin: 0 0 12px; }
+
+.week-card { padding: 16px 8px 8px; margin-bottom: 18px; }
+.week-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px 12px; }
+.week-title-row { display: flex; align-items: center; gap: 8px; }
+.week-head h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.week-arrow {
+  width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border);
+  background: transparent; color: var(--text); cursor: pointer; font-size: 18px; line-height: 1;
+}
+.week-arrow:disabled { opacity: 0.3; cursor: default; }
+.this-week {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px;
+}
+button.this-week { background: transparent; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
+button.this-week:hover { color: var(--text); border-color: var(--border-2); }
+
+.week-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.week-col { min-width: 0; border-left: 1px solid var(--border); }
+.week-col:first-child { border-left: none; }
+.week-col-head {
+  padding: 8px 12px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.week-closed { padding: 18px 12px; color: var(--muted); font-size: 12px; }
+.week-row {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-top: 1px solid var(--border); min-height: 38px;
+}
+.week-rank { width: 14px; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; flex: none; }
+.ticker-logo { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; background: #1c2430; }
+.ticker-logo.fallback {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--text); border: 1px solid var(--border-2);
+}
+.week-sym { font-weight: 700; font-size: 13px; letter-spacing: 0.01em; min-width: 0; }
+.week-ret { margin-left: auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.week-ret.up { color: var(--green); }
+.week-ret.down { color: var(--red); }
+.week-ret.flat { color: var(--muted); }
+.score-pill {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 8px;
+  background: rgba(34, 197, 94, 0.16); color: #4ade80; border-radius: 999px;
+  padding: 2px 8px 2px 6px; font-weight: 700; font-size: 12px; font-variant-numeric: tabular-nums; flex: none;
+}
+.week-row .week-ret + .score-pill { margin-left: 0; }
+.week-row .score-pill { margin-left: auto; }
+.week-row .week-ret { margin-left: auto; }
+.week-row .week-ret + .score-pill { margin-left: 8px; }
+.week-cross, .week-skip {
+  margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; flex: none;
+}
+.week-row .week-cross + .week-ret,
+.week-row .week-cross + .week-skip { margin-left: 8px; }
+.week-row.is-skipped { opacity: 0.55; }
+.pill-shield { width: 11px; height: 11px; }
+.week-tip {
+  display: none; position: absolute; left: 8px; right: 8px; top: calc(100% - 4px); z-index: 5;
+  background: #0c121a; border: 1px solid var(--border-2); border-radius: 8px;
+  padding: 6px 8px; font-size: 11px; line-height: 1.35; color: var(--text); white-space: normal;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.week-row:hover .week-tip { display: block; }
+
+.morning-compare { padding: 16px 8px 8px; }
+.compare-head { padding: 0 12px 10px; }
+.compare-head h2 { margin: 0 0 4px; font-size: 16px; }
+.compare-head p { margin: 0; }
+.morning-table th, .morning-table td { font-variant-numeric: tabular-nums; }
+.morning-table tbody th { text-align: left; font-weight: 700; color: var(--text); }
+.morning-table tr.is-best { background: rgba(34, 197, 94, 0.08); }
+.morning-table .up { color: var(--green); }
+.morning-table .down { color: var(--red); }
+.morning-table .flat { color: var(--muted); }
+.single-entry { margin-top: 18px; padding: 16px 8px 8px; }
+.single-entry h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: -0.02em; }
+.single-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.single-rule { min-width: 0; padding: 0 8px 8px; }
+.single-rule.wide { grid-column: 1 / -1; }
+.single-rule .muted { margin: 0 0 4px; }
+.single-table .single-horizon th {
+  padding-top: 14px; color: var(--text); font-size: 12px; letter-spacing: 0.04em;
+}
+.strat-entry .strat-best, .cross-entry .strat-best, .reclaim-entry .strat-best, .pullback-entry .strat-best { margin: 8px 0 0; font-size: 14px; }
+.reclaim-grid, .pullback-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.pullback-entry .table-card, .sweep-entry .table-card { overflow-x: auto; }
+.morning-table tr.is-tight { background: rgba(56, 189, 248, 0.1); }
+.sweep-entry caption { caption-side: top; text-align: left; padding: 10px 8px 4px; }
+.cross-entry .single-rule { padding-bottom: 12px; }
+.strat-table th, .strat-table td { padding: 6px 4px; font-size: 12px; }
+.strat-table thead th { font-size: 10px; }
+@media (max-width: 1100px) {
+  .single-grid, .reclaim-grid, .pullback-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 1100px) {
+  .week-grid { grid-template-columns: repeat(5, minmax(168px, 1fr)); }
+  .week-card { overflow-x: auto; }
+}

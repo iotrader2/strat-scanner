@@ -79,6 +79,233 @@ CREATE TABLE IF NOT EXISTS scan_snapshot (
     computed_at TEXT NOT NULL,
     payload     TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS leader_snapshots (
+    date   TEXT NOT NULL,
+    rank   INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    score  REAL NOT NULL,
+    rs     REAL,
+    name   TEXT NOT NULL DEFAULT '',
+    as_of  TEXT NOT NULL,
+    PRIMARY KEY (date, rank)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_leader_snapshots_symbol ON leader_snapshots(date, symbol);
+CREATE TABLE IF NOT EXISTS intraday_bars (
+    symbol   TEXT NOT NULL,
+    ts       TEXT NOT NULL,
+    interval TEXT NOT NULL,
+    open     REAL NOT NULL,
+    high     REAL NOT NULL,
+    low      REAL NOT NULL,
+    close    REAL NOT NULL,
+    volume   REAL NOT NULL,
+    source   TEXT NOT NULL,
+    PRIMARY KEY (symbol, ts, interval)
+);
+CREATE INDEX IF NOT EXISTS idx_intraday_symbol_ts ON intraday_bars(symbol, ts);
+CREATE TABLE IF NOT EXISTS intraday_gaps (
+    symbol     TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    interval   TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (symbol, date, interval)
+);
+CREATE TABLE IF NOT EXISTS interval_ranks (
+    date        TEXT NOT NULL,
+    window      TEXT NOT NULL,
+    rank        INTEGER NOT NULL,
+    symbol      TEXT NOT NULL,
+    score       REAL NOT NULL,
+    day_move    REAL,
+    vs_qqq      REAL,
+    or_position REAL,
+    qualified   INTEGER NOT NULL DEFAULT 1,
+    cross_time  TEXT,
+    PRIMARY KEY (date, window, rank)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_interval_ranks_symbol ON interval_ranks(date, window, symbol);
+CREATE TABLE IF NOT EXISTS entry_results (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    window      TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    candle_low  REAL,
+    eod_ret     REAL,
+    d1_ret      REAL,
+    d2_ret      REAL,
+    d3_ret      REAL,
+    d4_ret      REAL,
+    d5_ret      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    stop_ret    REAL,
+    mfe         REAL,
+    mae         REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    role        TEXT NOT NULL DEFAULT 'leader',
+    PRIMARY KEY (date, symbol, window)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_results_window ON entry_results(window, date);
+CREATE TABLE IF NOT EXISTS single_entry (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    rule        TEXT NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    rank        INTEGER,
+    cross_time  TEXT,
+    PRIMARY KEY (date, symbol, rule, entry_time)
+);
+CREATE TABLE IF NOT EXISTS single_entry_day (
+    date TEXT PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS strat_reversal (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    timeframe   INTEGER NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    pattern     TEXT,
+    qualified   INTEGER NOT NULL DEFAULT 0,
+    finished_2u INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, symbol, timeframe, entry_time)
+);
+CREATE TABLE IF NOT EXISTS strat_reversal_day (
+    date TEXT PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS cross_trigger (
+    date         TEXT NOT NULL,
+    symbol       TEXT NOT NULL,
+    rule         TEXT NOT NULL,
+    entry_time   TEXT NOT NULL,
+    entry_price  REAL NOT NULL,
+    stop_price   REAL,
+    stop_pct     REAL,
+    eod_pct      REAL,
+    d1_pct       REAL,
+    d2_pct       REAL,
+    d3_pct       REAL,
+    d4_pct       REAL,
+    d5_pct       REAL,
+    stopped      INTEGER NOT NULL DEFAULT 0,
+    stop_day     INTEGER,
+    exit_pct     REAL,
+    gapped       INTEGER NOT NULL DEFAULT 0,
+    mfe_pct      REAL,
+    opened_above INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, symbol, rule, entry_time)
+);
+CREATE TABLE IF NOT EXISTS cross_trigger_day (
+    date     TEXT PRIMARY KEY,
+    had_tape INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS ema_reclaim (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    rule        TEXT NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    rank        INTEGER,
+    PRIMARY KEY (date, symbol, rule, entry_time)
+);
+CREATE TABLE IF NOT EXISTS ema_reclaim_day (
+    date     TEXT PRIMARY KEY,
+    had_tape INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS strat_pullback (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    cutoff      TEXT NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    rank        INTEGER,
+    pattern     TEXT,
+    PRIMARY KEY (date, symbol, cutoff, entry_time)
+);
+CREATE TABLE IF NOT EXISTS strat_pullback_day (
+    date     TEXT PRIMARY KEY,
+    had_tape INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS stop_sweep (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    stop_id     TEXT NOT NULL,
+    slot        INTEGER NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    fast_stop   INTEGER NOT NULL DEFAULT 0,
+    skipped     INTEGER NOT NULL DEFAULT 0,
+    cross_time  TEXT,
+    PRIMARY KEY (date, symbol, stop_id)
+);
+CREATE TABLE IF NOT EXISTS stop_sweep_day (
+    date TEXT PRIMARY KEY
+);
 """
 
 
@@ -87,6 +314,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(extra_symbols)")}
     if "industry" not in cols:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
+    rank_cols = {r[1] for r in conn.execute("PRAGMA table_info(interval_ranks)")}
+    if rank_cols and "qualified" not in rank_cols:
+        conn.execute("ALTER TABLE interval_ranks ADD COLUMN qualified INTEGER NOT NULL DEFAULT 1")
+    if rank_cols and "cross_time" not in rank_cols:
+        conn.execute("ALTER TABLE interval_ranks ADD COLUMN cross_time TEXT")
+    result_cols = {r[1] for r in conn.execute("PRAGMA table_info(entry_results)")}
+    if result_cols and "gapped" not in result_cols:
+        conn.execute("ALTER TABLE entry_results ADD COLUMN gapped INTEGER NOT NULL DEFAULT 0")
+    reclaim_cols = {r[1] for r in conn.execute("PRAGMA table_info(ema_reclaim)")}
+    if reclaim_cols and "rank" not in reclaim_cols:
+        conn.execute("ALTER TABLE ema_reclaim ADD COLUMN rank INTEGER")
 
 _write_lock = threading.Lock()
 

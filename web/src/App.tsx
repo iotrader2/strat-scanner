@@ -8,6 +8,7 @@ import Themes from "./pages/Themes";
 import Market from "./pages/Market";
 import Watchlist from "./pages/Watchlist";
 import Positions from "./pages/Positions";
+import Morning from "./pages/Morning";
 import { WatchlistProvider, useWatchlist } from "./components/Watch";
 import { PositionsProvider, usePositions } from "./components/Positions";
 import { liveStatus, type SocketPhase } from "./live";
@@ -139,6 +140,7 @@ export default function App() {
                 <NavLink to="/" end>
                   Stock Scanner
                 </NavLink>
+                <NavLink to="/morning">Morning Leaders</NavLink>
                 <WatchlistTab />
                 <PositionsTab />
               </nav>
@@ -158,6 +160,7 @@ export default function App() {
               <Route path="/sectors" element={<Navigate to="/themes" replace />} />
               <Route path="/watchlist" element={<Watchlist />} />
               <Route path="/positions" element={<Positions />} />
+              <Route path="/morning" element={<Morning />} />
             </Routes>
           </main>
           <footer className="footer">

@@ -1,0 +1,675 @@
+/** Morning Leaders view helpers. The numbers come from the API; this only formats and orders them. */
+
+export const CHECK_INS = ["09:45", "10:00", "10:15", "10:30", "10:45"] as const;
+export type CheckIn = (typeof CHECK_INS)[number];
+export type MorningMode = "leaders" | CheckIn;
+
+export interface WindowOutcome {
+  rank?: number | null;
+  qualified?: number | null;
+  cross_time?: string | null;
+  score?: number;
+  day_move?: number | null;
+  vs_qqq?: number | null;
+  or_position?: number | null;
+  eod_ret?: number | null;
+  d1_ret?: number | null;
+  d2_ret?: number | null;
+  d3_ret?: number | null;
+  d4_ret?: number | null;
+  d5_ret?: number | null;
+  stopped?: number | null;
+  stop_day?: number | null;
+  stop_ret?: number | null;
+  gapped?: number | null;
+  mfe?: number | null;
+  mae?: number | null;
+}
+
+export interface MorningRow {
+  rank: number;
+  symbol: string;
+  name: string;
+  score: number;
+  rs: number | null;
+  as_of: string;
+  windows: Record<string, WindowOutcome>;
+}
+
+export interface MorningDay {
+  date: string;
+  weekday: string;
+  month_day: string;
+  closed: boolean;
+  rows: MorningRow[];
+}
+
+export interface HorizonStat {
+  n_days: number;
+  n_trades: number;
+  avg: number | null;
+  median: number | null;
+  win_rate: number | null;
+  expectancy: number | null;
+  stop_hit_rate: number | null;
+  total_r?: number | null;
+  gap_count?: number | null;
+  avg_mfe?: number | null;
+}
+
+export interface WindowStat {
+  n_days: number;
+  n_trades: number;
+  horizons: Record<string, HorizonStat>;
+  vs_qqq: Record<string, number | null>;
+  avg_qualified?: number | null;
+  qualified_days?: number;
+}
+
+export interface BestWindow {
+  window: string;
+  horizon: string;
+  expectancy: number;
+  win_rate: number | null;
+  avg: number | null;
+  median: number | null;
+  stop_hit_rate: number | null;
+  n_days: number;
+  n_trades: number;
+  total_r?: number | null;
+  avg_mfe?: number | null;
+  gap_count?: number | null;
+  vs_qqq: number | null;
+  avg_qualified?: number | null;
+}
+
+export interface MorningStats {
+  windows: Record<string, WindowStat>;
+  qqq: Record<string, { n_days: number; n_trades: number; horizons: Record<string, HorizonStat> }>;
+  best: BestWindow | null;
+  primary_horizon: string;
+  definition: string;
+  single_entry?: SingleEntryStats;
+  strat_reversal?: StratStats;
+  cross_trigger?: CrossStats;
+  ema_reclaim?: ReclaimStats;
+  strat_pullback?: PullbackStats;
+  stop_sweep?: StopSweepStats;
+}
+
+export interface SingleHorizon {
+  n_days: number;
+  n_trades: number;
+  avg_pct: number | null;
+  avg_r: number | null;
+  win_rate: number | null;
+  stop_hit_rate: number | null;
+  gap_count: number | null;
+  total_r: number | null;
+  expectancy: number | null;
+  avg_mfe: number | null;
+  median_r: number | null;
+  best_r: number | null;
+  worst_r: number | null;
+  median_pct: number | null;
+  best_pct: number | null;
+  worst_pct: number | null;
+  vs_qqq: number | null;
+}
+
+export interface SingleBook {
+  id: string;
+  label: string;
+  rule: string;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  horizons: Record<string, SingleHorizon>;
+}
+
+export interface SingleEntryStats {
+  books: Record<string, SingleBook>;
+  order: string[];
+  caps?: string[];
+  caps_note?: string;
+  definition: string;
+}
+
+/** Column titles for the 10:30 cap table. The panel title already says 10:30. */
+export const RMA_CAP_LABEL: Record<string, string> = {
+  rma_first: "First",
+  rma_first_rank: "First, rank tie",
+  rma_two: "First 2",
+  rma_three: "First 3",
+  rma_all: "All",
+};
+
+export interface MorningWeek {
+  week_of: string;
+  title: string;
+  this_week: boolean;
+  prev: string | null;
+  next: string | null;
+  windows: string[];
+  days: MorningDay[];
+  stats: MorningStats;
+}
+
+export function displayTime(window: string): string {
+  const [hour, minute] = window.split(":");
+  return `${Number(hour)}:${minute}`;
+}
+
+export function signedPct(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  const text = Math.abs(value).toFixed(digits);
+  if (Number(text) === 0) return `${(0).toFixed(digits)}%`;
+  return `${value > 0 ? "+" : "-"}${text}%`;
+}
+
+/** 1R is 1% of the entry, so the stored percent is already in R. */
+export function signedR(value: number | null | undefined, digits = 1): string {
+  const text = signedPct(value, digits);
+  return text === "—" ? text : text.replace("%", "R");
+}
+
+const HORIZON_AT = { eod_ret: 0, d1_ret: 1, d2_ret: 2, d3_ret: 3, d4_ret: 4, d5_ret: 5 } as const;
+type HorizonField = keyof typeof HORIZON_AT;
+
+/** Stop-aware R. From the stop day on the result is −1R. */
+export function realizedR(outcome: WindowOutcome | undefined, field: HorizonField): number | null {
+  if (!outcome || outcome.qualified === 0) return null;
+  const at = HORIZON_AT[field];
+  if (outcome.stopped && outcome.stop_day != null && outcome.stop_day <= at) return outcome.stop_ret ?? -1;
+  const value = outcome[field];
+  return value == null ? null : value;
+}
+
+export function returnTone(value: number | null | undefined): "up" | "down" | "flat" {
+  if (value === null || value === undefined || value === 0) return "flat";
+  return value > 0 ? "up" : "down";
+}
+
+function checkInOrder(row: MorningRow, mode: CheckIn): number {
+  const outcome = row.windows[mode];
+  if (!outcome || outcome.qualified === 0 || outcome.rank == null || outcome.rank >= 100) return 1000;
+  return outcome.rank;
+}
+
+export function orderedRows(rows: MorningRow[], mode: MorningMode): MorningRow[] {
+  if (mode === "leaders") return [...rows].sort((a, b) => a.rank - b.rank || a.symbol.localeCompare(b.symbol));
+  return [...rows].sort((a, b) => checkInOrder(a, mode) - checkInOrder(b, mode) || a.rank - b.rank);
+}
+
+export function shownRank(row: MorningRow, mode: MorningMode): number | null {
+  if (mode === "leaders") return row.rank;
+  const outcome = row.windows[mode];
+  if (!outcome || outcome.qualified === 0 || outcome.rank == null || outcome.rank >= 100) return null;
+  return outcome.rank;
+}
+
+export function outcomeLine(outcome: WindowOutcome | undefined): string {
+  if (!outcome) return "No print at this time";
+  if (outcome.qualified === 0) {
+    return outcome.cross_time
+      ? `Crossed at ${displayTime(outcome.cross_time)}, no fill at this check-in`
+      : "Has not closed above the 20 RMA";
+  }
+  const hold = [
+    `EOD ${signedR(realizedR(outcome, "eod_ret"))}`,
+    `+1d ${signedR(realizedR(outcome, "d1_ret"))}`,
+    `+3d ${signedR(realizedR(outcome, "d3_ret"))}`,
+    `+5d ${signedR(realizedR(outcome, "d5_ret"))}`,
+  ];
+  if (outcome.cross_time) hold.unshift(`crossed ${displayTime(outcome.cross_time)}`);
+  if (outcome.mfe != null) hold.push(`MFE ${signedR(outcome.mfe)}`);
+  if (outcome.stopped) {
+    const when = outcome.stop_day === 0 ? "same day" : `day +${outcome.stop_day}`;
+    hold.push(`stopped ${when} (${signedR(outcome.stop_ret ?? -1)}${outcome.gapped ? ", gapped" : ""})`);
+  } else if (outcome.eod_ret != null) {
+    hold.push("stop not hit");
+  }
+  return hold.join(" · ");
+}
+
+const HORIZON_WORD: Record<string, string> = { eod: "the close", d1: "day 1", d2: "day 2", d3: "day 3", d4: "day 4", d5: "day 5" };
+
+/** One sentence for the summary panel. The result is stop-aware R; 1R is 1% of the entry. */
+export function bestSentence(best: BestWindow | null): string | null {
+  if (!best) return null;
+  const when = HORIZON_WORD[best.horizon] ?? best.horizon;
+  const win = best.win_rate == null ? "" : ` ${Math.round(best.win_rate * 100)}% of fills were ahead by ${when}.`;
+  const gaps = best.gap_count == null ? "" : ` ${best.gap_count} gapped through.`;
+  const stop =
+    best.stop_hit_rate == null
+      ? ""
+      : ` A 1% stop was hit ${Math.round(best.stop_hit_rate * 100)}% of the time (expectancy ${signedR(best.expectancy, 2)} per trade).`;
+  return `Buying the names above the 20 RMA at the ${displayTime(best.window)} close returned ${signedR(best.avg, 2)} on average by ${when}.${win}${stop}${gaps}`;
+}
+
+export const SINGLE_HORIZONS = ["eod", "d1", "d2", "d3", "d4", "d5"] as const;
+
+export const SINGLE_METRICS: { key: keyof SingleHorizon; label: string; kind: "count" | "pct" | "r" | "rate" | "r1" }[] = [
+  { key: "n_days", label: "Days", kind: "count" },
+  { key: "n_trades", label: "Fills", kind: "count" },
+  { key: "avg_pct", label: "Avg %", kind: "pct" },
+  { key: "avg_r", label: "Avg R", kind: "r" },
+  { key: "win_rate", label: "Win", kind: "rate" },
+  { key: "stop_hit_rate", label: "Stop", kind: "rate" },
+  { key: "gap_count", label: "Gaps", kind: "count" },
+  { key: "total_r", label: "Total R", kind: "r1" },
+  { key: "expectancy", label: "Expectancy", kind: "r" },
+  { key: "avg_mfe", label: "Avg MFE", kind: "r" },
+  { key: "median_r", label: "Median R", kind: "r" },
+  { key: "best_r", label: "Best R", kind: "r" },
+  { key: "worst_r", label: "Worst R", kind: "r" },
+  { key: "median_pct", label: "Median %", kind: "pct" },
+  { key: "best_pct", label: "Best %", kind: "pct" },
+  { key: "worst_pct", label: "Worst %", kind: "pct" },
+  { key: "vs_qqq", label: "vs QQQ", kind: "pct" },
+];
+
+export const SINGLE_RULES = [
+  { title: "10:30 close, above the 20 RMA", books: ["rma_all", "rma_first"] },
+  { title: "First close above the 20 EMA", books: ["ema_all", "ema_first"] },
+] as const;
+
+/** Where the book actually got in, and how far the stop sits under that price. */
+export function entryNote(book: SingleBook | StratBook | CrossBook | ReclaimBook | PullbackBook | undefined): string {
+  if (!book) return "";
+  const when = book.avg_entry ?? "—";
+  const clock = book.median_entry && book.median_entry !== book.avg_entry ? `${when} on average (median ${book.median_entry})` : when;
+  const stop = book.avg_stop_pct == null ? "—" : `${Math.abs(book.avg_stop_pct).toFixed(2)}%`;
+  return `${book.label} enters at ${clock}. The stop averages ${stop} under the entry.`;
+}
+
+export interface StratHorizon extends SingleHorizon {
+  vs_rma_first: number | null;
+}
+
+export interface StratBook {
+  id: string;
+  label: string;
+  title: string;
+  timeframe: number;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  pattern_counts: Record<string, number>;
+  finished_2u_rate: number | null;
+  horizons: Record<string, StratHorizon>;
+}
+
+export interface StratStats {
+  books: Record<string, StratBook>;
+  order: string[];
+  panels: { title: string; books: string[] }[];
+  best: { id: string; label: string; avg_r: number | null; n_days: number; n_trades: number; vs_rma_first: number | null } | null;
+  benchmark: { label: string; avg_r: number | null; n_days: number; n_trades: number } | null;
+  definition: string;
+}
+
+export const STRAT_PATTERNS = ["2d-2u", "2d-1-2u", "3-1-2u", "1-2d-2u"] as const;
+
+export const STRAT_METRICS: { key: keyof StratHorizon; label: string; kind: "count" | "pct" | "r" | "rate" | "r1" }[] = [
+  ...SINGLE_METRICS,
+  { key: "vs_rma_first", label: "vs 10:30 first", kind: "r" },
+];
+
+/** Pattern mix for one Strat book, plus how often the entry candle actually finished as a 2U. */
+export function stratNote(book: StratBook | undefined): string {
+  if (!book) return "";
+  const counts = STRAT_PATTERNS.map((name) => `${name} ${book.pattern_counts?.[name] ?? 0}`).join(", ");
+  const share = book.finished_2u_rate == null ? "—" : `${Math.round(book.finished_2u_rate * 100)}%`;
+  return `${entryNote(book)} ${counts}. Finished as 2U: ${share}.`;
+}
+
+/** Day-3 winner among the eight Strat books, set next to the 10:30 first-name RMA book. */
+export function stratSentence(stats: StratStats | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const bench = stats?.benchmark?.avg_r;
+  const benchText = bench == null ? "" : ` The 10:30 first-name RMA book is ${signedR(bench, 2)} by day 3.`;
+  const paired = best.vs_rma_first == null ? "" : ` Paired against that book it is ${signedR(best.vs_rma_first, 2)}.`;
+  return `${best.label} is the best of these books by day 3 at ${signedR(best.avg_r, 2)} per morning.${benchText}${paired}`;
+}
+
+export interface CrossBook {
+  id: string;
+  label: string;
+  rule: string;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  opened_above: number;
+  opened_above_rate: number | null;
+  trades_per_day: number | null;
+  tape_days: number;
+  horizons: Record<string, StratHorizon>;
+}
+
+export interface CrossStats {
+  books: Record<string, CrossBook>;
+  order: string[];
+  best: { id: string; label: string; avg_r: number | null; n_days: number; n_trades: number; vs_rma_first: number | null } | null;
+  benchmark: { label: string; avg_r: number | null; n_days: number; n_trades: number } | null;
+  definition: string;
+}
+
+/** How many fills were already above the average at the 9:30 open, and how many trades a tape day produced. */
+export function crossNote(book: CrossBook | undefined): string {
+  if (!book) return "";
+  const per = book.trades_per_day == null ? "—" : book.trades_per_day.toFixed(1);
+  return `${entryNote(book)} ${book.opened_above} of ${book.n_fills} opened above the average. ${per} trades per day.`;
+}
+
+/** Day-3 winner among the RMA, SMA, and EMA cross books, set next to the 10:30 first-name RMA book. */
+export function crossSentence(stats: CrossStats | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const bench = stats?.benchmark?.avg_r;
+  const benchText = bench == null ? "" : ` The 10:30 first-name RMA book is ${signedR(bench, 2)} by day 3.`;
+  const paired = best.vs_rma_first == null ? "" : ` Paired against that book it is ${signedR(best.vs_rma_first, 2)}.`;
+  return `${best.label} is the best of these books by day 3 at ${signedR(best.avg_r, 2)} per morning.${benchText}${paired}`;
+}
+
+export interface ReclaimBook {
+  id: string;
+  label: string;
+  title: string;
+  rule: string;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  trades_per_day: number | null;
+  tape_days: number;
+  horizons: Record<string, StratHorizon>;
+}
+
+export interface ReclaimStats {
+  books: Record<string, ReclaimBook>;
+  order: string[];
+  panels: { title: string; books: string[] }[];
+  best: { id: string; label: string; avg_r: number | null; n_days: number; n_trades: number; vs_rma_first: number | null } | null;
+  benchmark: { label: string; avg_r: number | null; n_days: number; n_trades: number } | null;
+  definition: string;
+}
+
+/** Entry clock and stop distance for one EMA pullback-reclaim book, plus trades per tape day. */
+export function reclaimNote(book: ReclaimBook | undefined): string {
+  if (!book) return "";
+  const per = book.trades_per_day == null ? "—" : book.trades_per_day.toFixed(1);
+  return `${entryNote(book)} ${per} trades per day.`;
+}
+
+/** Day-3 winner among the six reclaim books, set next to the 10:30 first-name RMA book. */
+export function reclaimSentence(stats: ReclaimStats | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const bench = stats?.benchmark?.avg_r;
+  const benchText = bench == null ? "" : ` The 10:30 first-name RMA book is ${signedR(bench, 2)} by day 3.`;
+  const paired = best.vs_rma_first == null ? "" : ` Paired against that book it is ${signedR(best.vs_rma_first, 2)}.`;
+  return `${best.label} is the best of these books by day 3 at ${signedR(best.avg_r, 2)} per morning.${benchText}${paired}`;
+}
+
+export interface PullbackBook {
+  id: string;
+  label: string;
+  title: string;
+  cutoff: string;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  avg_risk_dollars: number | null;
+  avg_rma_risk_dollars: number | null;
+  avg_entry_saved_pct: number | null;
+  n_paired: number;
+  trades_per_day: number | null;
+  tape_days: number;
+  mornings?: { "0": number; "1": number; "2": number; more?: number };
+  horizons: Record<string, SingleHorizon>;
+}
+
+export interface PullbackStats {
+  books: Record<string, PullbackBook>;
+  order: string[];
+  panels: { title: string; books: string[]; refs: string[] }[];
+  best: { id: string; label: string; avg_r: number | null; n_days: number; n_trades: number; vs_rank_first: number | null } | null;
+  benchmark: {
+    first: { label: string; avg_r: number | null; n_days: number; n_trades: number };
+    two: { label: string; avg_r: number | null; n_days: number; n_trades: number };
+  } | null;
+  definition: string;
+  window?: PullbackWindow;
+}
+
+export interface PullbackWindow {
+  books: Record<string, PullbackBook>;
+  order: string[];
+  refs: string[];
+  definition: string;
+  best: {
+    id: string;
+    label: string;
+    avg_r: number | null;
+    n_days: number;
+    n_trades: number;
+    vs_rank_first: number | null;
+    vs_rank_two?: number | null;
+  } | null;
+  triggers: { "0": number; "1": number; "2": number; more: number };
+}
+
+/** Short headers. The panel title already names the cutoff. */
+export const PULLBACK_COL: Record<string, string> = {
+  pb1100_first: "First",
+  pb1100_two: "First 2",
+  pb1100_three: "First 3",
+  pb1100_all: "All",
+  pb1030_first: "First",
+  pb1030_two: "First 2",
+  pb1030_three: "First 3",
+  pb1030_all: "All",
+};
+
+export const PULLBACK_REF: Record<string, string> = {
+  rma_first_rank: "10:30 first",
+  rma_two: "10:30 first 2",
+  rma_three: "10:30 first 3",
+  rma_all: "10:30 all",
+};
+
+/** Entry clock, stop distance, and how many dollars this fill risks versus the 10:30 entry. */
+export function pullbackNote(book: PullbackBook | undefined): string {
+  if (!book) return "";
+  const risk = book.avg_risk_dollars == null ? "—" : `$${Math.abs(book.avg_risk_dollars).toFixed(2)}`;
+  const other = book.avg_rma_risk_dollars == null ? "—" : `$${Math.abs(book.avg_rma_risk_dollars).toFixed(2)}`;
+  const saved = book.avg_entry_saved_pct == null ? "—" : signedPct(book.avg_entry_saved_pct, 2);
+  return `${entryNote(book)} Risk per share averages ${risk}, against ${other} at the 10:30 entry on the same name. Versus that 10:30 price the pullback entry is ${saved} (${book.n_paired} paired fills; positive means a lower entry).`;
+}
+
+/** Day-3 winner among the pullback books, set next to the 10:30 rank-tie first and first-2 books. */
+export function pullbackSentence(stats: PullbackStats | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const first = stats?.benchmark?.first?.avg_r;
+  const two = stats?.benchmark?.two?.avg_r;
+  const firstText = first == null ? "" : ` The 10:30 rank-tie first book is ${signedR(first, 2)} by day 3.`;
+  const twoText = two == null ? "" : ` First 2 is ${signedR(two, 2)}.`;
+  const paired = best.vs_rank_first == null ? "" : ` Paired against the rank-tie first book it is ${signedR(best.vs_rank_first, 2)}.`;
+  return `${best.label} is the best of these pullback books by day 3 at ${signedR(best.avg_r, 2)} per morning.${firstText}${twoText}${paired}`;
+}
+
+export const WINDOW_COL: Record<string, string> = {
+  win_time_first: "Time first",
+  win_time_two: "Time first 2",
+  win_rank_first: "Rank first",
+  win_rank_two: "Rank first 2",
+};
+
+/** Entry, dollar risk, and how many mornings had zero, one, or two fills. */
+export function windowNote(book: PullbackBook | undefined): string {
+  if (!book) return "";
+  const mornings = book.mornings;
+  const counts = mornings ? ` Mornings with 0, 1, or 2 fills: ${mornings["0"]}, ${mornings["1"]}, ${mornings["2"]}.` : "";
+  return `${pullbackNote(book)}${counts}`;
+}
+
+/** Day-3 winner of the 10:00–10:30 books, set next to the 10:30 rank-tie first and first-2 books. */
+export function windowSentence(stats: PullbackWindow | undefined, benchmark: PullbackStats["benchmark"] | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const first = benchmark?.first?.avg_r;
+  const two = benchmark?.two?.avg_r;
+  const firstText = first == null ? "" : ` The 10:30 rank-tie first book is ${signedR(first, 2)} by day 3.`;
+  const twoText = two == null ? "" : ` First 2 is ${signedR(two, 2)}.`;
+  const paired = best.vs_rank_first == null ? "" : ` Paired against the rank-tie first book it is ${signedR(best.vs_rank_first, 2)}.`;
+  const pairedTwo = best.vs_rank_two == null ? "" : ` Against first 2 it is ${signedR(best.vs_rank_two, 2)}.`;
+  return `${best.label} is the best of these 10:00 to 10:30 books by day 3 at ${signedR(best.avg_r, 2)} per morning.${firstText}${twoText}${paired}${pairedTwo}`;
+}
+
+export interface SweepHorizon {
+  n_days: number;
+  n_trades: number;
+  r_per_trade: number | null;
+  total_r: number | null;
+  avg_pct: number | null;
+  total_pct: number | null;
+  win_rate: number | null;
+  stop_hit_rate: number | null;
+  gap_count: number | null;
+  avg_mfe: number | null;
+  median_r: number | null;
+  best_r: number | null;
+  worst_r: number | null;
+  slip_r_per_trade: number | null;
+  slip_total_r: number | null;
+}
+
+export interface SweepStop {
+  id: string;
+  label: string;
+  family: string;
+  n_considered: number;
+  n_skipped: number;
+  n_fills: number;
+  avg_stop_pct: number | null;
+  fast_stop_rate: number | null;
+  horizons: Record<string, SweepHorizon>;
+}
+
+export interface SweepBook {
+  id: string;
+  label: string;
+  order: string[];
+  order_total: string[];
+  best_r: string | null;
+  best_total: string | null;
+  tight: string | null;
+  stops: Record<string, SweepStop>;
+}
+
+export interface SweepExamplePath {
+  horizon: string;
+  date: string;
+  close: number | null;
+  close_pct: number | null;
+  close_r: number | null;
+  booked_pct: number | null;
+  booked_r: number | null;
+}
+
+export interface SweepHit {
+  session?: string;
+  clock?: string;
+  offset?: number;
+  gapped?: boolean | number;
+  open?: number | null;
+  low?: number | null;
+}
+
+export interface SweepExample {
+  date: string;
+  symbol: string;
+  name?: string;
+  leader_rank: number | null;
+  cross_time: string;
+  cross_close: number | null;
+  cross_rma: number | null;
+  why: string;
+  symbol_first?: string | null;
+  entry: number;
+  stop: number | null;
+  stop_pct: number | null;
+  risk: number | null;
+  stopped: number;
+  day3_r: number | null;
+  book_avg_r: number | null;
+  best_r: number | null;
+  best_date?: string;
+  best_symbol?: string;
+  hit?: SweepHit | null;
+  path: SweepExamplePath[];
+  tight?: {
+    id: string;
+    label: string;
+    skipped?: number;
+    missing?: boolean;
+    stop: number | null;
+    stop_pct: number | null;
+    risk: number | null;
+    stopped: number;
+    day3_r: number | null;
+    day3_pct: number | null;
+    fast_stop?: number;
+    hit?: SweepHit | null;
+    path?: SweepExamplePath[];
+  } | null;
+}
+
+export interface StopSweepStats {
+  books: Record<string, SweepBook>;
+  book_order: string[];
+  definition: string;
+  noise: string;
+  near_r: number;
+  example?: SweepExample | null;
+}
+
+function stopWidth(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `${Math.abs(value).toFixed(2)}%`;
+}
+
+/** Day-3 ranking for one 10:30 book, the low-of-day baseline, and the tightest stop near that best. */
+export function sweepSentence(book: SweepBook | undefined): string | null {
+  const bestId = book?.best_r;
+  const best = bestId ? book?.stops[bestId] : undefined;
+  const d3 = best?.horizons.d3;
+  if (!book || !best || d3?.r_per_trade == null) return null;
+  const lod = book.stops.lod?.horizons.d3;
+  const lodText = lod?.r_per_trade == null ? "" : ` Low of day is ${signedR(lod.r_per_trade, 2)} per trade, total ${signedR(lod.total_r, 1)}.`;
+  const totalId = book.best_total;
+  const total = totalId ? book.stops[totalId] : undefined;
+  const totalText = !total || total.horizons.d3?.total_r == null
+    ? ""
+    : totalId === bestId
+      ? " The same stop also leads on total R."
+      : ` ${total.label} leads on total R at ${signedR(total.horizons.d3.total_r, 1)}.`;
+  const tight = book.tight ? book.stops[book.tight] : undefined;
+  const tightD3 = tight?.horizons.d3;
+  let tightText = "";
+  if (tight && tightD3?.r_per_trade != null && book.tight === bestId) {
+    const slip = tightD3.slip_r_per_trade == null ? "" : ` With 0.05% slippage on the stop exit it is ${signedR(tightD3.slip_r_per_trade, 2)} per trade.`;
+    tightText = ` That stop is the tightest within 0.05R of the best. Its average stop is ${stopWidth(tight.avg_stop_pct)}.${slip}`;
+  } else if (tight && tightD3?.r_per_trade != null) {
+    const slip = tightD3.slip_r_per_trade == null ? "" : ` With 0.05% slippage on the stop exit it is ${signedR(tightD3.slip_r_per_trade, 2)} per trade.`;
+    tightText = ` The tightest stop within 0.05R of that best is ${tight.label} at ${signedR(tightD3.r_per_trade, 2)} per trade, average stop ${stopWidth(tight.avg_stop_pct)}.${slip}`;
+  }
+  return `${best.label} is the best day-3 R per trade on ${book.label} at ${signedR(d3.r_per_trade, 2)} (${d3.n_trades} fills, total ${signedR(d3.total_r, 1)}).${lodText}${totalText}${tightText}`;
+}

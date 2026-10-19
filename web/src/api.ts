@@ -1,4 +1,7 @@
+import type { MorningWeek } from "./morning";
+
 export type Tf = "M" | "W" | "D";
+export type { MorningWeek };
 export type Strat = "1" | "2U" | "2D" | "3" | null;
 
 export interface Setup {
@@ -390,6 +393,7 @@ export const api = {
     get<{ tf: Tf; as_of: string | null; etfs: MarketEtf[]; trend: Trend | null }>(`/api/market?tf=${tf}&bars=${bars}`),
   /** $NASI, Fear & Greed and advancers vs decliners. */
   breadth: () => get<Breadth>("/api/breadth"),
+  morning: (week?: string | null) => get<MorningWeek>(week ? `/api/morning?week=${encodeURIComponent(week)}` : "/api/morning"),
   watchlist: () => get<Watchlist>("/api/watchlist"),
   watch: (symbol: string) =>
     get<Watchlist>("/api/watchlist", {
