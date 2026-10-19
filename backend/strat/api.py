@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings
+from . import config, data, earnings, fetch_worker
 from .hub import hub
 from .stage import BasicAuthMiddleware, configure_logging, mount_ui
 from .scheduler import decide, fetch_period, now_et
@@ -91,10 +91,13 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             State.progress = {"done": done, "total": total, "message": message}
             _publish_status()
 
-        data.refresh(symbols, full=full, progress=progress, period=period)
-        if with_earnings:
-            backfill_industries(_universe())
-            _refresh_earnings(max_age_hours=0, progress=progress)
+        if fetch_worker.enabled():
+            fetch_worker.fetch_in_child(full, period, with_earnings, progress)
+        else:
+            data.refresh(symbols, full=full, progress=progress, period=period)
+            if with_earnings:
+                backfill_industries(_universe())
+                _refresh_earnings(max_age_hours=0, progress=progress)
         State.error = None
     except Exception as exc:
         log.exception("refresh failed")

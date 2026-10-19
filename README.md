@@ -584,6 +584,9 @@ background fetcher in the same process.
 
 - Basic auth guards everything when `STAGE_USER` and `STAGE_PASS` are set; local dev never sets them.
 - `STRAT_LOG_LEVEL=info` prints fetcher progress to `heroku logs`.
+- `STRAT_FETCH_SUBPROCESS=1` runs each Yahoo refresh in a short-lived child process and
+  `MALLOC_ARENA_MAX=2` trims glibc fragmentation, so the 512 MB Basic dyno stays around 330 MB
+  between refreshes (the refresh with earnings briefly peaks higher).
 - The SQLite cache (including watchlist and positions) is ephemeral on Heroku: every dyno restart
   (at least daily) starts empty and re-downloads history.
 
