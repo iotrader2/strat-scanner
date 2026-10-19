@@ -271,6 +271,10 @@ th.num { text-align: right; }
 .sector-head .sym { font-size: 16px; }
 .sector-right { display: flex; flex-direction: column; align-items: flex-end; font-weight: 600; }
 .sector-badges { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chart-block { display: flex; flex-direction: column; gap: 4px; }
+.ma-legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); }
+.ma-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ma-legend i { width: 14px; height: 2px; border-radius: 1px; }
 .sector-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 26px; }
 .sector-foot .chip { margin-left: 0; text-decoration: none; }
 

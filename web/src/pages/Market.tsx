@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type Breadth, type HigherTf, type MarketEtf, type Tf, type Trend } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
 import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
+import { MA_WARMUP } from "../movingAverage";
 import { BreadthPanel } from "../components/Breadth";
 import { TrendBanner } from "../components/TrendBanner";
 import { marketRead } from "../market";
@@ -27,7 +28,7 @@ export default function Market({ version }: { version: string | null }) {
   useEffect(() => {
     setLoading(true);
     api
-      .market(tf, CARD_BARS[tf])
+      .market(tf, CARD_BARS[tf] + MA_WARMUP)
       .then((r) => {
         setEtfs(r.etfs);
         setTrend(r.trend);
@@ -87,7 +88,7 @@ export default function Market({ version }: { version: string | null }) {
       )}
       <div className="sector-grid market-grid">
         {etfs.map((e) => (
-          <EtfCard key={e.symbol} etf={e} chartHeight={300} />
+          <EtfCard key={e.symbol} etf={e} chartHeight={300} visibleBars={CARD_BARS[tf]} />
         ))}
       </div>
     </div>
