@@ -5,6 +5,7 @@ import {
   CHECK_INS,
   PULLBACK_COL,
   PULLBACK_REF,
+  WINDOW_COL,
   RMA_CAP_LABEL,
   SINGLE_HORIZONS,
   SINGLE_METRICS,
@@ -16,6 +17,8 @@ import {
   displayTime,
   pullbackNote,
   pullbackSentence,
+  windowNote,
+  windowSentence,
   reclaimNote,
   reclaimSentence,
   entryNote,
@@ -403,6 +406,7 @@ export default function Morning() {
 
       <SingleEntryTable stats={stats?.single_entry} />
       <PullbackTable pullback={stats?.strat_pullback} single={stats?.single_entry} />
+      <WindowPullbackTable pullback={stats?.strat_pullback} single={stats?.single_entry} />
       <StratReversalTable stats={stats?.strat_reversal} />
       <CrossTriggerTable stats={stats?.cross_trigger} />
       <ReclaimTable stats={stats?.ema_reclaim} />
@@ -483,6 +487,84 @@ function PullbackTable({
             </div>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+function WindowPullbackTable({
+  pullback,
+  single,
+}: {
+  pullback: MorningWeek["stats"]["strat_pullback"];
+  single: MorningWeek["stats"]["single_entry"];
+}) {
+  const window = pullback?.window;
+  if (!window?.order?.length) return null;
+  const sentence = windowSentence(window, pullback?.benchmark);
+  const triggers = window.triggers;
+  const columns: { id: string; source: "pullback" | "rma" }[] = [
+    ...window.order.map((id) => ({ id, source: "pullback" as const })),
+    ...window.refs.filter((id) => single?.books[id]).map((id) => ({ id, source: "rma" as const })),
+  ];
+  return (
+    <section className="card single-entry pullback-entry" aria-label="10:00 to 10:30 Strat pullback">
+      <div className="compare-head">
+        <h2>Pullback, 10:00 to 10:30</h2>
+        <p className="muted small">{window.definition}</p>
+        {sentence && <p className="strat-best">{sentence}</p>}
+        {triggers && (
+          <p className="muted small">
+            Before the cap, {triggers["0"]} {triggers["0"] === 1 ? "morning" : "mornings"} had no trigger in the window, {triggers["1"]} had one, {triggers["2"]} had two, and {triggers.more} had three or more.
+          </p>
+        )}
+      </div>
+      <div className="pullback-grid">
+        <div className="single-rule">
+          {window.order.map((id) => (
+            <p className="muted small" key={id}>{windowNote(window.books[id])}</p>
+          ))}
+          <div className="table-card">
+            <table className="scan-table morning-table single-table strat-table">
+              <thead>
+                <tr>
+                  <th> </th>
+                  {columns.map((col) => (
+                    <th className="num" key={`${col.source}-${col.id}`}>
+                      {col.source === "rma" ? (PULLBACK_REF[col.id] ?? col.id) : (WINDOW_COL[col.id] ?? window.books[col.id]?.label ?? col.id)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {SINGLE_HORIZONS.map((horizon) => (
+                  <Fragment key={horizon}>
+                    <tr className="single-horizon">
+                      <th colSpan={1 + columns.length}>{COMPARE_LABEL[horizon]}</th>
+                    </tr>
+                    {SINGLE_METRICS.map((metric) => (
+                      <tr key={`${horizon}-${metric.key}`}>
+                        <th scope="row">{metric.label}</th>
+                        {columns.map((col) => {
+                          const block = col.source === "rma"
+                            ? single?.books[col.id]?.horizons[horizon]
+                            : window.books[col.id]?.horizons[horizon];
+                          const raw = block?.[metric.key];
+                          const tone = metric.kind === "pct" || metric.kind === "r" || metric.kind === "r1" ? returnTone(typeof raw === "number" ? raw : null) : "";
+                          return (
+                            <td className={`num ${tone}`} key={`${col.source}-${col.id}`}>
+                              {formatSingle(block, metric.key, metric.kind)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
   );

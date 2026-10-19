@@ -1,5 +1,7 @@
 """5-minute Strat pullback after a 20 RMA close, stopped at the low of day."""
 
+from datetime import time
+
 import pandas as pd
 import pytest
 
@@ -44,10 +46,17 @@ def _prior(day: str = "2026-10-15", close: float = 10) -> list[tuple]:
     ]
 
 
-def _hit(rows: list[tuple], cutoff: str = "11:00", day: str = "2026-10-16", symbol: str = "AAA"):
+def _hit(
+    rows: list[tuple],
+    cutoff: str = "11:00",
+    day: str = "2026-10-16",
+    symbol: str = "AAA",
+    earliest: time = time(9, 45),
+    book: str | None = None,
+):
     bars = _ohlc(rows)
     prepared = prepare_pullbacks({symbol: bars}, [symbol], length=3)
-    return first_pullback(prepared.get(symbol), day, cutoff, bars, length=3)
+    return first_pullback(prepared.get(symbol), day, cutoff, bars, length=3, earliest=earliest, book=book)
 
 
 def _fill(**overrides) -> dict:
@@ -96,6 +105,8 @@ def test_crwd_shaped_tape_fills_the_0955_break_of_the_prior_high():
     assert late["stop_price"] == pytest.approx(262.44)
     assert late["pattern"] == "2d-2u"
     assert late["entry_price"] - late["stop_price"] == pytest.approx(1.34)
+    # 9:55 is before the 10:00–10:30 window, and this tape has no later trigger.
+    assert _hit(rows, "10:30", day="2026-10-09", symbol="CRWD", earliest=time(10, 0), book="win") is None
 
 
 def test_a_pullback_before_the_rma_cross_does_not_arm_the_entry():
@@ -329,6 +340,106 @@ def test_pullback_kind_labels_only_the_five_prefixes():
     assert pullback_kind(["1", "2D", "2U"], 2) == "1-2d-2u"
     assert pullback_kind(["2U", "1", "2U"], 2) == "1-2u"
     assert pullback_kind(["1", "3", "2U"], 2) is None
+
+
+def test_a_trigger_before_1000_is_skipped_and_the_window_takes_the_next_one():
+    rows = _prior() + [
+        ("2026-10-16 09:35", 12, 14, 11, 13),
+        ("2026-10-16 09:40", 12, 12, 9, 10),
+        ("2026-10-16 09:45", 11, 13, 10, 12),
+        ("2026-10-16 09:50", 11, 11.5, 8, 9),
+        ("2026-10-16 10:05", 10, 12, 9.5, 11),
+    ]
+    early = _hit(rows, "10:30")
+    assert early["entry_time"] == "09:45"
+    assert early["entry_price"] == pytest.approx(12)
+    window = _hit(rows, "10:30", earliest=time(10, 0), book="win")
+    assert window["cutoff"] == "win"
+    assert window["entry_time"] == "10:05"
+    assert window["entry_price"] == pytest.approx(11.5)
+    assert window["pattern"] == "2d-2u"
+
+
+def test_the_window_keeps_1000_and_1030_and_drops_a_1035_through_trade():
+    # Pullback bar is 9:55, so it forms before 10:00. The fill is the 10:00 break.
+    at_open = _hit(_prior() + [
+        ("2026-10-16 09:35", 12, 14, 11, 13),
+        ("2026-10-16 09:40", 13, 15, 12, 14),
+        ("2026-10-16 09:55", 13, 13.5, 10, 11),
+        ("2026-10-16 10:00", 11, 14, 10.5, 13),
+    ], "10:30", earliest=time(10, 0))
+    assert at_open["entry_time"] == "10:00"
+    assert at_open["entry_price"] == pytest.approx(13.5)
+
+    at_close = _hit(_prior() + [
+        ("2026-10-16 09:35", 12, 14, 11, 13),
+        ("2026-10-16 09:40", 13, 15, 12, 14),
+        ("2026-10-16 10:25", 13, 13.5, 10, 11),
+        ("2026-10-16 10:30", 11, 14, 10.5, 13),
+    ], "10:30", earliest=time(10, 0))
+    assert at_close["entry_time"] == "10:30"
+    assert at_close["entry_price"] == pytest.approx(13.5)
+
+    # A gap whose bar starts at 10:30 fills. A through-trade known at 10:35 does not.
+    gap = _hit(_prior() + [
+        ("2026-10-16 09:35", 12, 14, 11, 13),
+        ("2026-10-16 09:40", 13, 15, 12, 14),
+        ("2026-10-16 10:30", 13, 13.5, 10, 11),
+        ("2026-10-16 10:35", 14, 15, 13, 14),
+    ], "10:30", earliest=time(10, 0))
+    assert gap["entry_time"] == "10:30"
+    assert gap["entry_price"] == pytest.approx(14)
+    through = _hit(_prior() + [
+        ("2026-10-16 09:35", 12, 14, 11, 13),
+        ("2026-10-16 09:40", 13, 15, 12, 14),
+        ("2026-10-16 10:30", 13, 13.5, 10, 11),
+        ("2026-10-16 10:35", 12, 15, 11, 14),
+    ], "10:30", earliest=time(10, 0))
+    assert through is None
+
+
+def test_window_first_two_orders_by_time_or_by_rank_and_counts_quiet_mornings():
+    def row(symbol, rank, clock, r_pct, day="2026-10-01"):
+        return _fill(
+            date=day, symbol=symbol, rank=rank, cutoff="win", entry_time=clock,
+            d3_pct=r_pct, eod_pct=r_pct, entry_price=100, stop_price=99,
+        )
+
+    # Same minute: rank 2 before rank 3. The 10:20 name has the best rank and is later.
+    pulls = [
+        row("AAA", 3, "10:00", 1.0),
+        row("CCC", 2, "10:00", -1.0),
+        row("BBB", 1, "10:20", 4.0),
+        row("DDD", 4, "10:05", 9.0, day="2026-10-02"),
+    ]
+    rma = [{
+        "date": "2026-10-01", "symbol": "BBB", "rule": "rma1030", "entry_time": "10:30",
+        "entry_price": 110.0, "stop_price": 100.0, "stop_pct": 1.0, "cross_time": "09:35",
+        "rank": 1, "stopped": 0, "stop_day": None, "gapped": 0, "exit_pct": None,
+        "eod_pct": 1.0, "d3_pct": 1.0, "mfe_pct": 1.0,
+    }]
+    ranks = {"2026-10-01": {"BBB": 1, "CCC": 2, "AAA": 3}}
+    stats = build_pullback_stats(pulls, rma, ranks, tape_days=["2026-10-01", "2026-10-02", "2026-10-03"])
+    window = stats["window"]
+    time_first = window["books"]["win_time_first"]
+    time_two = window["books"]["win_time_two"]
+    rank_first = window["books"]["win_rank_first"]
+    rank_two = window["books"]["win_rank_two"]
+    # Day 1 time order is CCC, AAA, BBB. Day 2 is DDD alone. The quiet day is a zero.
+    assert time_first["horizons"]["d3"]["avg_r"] == pytest.approx((-1 + 9) / 2)
+    assert time_two["horizons"]["d3"]["n_trades"] == 3
+    assert time_two["horizons"]["d3"]["avg_r"] == pytest.approx(4.5)
+    assert rank_first["horizons"]["d3"]["avg_r"] == pytest.approx((4 + 9) / 2)
+    assert rank_two["n_fills"] == 3
+    assert time_two["mornings"] == {"0": 1, "1": 1, "2": 1, "more": 0}
+    assert rank_first["mornings"]["2"] == 0
+    assert window["triggers"] == {"0": 1, "1": 1, "2": 0, "more": 1}
+    assert time_first["avg_entry_saved_pct"] is None or time_two["n_paired"] >= 0
+    # BBB is the rank-first name on day 1 and the only paired 10:30 fill. Saved (110-100)/110.
+    assert rank_first["n_paired"] == 1
+    assert rank_first["avg_entry_saved_pct"] == pytest.approx((110 - 100) / 110 * 100)
+    assert rank_first["avg_risk_dollars"] == pytest.approx(1)
+    assert rank_first["horizons"]["d3"]["vs_rank_first"] == pytest.approx(4 - 1)
 
 
 def test_stored_pullbacks_round_trip_and_a_quiet_tape_day_stays_in_the_denominator(tmp_path, monkeypatch):

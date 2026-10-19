@@ -43,6 +43,16 @@ from .morning import (
 LENGTH = RMA_LENGTH
 EARLIEST = time(9, 45)
 CUTOFFS = ("11:00", "10:30")
+# Fills whose known-by time is inside this window. The pullback bar itself may be earlier.
+WINDOW = "win"
+WINDOW_EARLIEST = time(10, 0)
+WINDOW_LATEST = "10:30"
+WINDOW_BOOKS: tuple[tuple[str, int, str, str, str], ...] = (
+    ("win_time_first", 1, "time", "Time first", "10:00–10:30, first by time"),
+    ("win_time_two", 2, "time", "Time first 2", "10:00–10:30, first 2 by time"),
+    ("win_rank_first", 1, "rank", "Rank first", "10:00–10:30, first by rank"),
+    ("win_rank_two", 2, "rank", "Rank first 2", "10:00–10:30, first 2 by rank"),
+)
 SESSION_OPEN = time(9, 30)
 SESSION_CLOSE = time(16, 0)
 # (id suffix, cap or None, column label)
@@ -147,10 +157,14 @@ def first_pullback(
     cutoff: str,
     bars: Optional[pd.DataFrame] = None,
     length: int = LENGTH,
+    earliest: time = EARLIEST,
+    book: Optional[str] = None,
 ) -> Optional[dict]:
-    """First pullback fill at or before ``cutoff``. None when the day does not fill.
+    """First pullback fill between ``earliest`` and ``cutoff``. None when the day does not fill.
 
-    ``bars`` is the raw frame used for the session low. ``prepared`` carries the RMA and types.
+    A trigger before ``earliest`` is skipped and the scan continues. ``bars`` is the raw frame used
+    for the session low. ``prepared`` carries the RMA and types. ``book`` is the stored cutoff id
+    when it is not the latest clock itself.
     """
     if prepared is None:
         return None
@@ -197,7 +211,7 @@ def first_pullback(
             clock = bar_end
         else:
             continue
-        if clock.time() < EARLIEST:
+        if clock.time() < earliest:
             continue
         if clock.time() > latest:
             break
@@ -210,7 +224,7 @@ def first_pullback(
             "entry_time": _clock(clock),
             "entry_end": bar_end,
             "pattern": kind,
-            "cutoff": cutoff,
+            "cutoff": book or cutoff,
         }
     return None
 
@@ -244,10 +258,14 @@ def pullbacks_for_day(
     for sym in symbols:
         bars = intraday.get(sym)
         found_by = {}
-        for cutoff in CUTOFFS:
-            found = first_pullback(prepared.get(sym), day, cutoff, bars, length)
+        scans = [(cutoff, EARLIEST, cutoff) for cutoff in CUTOFFS]
+        scans.append((WINDOW_LATEST, WINDOW_EARLIEST, WINDOW))
+        for latest, earliest, book in scans:
+            found = first_pullback(
+                prepared.get(sym), day, latest, bars, length, earliest=earliest, book=book,
+            )
             if found is not None:
-                found_by[cutoff] = found
+                found_by[book] = found
         for cutoff, found in found_by.items():
             outcome = lod_outcome(
                 entry=found["entry_price"],
@@ -303,17 +321,45 @@ def _rank_key(row: Mapping) -> tuple:
     return (rank_n, str(row.get("symbol") or ""))
 
 
-def _select(rows: Sequence[Mapping], cutoff: str, limit: Optional[int]) -> list[Mapping]:
+def _time_key(row: Mapping) -> tuple:
+    """Earliest trigger, then a better leader rank, then the symbol."""
+    return (str(row.get("entry_time") or "99:99"), *_rank_key(row))
+
+
+def _select(
+    rows: Sequence[Mapping],
+    cutoff: str,
+    limit: Optional[int],
+    key=None,
+) -> list[Mapping]:
     chosen = [row for row in rows if row.get("cutoff") == cutoff]
     if limit is None:
         return chosen
+    order = key or _rank_key
     grouped: dict[str, list] = {}
     for row in chosen:
         grouped.setdefault(str(row.get("date")), []).append(row)
     picked: list[Mapping] = []
     for group in grouped.values():
-        picked.extend(sorted(group, key=_rank_key)[:limit])
+        picked.extend(sorted(group, key=order)[:limit])
     return picked
+
+
+def _morning_buckets(rows: Sequence[Mapping], sessions: Optional[Sequence[str]]) -> dict:
+    """How many mornings had 0, 1, 2, or 3+ of these fills. Tape days with none count as zero."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        day = str(row.get("date"))
+        counts[day] = counts.get(day, 0) + 1
+    base = [str(day) for day in sessions] if sessions is not None else sorted(counts)
+    buckets = {"0": 0, "1": 0, "2": 0, "more": 0}
+    for day in base:
+        n = counts.get(day, 0)
+        if n >= 3:
+            buckets["more"] += 1
+        else:
+            buckets[str(n)] += 1
+    return buckets
 
 
 def _daily_avg_r(trades: Sequence[Mapping]) -> dict[str, dict[str, float]]:
@@ -428,6 +474,56 @@ def build_pullback_stats(
         }
     bench = _summarize_book(rank_first, {})
     bench_two = _summarize_book(rank_two, {})
+    window_rows = [row for row in rows if row.get("cutoff") == WINDOW]
+    window_books = {}
+    for book_id, limit, order_name, label, title in WINDOW_BOOKS:
+        order = _time_key if order_name == "time" else _rank_key
+        selected = _select(window_rows, WINDOW, limit, order)
+        body = _summarize_book(selected, qqq)
+        daily = _daily_avg_r(selected)
+        for name, _idx, _field in HORIZONS:
+            for key in ("first", "two"):
+                both = [
+                    daily[name][day] - rank_daily[key][name][day]
+                    for day in daily[name]
+                    if day in rank_daily[key][name]
+                ]
+                body["horizons"][name][f"vs_rank_{key}"] = _mean(both)
+        counts: dict[str, int] = {}
+        for row in selected:
+            counts[str(row["date"])] = counts.get(str(row["date"]), 0) + 1
+        if sessions:
+            per_day = _mean([counts.get(day, 0) for day in sessions])
+        else:
+            per_day = (len(selected) / len(counts)) if counts else None
+        body.update(_risk_pair(selected, rma_rows))
+        body["id"] = book_id
+        body["label"] = label
+        body["title"] = title
+        body["cutoff"] = WINDOW
+        body["trades_per_day"] = per_day
+        body["tape_days"] = len(sessions) if sessions is not None else len(counts)
+        body["mornings"] = _morning_buckets(selected, sessions)
+        window_books[book_id] = body
+    window_ranked = []
+    for index, (book_id, *_rest) in enumerate(WINDOW_BOOKS):
+        block = window_books[book_id]["horizons"]["d3"]
+        if not block["n_days"] or block["avg_r"] is None:
+            continue
+        window_ranked.append((block["avg_r"], block["n_days"], -index, book_id, block))
+    window_best = None
+    if window_ranked:
+        window_ranked.sort(reverse=True)
+        _avg, _days, _order, book_id, block = window_ranked[0]
+        window_best = {
+            "id": book_id,
+            "label": window_books[book_id]["title"],
+            "avg_r": block["avg_r"],
+            "n_days": block["n_days"],
+            "n_trades": block["n_trades"],
+            "vs_rank_first": block.get("vs_rank_first"),
+            "vs_rank_two": block.get("vs_rank_two"),
+        }
     return {
         "books": books,
         "order": [book_id for book_id, *_rest in PULLBACK_BOOKS],
@@ -447,4 +543,23 @@ def build_pullback_stats(
                 "n_trades": bench_two["horizons"]["d3"]["n_trades"],
             },
         },
+        "window": {
+            "books": window_books,
+            "order": [book_id for book_id, *_rest in WINDOW_BOOKS],
+            "refs": ["rma_first_rank", "rma_two"],
+            "definition": window_text(),
+            "best": window_best,
+            "triggers": _morning_buckets(window_rows, sessions),
+        },
     }
+
+
+def window_text() -> str:
+    return (
+        "The same pullback, with the fill kept only when its time is from 10:00 through 10:30. "
+        "A pullback bar can print before 10:00. A trigger before 10:00 is skipped, and the scan "
+        "keeps looking for the next one inside the window. One trade per name. Time first and "
+        "time first 2 take the earliest fills. A tie breaks by leader rank, then the symbol. "
+        "Rank first and rank first 2 take the best leader-list ranks among the names that triggered "
+        "in the window. The last two columns are the 10:30 rank-tie books, bought at the 10:30 close."
+    )

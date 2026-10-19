@@ -186,6 +186,7 @@ def render(stats: dict, meta: dict) -> str:
         )
     _append_single(lines, stats)
     _append_pullback(lines, stats)
+    _append_window(lines, stats)
     _append_strat(lines, stats)
     _append_cross(lines, stats)
     _append_reclaim(lines, stats)
@@ -780,6 +781,186 @@ def _pullback_example_lines() -> list[str]:
         lines.append(
             f"| {HORIZON_LABEL[horizon]} | {stamp} | {_px(close) if close is not None else '—'} | "
             f"{_pct(close_pct)} | {_r(close_r)} | {_pct(realized_pct(row, horizon))} | {_r(realized_lod_r(row, horizon))} |"
+        )
+    return lines
+
+
+_WIN_HEAD = {
+    "win_time_first": "Time first",
+    "win_time_two": "Time first 2",
+    "win_rank_first": "Rank first",
+    "win_rank_two": "Rank first 2",
+}
+_WIN_DAY3 = (
+    ("n_days", "days", _num),
+    ("n_trades", "fills", _num),
+    ("avg_pct", "avg %", _pct),
+    ("avg_r", "avg R", _r),
+    ("win_rate", "win", _rate),
+    ("stop_hit_rate", "stop", _rate),
+    ("gap_count", "gaps", _num),
+    ("total_r", "total R", lambda value: _r(value, 1)),
+    ("expectancy", "R per trade", _r),
+    ("avg_mfe", "avg MFE", _r),
+    ("best_r", "best R", _r),
+    ("worst_r", "worst R", _r),
+    ("vs_rank_first", "vs 10:30 first", _r),
+    ("vs_rank_two", "vs 10:30 first 2", _r),
+)
+
+
+def _append_window(lines: list[str], stats: dict) -> None:
+    study = (stats.get("strat_pullback") or {}).get("window") or {}
+    books = study.get("books") or {}
+    single = (stats.get("single_entry") or {}).get("books") or {}
+    order = [book_id for book_id in (study.get("order") or []) if book_id in books]
+    if not order:
+        return
+    lines.extend(["", "## 5-minute pullback, 10:00 to 10:30", ""])
+    if study.get("definition"):
+        lines.append(study["definition"])
+        lines.append("")
+    lines.append(
+        "The stop is still the low from 9:30 through the entry bar. One R is that distance. "
+        "A morning with no trigger in the window counts as zero fills. Time first 2 keeps the two "
+        "earliest fills. Rank first 2 keeps the two best leader-list ranks. First 1 is the first "
+        "name of that same list. The 10:30 columns are the rank-tie books, entered at the 10:30 close."
+    )
+    lines.append("")
+    triggers = study.get("triggers") or {}
+    if triggers:
+        quiet = triggers.get("0", 0)
+        quiet_word = "tape morning" if quiet == 1 else "tape mornings"
+        lines.append(
+            f"Before the cap, {quiet} {quiet_word} had no trigger in the window, "
+            f"{triggers.get('1', 0)} had one, {triggers.get('2', 0)} had two, "
+            f"and {triggers.get('more', 0)} had three or more."
+        )
+        lines.append("")
+    best = study.get("best")
+    benchmark = (stats.get("strat_pullback") or {}).get("benchmark") or {}
+    if not best:
+        lines.append("Not enough completed holds for the 10:00 to 10:30 pullback yet.")
+    else:
+        first = (benchmark.get("first") or {}).get("avg_r")
+        two = (benchmark.get("two") or {}).get("avg_r")
+        lines.append(
+            f"**{best['label']}** is the best of these four books by day 3 at {_r(best['avg_r'])} "
+            f"per morning (n = {best['n_days']} mornings / {best['n_trades']} fills). "
+            f"The 10:30 rank-tie first book is {_r(first)}, and its first 2 is {_r(two)}. "
+            f"Paired, this book is {_r(best.get('vs_rank_first'))} versus the rank-tie first book "
+            f"and {_r(best.get('vs_rank_two'))} versus first 2."
+        )
+        lines.append("")
+    columns = [("pullback", book_id) for book_id in order]
+    for ref in study.get("refs") or []:
+        if ref in single:
+            columns.append(("rma", ref))
+    bits = []
+    for book_id in order:
+        book = books[book_id]
+        when = book.get("avg_entry") or "—"
+        median = book.get("median_entry")
+        clock = when if not median or median == when else f"{when} on average (median {median})"
+        mornings = book.get("mornings") or {}
+        bits.append(
+            f"**{_WIN_HEAD.get(book_id, book['label'])}** enters at {clock} with an average stop "
+            f"{_dist(book.get('avg_stop_pct'))} under the entry, {_dollars(book.get('avg_risk_dollars'))} "
+            f"of risk per share against {_dollars(book.get('avg_rma_risk_dollars'))} at the 10:30 entry "
+            f"({_pct(book.get('avg_entry_saved_pct'))} versus that price, n = {book.get('n_paired') or 0}; "
+            f"mornings with 0/1/2 fills: {mornings.get('0', 0)}/{mornings.get('1', 0)}/{mornings.get('2', 0)})"
+        )
+    lines.append("; ".join(bits) + ".")
+    lines.append("")
+    labels = []
+    for kind, book_id in columns:
+        if kind == "pullback":
+            labels.append(_WIN_HEAD.get(book_id, books[book_id]["label"]))
+        else:
+            labels.append(_PB_REF.get(book_id, single[book_id].get("label") or book_id))
+    lines.append("| | " + " | ".join(labels) + " |")
+    lines.append("| --- | " + " | ".join("---:" for _ in labels) + " |")
+    for key, metric, fmt in _WIN_DAY3:
+        cells = []
+        for kind, book_id in columns:
+            source = books if kind == "pullback" else single
+            cells.append(fmt((source[book_id].get("horizons") or {}).get("d3", {}).get(key)))
+        lines.append(f"| Day 3 {metric} | " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append("Average R from the close through day 5:")
+    lines.append("")
+    for kind, book_id in columns:
+        source = books if kind == "pullback" else single
+        title = labels[columns.index((kind, book_id))]
+        path = [_r((source[book_id].get("horizons") or {}).get(name, {}).get("avg_r")) for name in HORIZON_LABEL]
+        lines.append(f"- **{title}** R: " + ", ".join(path) + ".")
+    lines.append("")
+    lines.append("Average percent from the close through day 5:")
+    lines.append("")
+    for kind, book_id in columns:
+        source = books if kind == "pullback" else single
+        title = labels[columns.index((kind, book_id))]
+        path = [_pct((source[book_id].get("horizons") or {}).get(name, {}).get("avg_pct")) for name in HORIZON_LABEL]
+        lines.append(f"- **{title}** %: " + ", ".join(path) + ".")
+    lines.extend(_window_crwd_lines())
+
+
+def _window_crwd_lines() -> list[str]:
+    """Whether the 2026-10-09 CRWD pullback also fills inside 10:00–10:30."""
+    from .morning import format_clock
+    from .morning_store import single_entries_between, strat_pullbacks_between
+
+    def _clock(value) -> str:
+        if not value:
+            return "—"
+        text = str(value)
+        return format_clock(int(text[:2]) * 60 + int(text[3:5])) or text
+
+    day = "2026-10-09"
+    symbol = "CRWD"
+    rows = [
+        row for row in strat_pullbacks_between(day, day)
+        if row.get("symbol") == symbol and row.get("cutoff") in ("win", "10:30", "11:00")
+    ]
+    early = next((row for row in rows if row.get("cutoff") == "11:00"), None)
+    window = next((row for row in rows if row.get("cutoff") == "win"), None)
+    if early is None and window is None:
+        return []
+    lines = ["", "### CRWD on 2026-10-09, inside 10:00 to 10:30", ""]
+    if window is None:
+        lines.append(
+            f"The 5-minute pullback on this name filled at {_clock(None if early is None else early.get('entry_time'))}. "
+            "That fill is before 10:00, and no later trigger landed from 10:00 through 10:30, "
+            "so this window does not take the trade."
+        )
+        return lines
+    clock = _clock(window.get("entry_time"))
+    entry = float(window["entry_price"])
+    stop = float(window["stop_price"])
+    rma = next(
+        (
+            item for item in single_entries_between(day, day)
+            if item.get("symbol") == symbol and item.get("rule") == "rma1030"
+        ),
+        None,
+    )
+    lines.append(
+        f"Inside the window the fill is {_px(entry)} at {clock}, pattern {window.get('pattern')}. "
+        f"The stop is {_px(stop)}, so 1R is {_dollars(entry - stop)}."
+    )
+    lines.append("")
+    if early is not None:
+        lines.append(
+            f"The earlier pullback, outside this window, was {_px(early['entry_price'])} at {_clock(early.get('entry_time'))}."
+        )
+        lines.append("")
+    if rma is not None and rma.get("entry_price") is not None and rma.get("stop_price") is not None:
+        rma_entry = float(rma["entry_price"])
+        rma_risk = rma_entry - float(rma["stop_price"])
+        saved = (rma_entry - entry) / rma_entry * 100.0 if rma_entry else None
+        lines.append(
+            f"The 10:30 close on this name is {_px(rma_entry)}, 1R {_dollars(rma_risk)}. "
+            f"This window's fill is {_pct(saved)} versus that price and risks {_dollars(entry - stop)} a share."
         )
     return lines
 

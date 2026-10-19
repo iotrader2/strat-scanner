@@ -430,6 +430,7 @@ export interface PullbackBook {
   n_paired: number;
   trades_per_day: number | null;
   tape_days: number;
+  mornings?: { "0": number; "1": number; "2": number; more?: number };
   horizons: Record<string, SingleHorizon>;
 }
 
@@ -443,6 +444,24 @@ export interface PullbackStats {
     two: { label: string; avg_r: number | null; n_days: number; n_trades: number };
   } | null;
   definition: string;
+  window?: PullbackWindow;
+}
+
+export interface PullbackWindow {
+  books: Record<string, PullbackBook>;
+  order: string[];
+  refs: string[];
+  definition: string;
+  best: {
+    id: string;
+    label: string;
+    avg_r: number | null;
+    n_days: number;
+    n_trades: number;
+    vs_rank_first: number | null;
+    vs_rank_two?: number | null;
+  } | null;
+  triggers: { "0": number; "1": number; "2": number; more: number };
 }
 
 /** Short headers. The panel title already names the cutoff. */
@@ -483,4 +502,32 @@ export function pullbackSentence(stats: PullbackStats | undefined): string | nul
   const twoText = two == null ? "" : ` First 2 is ${signedR(two, 2)}.`;
   const paired = best.vs_rank_first == null ? "" : ` Paired against the rank-tie first book it is ${signedR(best.vs_rank_first, 2)}.`;
   return `${best.label} is the best of these pullback books by day 3 at ${signedR(best.avg_r, 2)} per morning.${firstText}${twoText}${paired}`;
+}
+
+export const WINDOW_COL: Record<string, string> = {
+  win_time_first: "Time first",
+  win_time_two: "Time first 2",
+  win_rank_first: "Rank first",
+  win_rank_two: "Rank first 2",
+};
+
+/** Entry, dollar risk, and how many mornings had zero, one, or two fills. */
+export function windowNote(book: PullbackBook | undefined): string {
+  if (!book) return "";
+  const mornings = book.mornings;
+  const counts = mornings ? ` Mornings with 0, 1, or 2 fills: ${mornings["0"]}, ${mornings["1"]}, ${mornings["2"]}.` : "";
+  return `${pullbackNote(book)}${counts}`;
+}
+
+/** Day-3 winner of the 10:00–10:30 books, set next to the 10:30 rank-tie first and first-2 books. */
+export function windowSentence(stats: PullbackWindow | undefined, benchmark: PullbackStats["benchmark"] | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const first = benchmark?.first?.avg_r;
+  const two = benchmark?.two?.avg_r;
+  const firstText = first == null ? "" : ` The 10:30 rank-tie first book is ${signedR(first, 2)} by day 3.`;
+  const twoText = two == null ? "" : ` First 2 is ${signedR(two, 2)}.`;
+  const paired = best.vs_rank_first == null ? "" : ` Paired against the rank-tie first book it is ${signedR(best.vs_rank_first, 2)}.`;
+  const pairedTwo = best.vs_rank_two == null ? "" : ` Against first 2 it is ${signedR(best.vs_rank_two, 2)}.`;
+  return `${best.label} is the best of these 10:00 to 10:30 books by day 3 at ${signedR(best.avg_r, 2)} per morning.${firstText}${twoText}${paired}${pairedTwo}`;
 }

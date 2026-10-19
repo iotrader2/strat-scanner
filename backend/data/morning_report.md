@@ -441,6 +441,61 @@ The close columns are the session close against this entry, with no stop. The bo
 | +4d | 2026-10-15 | $244.57 | -7.28% | -14.34R | -0.51% | -1.00R |
 | +5d | 2026-10-16 | $227.39 | -13.80% | -27.16R | -0.51% | -1.00R |
 
+## 5-minute pullback, 10:00 to 10:30
+
+The same pullback, with the fill kept only when its time is from 10:00 through 10:30. A pullback bar can print before 10:00. A trigger before 10:00 is skipped, and the scan keeps looking for the next one inside the window. One trade per name. Time first and time first 2 take the earliest fills. A tie breaks by leader rank, then the symbol. Rank first and rank first 2 take the best leader-list ranks among the names that triggered in the window. The last two columns are the 10:30 rank-tie books, bought at the 10:30 close.
+
+The stop is still the low from 9:30 through the entry bar. One R is that distance. A morning with no trigger in the window counts as zero fills. Time first 2 keeps the two earliest fills. Rank first 2 keeps the two best leader-list ranks. First 1 is the first name of that same list. The 10:30 columns are the rank-tie books, entered at the 10:30 close.
+
+Before the cap, 1 tape morning had no trigger in the window, 0 had one, 0 had two, and 59 had three or more.
+
+**10:00–10:30, first by rank** is the best of these four books by day 3 at +0.03R per morning (n = 59 mornings / 59 fills). The 10:30 rank-tie first book is +0.85R, and its first 2 is +0.68R. Paired, this book is -0.80R versus the rank-tie first book and -0.63R versus first 2.
+
+**Time first** enters at 10:02 on average (median 10:00) with an average stop 1.98% under the entry, $4.63 of risk per share against $4.51 at the 10:30 entry (-0.11% versus that price, n = 59; mornings with 0/1/2 fills: 1/59/0); **Time first 2** enters at 10:03 on average (median 10:00) with an average stop 1.88% under the entry, $4.53 of risk per share against $4.51 at the 10:30 entry (-0.08% versus that price, n = 118; mornings with 0/1/2 fills: 1/0/59); **Rank first** enters at 10:11 on average (median 10:05) with an average stop 2.18% under the entry, $4.49 of risk per share against $4.52 at the 10:30 entry (-0.08% versus that price, n = 59; mornings with 0/1/2 fills: 1/59/0); **Rank first 2** enters at 10:10 on average (median 10:05) with an average stop 2.22% under the entry, $5.09 of risk per share against $4.98 at the 10:30 entry (-0.11% versus that price, n = 118; mornings with 0/1/2 fills: 1/0/59).
+
+| | Time first | Time first 2 | Rank first | Rank first 2 | 10:30 first | 10:30 first 2 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Day 3 days | 58 | 57 | 59 | 58 | 58 | 58 |
+| Day 3 fills | 58 | 114 | 59 | 116 | 58 | 116 |
+| Day 3 avg % | -0.81% | -0.28% | +0.40% | -0.27% | +0.74% | +0.26% |
+| Day 3 avg R | -0.55R | -0.24R | +0.03R | -0.21R | +0.85R | +0.68R |
+| Day 3 win | 17.2% | 22.8% | 30.5% | 23.3% | 29.3% | 25.9% |
+| Day 3 stop | 81.0% | 75.4% | 69.5% | 75.0% | 69.0% | 71.5% |
+| Day 3 gaps | 5 | 12 | 5 | 12 | 8 | 13 |
+| Day 3 total R | -32.0R | -26.9R | +1.9R | -23.9R | +49.2R | +79.4R |
+| Day 3 R per trade | -0.55R | -0.24R | +0.03R | -0.21R | +0.85R | +0.68R |
+| Day 3 avg MFE | +1.59R | +1.83R | +2.34R | +1.88R | +3.89R | +3.42R |
+| Day 3 best R | +5.90R | +9.62R | +7.34R | +7.34R | +21.56R | +22.74R |
+| Day 3 worst R | -2.83R | -4.83R | -2.83R | -2.83R | -2.52R | -3.00R |
+| Day 3 vs 10:30 first | -1.40R | -1.12R | -0.80R | -1.05R | — | — |
+| Day 3 vs 10:30 first 2 | -1.24R | -0.95R | -0.63R | -0.89R | — | — |
+
+Average R from the close through day 5:
+
+- **Time first** R: +0.02R, -0.26R, -0.42R, -0.55R, -0.57R, -0.45R.
+- **Time first 2** R: -0.03R, -0.09R, -0.15R, -0.24R, -0.34R, -0.30R.
+- **Rank first** R: -0.07R, +0.10R, +0.12R, +0.03R, +0.04R, +0.17R.
+- **Rank first 2** R: -0.06R, -0.13R, -0.16R, -0.21R, -0.25R, -0.16R.
+- **10:30 first** R: +0.57R, +0.90R, +0.74R, +0.85R, +0.87R, +1.12R.
+- **10:30 first 2** R: +0.24R, +0.50R, +0.54R, +0.68R, +0.69R, +0.61R.
+
+Average percent from the close through day 5:
+
+- **Time first** %: -0.16%, -0.36%, -0.56%, -0.81%, -0.92%, -0.80%.
+- **Time first 2** %: -0.09%, -0.15%, -0.13%, -0.28%, -0.50%, -0.49%.
+- **Rank first** %: -0.09%, +0.39%, +0.51%, +0.40%, +0.24%, +0.44%.
+- **Rank first 2** %: -0.10%, -0.13%, -0.17%, -0.27%, -0.39%, -0.35%.
+- **10:30 first** %: +0.59%, +0.93%, +0.63%, +0.74%, +0.61%, +0.71%.
+- **10:30 first 2** %: +0.12%, +0.16%, +0.15%, +0.26%, +0.28%, +0.22%.
+
+### CRWD on 2026-10-09, inside 10:00 to 10:30
+
+Inside the window the fill is $266.88 at 10:10, pattern 1-2u. The stop is $262.44, so 1R is $4.44.
+
+The earlier pullback, outside this window, was $263.78 at 9:55.
+
+The 10:30 close on this name is $266.65, 1R $4.21. This window's fill is -0.09% versus that price and risks $4.44 a share.
+
 ## Strat reversal: 15-minute and 30-minute
 
 Bullish reversals are 2d-2u, 2d-1-2u, 3-1-2u, and 1-2d-2u, the same four this repo treats as reversals. 3-2u is not one of them, so it is not used. 15-minute and 30-minute candles are built from the stored 5-minute bars, aligned to 9:30. The opening candle is context only, so the earliest entry is 9:45 on the 15-minute chart and 10:00 on the 30-minute chart. Entry is the first trade above the prior candle's high. A 5-minute bar that opens above that high fills at its open. The stop is the lower of the prior candle's low and the entry candle's low so far, excluding the trigger bar, and it stays there. Hits are tracked only after the entry. One R is that distance. The RMA books keep a name only when a 5-minute bar had closed above the 20 RMA by the decision time. First name is the earliest entry that day, then the symbol. Nothing after 15:30.

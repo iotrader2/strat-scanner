@@ -5,6 +5,8 @@ import {
   crossSentence,
   pullbackNote,
   pullbackSentence,
+  windowNote,
+  windowSentence,
   reclaimNote,
   reclaimSentence,
   displayTime,
@@ -232,5 +234,48 @@ describe("morning check-in view", () => {
       "11:00 first is the best of these pullback books by day 3 at +0.40R per morning. The 10:30 rank-tie first book is +0.85R by day 3. First 2 is +0.68R. Paired against the rank-tie first book it is -0.45R.",
     );
     expect(pullbackSentence(undefined)).toBeNull();
+  });
+
+  it("notes the 10:00 to 10:30 pullback and how many mornings filled", () => {
+    const book = {
+      id: "win_time_two",
+      label: "Time first 2",
+      title: "10:00–10:30, first 2 by time",
+      cutoff: "win",
+      n_fills: 20,
+      avg_entry: "10:12",
+      median_entry: "10:10",
+      avg_stop_pct: 1.4,
+      avg_risk_dollars: 3.2,
+      avg_rma_risk_dollars: 4.1,
+      avg_entry_saved_pct: 0.4,
+      n_paired: 18,
+      trades_per_day: 1.2,
+      tape_days: 60,
+      mornings: { "0": 30, "1": 12, "2": 18 },
+      horizons: {},
+    };
+    expect(windowNote(book)).toBe(
+      "Time first 2 enters at 10:12 on average (median 10:10). The stop averages 1.40% under the entry. Risk per share averages $3.20, against $4.10 at the 10:30 entry on the same name. Versus that 10:30 price the pullback entry is +0.40% (18 paired fills; positive means a lower entry). Mornings with 0, 1, or 2 fills: 30, 12, 18.",
+    );
+    expect(
+      windowSentence(
+        {
+          books: {},
+          order: [],
+          refs: [],
+          definition: "",
+          triggers: { "0": 10, "1": 20, "2": 15, more: 5 },
+          best: { id: "win_time_two", label: "10:00–10:30, first 2 by time", avg_r: 0.2, n_days: 40, n_trades: 70, vs_rank_first: -0.65, vs_rank_two: -0.48 },
+        },
+        {
+          first: { label: "10:30 rank first", avg_r: 0.85, n_days: 58, n_trades: 58 },
+          two: { label: "10:30 rank first 2", avg_r: 0.68, n_days: 58, n_trades: 116 },
+        },
+      ),
+    ).toBe(
+      "10:00–10:30, first 2 by time is the best of these 10:00 to 10:30 books by day 3 at +0.20R per morning. The 10:30 rank-tie first book is +0.85R by day 3. First 2 is +0.68R. Paired against the rank-tie first book it is -0.65R. Against first 2 it is -0.48R.",
+    );
+    expect(windowSentence(undefined, null)).toBeNull();
   });
 });

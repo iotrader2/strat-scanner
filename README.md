@@ -575,6 +575,8 @@ A sixth study buys a top-10 leader only after a 5-minute bar has closed above th
 
 The stop is the low from 9:30 through the entry bar. One R is that distance. First, first 2, and first 3 keep the best leader-list ranks among the names that filled. The same widths of the 10:30 rank-tie book sit in the next columns. The report also shows the dollar risk per share against the 10:30 entry on the same name, and how much of that 10:30 price the earlier fill saved.
 
+A second cut of that study keeps a fill only when its time is from 10:00 through 10:30. The pullback bar can print earlier. A trigger before 10:00 is skipped. One trade per name. The books are the first name and the first two, ordered by trigger time (tie-break leader rank, then symbol) and, separately, by leader rank among the names that triggered in the window. Those sit next to the 10:30 rank-tie first and first-2 books.
+
 ### What Yahoo will and will not give you
 
 Checked on 2026-10-18:
