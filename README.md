@@ -574,3 +574,29 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 | `POST /api/refresh` | Operator hook for a download. The scheduler calls the same job; the UI does not |
 
 Not investment advice. Yahoo Finance data is unofficial and can be delayed or incomplete.
+
+## Heroku staging
+
+A password-protected staging copy runs as one Heroku web dyno (`Procfile`). The Node buildpack
+builds `web/` (`heroku-postbuild`), the Python buildpack installs `backend/requirements.txt`, and
+uvicorn serves the API, the `/ws` WebSocket and the built UI from `web/dist` on `$PORT`, with the
+background fetcher in the same process.
+
+- Access is by secret link when `STAGE_TOKEN` is set: open `/k/<token>` (or `/?k=<token>`) once and
+  the server sets a 400-day HttpOnly, Secure, SameSite=Lax cookie (an HMAC of the token) and redirects
+  to `/`. Without that cookie every request, including the API and `/ws`, gets a plain 404. Rotate the
+  token (`heroku config:set STAGE_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')`)
+  to revoke every browser. Without `STAGE_TOKEN`, `STAGE_USER`/`STAGE_PASS` turn on basic auth instead.
+  Local dev sets none of these.
+- `STRAT_LOG_LEVEL=info` prints fetcher progress to `heroku logs`.
+- `STRAT_FETCH_SUBPROCESS=1` runs each Yahoo refresh in a short-lived child process and
+  `MALLOC_ARENA_MAX=2` trims glibc fragmentation, so the 512 MB Basic dyno stays around 330 MB
+  between refreshes.
+- `STRAT_SQLITE_WAL=1` lets the API read while the fetch child writes; `STRAT_YF_CACHE_DIR` gives
+  each process its own yfinance cache; `WEB_CONCURRENCY=1` keeps a single process (one fetcher).
+- While a fetch or scan is running, API routes answer immediately with the rows already computed
+  (empty right after a restart) instead of waiting, so nothing hits Heroku's 30 s router timeout.
+- The SQLite cache (including watchlist and positions) is ephemeral on Heroku: every dyno restart
+  (at least daily) starts empty and re-downloads history.
+
+Redeploy: `git push heroku heroku-staging:main` (or merge to that branch and push again).

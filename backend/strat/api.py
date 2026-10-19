@@ -13,8 +13,9 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings
+from . import config, data, earnings, fetch_worker
 from .hub import hub
+from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .scheduler import decide, fetch_period, now_et
 from .breadth import fetch_breadth
 from .trend import index_trend
@@ -25,8 +26,11 @@ from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol
 from .themes import ThemeError, ThemeMap, load_themes
 from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
 
+configure_logging()
 log = logging.getLogger(__name__)
 app = FastAPI(title="TiltKiller (local)")
+# No-op unless STAGE_TOKEN (secret link) or STAGE_USER/STAGE_PASS are set (Heroku staging).
+app.add_middleware(StageGateMiddleware)
 
 CHART_LIMITS = {"M": 60, "W": 156, "D": 260}
 
@@ -87,17 +91,21 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             State.progress = {"done": done, "total": total, "message": message}
             _publish_status()
 
-        data.refresh(symbols, full=full, progress=progress, period=period)
-        if with_earnings:
-            backfill_industries(_universe())
-            _refresh_earnings(max_age_hours=0, progress=progress)
+        if fetch_worker.enabled():
+            fetch_worker.fetch_in_child(full, period, with_earnings, progress)
+        else:
+            data.refresh(symbols, full=full, progress=progress, period=period)
+            if with_earnings:
+                backfill_industries(_universe())
+                _refresh_earnings(max_age_hours=0, progress=progress)
         State.error = None
     except Exception as exc:
         log.exception("refresh failed")
         State.error = str(exc)
     finally:
         State.refreshing = False
-        _ensure_scan(force=True)
+        with _scan_lock:
+            _ensure_scan(force=True)
 
 
 def _refresh_earnings(max_age_hours: float, progress=None) -> None:
@@ -161,12 +169,30 @@ def _wire_message(kind: str, previous: Optional[list[dict]] = None) -> dict:
     }
 
 
+_scan_lock = threading.RLock()
+
+
 def _ensure_scan(force: bool = False) -> list[dict]:
+    """Current scan rows, recomputed when the cache changed (or ``force``).
+
+    Request handlers never wait on Yahoo or on another scan: while a fetch is running, or another
+    thread is already scanning, they get the rows we have (possibly empty) straight away. The fetcher
+    takes ``_scan_lock`` first (it is re-entrant), so its post-refresh scan always runs.
+    """
     key = data.get_meta("last_refresh")
-    if not force and key == State.scan_key and State.scan and State.result is not None:
-        return State.scan
     if not force and key == State.scan_key and State.scan:
         return State.scan
+    if State.refreshing and not _scan_lock._is_owned():
+        return State.scan
+    if not _scan_lock.acquire(blocking=False):
+        return State.scan
+    try:
+        return _compute_scan(key)
+    finally:
+        _scan_lock.release()
+
+
+def _compute_scan(key: Optional[str]) -> list[dict]:
     previous = list(State.scan)
     daily = data.load_all_daily()
     State.daily = daily
@@ -185,7 +211,7 @@ def _ensure_charts() -> None:
     """Chart routes need the full scan. The table can render from the saved snapshot before that finishes."""
     if State.result is not None and State.daily:
         return
-    _ensure_scan(force=True)
+    _ensure_scan(force=True)  # returns at once (empty charts) while a fetch or another scan is running
 
 
 def _hydrate() -> None:
@@ -199,14 +225,16 @@ def _hydrate() -> None:
 
 def _boot() -> None:
     if config.AS_OF:
-        _ensure_scan(force=True)
+        with _scan_lock:
+            _ensure_scan(force=True)
         return
     if not data.cached_symbols():
         log.info("Cache is empty, starting the initial download")
         start_refresh(full=True)
         return
     threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
-    _ensure_scan(force=True)
+    with _scan_lock:
+        _ensure_scan(force=True)
     _scheduler_loop()
 
 
@@ -231,6 +259,7 @@ def _scheduler_loop() -> None:
 
 @app.on_event("startup")
 async def _startup() -> None:
+    use_private_yfinance_cache()
     hub.attach(asyncio.get_running_loop())
     asyncio.create_task(hub.heartbeat())
     _hydrate()
@@ -532,3 +561,7 @@ def market(tf: str = Query("W", pattern="^(M|W|D|3M|6M)$"), bars: int = Query(60
     by_symbol = {r["symbol"]: r for r in State.scan}
     out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars)
     return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily)}
+
+
+# Last, so every /api route above wins over the UI catch-all. No-op without a built web/dist.
+mount_ui(app)
