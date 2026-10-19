@@ -569,6 +569,12 @@ A fifth study buys a top-10 leader only after it has closed below the 20 EMA dur
 
 The same entry is stopped three ways: the reclaim bar's low, the lowest low from the first close below through that reclaim bar, and the session low from 9:30 through the entry. Each stop is reported for every name and for the first one, two, and three names that day. The order is the reclaim time, then the leader-list rank (rank 1 is the best prior-close score), then the symbol. A name inside the cap keeps its place when one stop is not under the entry. The benchmark is the 10:30 first-name RMA book.
 
+### 5-minute Strat pullback
+
+A sixth study buys a top-10 leader only after a 5-minute bar has closed above the 20 RMA and a later bar is a pullback: a 2D or an inside. The entry is the first trade above that bar's high. The patterns are 2d-2u, 2d-1-2u, 3-1-2u, 1-2d-2u, and 1-2u. A 2U after a 3 is not one of them. A bar that opens above the prior high fills at the open. The earliest fill is 9:45. One book stops taking new fills at 11:00 and one at 10:30. One trade per name per day.
+
+The stop is the low from 9:30 through the entry bar. One R is that distance. First, first 2, and first 3 keep the best leader-list ranks among the names that filled. The same widths of the 10:30 rank-tie book sit in the next columns. The report also shows the dollar risk per share against the 10:30 entry on the same name, and how much of that 10:30 price the earlier fill saved.
+
 ### What Yahoo will and will not give you
 
 Checked on 2026-10-18:

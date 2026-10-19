@@ -36,6 +36,7 @@ from .morning import (
 )
 from .cross_trigger import cross_triggers_for_day
 from .ema_reclaim import ema_reclaims_for_day
+from .strat_pullback import prepare_pullbacks, pullbacks_for_day
 from .strat_reversal import prepare_candles, strat_reversals_for_day
 from .morning_store import (
     all_leaders,
@@ -52,12 +53,14 @@ from .morning_store import (
     replace_cross_triggers,
     replace_ema_reclaims,
     replace_leaders,
+    replace_strat_pullbacks,
     replace_ranks,
     replace_results,
     replace_single_entries,
     replace_strat_reversals,
     save_bars,
     single_entry_days,
+    strat_pullback_days,
     strat_reversal_days,
 )
 from .scanner import scan_all
@@ -382,17 +385,17 @@ def recompute_results(
             by_day.setdefault(row["date"], []).append(row["symbol"])
             rank_of.setdefault(row["date"], {})[row["symbol"]] = int(row["rank"])
     if not force:
-        # Days with no results yet, days whose +5 close was unknown, and days not yet in the
-        # low-of-day study, the Strat reversal study, the cross-trigger study, or the EMA reclaim study.
+        # Days with no results yet, days whose +5 close was unknown, and days not yet in a study.
         pending = incomplete_result_dates(calendar, db_path=db_path)
         single_built = single_entry_days(db_path)
         strat_built = strat_reversal_days(db_path)
         cross_built = cross_trigger_days(db_path)
         reclaim_built = ema_reclaim_days(db_path)
+        pullback_built = strat_pullback_days(db_path)
         days = [
             day for day in days
             if day in pending or day not in single_built or day not in strat_built
-            or day not in cross_built or day not in reclaim_built
+            or day not in cross_built or day not in reclaim_built or day not in pullback_built
         ]
     if not days:
         _log("Entry results are already filled in")
@@ -411,6 +414,7 @@ def recompute_results(
     daily = _adjust_frames(raw_daily, splits, end)
     _log(f"Computing check-in ranks and outcomes for {len(days)} sessions")
     prepared = prepare_candles(intraday, symbols)
+    prepared_pullbacks = prepare_pullbacks(intraday, symbols)
     written = 0
     for day in days:
         names = by_day.get(day, [])
@@ -419,6 +423,7 @@ def recompute_results(
             replace_strat_reversals(day, [], db_path)
             replace_cross_triggers(day, [], db_path, had_tape=False)
             replace_ema_reclaims(day, [], db_path, had_tape=False)
+            replace_strat_pullbacks(day, [], db_path, had_tape=False)
             continue
         # A morning with no 5-minute tape is not a zero-qualification day. Drop the old 15-minute result.
         if not any(_has_session(intraday.get(sym), day) for sym in (*names, QQQ)):
@@ -429,6 +434,7 @@ def recompute_results(
             replace_strat_reversals(day, [], db_path)
             replace_cross_triggers(day, [], db_path, had_tape=False)
             replace_ema_reclaims(day, [], db_path, had_tape=False)
+            replace_strat_pullbacks(day, [], db_path, had_tape=False)
             written += 1
             continue
         ranks, leader_rows, qqq_rows = compute_day(day, names, intraday, daily, calendar)
@@ -436,6 +442,10 @@ def recompute_results(
         strat_rows = strat_reversals_for_day(day, names, intraday, daily, calendar, prepared)
         cross_rows = cross_triggers_for_day(day, names, intraday, daily, calendar)
         reclaim_rows = ema_reclaims_for_day(day, names, intraday, daily, calendar, ranks=rank_of.get(day))
+        pullback_rows = pullbacks_for_day(
+            day, names, intraday, daily, calendar,
+            ranks=rank_of.get(day), prepared=prepared_pullbacks,
+        )
         replace_ranks(day, ranks, db_path)
         replace_results(day, leader_rows, role="leader", db_path=db_path)
         replace_results(day, qqq_rows, role="benchmark", db_path=db_path)
@@ -443,6 +453,7 @@ def recompute_results(
         replace_strat_reversals(day, strat_rows, db_path)
         replace_cross_triggers(day, cross_rows, db_path, had_tape=True)
         replace_ema_reclaims(day, reclaim_rows, db_path, had_tape=True)
+        replace_strat_pullbacks(day, pullback_rows, db_path, had_tape=True)
         written += 1
     return written
 

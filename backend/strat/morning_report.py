@@ -185,6 +185,7 @@ def render(stats: dict, meta: dict) -> str:
             "today's index membership (survivorship) all apply."
         )
     _append_single(lines, stats)
+    _append_pullback(lines, stats)
     _append_strat(lines, stats)
     _append_cross(lines, stats)
     _append_reclaim(lines, stats)
@@ -482,6 +483,305 @@ def _stop_when(touch: dict, day: str, forward: list) -> str:
         label = "later"
     clock = format_clock(touch["ts"].hour * 60 + touch["ts"].minute)
     return f"{label} ({session}), the 5-minute bar ending {clock}"
+
+
+_PB_DAY3 = (
+    ("n_days", "days", _num),
+    ("n_trades", "fills", _num),
+    ("avg_pct", "avg %", _pct),
+    ("avg_r", "avg R", _r),
+    ("win_rate", "win", _rate),
+    ("stop_hit_rate", "stop", _rate),
+    ("total_r", "total R", lambda value: _r(value, 1)),
+    ("expectancy", "R per trade", _r),
+    ("avg_mfe", "avg MFE", _r),
+    ("best_r", "best R", _r),
+    ("worst_r", "worst R", _r),
+    ("vs_rank_first", "vs 10:30 first", _r),
+    ("vs_rank_two", "vs 10:30 first 2", _r),
+)
+
+_PB_COL = {
+    "pb1100_first": "First",
+    "pb1100_two": "First 2",
+    "pb1100_three": "First 3",
+    "pb1100_all": "All",
+    "pb1030_first": "First",
+    "pb1030_two": "First 2",
+    "pb1030_three": "First 3",
+    "pb1030_all": "All",
+}
+_PB_REF = {
+    "rma_first_rank": "10:30 first",
+    "rma_two": "10:30 first 2",
+    "rma_three": "10:30 first 3",
+    "rma_all": "10:30 all",
+}
+
+
+def _dollars(value) -> str:
+    if value is None:
+        return "—"
+    return f"${float(value):,.2f}"
+
+
+def _append_pullback(lines: list[str], stats: dict) -> None:
+    study = stats.get("strat_pullback") or {}
+    books = study.get("books") or {}
+    single = (stats.get("single_entry") or {}).get("books") or {}
+    panels = study.get("panels") or []
+    lines.extend(["", "## 5-minute Strat pullback", ""])
+    if study.get("definition"):
+        lines.append(study["definition"])
+        lines.append("")
+    lines.append(
+        "The name has to close above the 20 RMA first. The pullback is a later 5-minute bar that is a "
+        "2D or an inside, and the buy is the first trade above that bar's high. A 2U straight after a "
+        "3 is not a pullback. A bar that opens above the prior high fills at the open, and that fill is "
+        "known at the bar's start, so the bar that ends five minutes after the cutoff can still fill "
+        "at its open. A through-trade is known at the bar's end. The earliest fill is 9:45. One trade "
+        "per name per day. The stop is the low from 9:30 through the entry bar, including that bar's "
+        "low. The entry bar is not a stop. A later bar at or below the stop exits at the stop. A bar "
+        "that opens below the stop exits at the open."
+    )
+    lines.append("")
+    lines.append(
+        "First, first 2, and first 3 are the best leader-list ranks among the names that actually "
+        "filled. Rank 1 is the best prior-close score. A name that never triggers does not take a slot. "
+        "The columns beside them are the 10:30 rank-tie books, bought at the 10:30 close with the same "
+        "low-of-day stop. Risk per share is the entry minus that stop. The entry comparison is the "
+        "10:30 price minus this fill, as a percent of the 10:30 price, averaged over the names that "
+        "have both fills. Positive means the pullback fill was lower."
+    )
+    lines.append("")
+    best = study.get("best")
+    benchmark = study.get("benchmark") or {}
+    if not best:
+        lines.append("Not enough completed holds for the 5-minute Strat pullback study yet.")
+    else:
+        first = (benchmark.get("first") or {}).get("avg_r")
+        two = (benchmark.get("two") or {}).get("avg_r")
+        paired = best.get("vs_rank_first")
+        lines.append(
+            f"**{best['label']}** is the best of these pullback books by day 3 at {_r(best['avg_r'])} "
+            f"per morning (n = {best['n_days']} mornings / {best['n_trades']} fills). "
+            f"The 10:30 rank-tie first book is {_r(first)} by day 3, and its first 2 is {_r(two)}. "
+            f"On the mornings both have a day-3 result, this book is {_r(paired)} versus the rank-tie first book."
+        )
+        lines.append("")
+    if not panels:
+        lines.extend(_pullback_example_lines())
+        return
+    for panel in panels:
+        ids = [book_id for book_id in panel.get("books") or [] if book_id in books]
+        refs = list(panel.get("refs") or [])
+        columns = []
+        for index, book_id in enumerate(ids):
+            columns.append(("pullback", book_id))
+            if index < len(refs) and refs[index] in single:
+                columns.append(("rma", refs[index]))
+        if not columns:
+            continue
+        lines.extend(["", f"### {panel['title']}", ""])
+        bits = []
+        for book_id in ids:
+            book = books[book_id]
+            when = book.get("avg_entry") or "—"
+            median = book.get("median_entry")
+            clock = when if not median or median == when else f"{when} on average (median {median})"
+            saved = _pct(book.get("avg_entry_saved_pct"))
+            bits.append(
+                f"**{_PB_COL.get(book_id, book['label'])}** enters at {clock} with an average stop "
+                f"{_dist(book.get('avg_stop_pct'))} under the entry, {_dollars(book.get('avg_risk_dollars'))} "
+                f"of risk per share against {_dollars(book.get('avg_rma_risk_dollars'))} at the 10:30 entry "
+                f"({saved} versus that price, positive means a lower fill, n = {book.get('n_paired') or 0})"
+            )
+        lines.append("; ".join(bits) + ".")
+        lines.append("")
+        labels = []
+        for kind, book_id in columns:
+            if kind == "pullback":
+                labels.append(_PB_COL.get(book_id, books[book_id]["label"]))
+            else:
+                labels.append(_PB_REF.get(book_id, single[book_id].get("label") or book_id))
+        lines.append("Day 3, side by side. Average % and average R give each morning one vote. R per trade, win, stop, total R, MFE, and best and worst are per fill.")
+        lines.append("")
+        lines.append("| | " + " | ".join(labels) + " |")
+        lines.append("| --- | " + " | ".join("---:" for _ in labels) + " |")
+        for key, metric, fmt in _PB_DAY3:
+            cells = []
+            for kind, book_id in columns:
+                source = books if kind == "pullback" else single
+                cells.append(fmt((source[book_id].get("horizons") or {}).get("d3", {}).get(key)))
+            lines.append(f"| Day 3 {metric} | " + " | ".join(cells) + " |")
+        lines.append("")
+        lines.append("Average R from the close through day 5:")
+        lines.append("")
+        for kind, book_id in columns:
+            source = books if kind == "pullback" else single
+            title = labels[columns.index((kind, book_id))]
+            path = [_r((source[book_id].get("horizons") or {}).get(name, {}).get("avg_r")) for name in HORIZON_LABEL]
+            lines.append(f"- **{title}** R: " + ", ".join(path) + ".")
+        lines.append("")
+        lines.append("Average percent from the close through day 5:")
+        lines.append("")
+        for kind, book_id in columns:
+            source = books if kind == "pullback" else single
+            title = labels[columns.index((kind, book_id))]
+            path = [_pct((source[book_id].get("horizons") or {}).get(name, {}).get("avg_pct")) for name in HORIZON_LABEL]
+            lines.append(f"- **{title}** %: " + ", ".join(path) + ".")
+    lines.extend(_pullback_example_lines())
+
+
+def _pullback_example_lines() -> list[str]:
+    """The 2026-10-09 CRWD pullback, the same morning as the 10:30 first example."""
+    from datetime import date, timedelta
+
+    import pandas as pd
+
+    from .data import load_all_daily
+    from .morning import first_stop_bar, format_clock, realized_lod_r, realized_pct, rma_at, to_pct
+    from .morning_store import all_leaders, load_bars, single_entries_between, strat_pullbacks_between
+    from .strat_pullback import first_pullback, prepare_pullbacks
+
+    day = "2026-10-09"
+    symbol = "CRWD"
+    stored = [
+        row for row in strat_pullbacks_between(day, day)
+        if row.get("symbol") == symbol and row.get("cutoff") in ("11:00", "10:30")
+    ]
+    row = next((item for item in stored if item.get("cutoff") == "11:00"), None)
+    if row is None:
+        return []
+    other = next((item for item in stored if item.get("cutoff") == "10:30"), None)
+    rma = next(
+        (
+            item for item in single_entries_between(day, day)
+            if item.get("symbol") == symbol and item.get("rule") == "rma1030"
+        ),
+        None,
+    )
+    leaders = [item for item in all_leaders() if item["date"] == day and item["symbol"] == symbol]
+    leader = leaders[0] if leaders else {}
+    start = (date.fromisoformat(day) - timedelta(days=40)).isoformat()
+    end = (date.fromisoformat(day) + timedelta(days=21)).isoformat()
+    bars = load_bars([symbol], start, end, interval="5m")
+    daily = load_all_daily()
+    qqq = daily.get("QQQ")
+    calendar = [] if qqq is None or qqq.empty else [pd.Timestamp(ts).strftime("%Y-%m-%d") for ts in qqq.index]
+    forward = [pd.Timestamp(stamp) for stamp in calendar if stamp > day][:5]
+    prepared = prepare_pullbacks(bars, [symbol])
+    found = first_pullback(prepared.get(symbol), day, "11:00", bars.get(symbol))
+    entry = float(row["entry_price"])
+    stop = float(row["stop_price"])
+    risk = entry - stop
+    clock = format_clock(int(str(row["entry_time"])[:2]) * 60 + int(str(row["entry_time"])[3:5])) or row["entry_time"]
+    entry_end = found["entry_end"] if found else pd.Timestamp(f"{day} {row['entry_time']}")
+    reading = rma_at(bars.get(symbol), entry_end)
+    touch = first_stop_bar(bars.get(symbol), entry_end, stop, forward) if row.get("stopped") else None
+    frame = bars.get(symbol)
+    prior_high = None
+    trigger_open = None
+    trigger_high = None
+    if found is not None and frame is not None and entry_end in frame.index:
+        loc = frame.index.get_loc(entry_end)
+        if isinstance(loc, int) and loc > 0:
+            prior_high = float(frame.iloc[loc - 1].high)
+            trigger_open = float(frame.iloc[loc].open)
+            trigger_high = float(frame.iloc[loc].high)
+    lines = ["", "### CRWD on 2026-10-09, the 5-minute pullback", ""]
+    rank = leader.get("rank")
+    name = leader.get("name") or symbol
+    lines.append(
+        f"**{day}**, **{symbol}** ({name}), prior-close leader rank {rank}. "
+        "This is the same morning as the 10:30 first example. The pullback buys the break of the "
+        "pullback bar instead of waiting for the 10:30 close. Rank 7 is not the first name that day; "
+        "the example is this trade."
+    )
+    lines.append("")
+    if reading is None:
+        lines.append("The 5-minute bars for the RMA cross were not on hand.")
+    else:
+        cross_ts, cross_close, rma_value = reading
+        cross_clock = format_clock(cross_ts.hour * 60 + cross_ts.minute) or "—"
+        lines.append(
+            f"The first 5-minute bar of the session to close above the 20 RMA ended at {cross_clock}. "
+            f"That close was {_px(cross_close)} and the RMA was {_px(rma_value)}."
+        )
+    lines.append("")
+    if prior_high is not None:
+        lines.append(
+            f"The bar before the trigger made a high of {_px(prior_high)}. "
+            f"The trigger bar opened at {_px(trigger_open)} and traded up to {_px(trigger_high)}. "
+            f"The open is under that prior high, so the fill is the prior high, {_px(entry)}, at {clock}. "
+            f"The pattern is {row.get('pattern')}."
+        )
+    else:
+        lines.append(
+            f"The fill is {_px(entry)} at {clock}, pattern {row.get('pattern')}."
+        )
+    if abs(entry - 263.79) < 0.05:
+        lines.append("")
+        lines.append("That prior high is the price described as about $263.79.")
+    lines.append("")
+    lines.append(
+        f"The stop is the low from 9:30 through the entry bar, {_px(stop)}. "
+        f"It sits {_dist(row.get('stop_pct'))} under the entry, so 1R is {_dollars(risk)}. "
+        "A stop this tight turns a small dollar move into a large R until the stop books −1R."
+    )
+    lines.append("")
+    if rma is not None and rma.get("entry_price") is not None and rma.get("stop_price") is not None:
+        rma_entry = float(rma["entry_price"])
+        rma_risk = rma_entry - float(rma["stop_price"])
+        saved = (rma_entry - entry) / rma_entry * 100.0 if rma_entry else None
+        lines.append(
+            f"The 10:30 entry on this name is {_px(rma_entry)}, with the same stop at {_px(rma['stop_price'])} "
+            f"and 1R of {_dollars(rma_risk)}. This fill is {_dollars(rma_entry - entry)} lower, "
+            f"{_pct(saved)} of the 10:30 price, and risks {_dollars(risk)} a share instead of {_dollars(rma_risk)}."
+        )
+        lines.append("")
+    if other is not None and other.get("entry_time") == row.get("entry_time") and abs(float(other["entry_price"]) - entry) < 1e-6:
+        lines.append("The 10:30 cutoff keeps this same trade, because the fill is before 10:30.")
+    elif other is None:
+        lines.append("The 10:30 cutoff does not include this trade.")
+    lines.append("")
+    if int(row.get("stopped") or 0) and touch is not None:
+        when = _stop_when(touch, day, forward)
+        how = "opened through the stop" if touch["gapped"] else "traded down to the stop"
+        exit_at = touch["open"] if touch["gapped"] else stop
+        lines.append(
+            f"The stop was hit {when}. The bar {how} "
+            f"(open {_px(touch['open'])}, low {_px(touch['low'])}) and the exit is {_px(exit_at)}."
+        )
+    elif int(row.get("stopped") or 0):
+        lines.append(
+            f"The stop was hit on session offset {row.get('stop_day')}. "
+            "The 5-minute bar that touched it was not in the stored tape."
+        )
+    else:
+        lines.append("The stop was not hit through the day-5 close.")
+    lines.append("")
+    lines.append(
+        "The close columns are the session close against this entry, with no stop. "
+        "The booked columns are what the study keeps: from the stop session on, the exit."
+    )
+    lines.append("")
+    lines.append("| | Date | Close | Close % | Close R | Booked % | Booked R |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: |")
+    horizon_days = [("eod", day)] + [
+        (name, pd.Timestamp(stamp).strftime("%Y-%m-%d")) for name, stamp in zip(("d1", "d2", "d3", "d4", "d5"), forward)
+    ]
+    daily_frame = daily.get(symbol)
+    risk_pct = row.get("stop_pct")
+    for horizon, stamp in horizon_days:
+        close = _daily_close(daily_frame, stamp)
+        close_pct = to_pct(entry, close)
+        close_r = None if close_pct is None or not risk_pct else close_pct / float(risk_pct)
+        lines.append(
+            f"| {HORIZON_LABEL[horizon]} | {stamp} | {_px(close) if close is not None else '—'} | "
+            f"{_pct(close_pct)} | {_r(close_r)} | {_pct(realized_pct(row, horizon))} | {_r(realized_lod_r(row, horizon))} |"
+        )
+    return lines
 
 
 def _skip_reason(bars, entry_end) -> str:

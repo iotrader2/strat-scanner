@@ -252,6 +252,33 @@ CREATE TABLE IF NOT EXISTS ema_reclaim_day (
     date     TEXT PRIMARY KEY,
     had_tape INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS strat_pullback (
+    date        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    cutoff      TEXT NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_price  REAL,
+    stop_pct    REAL,
+    eod_pct     REAL,
+    d1_pct      REAL,
+    d2_pct      REAL,
+    d3_pct      REAL,
+    d4_pct      REAL,
+    d5_pct      REAL,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    stop_day    INTEGER,
+    exit_pct    REAL,
+    gapped      INTEGER NOT NULL DEFAULT 0,
+    mfe_pct     REAL,
+    rank        INTEGER,
+    pattern     TEXT,
+    PRIMARY KEY (date, symbol, cutoff, entry_time)
+);
+CREATE TABLE IF NOT EXISTS strat_pullback_day (
+    date     TEXT PRIMARY KEY,
+    had_tape INTEGER NOT NULL DEFAULT 0
+);
 """
 
 

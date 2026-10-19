@@ -815,6 +815,18 @@ def _cap_rows(rows: Sequence[Mapping], limit: int, key) -> list:
     return chosen
 
 
+def rma_rank_cap(
+    rows: Sequence[Mapping],
+    score_ranks: Optional[Mapping[str, Mapping[str, int]]],
+    limit: Optional[int],
+) -> list:
+    """10:30 RMA names in the rank-tie order: earliest cross, then leader rank, then symbol."""
+    chosen = [row for row in rows if row.get("rule") == "rma1030"]
+    if limit is None:
+        return chosen
+    return _cap_rows(chosen, limit, lambda row: _rank_order_key(row, score_ranks))
+
+
 def _book(book_id: str, label: str, rule: str, rows: Sequence[Mapping], qqq: Mapping) -> dict:
     body = _summarize_book(list(rows), qqq)
     body["id"] = book_id

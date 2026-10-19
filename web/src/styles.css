@@ -631,13 +631,14 @@ button.this-week:hover { color: var(--text); border-color: var(--border-2); }
 .single-table .single-horizon th {
   padding-top: 14px; color: var(--text); font-size: 12px; letter-spacing: 0.04em;
 }
-.strat-entry .strat-best, .cross-entry .strat-best, .reclaim-entry .strat-best { margin: 8px 0 0; font-size: 14px; }
-.reclaim-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.strat-entry .strat-best, .cross-entry .strat-best, .reclaim-entry .strat-best, .pullback-entry .strat-best { margin: 8px 0 0; font-size: 14px; }
+.reclaim-grid, .pullback-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.pullback-entry .table-card { overflow-x: auto; }
 .cross-entry .single-rule { padding-bottom: 12px; }
 .strat-table th, .strat-table td { padding: 6px 4px; font-size: 12px; }
 .strat-table thead th { font-size: 10px; }
 @media (max-width: 1100px) {
-  .single-grid, .reclaim-grid { grid-template-columns: 1fr; }
+  .single-grid, .reclaim-grid, .pullback-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 1100px) {

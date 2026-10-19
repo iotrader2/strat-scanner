@@ -313,6 +313,134 @@ Skipped:
 
 - **CTVA** (Corteva, Inc.), leader rank 1: no 5-minute close above the 20 RMA by 10:30.
 
+## 5-minute Strat pullback
+
+A top-10 leader qualifies when a 5-minute bar closes above the 20 RMA. After that, the next trade waits for a pullback, a 2D or an inside bar, and buys the first trade above that bar's high. The patterns are 2d-2u, 2d-1-2u, 3-1-2u, 1-2d-2u, and 1-2u. A bar that opens above the prior high fills at the open. The earliest fill is 9:45. One book stops taking new fills at 11:00 and one at 10:30. The stop is the low from 9:30 through the entry bar. One R is that distance. First, first 2, and first 3 are the best leader-list ranks among the names that filled, rank 1 ahead of rank 2. The columns beside them are the 10:30 rank-tie books, bought at the 10:30 close.
+
+The name has to close above the 20 RMA first. The pullback is a later 5-minute bar that is a 2D or an inside, and the buy is the first trade above that bar's high. A 2U straight after a 3 is not a pullback. A bar that opens above the prior high fills at the open, and that fill is known at the bar's start, so the bar that ends five minutes after the cutoff can still fill at its open. A through-trade is known at the bar's end. The earliest fill is 9:45. One trade per name per day. The stop is the low from 9:30 through the entry bar, including that bar's low. The entry bar is not a stop. A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at the open.
+
+First, first 2, and first 3 are the best leader-list ranks among the names that actually filled. Rank 1 is the best prior-close score. A name that never triggers does not take a slot. The columns beside them are the 10:30 rank-tie books, bought at the 10:30 close with the same low-of-day stop. Risk per share is the entry minus that stop. The entry comparison is the 10:30 price minus this fill, as a percent of the 10:30 price, averaged over the names that have both fills. Positive means the pullback fill was lower.
+
+**10:30 pullback, first** is the best of these pullback books by day 3 at -0.16R per morning (n = 59 mornings / 59 fills). The 10:30 rank-tie first book is +0.85R by day 3, and its first 2 is +0.68R. On the mornings both have a day-3 result, this book is -1.00R versus the rank-tie first book.
+
+
+### Pullback, in by 11:00
+
+**First** enters at 10:06 on average (median 10:00) with an average stop 2.33% under the entry, $5.38 of risk per share against $5.45 at the 10:30 entry (-0.12% versus that price, positive means a lower fill, n = 58); **First 2** enters at 10:05 on average (median 10:00) with an average stop 2.19% under the entry, $5.21 of risk per share against $5.36 at the 10:30 entry (0.00% versus that price, positive means a lower fill, n = 117); **First 3** enters at 10:05 on average (median 10:00) with an average stop 2.00% under the entry, $4.74 of risk per share against $4.90 at the 10:30 entry (-0.04% versus that price, positive means a lower fill, n = 175); **All** enters at 10:04 on average (median 10:00) with an average stop 1.85% under the entry, $4.56 of risk per share against $4.68 at the 10:30 entry (-0.08% versus that price, positive means a lower fill, n = 451).
+
+Day 3, side by side. Average % and average R give each morning one vote. R per trade, win, stop, total R, MFE, and best and worst are per fill.
+
+| | First | 10:30 first | First 2 | 10:30 first 2 | First 3 | 10:30 first 3 | All | 10:30 all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Day 3 days | 59 | 58 | 58 | 58 | 58 | 58 | 57 | 57 |
+| Day 3 fills | 59 | 58 | 116 | 116 | 174 | 174 | 443 | 438 |
+| Day 3 avg % | +0.08% | +0.74% | -0.25% | +0.26% | -0.33% | +0.22% | -0.12% | -0.08% |
+| Day 3 avg R | -0.22R | +0.85R | -0.22R | +0.68R | -0.28R | +0.51R | -0.22R | -0.01R |
+| Day 3 win | 25.4% | 29.3% | 22.4% | 25.9% | 23.6% | 25.9% | 21.4% | 23.3% |
+| Day 3 stop | 71.2% | 69.0% | 74.1% | 71.5% | 74.1% | 70.1% | 75.2% | 73.3% |
+| Day 3 total R | -12.9R | +49.2R | -26.0R | +79.4R | -49.2R | +88.6R | -111.8R | -21.1R |
+| Day 3 R per trade | -0.22R | +0.85R | -0.22R | +0.68R | -0.28R | +0.51R | -0.25R | -0.05R |
+| Day 3 avg MFE | +1.88R | +3.89R | +1.95R | +3.42R | +1.94R | +3.31R | +1.90R | +2.45R |
+| Day 3 best R | +7.44R | +21.56R | +10.50R | +22.74R | +10.50R | +22.74R | +11.48R | +22.74R |
+| Day 3 worst R | -2.93R | -2.52R | -2.93R | -3.00R | -6.01R | -4.71R | -6.01R | -8.06R |
+| Day 3 vs 10:30 first | -1.05R | — | -1.07R | — | -1.13R | — | -1.10R | — |
+| Day 3 vs 10:30 first 2 | -0.89R | — | -0.91R | — | -0.97R | — | -0.94R | — |
+
+Average R from the close through day 5:
+
+- **First** R: -0.08R, -0.03R, -0.11R, -0.22R, -0.25R, -0.18R.
+- **10:30 first** R: +0.57R, +0.90R, +0.74R, +0.85R, +0.87R, +1.12R.
+- **First 2** R: -0.05R, -0.02R, -0.13R, -0.22R, -0.27R, -0.18R.
+- **10:30 first 2** R: +0.24R, +0.50R, +0.54R, +0.68R, +0.69R, +0.61R.
+- **First 3** R: -0.06R, -0.04R, -0.17R, -0.28R, -0.47R, -0.49R.
+- **10:30 first 3** R: +0.17R, +0.33R, +0.41R, +0.51R, +0.33R, +0.33R.
+- **All** R: -0.07R, -0.08R, -0.18R, -0.22R, -0.30R, -0.30R.
+- **10:30 all** R: +0.04R, +0.03R, +0.01R, -0.01R, -0.11R, -0.15R.
+
+Average percent from the close through day 5:
+
+- **First** %: -0.02%, +0.18%, +0.27%, +0.08%, -0.15%, -0.06%.
+- **10:30 first** %: +0.59%, +0.93%, +0.63%, +0.74%, +0.61%, +0.71%.
+- **First 2** %: -0.04%, -0.01%, -0.09%, -0.25%, -0.34%, -0.29%.
+- **10:30 first 2** %: +0.12%, +0.16%, +0.15%, +0.26%, +0.28%, +0.22%.
+- **First 3** %: 0.00%, +0.07%, -0.05%, -0.33%, -0.59%, -0.68%.
+- **10:30 first 3** %: +0.16%, +0.18%, +0.13%, +0.22%, +0.10%, +0.11%.
+- **All** %: +0.03%, 0.00%, -0.06%, -0.12%, -0.21%, -0.21%.
+- **10:30 all** %: +0.11%, +0.03%, -0.01%, -0.08%, -0.18%, -0.18%.
+
+### Pullback, in by 10:30
+
+**First** enters at 10:00 with an average stop 2.13% under the entry, $4.41 of risk per share against $4.43 at the 10:30 entry (-0.11% versus that price, positive means a lower fill, n = 59); **First 2** enters at 10:00 with an average stop 2.10% under the entry, $4.77 of risk per share against $4.86 at the 10:30 entry (-0.03% versus that price, positive means a lower fill, n = 118); **First 3** enters at 10:00 with an average stop 1.89% under the entry, $4.48 of risk per share against $4.61 at the 10:30 entry (-0.06% versus that price, positive means a lower fill, n = 177); **All** enters at 10:00 with an average stop 1.81% under the entry, $4.44 of risk per share against $4.57 at the 10:30 entry (-0.09% versus that price, positive means a lower fill, n = 418).
+
+Day 3, side by side. Average % and average R give each morning one vote. R per trade, win, stop, total R, MFE, and best and worst are per fill.
+
+| | First | 10:30 first | First 2 | 10:30 first 2 | First 3 | 10:30 first 3 | All | 10:30 all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Day 3 days | 59 | 58 | 58 | 58 | 58 | 58 | 57 | 57 |
+| Day 3 fills | 59 | 58 | 116 | 116 | 174 | 174 | 407 | 438 |
+| Day 3 avg % | +0.16% | +0.74% | -0.27% | +0.26% | -0.55% | +0.22% | -0.26% | -0.08% |
+| Day 3 avg R | -0.16R | +0.85R | -0.30R | +0.68R | -0.45R | +0.51R | -0.31R | -0.01R |
+| Day 3 win | 27.1% | 29.3% | 21.6% | 25.9% | 20.7% | 25.9% | 20.2% | 23.3% |
+| Day 3 stop | 72.9% | 69.0% | 76.7% | 71.5% | 78.2% | 70.1% | 76.7% | 73.3% |
+| Day 3 total R | -9.7R | +49.2R | -34.8R | +79.4R | -78.7R | +88.6R | -126.2R | -21.1R |
+| Day 3 R per trade | -0.16R | +0.85R | -0.30R | +0.68R | -0.45R | +0.51R | -0.31R | -0.05R |
+| Day 3 avg MFE | +2.21R | +3.89R | +1.84R | +3.42R | +1.73R | +3.31R | +1.85R | +2.45R |
+| Day 3 best R | +7.44R | +21.56R | +7.44R | +22.74R | +7.44R | +22.74R | +11.48R | +22.74R |
+| Day 3 worst R | -2.93R | -2.52R | -2.93R | -3.00R | -6.01R | -4.71R | -6.01R | -8.06R |
+| Day 3 vs 10:30 first | -1.00R | — | -1.15R | — | -1.30R | — | -1.19R | — |
+| Day 3 vs 10:30 first 2 | -0.83R | — | -0.98R | — | -1.14R | — | -1.02R | — |
+
+Average R from the close through day 5:
+
+- **First** R: -0.03R, +0.13R, -0.03R, -0.16R, -0.20R, -0.07R.
+- **10:30 first** R: +0.57R, +0.90R, +0.74R, +0.85R, +0.87R, +1.12R.
+- **First 2** R: -0.04R, -0.07R, -0.22R, -0.30R, -0.36R, -0.30R.
+- **10:30 first 2** R: +0.24R, +0.50R, +0.54R, +0.68R, +0.69R, +0.61R.
+- **First 3** R: -0.09R, -0.17R, -0.36R, -0.45R, -0.52R, -0.58R.
+- **10:30 first 3** R: +0.17R, +0.33R, +0.41R, +0.51R, +0.33R, +0.33R.
+- **All** R: -0.08R, -0.13R, -0.29R, -0.31R, -0.34R, -0.34R.
+- **10:30 all** R: +0.04R, +0.03R, +0.01R, -0.01R, -0.11R, -0.15R.
+
+Average percent from the close through day 5:
+
+- **First** %: 0.00%, +0.45%, +0.39%, +0.16%, -0.05%, +0.16%.
+- **10:30 first** %: +0.59%, +0.93%, +0.63%, +0.74%, +0.61%, +0.71%.
+- **First 2** %: +0.02%, +0.02%, -0.12%, -0.27%, -0.42%, -0.38%.
+- **10:30 first 2** %: +0.12%, +0.16%, +0.15%, +0.26%, +0.28%, +0.22%.
+- **First 3** %: -0.04%, -0.07%, -0.30%, -0.55%, -0.68%, -0.84%.
+- **10:30 first 3** %: +0.16%, +0.18%, +0.13%, +0.22%, +0.10%, +0.11%.
+- **All** %: +0.03%, -0.06%, -0.21%, -0.26%, -0.32%, -0.37%.
+- **10:30 all** %: +0.11%, +0.03%, -0.01%, -0.08%, -0.18%, -0.18%.
+
+### CRWD on 2026-10-09, the 5-minute pullback
+
+**2026-10-09**, **CRWD** (CrowdStrike), prior-close leader rank 7. This is the same morning as the 10:30 first example. The pullback buys the break of the pullback bar instead of waiting for the 10:30 close. Rank 7 is not the first name that day; the example is this trade.
+
+The first 5-minute bar of the session to close above the 20 RMA ended at 9:35. That close was $267.64 and the RMA was $264.30.
+
+The bar before the trigger made a high of $263.78. The trigger bar opened at $263.65 and traded up to $265.96. The open is under that prior high, so the fill is the prior high, $263.78, at 9:55. The pattern is 2d-2u.
+
+That prior high is the price described as about $263.79.
+
+The stop is the low from 9:30 through the entry bar, $262.44. It sits 0.51% under the entry, so 1R is $1.34. A stop this tight turns a small dollar move into a large R until the stop books −1R.
+
+The 10:30 entry on this name is $266.65, with the same stop at $262.44 and 1R of $4.21. This fill is $2.87 lower, +1.08% of the 10:30 price, and risks $1.34 a share instead of $4.21.
+
+The 10:30 cutoff keeps this same trade, because the fill is before 10:30.
+
+The stop was hit on the +1 session (2026-10-12), the 5-minute bar ending 13:15. The bar traded down to the stop (open $263.05, low $262.17) and the exit is $262.44.
+
+The close columns are the session close against this entry, with no stop. The booked columns are what the study keeps: from the stop session on, the exit.
+
+| | Date | Close | Close % | Close R | Booked % | Booked R |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| EOD | 2026-10-09 | $275.04 | +4.27% | +8.40R | +4.27% | +8.40R |
+| +1d | 2026-10-12 | $263.01 | -0.29% | -0.57R | -0.51% | -1.00R |
+| +2d | 2026-10-13 | $261.21 | -0.97% | -1.92R | -0.51% | -1.00R |
+| +3d | 2026-10-14 | $249.29 | -5.49% | -10.81R | -0.51% | -1.00R |
+| +4d | 2026-10-15 | $244.57 | -7.28% | -14.34R | -0.51% | -1.00R |
+| +5d | 2026-10-16 | $227.39 | -13.80% | -27.16R | -0.51% | -1.00R |
+
 ## Strat reversal: 15-minute and 30-minute
 
 Bullish reversals are 2d-2u, 2d-1-2u, 3-1-2u, and 1-2d-2u, the same four this repo treats as reversals. 3-2u is not one of them, so it is not used. 15-minute and 30-minute candles are built from the stored 5-minute bars, aligned to 9:30. The opening candle is context only, so the earliest entry is 9:45 on the 15-minute chart and 10:00 on the 30-minute chart. Entry is the first trade above the prior candle's high. A 5-minute bar that opens above that high fills at its open. The stop is the lower of the prior candle's low and the entry candle's low so far, excluding the trigger bar, and it stays there. Hits are tracked only after the entry. One R is that distance. The RMA books keep a name only when a 5-minute bar had closed above the 20 RMA by the decision time. First name is the earliest entry that day, then the symbol. Nothing after 15:30.

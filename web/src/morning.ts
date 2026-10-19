@@ -93,6 +93,7 @@ export interface MorningStats {
   strat_reversal?: StratStats;
   cross_trigger?: CrossStats;
   ema_reclaim?: ReclaimStats;
+  strat_pullback?: PullbackStats;
 }
 
 export interface SingleHorizon {
@@ -274,7 +275,7 @@ export const SINGLE_RULES = [
 ] as const;
 
 /** Where the book actually got in, and how far the stop sits under that price. */
-export function entryNote(book: SingleBook | StratBook | CrossBook | ReclaimBook | undefined): string {
+export function entryNote(book: SingleBook | StratBook | CrossBook | ReclaimBook | PullbackBook | undefined): string {
   if (!book) return "";
   const when = book.avg_entry ?? "—";
   const clock = book.median_entry && book.median_entry !== book.avg_entry ? `${when} on average (median ${book.median_entry})` : when;
@@ -412,4 +413,74 @@ export function reclaimSentence(stats: ReclaimStats | undefined): string | null 
   const benchText = bench == null ? "" : ` The 10:30 first-name RMA book is ${signedR(bench, 2)} by day 3.`;
   const paired = best.vs_rma_first == null ? "" : ` Paired against that book it is ${signedR(best.vs_rma_first, 2)}.`;
   return `${best.label} is the best of these books by day 3 at ${signedR(best.avg_r, 2)} per morning.${benchText}${paired}`;
+}
+
+export interface PullbackBook {
+  id: string;
+  label: string;
+  title: string;
+  cutoff: string;
+  n_fills: number;
+  avg_entry: string | null;
+  median_entry?: string | null;
+  avg_stop_pct: number | null;
+  avg_risk_dollars: number | null;
+  avg_rma_risk_dollars: number | null;
+  avg_entry_saved_pct: number | null;
+  n_paired: number;
+  trades_per_day: number | null;
+  tape_days: number;
+  horizons: Record<string, SingleHorizon>;
+}
+
+export interface PullbackStats {
+  books: Record<string, PullbackBook>;
+  order: string[];
+  panels: { title: string; books: string[]; refs: string[] }[];
+  best: { id: string; label: string; avg_r: number | null; n_days: number; n_trades: number; vs_rank_first: number | null } | null;
+  benchmark: {
+    first: { label: string; avg_r: number | null; n_days: number; n_trades: number };
+    two: { label: string; avg_r: number | null; n_days: number; n_trades: number };
+  } | null;
+  definition: string;
+}
+
+/** Short headers. The panel title already names the cutoff. */
+export const PULLBACK_COL: Record<string, string> = {
+  pb1100_first: "First",
+  pb1100_two: "First 2",
+  pb1100_three: "First 3",
+  pb1100_all: "All",
+  pb1030_first: "First",
+  pb1030_two: "First 2",
+  pb1030_three: "First 3",
+  pb1030_all: "All",
+};
+
+export const PULLBACK_REF: Record<string, string> = {
+  rma_first_rank: "10:30 first",
+  rma_two: "10:30 first 2",
+  rma_three: "10:30 first 3",
+  rma_all: "10:30 all",
+};
+
+/** Entry clock, stop distance, and how many dollars this fill risks versus the 10:30 entry. */
+export function pullbackNote(book: PullbackBook | undefined): string {
+  if (!book) return "";
+  const risk = book.avg_risk_dollars == null ? "—" : `$${Math.abs(book.avg_risk_dollars).toFixed(2)}`;
+  const other = book.avg_rma_risk_dollars == null ? "—" : `$${Math.abs(book.avg_rma_risk_dollars).toFixed(2)}`;
+  const saved = book.avg_entry_saved_pct == null ? "—" : signedPct(book.avg_entry_saved_pct, 2);
+  return `${entryNote(book)} Risk per share averages ${risk}, against ${other} at the 10:30 entry on the same name. Versus that 10:30 price the pullback entry is ${saved} (${book.n_paired} paired fills; positive means a lower entry).`;
+}
+
+/** Day-3 winner among the pullback books, set next to the 10:30 rank-tie first and first-2 books. */
+export function pullbackSentence(stats: PullbackStats | undefined): string | null {
+  const best = stats?.best;
+  if (!best || best.avg_r == null) return null;
+  const first = stats?.benchmark?.first?.avg_r;
+  const two = stats?.benchmark?.two?.avg_r;
+  const firstText = first == null ? "" : ` The 10:30 rank-tie first book is ${signedR(first, 2)} by day 3.`;
+  const twoText = two == null ? "" : ` First 2 is ${signedR(two, 2)}.`;
+  const paired = best.vs_rank_first == null ? "" : ` Paired against the rank-tie first book it is ${signedR(best.vs_rank_first, 2)}.`;
+  return `${best.label} is the best of these pullback books by day 3 at ${signedR(best.avg_r, 2)} per morning.${firstText}${twoText}${paired}`;
 }

@@ -3,6 +3,8 @@ import {
   bestSentence,
   crossNote,
   crossSentence,
+  pullbackNote,
+  pullbackSentence,
   reclaimNote,
   reclaimSentence,
   displayTime,
@@ -190,5 +192,45 @@ describe("morning check-in view", () => {
       }),
     ).toBe("Low of day, first is the best of these books by day 3 at +0.08R per morning. The 10:30 first-name RMA book is +0.29R by day 3. Paired against that book it is -0.21R.");
     expect(reclaimSentence(undefined)).toBeNull();
+  });
+
+  it("notes a 5-minute Strat pullback and sets it next to the 10:30 rank-tie books", () => {
+    expect(
+      pullbackNote({
+        id: "pb1100_first",
+        label: "11:00 first",
+        title: "11:00 first",
+        cutoff: "11:00",
+        n_fills: 40,
+        avg_entry: "10:05",
+        median_entry: "9:55",
+        avg_stop_pct: 1.1,
+        avg_risk_dollars: 2.4,
+        avg_rma_risk_dollars: 4.8,
+        avg_entry_saved_pct: 0.85,
+        n_paired: 36,
+        trades_per_day: 1,
+        tape_days: 60,
+        horizons: {},
+      }),
+    ).toBe(
+      "11:00 first enters at 10:05 on average (median 9:55). The stop averages 1.10% under the entry. Risk per share averages $2.40, against $4.80 at the 10:30 entry on the same name. Versus that 10:30 price the pullback entry is +0.85% (36 paired fills; positive means a lower entry).",
+    );
+    expect(
+      pullbackSentence({
+        books: {},
+        order: [],
+        panels: [],
+        definition: "",
+        best: { id: "pb1100_first", label: "11:00 first", avg_r: 0.4, n_days: 50, n_trades: 50, vs_rank_first: -0.45 },
+        benchmark: {
+          first: { label: "10:30 rank first", avg_r: 0.85, n_days: 58, n_trades: 58 },
+          two: { label: "10:30 rank first 2", avg_r: 0.68, n_days: 58, n_trades: 116 },
+        },
+      }),
+    ).toBe(
+      "11:00 first is the best of these pullback books by day 3 at +0.40R per morning. The 10:30 rank-tie first book is +0.85R by day 3. First 2 is +0.68R. Paired against the rank-tie first book it is -0.45R.",
+    );
+    expect(pullbackSentence(undefined)).toBeNull();
   });
 });

@@ -45,6 +45,8 @@ def delete_day(day: str, db_path: Path | None = None) -> None:
         conn.execute("DELETE FROM cross_trigger_day WHERE date = ?", (day,))
         conn.execute("DELETE FROM ema_reclaim WHERE date = ?", (day,))
         conn.execute("DELETE FROM ema_reclaim_day WHERE date = ?", (day,))
+        conn.execute("DELETE FROM strat_pullback WHERE date = ?", (day,))
+        conn.execute("DELETE FROM strat_pullback_day WHERE date = ?", (day,))
 
 
 def leader_dates(db_path: Path | None = None) -> set[str]:
@@ -522,6 +524,63 @@ def ema_reclaim_tape_days(db_path: Path | None = None) -> list[str]:
         )]
 
 
+def replace_strat_pullbacks(
+    day: str,
+    rows: Sequence[dict],
+    db_path: Path | None = None,
+    *,
+    had_tape: bool = True,
+) -> None:
+    """Replace one session of the 5-minute Strat pullback study, even when nobody triggered."""
+    payload = []
+    for r in rows:
+        payload.append(
+            (
+                day, r["symbol"], r["cutoff"], r["entry_time"], float(r["entry_price"]),
+                r.get("stop_price"), r.get("stop_pct"),
+                r.get("eod_pct"), r.get("d1_pct"), r.get("d2_pct"), r.get("d3_pct"), r.get("d4_pct"), r.get("d5_pct"),
+                int(r.get("stopped") or 0), r.get("stop_day"), r.get("exit_pct"), int(r.get("gapped") or 0),
+                r.get("mfe_pct"), r.get("rank"), r.get("pattern"),
+            )
+        )
+    with data._write_lock, data.connect(db_path) as conn:
+        conn.execute("DELETE FROM strat_pullback WHERE date = ?", (day,))
+        conn.executemany(
+            "INSERT INTO strat_pullback(date, symbol, cutoff, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, rank, pattern) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            payload,
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO strat_pullback_day(date, had_tape) VALUES (?, ?)",
+            (day, 1 if had_tape else 0),
+        )
+
+
+def strat_pullbacks_between(start: str, end: str, db_path: Path | None = None) -> list[dict]:
+    with data.connect(db_path) as conn:
+        return _rows(
+            conn,
+            "SELECT date, symbol, cutoff, entry_time, entry_price, stop_price, stop_pct, "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, rank, pattern "
+            "FROM strat_pullback WHERE date >= ? AND date <= ? ORDER BY date, cutoff, entry_time, symbol",
+            (start, end),
+        )
+
+
+def strat_pullback_days(db_path: Path | None = None) -> set[str]:
+    with data.connect(db_path) as conn:
+        return {r[0] for r in conn.execute("SELECT date FROM strat_pullback_day")}
+
+
+def strat_pullback_tape_days(db_path: Path | None = None) -> list[str]:
+    """Sessions that had 5-minute tape, including mornings where nobody pulled back."""
+    with data.connect(db_path) as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT date FROM strat_pullback_day WHERE had_tape = 1 ORDER BY date"
+        )]
+
+
 def revision(db_path: Path | None = None) -> str:
     with data.connect(db_path) as conn:
         leaders = conn.execute("SELECT COUNT(*), MAX(date) FROM leader_snapshots").fetchone()
@@ -531,10 +590,11 @@ def revision(db_path: Path | None = None) -> str:
         strat = conn.execute("SELECT COUNT(*), MAX(date) FROM strat_reversal").fetchone()
         cross = conn.execute("SELECT COUNT(*), MAX(date) FROM cross_trigger").fetchone()
         reclaim = conn.execute("SELECT COUNT(*), MAX(date) FROM ema_reclaim").fetchone()
+        pullback = conn.execute("SELECT COUNT(*), MAX(date) FROM strat_pullback").fetchone()
     return (
         f"{leaders[0]}:{leaders[1]}:{results[0]}:{results[1]}:{ranks[0]}:{ranks[1]}:"
         f"{single[0]}:{single[1]}:{strat[0]}:{strat[1]}:{cross[0]}:{cross[1]}:"
-        f"{reclaim[0]}:{reclaim[1]}"
+        f"{reclaim[0]}:{reclaim[1]}:{pullback[0]}:{pullback[1]}"
     )
 
 
@@ -573,6 +633,10 @@ def counts(db_path: Path | None = None) -> dict:
         reclaim_rows = conn.execute(
             "SELECT COUNT(*) FROM ema_reclaim WHERE rule != 'qqq'"
         ).fetchone()[0]
+        pullback_days = conn.execute("SELECT COUNT(*) FROM strat_pullback_day WHERE had_tape = 1").fetchone()[0]
+        pullback_rows = conn.execute(
+            "SELECT COUNT(*) FROM strat_pullback WHERE cutoff != 'qqq'"
+        ).fetchone()[0]
     return {
         "leader_days": int(days or 0),
         "leader_rows": int(names or 0),
@@ -595,4 +659,6 @@ def counts(db_path: Path | None = None) -> dict:
         "cross_rows": int(cross_rows or 0),
         "reclaim_days": int(reclaim_days or 0),
         "reclaim_rows": int(reclaim_rows or 0),
+        "pullback_days": int(pullback_days or 0),
+        "pullback_rows": int(pullback_rows or 0),
     }

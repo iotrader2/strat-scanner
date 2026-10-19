@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import {
   CHECK_INS,
+  PULLBACK_COL,
+  PULLBACK_REF,
   RMA_CAP_LABEL,
   SINGLE_HORIZONS,
   SINGLE_METRICS,
@@ -12,6 +14,8 @@ import {
   crossNote,
   crossSentence,
   displayTime,
+  pullbackNote,
+  pullbackSentence,
   reclaimNote,
   reclaimSentence,
   entryNote,
@@ -398,10 +402,89 @@ export default function Morning() {
       </section>
 
       <SingleEntryTable stats={stats?.single_entry} />
+      <PullbackTable pullback={stats?.strat_pullback} single={stats?.single_entry} />
       <StratReversalTable stats={stats?.strat_reversal} />
       <CrossTriggerTable stats={stats?.cross_trigger} />
       <ReclaimTable stats={stats?.ema_reclaim} />
     </div>
+  );
+}
+
+function PullbackTable({
+  pullback,
+  single,
+}: {
+  pullback: MorningWeek["stats"]["strat_pullback"];
+  single: MorningWeek["stats"]["single_entry"];
+}) {
+  if (!pullback?.panels?.length) return null;
+  const sentence = pullbackSentence(pullback);
+  return (
+    <section className="card single-entry pullback-entry" aria-label="5-minute Strat pullback study">
+      <div className="compare-head">
+        <h2>5-minute Strat pullback</h2>
+        <p className="muted small">{pullback.definition}</p>
+        {sentence && <p className="strat-best">{sentence}</p>}
+      </div>
+      <div className="pullback-grid">
+        {pullback.panels.map((panel) => {
+          const columns = panel.books.flatMap((id, index) => {
+            const ref = panel.refs[index];
+            const pair: { id: string; source: "pullback" | "rma" }[] = [{ id, source: "pullback" }];
+            if (ref && single?.books[ref]) pair.push({ id: ref, source: "rma" });
+            return pair;
+          });
+          return (
+            <div className="single-rule" key={panel.title}>
+              <h3>{panel.title}</h3>
+              {panel.books.map((id) => (
+                <p className="muted small" key={id}>{pullbackNote(pullback.books[id])}</p>
+              ))}
+              <div className="table-card">
+                <table className="scan-table morning-table single-table strat-table">
+                  <thead>
+                    <tr>
+                      <th> </th>
+                      {columns.map((col) => (
+                        <th className="num" key={`${col.source}-${col.id}`}>
+                          {col.source === "rma" ? (PULLBACK_REF[col.id] ?? col.id) : (PULLBACK_COL[col.id] ?? pullback.books[col.id]?.label ?? col.id)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {SINGLE_HORIZONS.map((horizon) => (
+                      <Fragment key={horizon}>
+                        <tr className="single-horizon">
+                          <th colSpan={1 + columns.length}>{COMPARE_LABEL[horizon]}</th>
+                        </tr>
+                        {SINGLE_METRICS.map((metric) => (
+                          <tr key={`${horizon}-${metric.key}`}>
+                            <th scope="row">{metric.label}</th>
+                            {columns.map((col) => {
+                              const block = col.source === "rma"
+                                ? single?.books[col.id]?.horizons[horizon]
+                                : pullback.books[col.id]?.horizons[horizon];
+                              const raw = block?.[metric.key];
+                              const tone = metric.kind === "pct" || metric.kind === "r" || metric.kind === "r1" ? returnTone(typeof raw === "number" ? raw : null) : "";
+                              return (
+                                <td className={`num ${tone}`} key={`${col.source}-${col.id}`}>
+                                  {formatSingle(block, metric.key, metric.kind)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
