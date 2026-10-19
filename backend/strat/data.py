@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS ema_reclaim (
     exit_pct    REAL,
     gapped      INTEGER NOT NULL DEFAULT 0,
     mfe_pct     REAL,
+    rank        INTEGER,
     PRIMARY KEY (date, symbol, rule, entry_time)
 );
 CREATE TABLE IF NOT EXISTS ema_reclaim_day (
@@ -267,6 +268,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     result_cols = {r[1] for r in conn.execute("PRAGMA table_info(entry_results)")}
     if result_cols and "gapped" not in result_cols:
         conn.execute("ALTER TABLE entry_results ADD COLUMN gapped INTEGER NOT NULL DEFAULT 0")
+    reclaim_cols = {r[1] for r in conn.execute("PRAGMA table_info(ema_reclaim)")}
+    if reclaim_cols and "rank" not in reclaim_cols:
+        conn.execute("ALTER TABLE ema_reclaim ADD COLUMN rank INTEGER")
 
 _write_lock = threading.Lock()
 

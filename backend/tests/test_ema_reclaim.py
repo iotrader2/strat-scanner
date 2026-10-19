@@ -193,6 +193,33 @@ def test_first_name_is_the_earliest_reclaim_and_a_zero_day_counts():
     assert first["horizons"]["d3"]["vs_rma_first"] == pytest.approx(3)
     assert stats["benchmark"]["avg_r"] == pytest.approx(1)
     assert stats["best"]["id"] == "reclaim_first"
+    # No ranks stored, so the same-minute tie falls through to the symbol. First 2 is AAA and CCC.
+    assert stats["books"]["reclaim_two"]["horizons"]["d3"]["avg_r"] == pytest.approx(1.5)
+    assert stats["books"]["reclaim_three"]["n_fills"] == 4
+
+
+def test_same_minute_ties_break_on_leader_rank_and_a_missing_stop_keeps_the_slot():
+    def row(symbol, rule, clock, r_pct, rank):
+        return {
+            "date": "2026-10-01", "symbol": symbol, "rule": rule, "entry_time": clock, "rank": rank,
+            "stop_pct": 1.0, "stopped": 0, "stop_day": None, "gapped": 0,
+            "eod_pct": r_pct, "d3_pct": r_pct, "exit_pct": None, "mfe_pct": abs(r_pct),
+        }
+    rows = [
+        row("BBB", "reclaim", "10:00", 2.0, 1),
+        row("AAA", "reclaim", "09:45", 4.0, 3),
+        row("CCC", "reclaim", "09:45", -1.0, 2),
+        # ZZZ reclaimed first and has a pullback stop only, so it occupies the first slot.
+        row("ZZZ", "pullback", "09:40", 9.0, 8),
+    ]
+    stats = build_reclaim_stats(rows, [])
+    # Order: ZZZ 09:40, CCC 09:45 rank 2, AAA 09:45 rank 3, BBB 10:00 rank 1.
+    assert stats["books"]["reclaim_first"]["n_fills"] == 0
+    assert stats["books"]["reclaim_two"]["horizons"]["d3"]["avg_r"] == pytest.approx(-1)
+    assert stats["books"]["reclaim_two"]["n_fills"] == 1
+    assert stats["books"]["reclaim_three"]["horizons"]["d3"]["avg_r"] == pytest.approx(1.5)
+    assert stats["books"]["reclaim_all"]["n_fills"] == 3
+    assert stats["books"]["pullback_first"]["horizons"]["d3"]["avg_r"] == pytest.approx(9)
 
 
 def test_stored_reclaims_round_trip_and_a_quiet_tape_day_stays_in_the_denominator(tmp_path, monkeypatch):
@@ -205,7 +232,7 @@ def test_stored_reclaims_round_trip_and_a_quiet_tape_day_stays_in_the_denominato
             "symbol": "AAA", "rule": "pullback", "entry_time": "09:45", "entry_price": 11,
             "stop_price": 8, "stop_pct": 3, "eod_pct": 1, "d1_pct": None, "d2_pct": None,
             "d3_pct": None, "d4_pct": None, "d5_pct": None, "stopped": 0, "stop_day": None,
-            "exit_pct": None, "gapped": 0, "mfe_pct": 2,
+            "exit_pct": None, "gapped": 0, "mfe_pct": 2, "rank": 2,
         }],
         db,
         had_tape=True,
@@ -214,6 +241,7 @@ def test_stored_reclaims_round_trip_and_a_quiet_tape_day_stays_in_the_denominato
     replace_ema_reclaims("2026-10-14", [], db, had_tape=False)
     rows = ema_reclaims_between("2026-10-16", "2026-10-16", db)
     assert rows[0]["rule"] == "pullback" and rows[0]["stop_price"] == pytest.approx(8)
+    assert rows[0]["rank"] == 2
     assert ema_reclaim_days(db) == {"2026-10-14", "2026-10-15", "2026-10-16"}
     assert ema_reclaim_tape_days(db) == ["2026-10-15", "2026-10-16"]
     assert revision(db) != before

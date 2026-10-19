@@ -374,10 +374,13 @@ def recompute_results(
     if not days:
         return 0
     leaders = all_leaders(db_path)
+    wanted = set(days)
     by_day: dict[str, list[str]] = {}
+    rank_of: dict[str, dict[str, int]] = {}
     for row in leaders:
-        if row["date"] in set(days):
+        if row["date"] in wanted:
             by_day.setdefault(row["date"], []).append(row["symbol"])
+            rank_of.setdefault(row["date"], {})[row["symbol"]] = int(row["rank"])
     if not force:
         # Days with no results yet, days whose +5 close was unknown, and days not yet in the
         # low-of-day study, the Strat reversal study, the cross-trigger study, or the EMA reclaim study.
@@ -432,7 +435,7 @@ def recompute_results(
         single_leaders, single_qqq = single_entries_for_day(day, names, intraday, daily, calendar)
         strat_rows = strat_reversals_for_day(day, names, intraday, daily, calendar, prepared)
         cross_rows = cross_triggers_for_day(day, names, intraday, daily, calendar)
-        reclaim_rows = ema_reclaims_for_day(day, names, intraday, daily, calendar)
+        reclaim_rows = ema_reclaims_for_day(day, names, intraday, daily, calendar, ranks=rank_of.get(day))
         replace_ranks(day, ranks, db_path)
         replace_results(day, leader_rows, role="leader", db_path=db_path)
         replace_results(day, qqq_rows, role="benchmark", db_path=db_path)

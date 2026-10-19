@@ -481,15 +481,15 @@ def replace_ema_reclaims(
                 r.get("stop_price"), r.get("stop_pct"),
                 r.get("eod_pct"), r.get("d1_pct"), r.get("d2_pct"), r.get("d3_pct"), r.get("d4_pct"), r.get("d5_pct"),
                 int(r.get("stopped") or 0), r.get("stop_day"), r.get("exit_pct"), int(r.get("gapped") or 0),
-                r.get("mfe_pct"),
+                r.get("mfe_pct"), r.get("rank"),
             )
         )
     with data._write_lock, data.connect(db_path) as conn:
         conn.execute("DELETE FROM ema_reclaim WHERE date = ?", (day,))
         conn.executemany(
             "INSERT INTO ema_reclaim(date, symbol, rule, entry_time, entry_price, stop_price, stop_pct, "
-            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, rank) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             payload,
         )
         conn.execute(
@@ -503,7 +503,7 @@ def ema_reclaims_between(start: str, end: str, db_path: Path | None = None) -> l
         return _rows(
             conn,
             "SELECT date, symbol, rule, entry_time, entry_price, stop_price, stop_pct, "
-            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct "
+            "eod_pct, d1_pct, d2_pct, d3_pct, d4_pct, d5_pct, stopped, stop_day, exit_pct, gapped, mfe_pct, rank "
             "FROM ema_reclaim WHERE date >= ? AND date <= ? ORDER BY date, rule, entry_time, symbol",
             (start, end),
         )

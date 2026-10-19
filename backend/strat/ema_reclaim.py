@@ -14,7 +14,9 @@ inclusive. The low-of-day stop is the session low from 9:30 through the entry ba
 distance from the entry down to that stop. A stop that is not strictly under the entry is dropped
 for that variant only; the scan does not look for a later reclaim. The entry bar is not a stop.
 A later bar at or below the stop exits at the stop. A bar that opens below the stop exits at the
-open. Each stop is reported for every qualifying name and for the first name that day.
+open. Each stop is reported for every qualifying name and for the first one, two, and three names
+that day. The order is the reclaim time, then the leader-list rank (1 is the best score),
+then the symbol. A name inside the cap keeps its slot when one stop does not sit under the entry.
 """
 
 from __future__ import annotations
@@ -41,19 +43,25 @@ from .morning import (
 EARLIEST = time(9, 45)
 LENGTH = EMA_LENGTH
 STOPS = ("reclaim", "pullback", "lod")
-# (id, stored rule, first name only, column label, sentence title)
-RECLAIM_BOOKS: tuple[tuple[str, str, bool, str, str], ...] = (
-    ("reclaim_all", "reclaim", False, "All", "Reclaim bar, all"),
-    ("reclaim_first", "reclaim", True, "First", "Reclaim bar, first"),
-    ("pullback_all", "pullback", False, "All", "Pullback low, all"),
-    ("pullback_first", "pullback", True, "First", "Pullback low, first"),
-    ("lod_all", "lod", False, "All", "Low of day, all"),
-    ("lod_first", "lod", True, "First", "Low of day, first"),
+# (id, stored rule, cap or None for every name, column label, sentence title)
+RECLAIM_BOOKS: tuple[tuple[str, str, Optional[int], str, str], ...] = (
+    ("reclaim_first", "reclaim", 1, "First", "Reclaim bar, first"),
+    ("reclaim_two", "reclaim", 2, "First 2", "Reclaim bar, first 2"),
+    ("reclaim_three", "reclaim", 3, "First 3", "Reclaim bar, first 3"),
+    ("reclaim_all", "reclaim", None, "All", "Reclaim bar, all"),
+    ("pullback_first", "pullback", 1, "First", "Pullback low, first"),
+    ("pullback_two", "pullback", 2, "First 2", "Pullback low, first 2"),
+    ("pullback_three", "pullback", 3, "First 3", "Pullback low, first 3"),
+    ("pullback_all", "pullback", None, "All", "Pullback low, all"),
+    ("lod_first", "lod", 1, "First", "Low of day, first"),
+    ("lod_two", "lod", 2, "First 2", "Low of day, first 2"),
+    ("lod_three", "lod", 3, "First 3", "Low of day, first 3"),
+    ("lod_all", "lod", None, "All", "Low of day, all"),
 )
 RECLAIM_PANELS: tuple[dict, ...] = (
-    {"title": "Stop at the reclaim bar's low", "books": ["reclaim_all", "reclaim_first"]},
-    {"title": "Stop at the pullback low", "books": ["pullback_all", "pullback_first"]},
-    {"title": "Stop at the low of day", "books": ["lod_all", "lod_first"]},
+    {"title": "Stop at the reclaim bar's low", "books": ["reclaim_first", "reclaim_two", "reclaim_three", "reclaim_all"]},
+    {"title": "Stop at the pullback low", "books": ["pullback_first", "pullback_two", "pullback_three", "pullback_all"]},
+    {"title": "Stop at the low of day", "books": ["lod_first", "lod_two", "lod_three", "lod_all"]},
 )
 
 
@@ -65,7 +73,9 @@ def reclaim_text() -> str:
         "to close below the EMA again. A name that never closes below it, including one that opened "
         "above and stayed there, is not bought. One trade per name. The same entry is stopped three "
         "ways: the reclaim bar's low, the lowest low from the first close below through that bar, "
-        "and the session low from 9:30 through the entry. Each stop has every name and the first name."
+        "and the session low from 9:30 through the entry. Each stop is shown for the first name, "
+        "the first two, the first three, and every name. The order is the reclaim time, then the "
+        "leader-list rank, with rank 1 ahead of rank 2."
     )
 
 
@@ -152,6 +162,7 @@ def ema_reclaims_for_day(
     daily: Mapping[str, pd.DataFrame],
     calendar: Sequence[str],
     length: int = LENGTH,
+    ranks: Optional[Mapping[str, int]] = None,
 ) -> list[dict]:
     """One row per stop that sits under the entry, plus QQQ from each fill's clock."""
     forward = [pd.Timestamp(d) for d in calendar if d > day][:5]
@@ -172,6 +183,7 @@ def ema_reclaims_for_day(
                     "symbol": sym,
                     "rule": rule,
                     "entry_time": signal["entry_time"],
+                    "rank": None if ranks is None else ranks.get(sym),
                     **lod_outcome(
                         entry=signal["entry_price"],
                         stop=stop,
@@ -227,18 +239,46 @@ def _daily_avg_r(trades: Sequence[Mapping]) -> dict[str, dict[str, float]]:
     return out
 
 
-def _select(rows: Sequence[Mapping], rule: str, first_only: bool) -> list[Mapping]:
+def _order_key(row: Mapping) -> tuple:
+    """Earlier reclaim, then a better leader-list rank, then the symbol."""
+    rank = row.get("rank")
+    try:
+        rank_n = int(rank) if rank is not None else 10**9
+    except (TypeError, ValueError):
+        rank_n = 10**9
+    return (str(row.get("entry_time") or ""), rank_n, str(row.get("symbol") or ""))
+
+
+def _capped_symbols(rows: Sequence[Mapping], limit: int) -> dict[str, set[str]]:
+    """First ``limit`` symbols that reclaimed, shared by every stop.
+
+    A name that triggered keeps its place even when one stop is not under the entry, so a later
+    name does not move up to fill that stop's book.
+    """
+    seen: dict[tuple[str, str], Mapping] = {}
+    for row in rows:
+        if row.get("rule") not in STOPS:
+            continue
+        key = (str(row["date"]), str(row["symbol"]))
+        current = seen.get(key)
+        if current is None or _order_key(row) < _order_key(current):
+            seen[key] = row
+    by_day: dict[str, list[Mapping]] = {}
+    for (day, _symbol), row in seen.items():
+        by_day.setdefault(day, []).append(row)
+    allowed: dict[str, set[str]] = {}
+    for day, group in by_day.items():
+        group.sort(key=_order_key)
+        allowed[day] = {str(row["symbol"]) for row in group[:limit]}
+    return allowed
+
+
+def _select(rows: Sequence[Mapping], rule: str, limit: Optional[int]) -> list[Mapping]:
     chosen = [row for row in rows if row.get("rule") == rule]
-    if not first_only:
+    if limit is None:
         return chosen
-    by_day: dict[str, Mapping] = {}
-    for row in chosen:
-        day = str(row["date"])
-        current = by_day.get(day)
-        key = (str(row.get("entry_time")), str(row.get("symbol")))
-        if current is None or key < (str(current.get("entry_time")), str(current.get("symbol"))):
-            by_day[day] = row
-    return list(by_day.values())
+    allowed = _capped_symbols(rows, limit)
+    return [row for row in chosen if str(row["symbol"]) in allowed.get(str(row["date"]), ())]
 
 
 def build_reclaim_stats(
@@ -247,13 +287,13 @@ def build_reclaim_stats(
     rma_first_rows: Sequence[Mapping] = (),
     tape_days: Optional[Sequence[str]] = None,
 ) -> dict:
-    """Six books. Trades per day includes tape sessions where nobody triggered."""
+    """Twelve books. The cap is the first 1, 2, or 3 reclaims. Trades per day includes quiet tape sessions."""
     qqq = {(str(row["date"]), str(row["entry_time"])): row for row in qqq_rows}
     rma_daily = _daily_avg_r(rma_first_rows)
     sessions = [str(day) for day in tape_days] if tape_days is not None else None
     books = {}
-    for book_id, rule, first_only, label, title in RECLAIM_BOOKS:
-        rows = _select(leader_rows, rule, first_only)
+    for book_id, rule, limit, label, title in RECLAIM_BOOKS:
+        rows = _select(leader_rows, rule, limit)
         body = _summarize_book(rows, qqq)
         daily = _daily_avg_r(rows)
         for name, _idx, _field in HORIZONS:

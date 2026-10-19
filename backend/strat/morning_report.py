@@ -409,8 +409,14 @@ def _append_reclaim(lines: list[str], stats: dict) -> None:
         "the entry bar, so a low from before the pullback counts. The entry bar is not a stop. A later "
         "5-minute bar at or below the stop exits at the stop. A bar that opens below the stop exits at "
         "the open and can book worse than −1R. A stop that is not strictly under the entry is dropped "
-        "for that variant only. Trades per day includes tape sessions where nobody reclaimed. The first "
-        "name is the earliest reclaim, then the symbol."
+        "for that variant only, and a later name does not move up to fill the cap. Trades per day "
+        "includes tape sessions where nobody reclaimed."
+    )
+    lines.append("")
+    lines.append(
+        "First, first 2, and first 3 are the earliest reclaims that day. A tie on the reclaim bar goes "
+        "to the better leader-list rank, rank 1 ahead of rank 2, because that rank is the prior-close "
+        "leadership score. The symbol breaks a remaining tie. The same order picks the single first name."
     )
     lines.append("")
     best = reclaim.get("best")

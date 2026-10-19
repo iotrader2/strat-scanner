@@ -631,7 +631,7 @@ button.this-week:hover { color: var(--text); border-color: var(--border-2); }
   padding-top: 14px; color: var(--text); font-size: 12px; letter-spacing: 0.04em;
 }
 .strat-entry .strat-best, .cross-entry .strat-best, .reclaim-entry .strat-best { margin: 8px 0 0; font-size: 14px; }
-.reclaim-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.reclaim-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
 .cross-entry .single-rule { padding-bottom: 12px; }
 .strat-table th, .strat-table td { padding: 6px 4px; font-size: 12px; }
 .strat-table thead th { font-size: 10px; }
