@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatEt, liveStatus } from "./live";
+import { formatLocal, liveStatus } from "./live";
 import type { Status } from "./api";
 
 function status(over: Partial<Status> = {}): Status {
@@ -38,10 +38,16 @@ describe("liveStatus", () => {
     ).toEqual({ tone: "busy", label: "Updating · 80/646 symbols" });
   });
 
-  it("labels a settled scan as 15-minute delayed, in Eastern time", () => {
+  it("labels a settled scan as 15-minute delayed, in the browser timezone", () => {
     const view = liveStatus(status(), "open");
+    const local = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date("2026-10-16T19:45:00Z"));
     expect(view.tone).toBe("live");
-    expect(view.label).toBe(`15-min delayed · updated ${formatEt("2026-10-16T19:45:00Z")}`);
-    expect(view.label).toMatch(/3:45 PM ET$/);
+    expect(formatLocal("2026-10-16T19:45:00Z")).toBe(local);
+    expect(view.label).toBe(`15-min delayed · updated ${local}`);
+    expect(view.label).not.toMatch(/ ET$/);
   });
 });

@@ -4,10 +4,12 @@ import { fmtPct, type ThemeCard as ThemeCardData, type ThemeChip } from "../api"
 import { fmtPerf } from "../perf";
 import { scanThemeHref } from "../themes";
 import { ScorePill, TfBadges } from "./Badges";
-import { CandleChart, type PriceLine } from "./CandleChart";
+import { CandleChart } from "./CandleChart";
 import { PerfStrip } from "./PerfStrip";
 
 const VISIBLE_CHIPS = 12;
+/** Recent bars kept in view so each candle is large enough to read on a theme card. */
+const VISIBLE_BARS = 18;
 
 function Chip({ chip }: { chip: ThemeChip }) {
   const m1 = chip.perf?.["1m"];
@@ -27,10 +29,6 @@ function Chip({ chip }: { chip: ThemeChip }) {
 export function ThemeCard({ theme, chartHeight = 180 }: { theme: ThemeCardData; chartHeight?: number }) {
   const r = theme.row;
   const [expanded, setExpanded] = useState(false);
-  const lines = useMemo<PriceLine[]>(() => {
-    const s = r.setups?.find((x) => !x.triggered) ?? r.setups?.[0];
-    return s ? [{ price: s.trigger, color: "#38bdf8", title: "trigger" }] : [];
-  }, [r.setups]);
   const setup = r.setups?.[0];
   const chips = useMemo(() => [...theme.members, ...theme.also], [theme.members, theme.also]);
   const shown = expanded ? chips : chips.slice(0, VISIBLE_CHIPS);
@@ -53,7 +51,7 @@ export function ThemeCard({ theme, chartHeight = 180 }: { theme: ThemeCardData; 
         <ScorePill score={r.score} row={r} />
       </div>
       <PerfStrip perf={r.perf} label={`${theme.name} equal-weight index performance`} />
-      <CandleChart candles={theme.candles} lines={lines} height={chartHeight} compact />
+      <CandleChart candles={theme.candles} height={chartHeight} visibleBars={VISIBLE_BARS} compact />
       <div className="sector-foot">
         <span className="small">
           {setup ? (

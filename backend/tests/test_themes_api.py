@@ -96,6 +96,11 @@ def test_etf_cards_keep_the_given_order(result, history):
     cards = etf_cards([("SPY", "S", "-", "benchmark"), ("QQQ", "Q", "-", "benchmark"), ("ZZZ", "none", "-", "x")], rows, history, "W", 20)
     assert [c["symbol"] for c in cards] == ["SPY", "QQQ"]
     assert all(len(c["candles"]) == 20 and "perf" in c["row"] for c in cards)
+    qqq = cards[1]["row"]
+    assert set(rows["QQQ"]["tf"]) == {"M", "W", "D"}
+    assert set(qqq["tf"]) == {"M", "W", "D", "3M", "6M"}
+    assert qqq["tf"]["3M"]["strat"] in {"1", "2U", "2D", "3"}
+    assert qqq["tf"]["6M"]["strat"] in {"1", "2U", "2D", "3"}
 
 
 @pytest.fixture
@@ -123,7 +128,7 @@ def test_sectors_endpoint_is_gone(api_client):
     assert api_client.get("/api/sectors").status_code == 404
 
 
-@pytest.mark.parametrize("tf", ["M", "W", "D"])
+@pytest.mark.parametrize("tf", ["M", "W", "D", "3M", "6M"])
 def test_market_endpoint_lists_qqq_spy_iwm_in_order(api_client, tf):
     body = api_client.get(f"/api/market?tf={tf}&bars=30").json()
     assert body["tf"] == tf

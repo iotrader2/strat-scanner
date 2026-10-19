@@ -1,9 +1,9 @@
-import type { Tf, TfState } from "../api";
+import type { HigherTf, Tf, TfState } from "../api";
 
 const STRAT_CLASS: Record<string, string> = { "1": "s1", "2U": "s2u", "2D": "s2d", "3": "s3" };
 const STRAT_LABEL: Record<string, string> = { "1": "INSIDE", "2U": "UP", "2D": "DOWN", "3": "OUTSIDE" };
 
-export function TfBadge({ tf, state }: { tf: Tf; state: TfState | null | undefined }) {
+export function TfBadge({ tf, state }: { tf: Tf | HigherTf; state: TfState | null | undefined }) {
   if (!state) return <span className="tf-badge empty">{tf}</span>;
   const strat = state.strat ?? "–";
   const title = `${tf}: Strat ${strat}, ${state.color} vs open ${state.open.toFixed(2)}${
@@ -18,10 +18,16 @@ export function TfBadge({ tf, state }: { tf: Tf; state: TfState | null | undefin
   );
 }
 
-export function TfBadges({ tf }: { tf: Record<Tf, TfState | null> }) {
+export function TfBadges({
+  tf,
+  frames = ["M", "W", "D"],
+}: {
+  tf: Partial<Record<Tf | HigherTf, TfState | null>>;
+  frames?: readonly (Tf | HigherTf)[];
+}) {
   return (
     <span className="tf-badges">
-      {(["M", "W", "D"] as Tf[]).map((t) => (
+      {frames.map((t) => (
         <TfBadge key={t} tf={t} state={tf[t]} />
       ))}
     </span>

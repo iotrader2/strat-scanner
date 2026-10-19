@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
-import { Legend } from "../components/Badges";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
 import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { LogSlider } from "../components/LogSlider";
@@ -253,7 +252,14 @@ export default function Scanner({ version }: { version: string | null }) {
       </section>
 
       <section className="card filters">
-        <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="search-field">
+          <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          {query && (
+            <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}>
+              X
+            </button>
+          )}
+        </div>
         <Dropdown
           label="Theme"
           header="Filter by theme"
@@ -301,7 +307,6 @@ export default function Scanner({ version }: { version: string | null }) {
             </button>
           )}
         </span>
-        <Legend />
       </div>
       {error && <div className="banner error">{error}</div>}
       {!loading && filtered.length === 0 && !error && (

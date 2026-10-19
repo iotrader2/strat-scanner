@@ -424,15 +424,16 @@ def load_snapshot(db_path: Path | None = None) -> Optional[dict]:
 
 
 def resample(daily: pd.DataFrame, tf: str) -> pd.DataFrame:
-    """Aggregate daily bars into weekly (Mon-Fri) or calendar-month candles.
+    """Aggregate daily bars into weekly, monthly, quarterly, or 6-month candles.
 
     The last candle is the current, still-forming period, which is what The
     Strat classifies in real time.
     """
     if tf == "D" or daily.empty:
         return daily
-    rule = {"W": "W-FRI", "M": "MS"}[tf]
-    agg = daily.resample(rule, label="left" if tf == "M" else "right", closed="left" if tf == "M" else "right").agg(
+    rule = {"W": "W-FRI", "M": "MS", "3M": "QS", "6M": "6MS"}[tf]
+    period_start = tf in {"M", "3M", "6M"}
+    agg = daily.resample(rule, label="left" if period_start else "right", closed="left" if period_start else "right").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     )
     agg = agg.dropna(subset=["open"])

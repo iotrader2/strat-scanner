@@ -23,7 +23,7 @@ function RsChip({ row }: { row: ScanRow }) {
     );
   }
   if (view.flag) parts.push(<span key="flag">{view.flag}</span>);
-  if (view.kill) parts.push(<span key="kill">{view.kill.replace(/^ · /, "")}</span>);
+  if (view.kill) parts.push(<span key="kill" className="rs-kill">{view.kill.replace(/^ · /, "")}</span>);
   if (parts.length === 0) return null;
   return (
     <span className={`rs-chip ${view.level}`}>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
@@ -10,7 +10,7 @@ import { scanThemeHref } from "../themes";
 import { EarningsIcon } from "../components/EarningsIcon";
 import { BreakdownTable } from "../components/ScoreBreakdown";
 import { WatchButton } from "../components/Watch";
-import { CandleChart, type PriceLine } from "../components/CandleChart";
+import { CandleChart } from "../components/CandleChart";
 
 const TF_NAME: Record<Tf, string> = { M: "Monthly", W: "Weekly", D: "Daily" };
 
@@ -33,15 +33,6 @@ export default function Detail({ version }: { version: string | null }) {
 
   const row = data?.row;
   const activeTf: Tf = isTimeframe(storedTf) ? storedTf : (row?.trigger_tf ?? "W");
-
-  const lines = useMemo<PriceLine[]>(() => {
-    if (!row) return [];
-    const out: PriceLine[] = [];
-    if (row.trigger !== null) {
-      out.push({ price: row.trigger, color: "#38bdf8", title: `Trigger (${row.trigger_tf})` });
-    }
-    return out;
-  }, [row]);
 
   if (error) return <div className="page"><div className="banner error">{error}</div></div>;
   if (!data || !row)
@@ -139,9 +130,9 @@ export default function Detail({ version }: { version: string | null }) {
                 </button>
               ))}
             </div>
-            <span className="muted small">H = hammer · I = inside bar · dashed line = weekly trigger</span>
+            <span className="muted small">H = hammer · I = inside bar</span>
           </div>
-          <CandleChart candles={data.charts[activeTf]} lines={lines} height={480} visibleBars={activeTf === "M" ? 60 : 70} />
+          <CandleChart candles={data.charts[activeTf]} height={480} visibleBars={activeTf === "M" ? 60 : 70} />
         </section>
 
         <aside className="side">

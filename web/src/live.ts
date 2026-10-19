@@ -8,16 +8,15 @@ export interface LiveView {
   label: string;
 }
 
-/** Clock time in New York, without a date. "3:45 PM ET". */
-export function formatEt(iso: string): string {
+/** Clock time in the browser's timezone, without a date. "12:45 PM PDT". */
+export function formatLocal(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "never";
-  const time = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   }).format(d);
-  return `${time} ET`;
 }
 
 export function liveStatus(status: Status | null, socket: SocketPhase): LiveView {
@@ -31,5 +30,5 @@ export function liveStatus(status: Status | null, socket: SocketPhase): LiveView
     return { tone: "busy", label: n ? `Updating · ${n} symbols` : "Updating" };
   }
   const when = status.computed_at || status.last_refresh;
-  return { tone: "live", label: `15-min delayed · updated ${when ? formatEt(when) : "never"}` };
+  return { tone: "live", label: `15-min delayed · updated ${when ? formatLocal(when) : "never"}` };
 }

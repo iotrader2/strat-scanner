@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { api, type ThemeCard as ThemeCardData, type Tf } from "../api";
 import { isTimeframe, usePersisted } from "../persist";
-import { Legend } from "../components/Badges";
 import { CARD_BARS, TfToggle } from "../components/EtfCard";
 import { LoadingIndicator, SkeletonCards } from "../components/Loading";
 import { ThemeCard } from "../components/ThemeCard";
@@ -99,7 +98,6 @@ export default function Themes({ version }: { version: string | null }) {
           {query ? `${visible.length} of ${themes.length} themes` : `${themes.length} themes`}
         </span>
       </div>
-      <Legend />
 
       {error && <div className="banner error">{error}</div>}
       {loading && themes.length === 0 && <SkeletonCards count={9} label="Building theme indexes…" />}

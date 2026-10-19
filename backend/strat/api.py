@@ -526,7 +526,7 @@ def breadth():
 
 
 @app.get("/api/market")
-def market(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10, le=300)):
+def market(tf: str = Query("W", pattern="^(M|W|D|3M|6M)$"), bars: int = Query(60, ge=10, le=300)):
     """State of the Market cards: QQQ, SPY and IWM, in that order."""
     _ensure_charts()
     by_symbol = {r["symbol"]: r for r in State.scan}
