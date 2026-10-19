@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { declinersPerAdvancer, marketRead, nasiRead, trendLabel } from "./market";
+import { declinersPerAdvancer, marketRead, nasiRead, trendLabel, universeLabel } from "./market";
 
 const row = (symbol: string, mw_green: boolean, full_continuity = false) => ({ symbol, mw_green, full_continuity });
 
@@ -56,5 +56,13 @@ describe("declinersPerAdvancer", () => {
   it("measures how many stocks fell for each one that rose", () => {
     expect(declinersPerAdvancer(1289, 3669)).toBeCloseTo(2.85, 2);
     expect(declinersPerAdvancer(0, 10)).toBeNull();
+  });
+});
+
+describe("universeLabel", () => {
+  it("names the scanner universe the breadth cards are counting", () => {
+    expect(universeLabel(645)).toBe("Universe, 645 names");
+    expect(universeLabel(2308)).toBe("Universe, 2,308 names");
+    expect(universeLabel(1)).toBe("Universe, 1 name");
   });
 });

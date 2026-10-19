@@ -63,7 +63,7 @@ export default function Market({ version }: { version: string | null }) {
         <TrendBanner
           trend={trend}
           days={etfs.map((e) => ({ symbol: e.symbol, change_pct: e.row.change_pct }))}
-          nasdaq={breadth?.issues?.nasdaq}
+          issues={breadth?.issues ?? undefined}
         />
       )}
 

@@ -1,5 +1,5 @@
-import type { Breadth, IssueCounts } from "../api";
-import { nasiRead } from "../market";
+import type { Breadth } from "../api";
+import { nasiRead, universeLabel } from "../market";
 import { LineChart } from "./LineChart";
 
 function signed(value: number, digits = 0): string {
@@ -27,37 +27,53 @@ function FearGreedBar({ score, rating }: { score: number; rating: string }) {
   );
 }
 
-function IssueBar({ label, counts }: { label: string; counts: IssueCounts }) {
-  const total = counts.advancing + counts.declining + counts.unchanged;
-  if (total <= 0) return null;
-  const width = (n: number) => `${(n / total) * 100}%`;
+function CountBar({
+  green,
+  greenLabel,
+  red,
+  redLabel,
+  gray = 0,
+  grayTitle,
+}: {
+  green: number;
+  greenLabel: string;
+  red: number;
+  redLabel: string;
+  gray?: number;
+  grayTitle?: string;
+}) {
+  const total = green + red + gray;
+  const width = (n: number) => (total > 0 ? `${(n / total) * 100}%` : "0%");
   return (
     <div className="ad-row">
       <div className="ad-head">
-        <span>{label}</span>
         <span className="muted">
-          <span className="green-text">{counts.advancing.toLocaleString()} up</span>
+          <span className="green-text">
+            {green.toLocaleString()} {greenLabel}
+          </span>
           {" · "}
-          <span className="red-text">{counts.declining.toLocaleString()} down</span>
+          <span className="red-text">
+            {red.toLocaleString()} {redLabel}
+          </span>
         </span>
       </div>
-      <div className="ad-track" title={`${counts.unchanged.toLocaleString()} unchanged`}>
-        <span className="ad-adv" style={{ width: width(counts.advancing) }} />
-        <span className="ad-unch" style={{ width: width(counts.unchanged) }} />
-        <span className="ad-dec" style={{ width: width(counts.declining) }} />
+      <div className="ad-track" title={grayTitle}>
+        <span className="ad-adv" style={{ width: width(green) }} />
+        {gray > 0 && <span className="ad-unch" style={{ width: width(gray) }} />}
+        <span className="ad-dec" style={{ width: width(red) }} />
       </div>
     </div>
   );
 }
 
-/** $NASI line, Fear & Greed gauge and advancers vs decliners. Missing sources are left out. */
+/** $NASI line, Fear & Greed gauge, and breadth of the symbols the scanner tracks. */
 export function BreadthPanel({ breadth }: { breadth: Breadth }) {
   const nasi = breadth.nasi;
   const nasiCall = nasi && nasi.points.length > 0 ? nasiRead(nasi) : null;
   const fear = breadth.fear_greed;
   const issues = breadth.issues;
-  const hasIssues = Boolean(issues && (issues.nasdaq || issues.nyse));
-  if (!nasi && !fear && !hasIssues) return null;
+  const extremes = breadth.highs_lows;
+  if (!nasi && !fear && !issues && !extremes) return null;
 
   return (
     <section className="breadth-grid">
@@ -81,7 +97,7 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
           <LineChart points={nasi.points} color={nasi.value >= 0 ? "#22c55e" : "#f43f5e"} height={220} />
         </div>
       )}
-      {(fear || hasIssues) && (
+      {(fear || issues || extremes) && (
         <div className="breadth-side">
           {fear && (
             <div className="card breadth-card">
@@ -99,16 +115,39 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
               </div>
             </div>
           )}
-          {hasIssues && issues && (
+          {issues && (
             <div className="card breadth-card">
               <div className="breadth-head">
                 <div>
                   <div className="sym">Advancers vs decliners</div>
-                  <div className="sub muted">Issues today</div>
+                  <div className="sub muted">Today · {universeLabel(issues.names)}</div>
                 </div>
               </div>
-              {issues.nasdaq && <IssueBar label="Nasdaq" counts={issues.nasdaq} />}
-              {issues.nyse && <IssueBar label="NYSE" counts={issues.nyse} />}
+              <CountBar
+                green={issues.advancing}
+                greenLabel="up"
+                red={issues.declining}
+                redLabel="down"
+                gray={issues.unchanged}
+                grayTitle={`${issues.unchanged.toLocaleString()} unchanged`}
+              />
+            </div>
+          )}
+          {extremes && (
+            <div className="card breadth-card">
+              <div className="breadth-head">
+                <div>
+                  <div className="sym">New highs vs new lows</div>
+                  <div className="sub muted">52-week · {universeLabel(extremes.names)}</div>
+                </div>
+              </div>
+              <CountBar
+                green={extremes.highs}
+                greenLabel={extremes.highs === 1 ? "high" : "highs"}
+                red={extremes.lows}
+                redLabel={extremes.lows === 1 ? "low" : "lows"}
+                grayTitle="Latest session versus the prior 252 sessions"
+              />
             </div>
           )}
         </div>

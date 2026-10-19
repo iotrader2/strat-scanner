@@ -7,12 +7,12 @@ export interface DayChange {
 }
 
 /** Bold 10/20/50-day call, with today's index moves at the same size so a bad session is obvious. */
-export function TrendBanner({ trend, days, nasdaq }: { trend: Trend; days: DayChange[]; nasdaq?: IssueCounts }) {
+export function TrendBanner({ trend, days, issues }: { trend: Trend; days: DayChange[]; issues?: IssueCounts }) {
   const { label, detail } = trendLabel(trend.call);
   const bySymbol = new Map(days.map((d) => [d.symbol, d.change_pct]));
   const changes = trend.indexes.map((index) => bySymbol.get(index.symbol)).filter((v): v is number => v !== undefined);
   const allDown = changes.length === trend.indexes.length && changes.every((v) => v < 0);
-  const ratio = nasdaq ? declinersPerAdvancer(nasdaq.advancing, nasdaq.declining) : null;
+  const ratio = issues ? declinersPerAdvancer(issues.advancing, issues.declining) : null;
   const lopsided = ratio !== null && ratio >= 2;
 
   return (
@@ -28,7 +28,7 @@ export function TrendBanner({ trend, days, nasdaq }: { trend: Trend; days: DayCh
           <div className="trend-label">{label}</div>
           <p className="trend-detail">
             {detail}
-            {lopsided && ratio !== null && <> Nasdaq decliners were {ratio.toFixed(1)} to 1.</>}
+            {lopsided && ratio !== null && <> Universe decliners were {ratio.toFixed(1)} to 1.</>}
           </p>
         </div>
       </div>

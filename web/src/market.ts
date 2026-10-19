@@ -81,3 +81,9 @@ export function declinersPerAdvancer(advancing: number, declining: number): numb
   if (advancing <= 0 || declining < 0) return null;
   return declining / advancing;
 }
+
+/** Subtitle for a breadth card. ``names`` is how many symbols the scanner counted. */
+export function universeLabel(names: number): string {
+  const n = Math.max(0, Math.round(names));
+  return `Universe, ${n.toLocaleString("en-US")} ${n === 1 ? "name" : "names"}`;
+}

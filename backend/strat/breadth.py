@@ -1,8 +1,12 @@
-"""State-of-the-market breadth: $NASI, CNN Fear & Greed, and advancing vs declining issues.
+"""State-of-the-market breadth: $NASI, CNN Fear & Greed, and the scanner's own universe.
 
 $NASI is the Nasdaq McClellan Summation Index, read from StockCharts' public quote history.
-Fear & Greed is CNN's index. Advancers and decliners are the WSJ markets diary (Nasdaq and NYSE).
-Each source is cached for a few minutes and a failed refresh keeps the last good reading.
+Fear & Greed is CNN's index. Each of those is cached for a few minutes and a failed refresh
+keeps the last good reading.
+
+Advancers versus decliners, and 52-week new highs versus new lows, are not exchange-wide.
+They count the symbols this scanner already tracks (the scan rows), using the daily bars the
+background fetcher has cached. Nothing here calls out for those two cards.
 """
 
 from __future__ import annotations
@@ -15,7 +19,11 @@ import time
 import urllib.parse
 import urllib.request
 from datetime import date, timedelta
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
+
+import pandas as pd
+
+from .leadership import HIGH_52W_BARS
 
 log = logging.getLogger(__name__)
 
@@ -80,47 +88,76 @@ def parse_fear_greed(payload: dict) -> Optional[dict]:
     }
 
 
-def _count(value: object) -> Optional[int]:
-    if not isinstance(value, str):
-        return None
-    text = value.replace(",", "").strip()
-    return int(text) if re.fullmatch(r"\d+", text) else None
+def new_52w_extreme(daily: Optional[pd.DataFrame]) -> tuple[bool, bool]:
+    """Whether the latest session set a 52-week high, a 52-week low, neither, or both.
 
-
-def parse_issues(payload: dict) -> Optional[dict]:
-    """WSJ markets diary -> advancing, declining and unchanged issue counts per exchange.
-
-    The diary also lists share volume under the same row names, so only the Issues table is used.
+    Compared with the prior ``HIGH_52W_BARS`` sessions only (today is not part of that
+    window). Today's high must clear the prior high; today's low must undercut the prior
+    low. A name with a shorter history is neither — a 60-day high is not a 52-week high.
+    One wide session can be both.
     """
-    sets = (payload.get("data") or {}).get("instrumentSets") if isinstance(payload, dict) else None
-    if not isinstance(sets, list):
+    need = HIGH_52W_BARS + 1
+    if daily is None or len(daily) < need or "high" not in daily.columns or "low" not in daily.columns:
+        return False, False
+    window = daily.iloc[-need:]
+    prior_high = window["high"].iloc[:-1].max(skipna=True)
+    prior_low = window["low"].iloc[:-1].min(skipna=True)
+    today_high = window["high"].iloc[-1]
+    today_low = window["low"].iloc[-1]
+    if pd.isna(prior_high) or pd.isna(prior_low) or pd.isna(today_high) or pd.isna(today_low):
+        return False, False
+    return bool(float(today_high) > float(prior_high)), bool(float(today_low) < float(prior_low))
+
+
+def _change_pct(row: object) -> Optional[float]:
+    if not isinstance(row, dict):
         return None
-    issues = next(
-        (
-            item
-            for item in sets
-            if isinstance(item, dict)
-            and (item.get("headerFields") or [{}])[0].get("label") == "Issues"
-        ),
-        None,
-    )
-    if not isinstance(issues, dict):
+    change = row.get("change_pct")
+    # ``bool`` is an ``int`` subclass and is not a percent.
+    if isinstance(change, bool) or not isinstance(change, (int, float)):
         return None
-    rows = {
-        row.get("name"): row
-        for row in issues.get("instruments") or []
-        if isinstance(row, dict) and row.get("name")
-    }
-    out = {}
-    for exchange, key in (("NASDAQ", "nasdaq"), ("NYSE", "nyse")):
-        counts = {
-            field: _count((rows.get(name) or {}).get(exchange))
-            for name, field in (("Advancing", "advancing"), ("Declining", "declining"), ("Unchanged", "unchanged"))
-        }
-        if any(v is None for v in counts.values()):
+    return float(change)
+
+
+def universe_breadth(
+    rows: Optional[list], daily_by_symbol: Optional[Mapping[str, pd.DataFrame]] = None
+) -> Optional[dict]:
+    """Up/down and 52-week high/low counts for the symbols the scanner tracks.
+
+    Up, down and unchanged come from each row's ``change_pct``, which the scan already
+    computed from the cached daily closes (latest close versus the prior close). Highs
+    and lows walk the daily frames already held in memory; they are omitted until those
+    frames are loaded, rather than reported as zero. ``names`` is the number of rows
+    that had a change, which is the universe the cards label.
+    """
+    advancing = declining = unchanged = 0
+    counted: list[str] = []
+    for row in rows or []:
+        change = _change_pct(row)
+        if change is None or not isinstance(row, dict) or not row.get("symbol"):
             continue
-        out[key] = counts
-    return out or None
+        if change > 0:
+            advancing += 1
+        elif change < 0:
+            declining += 1
+        else:
+            unchanged += 1
+        counted.append(str(row["symbol"]))
+    names = advancing + declining + unchanged
+    if names == 0:
+        return None
+    issues = {"advancing": advancing, "declining": declining, "unchanged": unchanged, "names": names}
+    if not daily_by_symbol:
+        return {"issues": issues, "highs_lows": None}
+    highs = lows = 0
+    for symbol in counted:
+        is_high, is_low = new_52w_extreme(daily_by_symbol.get(symbol))
+        highs += int(is_high)
+        lows += int(is_low)
+    return {
+        "issues": issues,
+        "highs_lows": {"highs": highs, "lows": lows, "names": names},
+    }
 
 
 def _nasi_text() -> str:
@@ -138,16 +175,6 @@ def _fear_text() -> str:
         "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
         "application/json",
         "https://edition.cnn.com/markets/fear-and-greed",
-    )
-
-
-def _diary_text() -> str:
-    diary_id = json.dumps({"application": "WSJ", "marketsDiaryType": "overview"}, separators=(",", ":"))
-    query = urllib.parse.urlencode({"id": diary_id, "type": "mdc_marketsdiary"})
-    return _get(
-        f"https://www.wsj.com/market-data/stocks?{query}",
-        "application/json",
-        "https://www.wsj.com/market-data/stocks",
     )
 
 
@@ -170,11 +197,14 @@ def _cached(key: str, load: Callable[[], Optional[dict]]) -> Optional[dict]:
 
 
 def fetch_breadth() -> dict:
-    """Latest $NASI series, Fear & Greed score and advancer/decliner counts. Missing sources are null."""
+    """Latest $NASI series and Fear & Greed score. Missing sources are null.
+
+    Universe advancers and 52-week extremes are not fetched here; they are counted from
+    the scan the background fetcher already produced.
+    """
     return {
         "nasi": _cached("nasi", lambda: parse_nasi(_nasi_text())),
         "fear_greed": _cached("fear_greed", lambda: parse_fear_greed(json.loads(_fear_text()))),
-        "issues": _cached("issues", lambda: parse_issues(json.loads(_diary_text()))),
     }
 
 
