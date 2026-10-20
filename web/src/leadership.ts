@@ -36,7 +36,7 @@ export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
   return filter === "leaders" || filter === "setups_pending" || filter === "setups_triggered";
 }
 
-/** Chip shown on a scan row when the latest daily MACD bar is a trend-change trigger. */
+/** Chip shown on a scan row with a Daily bullish / bearish trend change setup (MACD trigger on the latest bar, confirmed by the 50-day SMA). */
 export function dailyTrendBadge(
   trend: ScanRow["daily_trend"],
 ): { label: string; tone: "bull" | "bear"; title: string } | null {
@@ -44,14 +44,14 @@ export function dailyTrendBadge(
     return {
       label: "Daily bullish",
       tone: "bull",
-      title: "Daily MACD (6,20,9): first green histogram bar after 3 or more red bars, on the latest daily bar",
+      title: "Daily MACD (6,20,9): first green histogram bar after 3 or more red bars, on the latest daily bar, with the close above the 50-day SMA",
     };
   }
   if (trend === "bearish") {
     return {
       label: "Daily bearish",
       tone: "bear",
-      title: "Daily MACD (6,20,9): first red histogram bar after 3 or more green bars, on the latest daily bar",
+      title: "Daily MACD (6,20,9): first red histogram bar after 3 or more green bars, on the latest daily bar, with the close below the 50-day SMA",
     };
   }
   return null;
@@ -62,7 +62,8 @@ export function dailyTrendBadge(
  * trends are never listed as leaders. The weekly Strat views are Leaders that also have a long-side weekly Strat setup
  * on the last completed weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger
  * vs already triggered. Daily bullish / bearish trend change is the daily MACD (6,20,9) histogram trigger on the most
- * recent daily bar (`daily_trend`); it ignores the slider and the weekly setup. Recent breakouts ignores the slider:
+ * recent daily bar with the close above (bullish) or below (bearish) the 50-day SMA (`daily_trend`, gated in the
+ * backend; the raw trigger the chart arrow shows is `daily_macd_trigger`); it ignores the slider and the weekly setup. Recent breakouts ignores the slider:
  * it needs a tight-base breakout and RS >= P50. Broken leaders ignores the slider: any name whose trend is broken
  * (same flag as the RS chip). Failed breakouts is the opposite of Recent breakouts: a breakout of the last 8 weeks
  * whose level price has since lost (`failed_breakout`, from the backend), RS >= P50, any trend; it ignores the slider.

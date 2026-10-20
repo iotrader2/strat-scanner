@@ -180,7 +180,10 @@ export interface ScanRow {
    * "bullish" is the first green bar after 3+ red; "bearish" is the first red after 3+ green.
    * Null when the latest bar is not that flip. Absent on a scan cached before this field existed.
    */
+  /** Daily bullish / bearish trend change setup: the MACD trigger below, with the close on the matching side of the 50-day SMA. */
   daily_trend?: "bullish" | "bearish" | null;
+  /** Raw daily MACD (6,20,9) histogram trigger on the latest bar, the same as the chart arrow (no 50-day check). */
+  daily_macd_trigger?: "bullish" | "bearish" | null;
   trigger: number | null;
   trigger_tf: Tf | null;
   setup: string | null;

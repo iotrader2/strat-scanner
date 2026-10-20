@@ -13,6 +13,7 @@ from strat.macd import (
     MACD_SLOW,
     ema,
     histogram_triggers,
+    daily_trend_setup,
     latest_daily_trend,
     macd_histogram,
     trend_from_histogram,
@@ -111,3 +112,41 @@ def test_trigger_dates_match_the_shared_fixture():
     fixture = json.loads(FIXTURE.read_text())
     got = [{"time": row["time"], "direction": row["direction"]} for row in trigger_dates(fixture["times"], fixture["closes"])]
     assert got == fixture["triggers"]
+
+
+def _trend(price, sma50):
+    from strat.leadership import Trend
+
+    return Trend(price=price, sma={10: None, 20: None, 50: sma50}, rising={}, off_52w_high_pct=None, off_6m_high_pct=None, bars=60)
+
+
+@pytest.mark.parametrize(
+    "trigger, price, sma50, expected",
+    [
+        ("bullish", 105.0, 100.0, "bullish"),  # bullish above the 50 matches
+        ("bullish", 95.0, 100.0, None),  # bullish below the 50 does not
+        ("bullish", 100.0, 100.0, None),  # exactly on the 50 is not above it
+        ("bearish", 95.0, 100.0, "bearish"),  # bearish below the 50 matches
+        ("bearish", 105.0, 100.0, None),  # bearish above the 50 does not
+        ("bearish", 100.0, 100.0, None),  # exactly on the 50 is not below it
+        ("bullish", 105.0, None, None),  # no 50-day SMA: no match
+        ("bearish", 95.0, None, None),
+        (None, 105.0, 100.0, None),  # no MACD trigger: no match
+    ],
+)
+def test_daily_trend_setup_needs_the_close_on_the_matching_side_of_the_50(trigger, price, sma50, expected):
+    assert daily_trend_setup(trigger, _trend(price, sma50)) == expected
+
+
+def test_daily_trend_setup_without_trend_metrics_does_not_match():
+    assert daily_trend_setup("bullish", None) is None
+    assert daily_trend_setup("bearish", None) is None
+
+
+def test_daily_trend_setup_with_short_history_has_no_50_day_sma():
+    from strat.leadership import trend_metrics
+
+    short = pd.DataFrame({"close": [100.0 + i for i in range(40)], "high": [101.0 + i for i in range(40)]})
+    trend = trend_metrics(short)
+    assert trend is not None and trend.sma[50] is None
+    assert daily_trend_setup("bullish", trend) is None

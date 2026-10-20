@@ -3,9 +3,11 @@ import { useSearchParams } from "react-router-dom";
 import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
 import { Dropdown, type DropdownOption } from "../components/Dropdown";
+import { AtrSlider } from "../components/AtrSlider";
 import { LogSlider } from "../components/LogSlider";
+import { ATR_PCT_DEFAULT, normalizeAtrRange, passesAtr, type AtrRange } from "../atrFilter";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
-import { readPersisted, usePersisted } from "../persist";
+import { clearRetiredFilters, readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
 import {
   leadershipUsesMinRs,
@@ -27,7 +29,6 @@ import { matchesTheme, themeName, themeOptions } from "../themes";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
-type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
@@ -48,13 +49,13 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "daily_bullish",
     label: "Daily bullish trend change",
     hint:
-      "Daily MACD (6,20,9) histogram turned up on the most recent daily bar: the first green bar (at or above zero) after 3 or more red bars. Same math as the green chart arrow. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
+      "Daily MACD (6,20,9) histogram turned up on the most recent daily bar (the first green bar, at or above zero, after 3 or more red bars; same math as the green chart arrow), with the latest close above the 50-day SMA. Names without a 50-day SMA are left out. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
   },
   {
     value: "daily_bearish",
     label: "Daily bearish trend change",
     hint:
-      "Daily MACD (6,20,9) histogram turned down on the most recent daily bar: the first red bar (below zero) after 3 or more green bars. Same math as the red chart arrow. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
+      "Daily MACD (6,20,9) histogram turned down on the most recent daily bar (the first red bar, below zero, after 3 or more green bars; same math as the red chart arrow), with the latest close below the 50-day SMA. Names without a 50-day SMA are left out. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
   },
   {
     value: "breakouts",
@@ -139,12 +140,6 @@ const FAILED_COLUMNS: ExtraColumn[] = [
       ),
   },
 ];
-const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
-  { value: "any", label: "Any" },
-  { value: "mw", label: "M + W green" },
-  { value: "m2u", label: "Monthly 2U" },
-  { value: "full", label: "M + W + D green" },
-];
 const SETUP_OPTIONS: DropdownOption<SetupFilter>[] = [
   { value: "any", label: "Any" },
   { value: "pending", label: "Awaiting trigger" },
@@ -169,8 +164,6 @@ export default function Scanner({ version }: { version: string | null }) {
 
   const [minPrice, setMinPrice] = usePersisted<number | null>("minPrice", null);
   const [minDvM, setMinDvM] = usePersisted<number | null>("minDvM", null);
-  // Continuity was a default gate (M+W green) when the scanner ranked setups; it is a timing option now, so it has a new key.
-  const [continuity, setContinuity] = usePersisted<Continuity>("continuityFilter", "any");
   const [savedLeadership] = useState(() => migrateLeadership(readPersisted<string | null>("leadership", null)));
   const [leadership, setLeadership] = usePersisted<LeadershipFilter>("leadership", savedLeadership.filter);
   const [minRsSlider, setMinRs] = usePersisted<number | null>("minRs", null);
@@ -178,11 +171,16 @@ export default function Scanner({ version }: { version: string | null }) {
   const minRs = sliderToRs(minRsPct);
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
   const [kind, setKind] = usePersisted<Kind>("kind", "all");
+  const [savedAtr, setAtrRange] = usePersisted<AtrRange>("atrPct", ATR_PCT_DEFAULT);
+  const atrRange = useMemo(() => normalizeAtrRange(savedAtr), [savedAtr]);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     api.config().then(setConfig).catch(() => undefined);
   }, []);
+
+  // Filters that no longer exist (the Continuity dropdown): drop their saved values so nothing reads them again.
+  useEffect(() => clearRetiredFilters(), []);
 
   const effPrice = minPrice ?? config?.min_price ?? 10;
   const effDv = (minDvM ?? (config ? config.min_dollar_volume / 1e6 : 50)) * 1e6;
@@ -211,13 +209,11 @@ export default function Scanner({ version }: { version: string | null }) {
       if (!matchesLeadership(r, leadership, minRs)) return false;
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
-      if (continuity === "mw" && !r.mw_green) return false;
-      if (continuity === "full" && !r.full_continuity) return false;
-      if (continuity === "m2u" && !r.monthly_2u) return false;
+      if (!passesAtr(r, atrRange)) return false;
       return matchesSetup(r, setupFilter);
     });
     return out;
-  }, [liquid, query, theme, kind, continuity, setupFilter, leadership, minRs]);
+  }, [liquid, query, theme, kind, setupFilter, leadership, minRs, atrRange]);
 
   /**
    * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
@@ -280,56 +276,54 @@ export default function Scanner({ version }: { version: string | null }) {
       </section>
 
       <section className="card filters">
-        <div className="search-field">
-          <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
-          {query && (
-            <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-              X
-            </button>
-          )}
+        <div className="filter-row filter-dropdowns">
+          <div className="search-field">
+            <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
+            {query && (
+              <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}>
+                X
+              </button>
+            )}
+          </div>
+          <Dropdown
+            label="Theme"
+            header="Filter by theme"
+            value={theme}
+            options={themeChoices}
+            onChange={setTheme}
+          />
+          <Dropdown
+            label={SETUPS_FILTER_LABEL}
+            header="Filter by setup"
+            value={leadership}
+            options={SETUPS_OPTIONS}
+            onChange={setLeadership}
+          />
+          <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
+          <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
         </div>
-        <Dropdown
-          label="Theme"
-          header="Filter by theme"
-          value={theme}
-          options={themeChoices}
-          onChange={setTheme}
-        />
-        <Dropdown
-          label={SETUPS_FILTER_LABEL}
-          header="Filter by setup"
-          value={leadership}
-          options={SETUPS_OPTIONS}
-          onChange={setLeadership}
-        />
-        <Dropdown
-          label="Continuity"
-          header="Filter by continuity"
-          value={continuity}
-          options={CONTINUITY_OPTIONS}
-          onChange={setContinuity}
-        />
-        <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
-        <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
-        {leadershipUsesMinRs(leadership) && (
-          <RsSlider value={minRsPct} min={MIN_RS_RANGE.min} max={MIN_RS_RANGE.max} onChange={setMinRs} />
-        )}
-        <LogSlider
-          label="Min price"
-          value={effPrice}
-          min={PRICE_RANGE.min}
-          max={PRICE_RANGE.max}
-          format={fmtPrice}
-          onChange={setMinPrice}
-        />
-        <LogSlider
-          label="Min avg $ volume"
-          value={effDv}
-          min={DOLLAR_VOL_RANGE.min}
-          max={DOLLAR_VOL_RANGE.max}
-          format={(v) => `$${fmtCompact(v)}`}
-          onChange={(v) => setMinDvM(v / 1e6)}
-        />
+        <div className="filter-row filter-sliders">
+          {leadershipUsesMinRs(leadership) && (
+            <RsSlider value={minRsPct} min={MIN_RS_RANGE.min} max={MIN_RS_RANGE.max} onChange={setMinRs} />
+          )}
+          <LogSlider
+            label="Min price"
+            value={effPrice}
+            min={PRICE_RANGE.min}
+            max={PRICE_RANGE.max}
+            format={fmtPrice}
+            onChange={setMinPrice}
+          />
+          <LogSlider
+            label="Min avg $ volume"
+            value={effDv}
+            min={DOLLAR_VOL_RANGE.min}
+            max={DOLLAR_VOL_RANGE.max}
+            format={(v) => `$${fmtCompact(v)}`}
+            onChange={(v) => setMinDvM(v / 1e6)}
+          />
+          <AtrSlider value={atrRange} onChange={setAtrRange} />
+        </div>
       </section>
 
       <div className="table-meta">
