@@ -251,6 +251,20 @@ describe("daily MACD trend change", () => {
     expect(leadershipUsesMinRs("daily_bearish")).toBe(false);
   });
 
+  it("follows the backend's 50-day-gated daily_trend, not the raw MACD trigger", () => {
+    // MACD turned up but the close is below the 50-day SMA: the backend leaves daily_trend null.
+    const belowFifty = { ...row(0.9), daily_trend: null, daily_macd_trigger: "bullish" as const };
+    const aboveFifty = { ...row(0.9), daily_trend: null, daily_macd_trigger: "bearish" as const };
+    expect(matchesLeadership(belowFifty, "daily_bullish")).toBe(false);
+    expect(matchesLeadership(aboveFifty, "daily_bearish")).toBe(false);
+    expect(dailyTrendBadge(belowFifty.daily_trend)).toBeNull();
+  });
+
+  it("says the chip needs the 50-day SMA", () => {
+    expect(dailyTrendBadge("bullish")?.title).toContain("above the 50-day SMA");
+    expect(dailyTrendBadge("bearish")?.title).toContain("below the 50-day SMA");
+  });
+
   it("labels the row chip the way the other setup badges are labeled", () => {
     expect(dailyTrendBadge("bullish")).toMatchObject({ label: "Daily bullish", tone: "bull" });
     expect(dailyTrendBadge("bearish")).toMatchObject({ label: "Daily bearish", tone: "bear" });

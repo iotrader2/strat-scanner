@@ -33,7 +33,7 @@ from .leadership import (
     trend_metrics,
 )
 from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout, find_failed_breakout
-from .macd import latest_daily_trend
+from .macd import daily_trend_setup, latest_daily_trend
 from .perf import MomentumRanks, Perf, period_returns
 from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
 from .quotes import IndexQuote, percent_change
@@ -132,6 +132,7 @@ def scan_symbol(
     secondary = themes.secondary.get(member.symbol, []) if themes and member.kind == "stock" else []
     secondary_names = [themes.by_id(t).name for t in secondary] if themes else []
     trend = trend_metrics(daily)
+    macd_trigger = latest_daily_trend(daily)
     excess = qqq_excess(perf, qqq)
     long_rs = long_term_rs(momentum.percentiles) if momentum else None
     trend_break = assess_breakdown(trend, perf, long_rs)
@@ -256,7 +257,10 @@ def scan_symbol(
         "monthly_2u": sc.monthly_2u,
         "has_setup": sc.has_setup,
         # Same daily frame as the D badge, including today's session bar when it is overlaid.
-        "daily_trend": latest_daily_trend(daily),
+        # daily_macd_trigger is the raw histogram trigger (what the chart arrow shows); daily_trend
+        # is the setup: that trigger plus the close on the matching side of the 50-day SMA.
+        "daily_macd_trigger": macd_trigger,
+        "daily_trend": daily_trend_setup(macd_trigger, trend),
         "trigger": round(primary.setup.trigger, 2) if primary else None,
         "trigger_tf": primary.tf if primary else None,
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,

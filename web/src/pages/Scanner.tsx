@@ -48,13 +48,13 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "daily_bullish",
     label: "Daily bullish trend change",
     hint:
-      "Daily MACD (6,20,9) histogram turned up on the most recent daily bar: the first green bar (at or above zero) after 3 or more red bars. Same math as the green chart arrow. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
+      "Daily MACD (6,20,9) histogram turned up on the most recent daily bar (the first green bar, at or above zero, after 3 or more red bars; same math as the green chart arrow), with the latest close above the 50-day SMA. Names without a 50-day SMA are left out. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
   },
   {
     value: "daily_bearish",
     label: "Daily bearish trend change",
     hint:
-      "Daily MACD (6,20,9) histogram turned down on the most recent daily bar: the first red bar (below zero) after 3 or more green bars. Same math as the red chart arrow. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
+      "Daily MACD (6,20,9) histogram turned down on the most recent daily bar (the first red bar, below zero, after 3 or more green bars; same math as the red chart arrow), with the latest close below the 50-day SMA. Names without a 50-day SMA are left out. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
   },
   {
     value: "breakouts",

@@ -29,12 +29,41 @@ def test_atr_is_the_14_day_average_true_range():
 
 
 def test_row_carries_the_daily_macd_trend_of_its_last_bar():
-    from strat.macd import latest_daily_trend
+    from strat.leadership import trend_metrics
+    from strat.macd import daily_trend_setup, latest_daily_trend
 
     df = _daily()
     row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), df)
-    assert row["daily_trend"] == latest_daily_trend(df)
+    assert row["daily_macd_trigger"] == latest_daily_trend(df)
+    assert row["daily_trend"] == daily_trend_setup(latest_daily_trend(df), trend_metrics(df))
     assert row["daily_trend"] in (None, "bullish", "bearish")
+
+
+def _trend_frame(closes):
+    idx = pd.bdate_range("2025-06-02", periods=len(closes))
+    close = pd.Series(closes, index=idx, dtype=float)
+    return pd.DataFrame(
+        {"open": close, "high": close + 0.5, "low": close - 0.5, "close": close, "volume": 2_000_000.0}
+    )
+
+
+def test_daily_trend_setup_in_the_scan_row_needs_the_50_day_side(monkeypatch):
+    """The row's daily_trend (filter, chip and hero count) gates the raw MACD trigger on the 50-day SMA."""
+    import strat.scanner as scanner
+
+    member = Member("TEST", "Test", "Industrials", "stock", "SP500")
+    rising = _trend_frame([100 + i for i in range(80)])  # last close well above its 50-day SMA
+    falling = _trend_frame([200 - i for i in range(80)])  # last close well below it
+    for trigger, frame, expected in (
+        ("bullish", rising, "bullish"),
+        ("bullish", falling, None),
+        ("bearish", falling, "bearish"),
+        ("bearish", rising, None),
+    ):
+        monkeypatch.setattr(scanner, "latest_daily_trend", lambda daily, t=trigger: t)
+        row = scan_symbol(member, frame)
+        assert row["daily_macd_trigger"] == trigger
+        assert row["daily_trend"] == expected, (trigger, expected)
 
 
 def test_row_carries_score_breakdown():

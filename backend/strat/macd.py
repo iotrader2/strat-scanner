@@ -17,11 +17,16 @@ Daily Strat (the D badge, inside day, hammer, and M+W+D continuity) reads that
 same candle. A stricter "last completed session only" rule would match the
 weekly setups, which ignore the week still in progress, but it would make this
 filter disagree with the arrow on the current candle during the session.
+
+The Daily bullish / bearish trend change *setups* (filter, row chip, hero count) also need the
+latest close on the right side of the 50-day SMA: above it for bullish, below it for bearish
+(``daily_trend_setup``). Names without a 50-day SMA never match. The chart arrows stay purely
+MACD-based.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import pandas as pd
@@ -33,6 +38,10 @@ TRIGGER_MIN_RUN = 3
 
 BULLISH = "bullish"
 BEARISH = "bearish"
+SETUP_SMA = 50
+
+if TYPE_CHECKING:
+    from .leadership import Trend
 
 
 def ema(values: np.ndarray, period: int) -> np.ndarray:
@@ -133,3 +142,22 @@ def latest_daily_trend(daily: Optional[pd.DataFrame]) -> Optional[str]:
         return None
     closes = np.asarray(daily["close"].to_numpy(dtype=np.float64, copy=False))
     return trend_from_histogram(macd_histogram(closes))
+
+
+def daily_trend_setup(trigger: Optional[str], trend: "Optional[Trend]", period: int = SETUP_SMA) -> Optional[str]:
+    """The Daily bullish / bearish trend change setup: a MACD trigger on the latest bar, confirmed by the 50-day SMA.
+
+    ``trigger`` is ``latest_daily_trend`` for the same daily frame and ``trend`` is its ``trend_metrics``
+    (both read the last close). Bullish needs that close above the SMA, bearish below it. Without
+    the SMA (fewer than ``period`` bars) nothing matches.
+    """
+    if trigger is None or trend is None:
+        return None
+    sma = trend.sma.get(period)
+    if sma is None:
+        return None
+    if trigger == BULLISH and trend.price > sma:
+        return BULLISH
+    if trigger == BEARISH and trend.price < sma:
+        return BEARISH
+    return None
