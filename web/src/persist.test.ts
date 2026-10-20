@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_TAB, isTimeframe, pageTitle, readPersisted, restoreTarget, tabLocation, writePersisted } from "./persist";
+import {
+  DEFAULT_TAB,
+  RETIRED_FILTER_KEYS,
+  clearRetiredFilters,
+  isTimeframe,
+  pageTitle,
+  readPersisted,
+  restoreTarget,
+  tabLocation,
+  writePersisted,
+} from "./persist";
 
 class MemoryStorage implements Storage {
   private data = new Map<string, string>();
@@ -91,5 +101,27 @@ describe("tab restore", () => {
     expect(isTimeframe("W")).toBe(true);
     expect(isTimeframe("Y")).toBe(false);
     expect(isTimeframe(null)).toBe(false);
+  });
+});
+
+
+describe("clearRetiredFilters", () => {
+  it("drops saved Continuity selections (both old keys) and keeps every other filter", () => {
+    const storage = new MemoryStorage();
+    writePersisted("continuityFilter", "mw", storage);
+    writePersisted("continuity", "full", storage);
+    writePersisted("kind", "stock", storage);
+    writePersisted("atrPct", [2, 6], storage);
+    clearRetiredFilters(storage);
+    expect(RETIRED_FILTER_KEYS).toEqual(["continuityFilter", "continuity"]);
+    expect(storage.getItem("strat:continuityFilter")).toBeNull();
+    expect(storage.getItem("strat:continuity")).toBeNull();
+    expect(readPersisted("kind", "all", storage)).toBe("stock");
+    expect(readPersisted("atrPct", null, storage)).toEqual([2, 6]);
+  });
+
+  it("does nothing when storage throws", () => {
+    const broken = { removeItem: () => { throw new Error("denied"); } } as unknown as Storage;
+    expect(() => clearRetiredFilters(broken)).not.toThrow();
   });
 });

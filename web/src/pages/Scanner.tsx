@@ -7,7 +7,7 @@ import { AtrSlider } from "../components/AtrSlider";
 import { LogSlider } from "../components/LogSlider";
 import { ATR_PCT_DEFAULT, normalizeAtrRange, passesAtr, type AtrRange } from "../atrFilter";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
-import { readPersisted, usePersisted } from "../persist";
+import { clearRetiredFilters, readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
 import {
   leadershipUsesMinRs,
@@ -29,7 +29,6 @@ import { matchesTheme, themeName, themeOptions } from "../themes";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
-type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
@@ -141,12 +140,6 @@ const FAILED_COLUMNS: ExtraColumn[] = [
       ),
   },
 ];
-const CONTINUITY_OPTIONS: DropdownOption<Continuity>[] = [
-  { value: "any", label: "Any" },
-  { value: "mw", label: "M + W green" },
-  { value: "m2u", label: "Monthly 2U" },
-  { value: "full", label: "M + W + D green" },
-];
 const SETUP_OPTIONS: DropdownOption<SetupFilter>[] = [
   { value: "any", label: "Any" },
   { value: "pending", label: "Awaiting trigger" },
@@ -171,8 +164,6 @@ export default function Scanner({ version }: { version: string | null }) {
 
   const [minPrice, setMinPrice] = usePersisted<number | null>("minPrice", null);
   const [minDvM, setMinDvM] = usePersisted<number | null>("minDvM", null);
-  // Continuity was a default gate (M+W green) when the scanner ranked setups; it is a timing option now, so it has a new key.
-  const [continuity, setContinuity] = usePersisted<Continuity>("continuityFilter", "any");
   const [savedLeadership] = useState(() => migrateLeadership(readPersisted<string | null>("leadership", null)));
   const [leadership, setLeadership] = usePersisted<LeadershipFilter>("leadership", savedLeadership.filter);
   const [minRsSlider, setMinRs] = usePersisted<number | null>("minRs", null);
@@ -187,6 +178,9 @@ export default function Scanner({ version }: { version: string | null }) {
   useEffect(() => {
     api.config().then(setConfig).catch(() => undefined);
   }, []);
+
+  // Filters that no longer exist (the Continuity dropdown): drop their saved values so nothing reads them again.
+  useEffect(() => clearRetiredFilters(), []);
 
   const effPrice = minPrice ?? config?.min_price ?? 10;
   const effDv = (minDvM ?? (config ? config.min_dollar_volume / 1e6 : 50)) * 1e6;
@@ -216,13 +210,10 @@ export default function Scanner({ version }: { version: string | null }) {
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
       if (!passesAtr(r, atrRange)) return false;
-      if (continuity === "mw" && !r.mw_green) return false;
-      if (continuity === "full" && !r.full_continuity) return false;
-      if (continuity === "m2u" && !r.monthly_2u) return false;
       return matchesSetup(r, setupFilter);
     });
     return out;
-  }, [liquid, query, theme, kind, continuity, setupFilter, leadership, minRs, atrRange]);
+  }, [liquid, query, theme, kind, setupFilter, leadership, minRs, atrRange]);
 
   /**
    * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
@@ -307,13 +298,6 @@ export default function Scanner({ version }: { version: string | null }) {
             value={leadership}
             options={SETUPS_OPTIONS}
             onChange={setLeadership}
-          />
-          <Dropdown
-            label="Continuity"
-            header="Filter by continuity"
-            value={continuity}
-            options={CONTINUITY_OPTIONS}
-            onChange={setContinuity}
           />
           <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
           <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />

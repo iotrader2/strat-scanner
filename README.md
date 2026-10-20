@@ -99,7 +99,7 @@ is not folded into the week that already ended.
 
 **Continuity**: a timeframe is green when price is above that period's open (red if below).
 Weekly and monthly continuity use the last completed period; daily uses the latest session.
-Monthly **and** Weekly green is a timing nuance, not a default gate: the Stock Scanner's Continuity filter defaults to **Any** (see [Backtest](#backtest) for why).
+Monthly **and** Weekly green is a timing nuance, not a gate: the Stock Scanner has no continuity filter (the M/W/D badges, the green row border and the score still show it; see [Backtest](#backtest) for why).
 
 **Hammer**: lower wick ≥ 2× body, small upper wick (≤ the body or ≤ 10% of the range), and a close in
 the top third of the range.
@@ -404,7 +404,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     cards by Score, 1M, 3M or 6M. Cards load 24 at a time.
   - The Monthly / Weekly / Daily toggle and the sort are saved separately from the other tabs.
 - **Stock Scanner** (`/`): ranked, sortable and filterable table of market leaders, with their weekly setup (if any) as timing.
-  - Filters: search, **Setups** (*Leaders* by default, plus *Weekly strat awaiting trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs on the first row; the sliders on their own row below (Min RS, Min price, Min avg $ volume and **ATR %**, a two-handle range on the 14-day ATR as a percent of the last close, 0% to 12%+, defaulting to Any; the right end means no upper limit; saved like the other filters), using
+  - Filters: search, **Setups** (*Leaders* by default, plus *Weekly strat awaiting trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), weekly setup type and stocks/ETFs on the first row; the sliders on their own row below (Min RS, Min price, Min avg $ volume and **ATR %**, a two-handle range on the 14-day ATR as a percent of the last close, 0% to 12%+, defaulting to Any; the right end means no upper limit; saved like the other filters), using
     a custom dropdown (arrow keys, Home/End, type-to-jump, Enter/Space to pick, Esc or an outside click to close).
     The Setup filter has **Any**, **Awaiting trigger** (a trigger above price that has not traded yet), **Already
     triggered** (only rows whose weekly setup carries the TRIGGERED chip: 2-1-2 / 3-1-2 bullish, 2D-2U reversal, 1-2-2

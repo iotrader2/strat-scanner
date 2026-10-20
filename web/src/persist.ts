@@ -15,6 +15,17 @@ export function writePersisted<T>(key: string, value: T, storage: Storage = loca
   storage.setItem(PREFIX + key, JSON.stringify(value));
 }
 
+/** Saved keys of Stock Scanner filters that were removed. Nothing reads them; they are cleared on load. */
+export const RETIRED_FILTER_KEYS = ["continuityFilter", "continuity"] as const;
+
+export function clearRetiredFilters(storage: Storage = localStorage): void {
+  try {
+    for (const key of RETIRED_FILTER_KEYS) storage.removeItem(PREFIX + key);
+  } catch {
+    // Storage unavailable (private mode, quota): nothing to clear.
+  }
+}
+
 /** useState backed by localStorage, so the value survives navigation and full page reloads. */
 export function usePersisted<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(() => readPersisted(key, initial));
