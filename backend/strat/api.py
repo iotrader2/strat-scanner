@@ -262,10 +262,10 @@ def _boot() -> None:
     if not data.cached_symbols():
         log.info("Cache is empty, starting the initial download")
         start_refresh(full=True)
-        return
-    threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
-    with _scan_lock:
-        _ensure_scan(force=True)
+    else:
+        threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
+        with _scan_lock:
+            _ensure_scan(force=True)
     _scheduler_loop()
 
 
