@@ -3,11 +3,20 @@ import { Link } from "react-router-dom";
 import type { Position, ScanRow } from "../api";
 import { ActionMenu } from "../components/ActionMenu";
 import { SkeletonTable } from "../components/Loading";
-import { ConfirmModal, EntryModal } from "../components/Modal";
+import { ConfirmModal, EntryModal, TrimModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
 import { fmtPct } from "../api";
-import { fmtPnl, parseEntry, positionStats, todayIso, type EntryForm } from "../positions";
+import {
+  fmtPnl,
+  fmtShares,
+  formatBreakEven,
+  parseEntry,
+  positionStats,
+  todayIso,
+  trimHistoryTitle,
+  type EntryForm,
+} from "../positions";
 import { normalizeTicker } from "../watchlist";
 
 function AddPosition() {
@@ -78,21 +87,23 @@ function fmtDate(iso: string): string {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-type Dialog = { kind: "edit" | "close"; position: Position } | null;
+type Dialog = { kind: "edit" | "close" | "trim"; symbol: string } | null;
 
 export default function Positions() {
-  const { data, error, update, close, toWatchlist } = usePositions();
+  const { data, error, update, close, toWatchlist, trim, undoTrim } = usePositions();
   const [dialog, setDialog] = useState<Dialog>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const today = todayIso();
   const held = useMemo(() => data?.positions ?? [], [data]);
   const bySymbol = useMemo(() => new Map(held.map((p) => [p.symbol, p])), [held]);
+  const live = dialog ? bySymbol.get(dialog.symbol) ?? null : null;
   const rows = useMemo(() => held.flatMap((p) => (p.row ? [p.row] : [])), [held]);
   const missing = held.filter((p) => !p.row).map((p) => p.symbol);
 
   const stats = (r: ScanRow) => {
     const p = bySymbol.get(r.symbol);
-    return p ? positionStats(p, r.price, today) : null;
+    // Dollar P/L uses shares still held. Percent stays versus the original buy price.
+    return p ? positionStats({ ...p, shares: p.remaining_shares }, r.price, today) : null;
   };
   const totals = useMemo(() => {
     let pnl = 0;
@@ -100,7 +111,7 @@ export default function Positions() {
     let winners = 0;
     for (const p of held) {
       if (!p.row) continue;
-      const s = positionStats(p, p.row.price, today);
+      const s = positionStats({ ...p, shares: p.remaining_shares }, p.row.price, today);
       if (s.pct > 0) winners++;
       if (s.pnl !== null) {
         pnl += s.pnl;
@@ -113,20 +124,45 @@ export default function Positions() {
   const lead: ExtraColumn[] = [
     {
       key: "entry_price",
-      label: "Entry · date",
+      label: "Buy price",
       className: "num",
+      ascendingFirst: true,
       sortValue: (r) => bySymbol.get(r.symbol)?.entry_price ?? null,
       render: (r) => {
         const p = bySymbol.get(r.symbol);
         return (
           p && (
-            <>
+            <span title={trimHistoryTitle(p)}>
               <div>{p.entry_price.toFixed(2)}</div>
-              <div className="sub muted" title="Entry date">
-                {fmtDate(p.entry_date)}
-              </div>
-            </>
+              <div className="sub muted">{fmtDate(p.entry_date)}</div>
+            </span>
           )
+        );
+      },
+    },
+    {
+      key: "break_even",
+      label: "Break-even",
+      className: "num",
+      ascendingFirst: true,
+      sortValue: (r) => bySymbol.get(r.symbol)?.break_even ?? null,
+      render: (r) => {
+        const p = bySymbol.get(r.symbol);
+        if (!p) return null;
+        const be = formatBreakEven(p.break_even);
+        return (
+          <span title={trimHistoryTitle(p)}>
+            <div className={be.note ? "free-note" : ""}>{be.label}</div>
+            {be.note ? (
+              <div className="sub free-note">{be.note}</div>
+            ) : (
+              p.trims.length > 0 && (
+                <div className="sub muted">
+                  {p.trims.length} trim{p.trims.length === 1 ? "" : "s"}
+                </div>
+              )
+            )}
+          </span>
         );
       },
     },
@@ -149,13 +185,20 @@ export default function Positions() {
       sortValue: (r) => stats(r)?.pnl ?? null,
       render: (r) => {
         const s = stats(r);
-        const shares = bySymbol.get(r.symbol)?.shares;
-        if (!s || s.pnl === null) return <span className="muted">—</span>;
+        const p = bySymbol.get(r.symbol);
+        if (!s || s.pnl === null || !p || p.remaining_shares === null) return <span className="muted">—</span>;
+        const shareLine =
+          p.shares !== null && p.remaining_shares !== p.shares
+            ? `${fmtShares(p.remaining_shares)} of ${fmtShares(p.shares)} sh`
+            : `${fmtShares(p.remaining_shares)} sh`;
         return (
-          <>
+          <span title={trimHistoryTitle(p)}>
             <div className={signClass(s.pnl)}>{fmtPnl(s.pnl)}</div>
-            <div className="sub muted">{shares?.toLocaleString()} sh</div>
-          </>
+            <div className="sub muted">{shareLine}</div>
+            {p.realized_pnl !== 0 && (
+              <div className={`sub ${signClass(p.realized_pnl)}`}>realized {fmtPnl(p.realized_pnl)}</div>
+            )}
+          </span>
         );
       },
     },
@@ -187,7 +230,7 @@ export default function Positions() {
           <h1>Positions</h1>
           <p className="muted">
             Stocks you bought. Move one here from the Watchlist after you buy, or add a ticker below. Use the ⋯ menu to
-            edit it, send it back, or close it.
+            edit it, trim it, send it back, or close it.
           </p>
         </div>
         <div className="stat-cards">
@@ -241,9 +284,10 @@ export default function Positions() {
                 label={`Actions for ${p.symbol}`}
                 header={p.symbol}
                 actions={[
-                  { label: "Edit entry…", onSelect: () => setDialog({ kind: "edit", position: p }) },
+                  { label: "Edit entry…", onSelect: () => setDialog({ kind: "edit", symbol: p.symbol }) },
+                  { label: "Trim", onSelect: () => setDialog({ kind: "trim", symbol: p.symbol }) },
                   { label: "Move back to Watchlist", onSelect: () => moveBack(p) },
-                  { label: "Close position…", danger: true, onSelect: () => setDialog({ kind: "close", position: p }) },
+                  { label: "Close position…", danger: true, onSelect: () => setDialog({ kind: "close", symbol: p.symbol }) },
                 ]}
               />
             );
@@ -251,29 +295,43 @@ export default function Positions() {
         />
       )}
 
-      {dialog?.kind === "edit" && (
+      {dialog?.kind === "edit" && live && (
         <EntryModal
           title="Edit position"
-          symbol={dialog.position.symbol}
-          initial={{ price: dialog.position.entry_price, shares: dialog.position.shares, date: dialog.position.entry_date }}
-          lastPrice={dialog.position.row?.price ?? null}
+          symbol={live.symbol}
+          initial={{ price: live.entry_price, shares: live.shares, date: live.entry_date }}
+          lastPrice={live.row?.price ?? null}
           submitLabel="Save"
-          onSubmit={(v) => update(dialog.position.symbol, { entry_price: v.entry_price!, shares: v.shares, entry_date: v.entry_date })}
+          sharesNote={
+            live.trims.length > 0 && live.remaining_shares !== null
+              ? `Original size. ${fmtShares(live.remaining_shares)} remaining after trims.`
+              : undefined
+          }
+          onSubmit={(v) => update(live.symbol, { entry_price: v.entry_price!, shares: v.shares, entry_date: v.entry_date })}
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog?.kind === "close" && (
+      {dialog?.kind === "trim" && live && (
+        <TrimModal
+          position={live}
+          lastPrice={live.row?.price ?? null}
+          onSubmit={(v) => trim(live.symbol, v)}
+          onUndo={(id) => undoTrim(live.symbol, id)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "close" && live && (
         <ConfirmModal
           title="Close position"
           message={
             <>
-              Close <strong>{dialog.position.symbol}</strong> and remove it from Positions? Its entry details are deleted.
+              Close <strong>{live.symbol}</strong> and remove it from Positions? Its entry details and trim history are deleted.
             </>
           }
           confirmLabel="Close position"
           onConfirm={async () => {
-            await close(dialog.position.symbol);
-            setNotice(`Closed ${dialog.position.symbol}`);
+            await close(live.symbol);
+            setNotice(`Closed ${live.symbol}`);
           }}
           onClose={() => setDialog(null)}
         />

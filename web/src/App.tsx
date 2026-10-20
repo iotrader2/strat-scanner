@@ -61,6 +61,7 @@ export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [socket, setSocket] = useState<SocketPhase>("connecting");
   const [dataVersion, setDataVersion] = useState<string | null>(null);
+  const [positionsEpoch, setPositionsEpoch] = useState(0);
 
   const poll = useCallback(async () => {
     try {
@@ -91,6 +92,7 @@ export default function App() {
           return;
         }
         if (msg.type === "ping") return;
+        if (msg.type === "positions") setPositionsEpoch((n) => n + 1);
         if (msg.status) setStatus(msg.status);
         if ((msg.type === "snapshot" || msg.type === "delta") && msg.version != null) {
           setDataVersion(String(msg.version));
@@ -123,7 +125,7 @@ export default function App() {
 
   return (
     <WatchlistProvider version={dataVersion}>
-      <PositionsProvider version={dataVersion}>
+      <PositionsProvider version={dataVersion} epoch={positionsEpoch}>
         <div className="app">
           <div className="topbar-wrap">
             <header className="topbar">

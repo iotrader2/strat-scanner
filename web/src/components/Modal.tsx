@@ -1,9 +1,31 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { parseEntry, todayIso, type EntryForm } from "../positions";
+import type { Position } from "../api";
+import {
+  formatBreakEven,
+  fmtPnl,
+  fmtShares,
+  fmtTrimWhen,
+  parseEntry,
+  parseTrim,
+  todayIso,
+  trimPreview,
+  type EntryForm,
+  type TrimForm,
+} from "../positions";
 
 /** Centered panel in the dropdown style. Esc or a click on the backdrop closes it; focus returns to the opener. */
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({
+  title,
+  onClose,
+  children,
+  wide = false,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  wide?: boolean;
+}) {
   const id = useId();
   const panel = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -25,7 +47,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   // Portalled out of the table; React still bubbles events to the row, so stop clicks from opening the stock page.
   return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()} onClick={(e) => e.stopPropagation()}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} ref={panel} tabIndex={-1}>
+      <div className={`modal-panel${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} ref={panel} tabIndex={-1}>
         <div className="modal-head">
           <div className="dropdown-header" id={`${id}-title`}>
             {title}
@@ -56,6 +78,7 @@ export function EntryModal({
   submitLabel,
   onSubmit,
   onClose,
+  sharesNote,
 }: {
   title: string;
   symbol: string;
@@ -64,6 +87,7 @@ export function EntryModal({
   submitLabel: string;
   onSubmit: (values: EntryValues) => Promise<void>;
   onClose: () => void;
+  sharesNote?: string;
 }) {
   const today = todayIso();
   const [form, setForm] = useState<EntryForm>({
@@ -101,7 +125,7 @@ export function EntryModal({
           {lastPrice !== null && <span className="muted small">last {lastPrice.toFixed(2)}</span>}
         </div>
         <label className="entry-field">
-          <span className="field-label">Entry price</span>
+          <span className="field-label">Buy price</span>
           <input className="input" inputMode="decimal" value={form.price} onChange={set("price")} autoFocus autoComplete="off" />
         </label>
         <label className="entry-field">
@@ -109,6 +133,7 @@ export function EntryModal({
             Shares <span className="optional">optional</span>
           </span>
           <input className="input" inputMode="decimal" value={form.shares} onChange={set("shares")} placeholder="—" autoComplete="off" />
+          {sharesNote && <span className="muted small">{sharesNote}</span>}
         </label>
         <label className="entry-field">
           <span className="field-label">Entry date</span>
@@ -121,6 +146,140 @@ export function EntryModal({
           </button>
           <button type="submit" className="btn primary" disabled={busy}>
             {busy ? "Saving…" : submitLabel}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+const signClass = (v: number) => (v > 0 ? "green-text" : v < 0 ? "red-text" : "muted");
+
+/** Partial sell: price and shares, with a live preview of what the position becomes. */
+export function TrimModal({
+  position,
+  lastPrice,
+  onSubmit,
+  onUndo,
+  onClose,
+}: {
+  position: Position;
+  lastPrice: number | null;
+  onSubmit: (values: { price: number; shares: number }) => Promise<void>;
+  onUndo: (trimId: number) => Promise<void>;
+  onClose: () => void;
+}) {
+  const remaining = position.remaining_shares;
+  const [form, setForm] = useState<TrimForm>({
+    price: lastPrice !== null ? String(lastPrice) : "",
+    shares: "",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [undoing, setUndoing] = useState<number | null>(null);
+  const set = (key: keyof TrimForm) => (e: { target: { value: string } }) => {
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+    setError(null);
+  };
+
+  const parsed = parseTrim(form, remaining);
+  const preview =
+    parsed.ok && position.shares
+      ? trimPreview(
+          { entry_price: position.entry_price, initial_shares: position.shares, trims: position.trims },
+          parsed,
+        )
+      : null;
+  const basis = preview ? formatBreakEven(preview.breakEven) : null;
+  const needsShares = remaining === null || !(remaining > 0);
+  const liveError = needsShares
+    ? "Add a share count before trimming (use Edit entry)"
+    : form.price.trim() && form.shares.trim() && !parsed.ok
+      ? parsed.error
+      : null;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(parsed);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
+  const undo = async (trimId: number) => {
+    setUndoing(trimId);
+    setError(null);
+    try {
+      await onUndo(trimId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUndoing(null);
+    }
+  };
+
+  return (
+    <Modal title="Trim" onClose={onClose} wide>
+      <form className="entry-form" onSubmit={submit}>
+        <div className="entry-symbol">
+          {position.symbol}
+          <span className="muted small">
+            {remaining === null ? "no share count" : `${fmtShares(remaining)} shares left`}
+            {lastPrice !== null && ` · last ${lastPrice.toFixed(2)}`}
+          </span>
+        </div>
+        <label className="entry-field">
+          <span className="field-label">Trim price</span>
+          <input className="input" inputMode="decimal" value={form.price} onChange={set("price")} autoFocus autoComplete="off" />
+        </label>
+        <label className="entry-field">
+          <span className="field-label">Shares to trim</span>
+          <input className="input" inputMode="decimal" value={form.shares} onChange={set("shares")} placeholder="—" autoComplete="off" />
+        </label>
+        <div className="trim-preview" aria-live="polite">
+          <span className="muted">Remaining</span>
+          <span>{preview ? `${fmtShares(preview.remaining)} shares` : "—"}</span>
+          <span className="muted">Realized P/L</span>
+          <span className={preview ? signClass(preview.realized) : "muted"}>{preview ? fmtPnl(preview.realized) : "—"}</span>
+          <span className="muted">Break-even</span>
+          <span>
+            {basis ? basis.label : "—"}
+            {basis?.note && <span className="free-note"> {basis.note}</span>}
+          </span>
+        </div>
+        {position.trims.length > 0 && (
+          <div className="trim-history-wrap">
+            <div className="field-label">Trim history</div>
+            <ul className="trim-history">
+              {position.trims.map((t) => (
+                <li key={t.id}>
+                  <span>
+                    {fmtTrimWhen(t.trimmed_at)} · {fmtShares(t.shares)} sh @ {t.price.toFixed(2)}
+                  </span>
+                  <button type="button" className="btn small ghost" onClick={() => undo(t.id)} disabled={undoing !== null || busy}>
+                    {undoing === t.id ? "Undoing…" : "Undo"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {(error ?? liveError) && <div className="red-text small">{error ?? liveError}</div>}
+        <div className="modal-actions">
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn primary" disabled={busy || !preview}>
+            {busy ? "Saving…" : "Trim"}
           </button>
         </div>
       </form>
