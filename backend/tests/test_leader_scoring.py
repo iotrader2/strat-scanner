@@ -4,6 +4,7 @@ import pytest
 from strat.candles import Candle, timeframe_state
 from strat.leadership import Breakdown, Trend, qqq_excess, trend_metrics
 from strat.perf import MomentumRanks
+from strat.data import resample
 from strat.scanner import LEGACY, scan_all, scan_symbol
 from strat.scoring import (
     QQQ_POINTS,
@@ -308,12 +309,25 @@ class TestScan:
 
     def test_a_leader_with_no_setup_shows_its_nearest_trigger(self):
         members, hist = _universe()
+        daily = hist["S29"].copy()
+        # History ends Thursday 2026-10-15. The Mon-Thu week is still open; the trigger
+        # is the prior Friday week's high, not the open week's own high.
+        completed_high = float(resample(daily.iloc[:-4], "W").iloc[-1].high)
+        close = completed_high - 1
+        daily.loc[daily.index[-4:], "open"] = close
+        daily.loc[daily.index[-4:], "high"] = close + 0.25
+        daily.loc[daily.index[-4:], "low"] = close - 0.5
+        daily.loc[daily.index[-4:], "close"] = close
+        hist["S29"] = daily
         rows = {r["symbol"]: r for r in scan_all(members, hist, MAP).rows}
         top = rows["S29"]
+        assert not top["has_setup"]
         assert top["trigger"] is None and top["trigger_distance_pct"] is None
-        assert top["nearest_trigger"] is not None and top["nearest_trigger"] > top["price"]
-        assert top["nearest_trigger_label"] in {"this week's high", "last week's high"}
+        assert top["nearest_trigger"] == round(completed_high, 2)
+        assert top["nearest_trigger"] > top["price"]
+        assert top["nearest_trigger_label"] == "last week's high"
         assert top["nearest_trigger_distance_pct"] > 0
+        assert top["nearest_trigger"] != round(close + 0.25, 2)
 
     def test_ranking_is_by_leadership_score(self):
         members, hist = _universe()

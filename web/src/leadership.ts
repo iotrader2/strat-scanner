@@ -35,8 +35,8 @@ export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
 
 /**
  * Whether a scan row passes the Stock Scanner "Leadership" filter. `minRs` is the slider as a 0..1 percentile. Broken
- * trends are never listed as leaders. Weekly setups is Leaders that also have a long-side weekly Strat setup on the latest
- * weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger vs already triggered.
+ * trends are never listed as leaders. Weekly setups is Leaders that also have a long-side weekly Strat setup on the last
+ * completed weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger vs already triggered.
  * Recent breakouts ignores the slider: it needs a tight-base breakout and RS >= P50. Broken leaders ignores the slider:
  * any name whose trend is broken (same flag as the RS chip). Failed breakouts is the opposite of Recent breakouts: a
  * breakout of the last 8 weeks whose level price has since lost (`failed_breakout`, from the backend), RS >= P50, any

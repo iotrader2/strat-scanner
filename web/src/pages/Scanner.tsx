@@ -33,13 +33,13 @@ const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "setups_pending",
     label: "Weekly setups · awaiting trigger",
     hint:
-      "Leaders (Min RS slider, trend not broken) with a long-side weekly Strat setup that has not broken its trigger yet: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger (weekly high) and distance to it. Sorted by score.",
+      "Leaders (Min RS slider, trend not broken) with a long-side weekly Strat setup on the last completed week — not the week still in progress — that has not broken its trigger yet: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger (that week's high) and distance to it. Sorted by score.",
   },
   {
     value: "setups_triggered",
     label: "Weekly setups · triggered",
     hint:
-      "Leaders (Min RS slider, trend not broken) whose weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer that cleared its high. Sorted by score.",
+      "Leaders (Min RS slider, trend not broken) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer that cleared its high. The week still in progress does not count. Sorted by score.",
   },
   {
     value: "breakouts",

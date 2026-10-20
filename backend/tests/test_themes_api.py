@@ -93,6 +93,9 @@ def test_universe_benchmarks_are_qqq_spy_iwm_only():
 
 def test_etf_cards_keep_the_given_order(result, history):
     rows = {r["symbol"]: r for r in result.rows}
+    # Two completed half-years, so the 6-month chip has a prior candle to classify.
+    # The shared fixture stays under a year (the breadth test counts on that).
+    history = {**history, "QQQ": _daily(0.25, n=420)}
     cards = etf_cards([("SPY", "S", "-", "benchmark"), ("QQQ", "Q", "-", "benchmark"), ("ZZZ", "none", "-", "x")], rows, history, "W", 20)
     assert [c["symbol"] for c in cards] == ["SPY", "QQQ"]
     assert all(len(c["candles"]) == 20 and "perf" in c["row"] for c in cards)

@@ -53,7 +53,9 @@ class Breakout:
 
 def _weekly(daily: pd.DataFrame) -> tuple[pd.DataFrame, float]:
     """Weekly bars plus how much to scale the (possibly part-finished) last week's volume to a full week."""
-    weekly = resample(daily, "W")
+    # The forming week stays here on purpose: its volume is scaled up to a full
+    # week below. Strat triggers do not use this path; they drop the open week.
+    weekly = resample(daily, "W", completed_only=False)
     last_start = weekly.index[-1]
     sessions = int((daily.index >= last_start).sum())
     finished = daily.index[-1].weekday() == 4

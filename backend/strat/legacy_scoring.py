@@ -173,7 +173,7 @@ def score_symbol(
     parts.append(
         Component(
             "monthly_2u", "Monthly setup", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
-            "current month is 2U" if monthly_2u else f"current month is {monthly.strat if monthly else 'n/a'}",
+            "completed month is 2U" if monthly_2u else f"completed month is {monthly.strat if monthly else 'n/a'}",
         )
     )
 

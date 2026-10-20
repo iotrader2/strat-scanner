@@ -152,10 +152,11 @@ def leader_status(rs: Optional[float], breakdown: Breakdown, min_rs: float = LEA
     return BROKEN if breakdown.level == BROKEN else LEADER
 
 
-def nearest_trigger(price: float, weekly: Sequence[tuple[float, float]]) -> Optional[tuple[float, str]]:
-    """Closest weekly level above price for a name with no setup: the current or prior week's high.
+def nearest_trigger(price: float, weekly: Sequence[tuple[float, str]]) -> Optional[tuple[float, str]]:
+    """Closest completed-week high above price for a name with no setup.
 
-    ``weekly`` is ``(high, label)`` pairs, current week first. None when price is already above both (at highs).
+    ``weekly`` is ``(high, label)`` pairs, most recent completed week first.
+    None when price is already above both (at highs).
     """
     above = [(h, label) for h, label in weekly if h > price]
     return min(above, key=lambda t: t[0]) if above else None
