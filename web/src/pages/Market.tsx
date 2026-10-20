@@ -84,11 +84,11 @@ export default function Market({ version }: { version: string | null }) {
 
       {error && <div className="banner error">{error}</div>}
       {loading && etfs.length === 0 && (
-        <SkeletonCards count={3} chartHeight={300} className="sector-grid market-grid" label="Loading QQQ, SPY and IWM…" />
+        <SkeletonCards count={3} chartHeight={390} className="sector-grid market-grid" label="Loading QQQ, SPY and IWM…" />
       )}
       <div className="sector-grid market-grid">
         {etfs.map((e) => (
-          <EtfCard key={e.symbol} etf={e} chartHeight={300} visibleBars={CARD_BARS[tf]} />
+          <EtfCard key={e.symbol} etf={e} chartHeight={390} visibleBars={CARD_BARS[tf]} />
         ))}
       </div>
     </div>
