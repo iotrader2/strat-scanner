@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yfinance as yf
 
-from strat import api, config, data, fetch_worker
+from strat import api, config, data
 from strat.quotes import (
     active_quotes,
     build_index_quotes,
@@ -229,7 +229,7 @@ def test_cached_quotes_apply_only_in_the_matching_session(tmp_path, monkeypatch)
     assert not data.clear_index_quotes()
 
 
-def test_index_quote_refresh_uses_the_child_and_does_not_rescan(tmp_path, monkeypatch):
+def test_index_quote_refresh_stays_in_process_and_does_not_rescan(tmp_path, monkeypatch):
     monkeypatch.setenv("STRAT_FETCH_SUBPROCESS", "1")
     monkeypatch.setattr(config, "CACHE_DB", tmp_path / "cache.sqlite3")
     monkeypatch.setattr(config, "AS_OF", None)
@@ -238,12 +238,7 @@ def test_index_quote_refresh_uses_the_child_and_does_not_rescan(tmp_path, monkey
     monkeypatch.setattr(api.State, "daily", {"SPY": _daily([100.0, 110.0], ["2026-10-16", "2026-10-19"])})
     monkeypatch.setattr(api.State, "version", 3)
     monkeypatch.setattr(api.State, "quoting", True)
-    monkeypatch.setattr(fetch_worker, "extended_prices_in_child", lambda: {"SPY": 99.0})
-
-    def fail(*_a, **_k):
-        raise AssertionError("in-process fetch")
-
-    monkeypatch.setattr("strat.quotes.fetch_extended_prices", fail)
+    monkeypatch.setattr("strat.quotes.fetch_extended_prices", lambda: {"SPY": 99.0})
     published = []
     monkeypatch.setattr(api.hub, "publish", published.append)
     api._run_index_quotes()

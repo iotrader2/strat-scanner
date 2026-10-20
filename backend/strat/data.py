@@ -521,27 +521,118 @@ def _adjust(frames: dict[str, pd.DataFrame], as_of: str, db_path: Path | None) -
     return {sym: apply_splits(df, splits.get(sym, ()), as_of) for sym, df in frames.items()}
 
 
+# A rescan used to read every symbol into a second dict while the API still held the
+# previous one. Batching keeps the extra allocation to one slice of the universe.
+RELOAD_BATCH = 40
+
+_BARS_SQL = "SELECT symbol, date, open, high, low, close, volume FROM bars WHERE date <= ?"
+
+
+def _bars_cutoff() -> str:
+    return config.AS_OF or "9999-12-31"
+
+
+def _frames_from_df(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """One frame per symbol, owning its own block.
+
+    ``groupby`` hands back views of the query result. Keeping those views pins the
+    whole query — including the symbol column — for as long as any symbol is held.
+    Copying each symbol lets the query buffer be freed.
+    """
+    if df.empty:
+        return {}
+    df["date"] = pd.to_datetime(df["date"])
+    frames = {}
+    for sym, group in df.groupby("symbol", sort=False):
+        frames[sym] = group.drop(columns="symbol").set_index("date").copy()
+    return frames
+
+
+def _finalize_frames(
+    frames: dict[str, pd.DataFrame], db_path: Path | None, adjust: bool
+) -> dict[str, pd.DataFrame]:
+    if not adjust:
+        return frames
+    frames = _adjust(frames, _as_of_date() if not config.AS_OF else config.AS_OF, db_path)
+    if not config.AS_OF:
+        frames = _overlay_session(frames, db_path)
+    return frames
+
+
+def _load_raw_into(
+    frames: dict[str, pd.DataFrame],
+    db_path: Path | None,
+    symbols: list[str] | None = None,
+    *,
+    batch: int = RELOAD_BATCH,
+    adjust: bool = False,
+) -> None:
+    """Replace ``frames`` from the cache, ``batch`` symbols at a time.
+
+    The dict is updated in place, so a caller that already holds the previous
+    bars drops each symbol as its new frame arrives instead of keeping both copies.
+    ``symbols`` limits the read to one name (a single-symbol rescan). With
+    ``adjust``, each batch is split-adjusted before it is published, so a reader
+    never sees raw bars for a name that has already been refreshed.
+    """
+    cutoff = _bars_cutoff()
+    as_of = _as_of_date() if not config.AS_OF else config.AS_OF
+    with connect(db_path) as conn:
+        if symbols is None:
+            wanted = [r[0] for r in conn.execute("SELECT DISTINCT symbol FROM bars WHERE date <= ?", (cutoff,))]
+        else:
+            wanted = list(symbols)
+    seen: set[str] = set()
+    for i in range(0, len(wanted), batch):
+        chunk = wanted[i : i + batch]
+        placeholders = ",".join("?" * len(chunk))
+        sql = f"{_BARS_SQL} AND symbol IN ({placeholders}) ORDER BY symbol, date"
+        with connect(db_path) as conn:
+            df = pd.read_sql_query(sql, conn, params=(cutoff, *chunk))
+        built = _frames_from_df(df)
+        del df
+        if adjust:
+            built = _adjust(built, as_of, db_path)
+        for sym, frame in built.items():
+            frames[sym] = frame
+            seen.add(sym)
+        del built
+    if symbols is None:
+        for sym in [s for s in frames if s not in seen]:
+            del frames[sym]
+
+
 def load_daily(symbol: str, db_path: Path | None = None, *, adjust: bool = True) -> pd.DataFrame:
-    frames = load_all_daily(db_path, adjust=adjust)
+    """One symbol. Does not load the rest of the universe."""
+    frames: dict[str, pd.DataFrame] = {}
+    _load_raw_into(frames, db_path, [symbol], batch=1)
+    frames = _finalize_frames(frames, db_path, adjust)
     return frames.get(symbol, pd.DataFrame())
 
 
 def load_all_daily(db_path: Path | None = None, *, adjust: bool = True) -> dict[str, pd.DataFrame]:
-    as_of = config.AS_OF or "9999-12-31"
-    with connect(db_path) as conn:
-        df = pd.read_sql_query(
-            "SELECT symbol, date, open, high, low, close, volume FROM bars WHERE date <= ? ORDER BY symbol, date",
-            conn,
-            params=(as_of,),
-        )
-    frames: dict[str, pd.DataFrame] = {}
-    if not df.empty:
-        df["date"] = pd.to_datetime(df["date"])
-        frames = {sym: g.drop(columns="symbol").set_index("date") for sym, g in df.groupby("symbol", sort=False)}
-    if adjust:
-        frames = _adjust(frames, _as_of_date() if not config.AS_OF else config.AS_OF, db_path)
-        if not config.AS_OF:
-            frames = _overlay_session(frames, db_path)
+    """Every symbol in the cache.
+
+    Read in batches. One query for the whole universe comes back as views onto a
+    single block, and that block plus the allocator's leftover pages stayed
+    resident for the life of the process (~260 MB here for ~23 MB of prices).
+    """
+    return reload_daily({}, db_path, adjust=adjust)
+
+
+def reload_daily(
+    frames: dict[str, pd.DataFrame], db_path: Path | None = None, *, adjust: bool = True, batch: int = RELOAD_BATCH
+) -> dict[str, pd.DataFrame]:
+    """Refresh ``frames`` from the cache without building a second full copy.
+
+    The same dict is returned, so ``State.daily`` keeps serving charts while a
+    rescan is in progress. A symbol keeps its previous adjusted bars until its
+    batch is read, then switches to the new ones. Today's session bar is applied
+    after the last batch.
+    """
+    _load_raw_into(frames, db_path, batch=batch, adjust=adjust)
+    if adjust and not config.AS_OF:
+        _overlay_session(frames, db_path)
     return frames
 
 
@@ -669,7 +760,7 @@ def refresh(
     New symbols, or ``full=True``, fetch the full history period. Splits are stored
     raw; today's bar stays in ``session_bar`` while the regular session is open.
     """
-    from .provider import get_provider
+    from .provider import get_provider, release_download_cache
 
     symbols = list(dict.fromkeys(symbols))
     have = cached_symbols(db_path)
@@ -708,6 +799,7 @@ def refresh(
                         saved[sym] = n
             done += len(batch)
     set_meta("last_refresh", datetime.now(timezone.utc).isoformat(timespec="seconds"), db_path)
+    release_download_cache()
     if progress:
         progress(total, total, "Done")
     return saved

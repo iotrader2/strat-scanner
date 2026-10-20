@@ -12,15 +12,47 @@ def test_enabled_flag(monkeypatch):
     assert fetch_worker.enabled()
 
 
-def test_refresh_uses_child_when_enabled(monkeypatch):
+def test_use_child_is_the_heavy_jobs_only(monkeypatch):
+    monkeypatch.setenv("STRAT_FETCH_SUBPROCESS", "1")
+    assert fetch_worker.use_child(full=True, with_earnings=False)
+    assert fetch_worker.use_child(full=False, with_earnings=True)
+    assert not fetch_worker.use_child(full=False, with_earnings=False)
+    monkeypatch.delenv("STRAT_FETCH_SUBPROCESS", raising=False)
+    assert not fetch_worker.use_child(full=True, with_earnings=True)
+
+
+def test_intraday_poll_stays_in_process(monkeypatch):
+    refreshed = []
+    monkeypatch.setenv("STRAT_FETCH_SUBPROCESS", "1")
+    monkeypatch.setattr(fetch_worker, "fetch_in_child", lambda *a: (_ for _ in ()).throw(AssertionError("child")))
+    monkeypatch.setattr(
+        data, "refresh", lambda symbols, full=False, progress=None, period=None, db_path=None: refreshed.append((full, period))
+    )
+    monkeypatch.setattr(api, "_ensure_scan", lambda force=False: [])
+    api._run_refresh(full=False, period="5d", with_earnings=False)
+    assert refreshed == [(False, "5d")]
+    assert api.State.error is None and api.State.refreshing is False
+
+
+def test_full_refresh_uses_child_when_enabled(monkeypatch):
     calls = []
     monkeypatch.setenv("STRAT_FETCH_SUBPROCESS", "1")
     monkeypatch.setattr(fetch_worker, "fetch_in_child", lambda *a: calls.append(a[:3]))
     monkeypatch.setattr(data, "refresh", lambda *a, **k: (_ for _ in ()).throw(AssertionError("in-process fetch")))
     monkeypatch.setattr(api, "_ensure_scan", lambda force=False: [])
-    api._run_refresh(full=False, period="5d", with_earnings=False)
-    assert calls == [(False, "5d", False)]
+    api._run_refresh(full=True)
+    assert calls == [(True, None, True)]
     assert api.State.error is None and api.State.refreshing is False
+
+
+def test_earnings_refresh_uses_child_when_enabled(monkeypatch):
+    calls = []
+    monkeypatch.setenv("STRAT_FETCH_SUBPROCESS", "1")
+    monkeypatch.setattr(fetch_worker, "fetch_in_child", lambda *a: calls.append(a[:3]))
+    monkeypatch.setattr(data, "refresh", lambda *a, **k: (_ for _ in ()).throw(AssertionError("in-process fetch")))
+    monkeypatch.setattr(api, "_ensure_scan", lambda force=False: [])
+    api._run_refresh(full=False, period="3mo", with_earnings=True)
+    assert calls == [(False, "3mo", True)]
 
 
 def test_child_error_surfaces_in_state(monkeypatch):

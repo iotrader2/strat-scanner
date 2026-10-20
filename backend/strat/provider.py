@@ -60,17 +60,34 @@ class YahooProvider:
     name = "yahoo"
 
     def fetch_history(self, symbols: list[str], period: str) -> FetchResult:
+        """Daily bars for ``symbols``.
+
+        A 5-day poll is one serial request. Threaded downloads share yfinance's
+        SQLite cache and log ``database is locked`` for the symbols that lose;
+        those symbols come back empty instead of raising, so a partial result is
+        retried once, serially.
+        """
+        threads = period != "5d"
+        result = self._download(symbols, period, threads=threads)
+        missing = [sym for sym in symbols if sym not in result.frames]
+        if missing and result.frames:
+            retried = self._download(missing, period, threads=False)
+            result.frames.update(retried.frames)
+            result.splits.update(retried.splits)
+        return result
+
+    def _download(self, symbols: list[str], period: str, *, threads: bool) -> FetchResult:
         import yfinance as yf
 
         df = yf.download(
-            symbols,
+            list(symbols),
             period=period,
             interval="1d",
             group_by="ticker",
             auto_adjust=False,
             actions=True,
             progress=False,
-            threads=True,
+            threads=threads,
         )
         result = FetchResult()
         if df is None or df.empty:
@@ -133,6 +150,16 @@ class YahooProvider:
             threads=False,
         )
         return df if df is not None else pd.DataFrame()
+
+
+def release_download_cache() -> None:
+    """Drop yfinance's cached HTTP responses. A price poll never reads them again."""
+    try:
+        from yfinance.data import YfData
+
+        YfData.cache_get.cache_clear()
+    except Exception:
+        return
 
 
 def get_provider() -> MarketDataProvider:

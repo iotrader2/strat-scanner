@@ -596,9 +596,11 @@ background fetcher in the same process.
   to revoke every browser. Without `STAGE_TOKEN`, `STAGE_USER`/`STAGE_PASS` turn on basic auth instead.
   Local dev sets none of these.
 - `STRAT_LOG_LEVEL=info` prints fetcher progress to `heroku logs`.
-- `STRAT_FETCH_SUBPROCESS=1` runs each Yahoo refresh in a short-lived child process and
-  `MALLOC_ARENA_MAX=2` trims glibc fragmentation, so the 512 MB Basic dyno stays around 330 MB
-  between refreshes.
+- `STRAT_FETCH_SUBPROCESS=1` runs the full history download and the earnings refresh in a
+  short-lived child process. The 15-minute 5-day poll and the index-quote fetch stay in the API
+  process: a second interpreter is larger than those jobs, and the dyno bills parent and child
+  together. `MALLOC_ARENA_MAX=2` limits glibc arenas. Each refresh logs `rss=` and `swap=`
+  (stdout, and the logger when `STRAT_LOG_LEVEL=info`).
 - `STRAT_SQLITE_WAL=1` lets the API read while the fetch child writes; `STRAT_YF_CACHE_DIR` gives
   each process its own yfinance cache; `WEB_CONCURRENCY=1` keeps a single process (one fetcher).
 - While a fetch or scan is running, API routes answer immediately with the rows already computed
