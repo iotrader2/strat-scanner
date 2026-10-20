@@ -111,6 +111,29 @@ class YahooProvider:
         }
         return df, meta
 
+    def fetch_prepost(self, symbols: list[str]) -> pd.DataFrame:
+        """One day of 1-minute bars including premarket and after hours.
+
+        Daily bars stop at the last regular session, and ``fast_info`` repeats that
+        session during premarket. The latest pre/post minute is the live print.
+        ``threads=False`` keeps the fetch to one request for the handful of index symbols.
+        """
+        import yfinance as yf
+
+        if not symbols:
+            return pd.DataFrame()
+        df = yf.download(
+            list(symbols),
+            period="1d",
+            interval="1m",
+            group_by="ticker",
+            auto_adjust=False,
+            prepost=True,
+            progress=False,
+            threads=False,
+        )
+        return df if df is not None else pd.DataFrame()
+
 
 def get_provider() -> MarketDataProvider:
     name = os.environ.get("STRAT_DATA_PROVIDER", "yahoo").strip().lower()

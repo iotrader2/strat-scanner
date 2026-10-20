@@ -1,9 +1,10 @@
 """When the single fetcher should run.
 
 Regular session is 09:30–16:00 America/New_York, weekdays. The intraday poll is at most every
-``STRAT_POLL_SECONDS`` (default 15 minutes). After the close, one history job confirms the
-session. Holidays are not special-cased: a closed day returns the same bars and the next
-weekday catches up.
+``STRAT_POLL_SECONDS`` (default 15 minutes). Premarket (04:00–09:30) and after hours
+(16:00–20:00) poll the index ETFs on that same cadence; the rest of the universe stays on
+daily bars. After the close, one history job confirms the session. Holidays are not
+special-cased: a closed day returns the same bars and the next weekday catches up.
 """
 
 from __future__ import annotations
@@ -14,8 +15,10 @@ from zoneinfo import ZoneInfo
 from . import config
 
 ET = ZoneInfo("America/New_York")
+PREMARKET_AT = time(4, 0)
 OPEN = time(9, 30)
 CLOSE = time(16, 0)
+AFTER_HOURS_END = time(20, 0)
 EOD_AT = time(16, 20)
 
 
@@ -27,6 +30,25 @@ def now_et(clock: datetime | None = None) -> datetime:
 def regular_session(now: datetime) -> bool:
     local = now_et(now)
     return local.weekday() < 5 and OPEN <= local.time() < CLOSE
+
+
+def session_phase(now: datetime) -> str:
+    """``premarket``, ``regular``, ``after_hours``, or ``closed``.
+
+    Bounds are America/New_York wall-clock times, so the same UTC instant is premarket
+    in summer and still closed in winter. Weekends are always closed.
+    """
+    local = now_et(now)
+    if local.weekday() >= 5:
+        return "closed"
+    t = local.time()
+    if PREMARKET_AT <= t < OPEN:
+        return "premarket"
+    if OPEN <= t < CLOSE:
+        return "regular"
+    if CLOSE <= t < AFTER_HOURS_END:
+        return "after_hours"
+    return "closed"
 
 
 def last_completed_session(now: datetime) -> date:
@@ -56,6 +78,16 @@ def intraday_due(now: datetime, last_poll: datetime | None, interval: int | None
     return gap >= (config.POLL_SECONDS if interval is None else interval)
 
 
+def extended_due(now: datetime, last_poll: datetime | None, interval: int | None = None) -> bool:
+    """Index-quote poll. Same cadence as the regular-session poll, and only outside it."""
+    if session_phase(now) not in ("premarket", "after_hours"):
+        return False
+    if last_poll is None:
+        return True
+    gap = (now_et(now) - now_et(last_poll)).total_seconds()
+    return gap >= (config.POLL_SECONDS if interval is None else interval)
+
+
 def fetch_period(now: datetime, newest_bar: date | None, *, full: bool = False) -> str:
     """Short window during the session; the incremental window when the cache is behind."""
     if full or newest_bar is None:
@@ -65,10 +97,18 @@ def fetch_period(now: datetime, newest_bar: date | None, *, full: bool = False) 
     return config.INCREMENTAL_PERIOD
 
 
-def decide(now: datetime, newest_bar: date | None, last_poll: datetime | None) -> str | None:
-    """``intraday`` updates today's bar. ``history`` confirms completed sessions. ``None`` waits."""
+def decide(
+    now: datetime, newest_bar: date | None, last_poll: datetime | None, last_extended: datetime | None = None
+) -> str | None:
+    """``intraday`` updates today's bar. ``history`` confirms completed sessions.
+
+    ``extended`` refreshes the index quotes during premarket and after hours. ``None`` waits.
+    A history catch-up wins over either poll.
+    """
     if history_due(now, newest_bar):
         return "history"
     if intraday_due(now, last_poll):
         return "intraday"
+    if extended_due(now, last_extended):
+        return "extended"
     return None

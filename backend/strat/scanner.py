@@ -35,6 +35,7 @@ from .leadership import (
 from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout, find_failed_breakout
 from .perf import MomentumRanks, Perf, period_returns
 from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
+from .quotes import IndexQuote, percent_change
 from .scoring import TF_NAMES, ThemeStrength, trigger_distance_pct
 from .themes import Theme, ThemeMap, build_theme_index
 from .universe import Member
@@ -117,6 +118,10 @@ def scan_symbol(
     avg_volume = float(recent.volume.mean())
     range_pct = float(((recent.high - recent.low) / recent.close).mean() * 100)
     atr, atr_pct = average_true_range(daily)
+    # Last bar versus the one before it. In the regular session the last bar is today,
+    # so this is today's move versus the prior close. Before the open the last bar is
+    # still the previous session, so this is that session's move; the index cards
+    # replace it with the live print (see quotes.py).
     prev_close = float(daily.close.iloc[-2]) if len(daily) > 1 else price
 
     perf = period_returns(daily.close)
@@ -224,7 +229,7 @@ def scan_symbol(
         "indexes": member.indexes,
         "in_universe": member.in_universe,
         "price": round(price, 2),
-        "change_pct": round((price / prev_close - 1) * 100, 2) if prev_close else 0.0,
+        "change_pct": percent_change(price, prev_close),
         "avg_dollar_volume": adv,
         "avg_volume": avg_volume,
         "atr": round(atr, 2),
@@ -402,8 +407,13 @@ def etf_cards(
     daily_by_symbol: dict[str, pd.DataFrame],
     tf: str,
     bars: int,
+    quotes: Optional[Mapping[str, IndexQuote]] = None,
 ) -> list[dict]:
-    """ETF cards (scan row + chart candles) in the order given; ETFs without data are skipped."""
+    """ETF cards (scan row + chart candles) in the order given; ETFs without data are skipped.
+
+    ``quotes`` overlays a premarket or after-hours price on the card only. The scan row
+    itself is left alone, and ``session`` is the badge (``None`` during the regular session).
+    """
     out = []
     for sym, name, sector, group in etfs:
         daily = daily_by_symbol.get(sym)
@@ -413,13 +423,20 @@ def etf_cards(
         higher = dict(row.get("tf") or {})
         for period in HIGHER_TFS:
             higher[period] = _tf_payload(timeframe_state(period, to_candles(resample(daily, period))))
+        shown = {**row, "tf": higher}
+        quote = (quotes or {}).get(sym)
+        session = None
+        if quote is not None:
+            shown = {**shown, "price": quote.price, "change_pct": quote.change_pct}
+            session = quote.session
         out.append(
             {
                 "symbol": sym,
                 "name": name,
                 "sector": sector,
                 "group": group,
-                "row": {**row, "tf": higher},
+                "row": shown,
+                "session": session,
                 "candles": chart_payload(daily, tf, bars),
             }
         )

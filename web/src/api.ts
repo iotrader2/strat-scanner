@@ -326,6 +326,8 @@ export interface MarketEtf {
   group: "benchmark";
   row: ScanRow;
   candles: ChartCandle[];
+  /** Set while the card shows an extended-hours price instead of the regular session. */
+  session: "premarket" | "after_hours" | null;
 }
 
 export interface ThemeChip {

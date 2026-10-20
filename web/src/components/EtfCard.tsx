@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { fmtPct, type HigherTf, type MarketEtf, type Tf } from "../api";
+import { sessionBadge } from "../market";
 import { ScorePill, TfBadges } from "./Badges";
 import { CandleChart } from "./CandleChart";
 import { PerfStrip } from "./PerfStrip";
@@ -18,12 +19,20 @@ export function EtfCard({
 }) {
   const r = etf.row;
   const setup = r.setups?.[0];
+  const badge = sessionBadge(etf.session);
 
   return (
     <div className={`card sector-card ${r.mw_green ? "mw-green" : ""} ${r.change_pct < 0 ? "day-down" : "day-up"}`}>
       <div className="sector-head">
         <div>
-          <Link to={`/stock/${etf.symbol}`} className="sym">{etf.symbol}</Link>
+          <div className="sym-line">
+            <Link to={`/stock/${etf.symbol}`} className="sym">{etf.symbol}</Link>
+            {badge && (
+              <span className="session-badge" title={badge.title}>
+                {badge.label}
+              </span>
+            )}
+          </div>
           <div className="sub muted">{etf.name}</div>
         </div>
         <div className="sector-right">

@@ -13,10 +13,10 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings, fetch_worker
+from . import config, data, earnings, fetch_worker, quotes
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
-from .scheduler import decide, fetch_period, now_et
+from .scheduler import decide, fetch_period, now_et, session_phase
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
@@ -50,6 +50,7 @@ class State:
     prior: dict = {}
     theme_map: Optional[ThemeMap] = None
     version: int = 0
+    quoting: bool = False
 
 
 def _universe() -> list[Member]:
@@ -126,9 +127,39 @@ def _publish_status() -> None:
     hub.publish({"type": "status", "version": State.version, "status": _status_body()})
 
 
+def _publish_index_quotes() -> None:
+    with _scan_lock:
+        State.version += 1
+        message = _wire_message("snapshot")
+    hub.publish(message)
+
+
+def _run_index_quotes() -> None:
+    """Refresh the index pre/post prints without rescanning the universe."""
+    try:
+        prices = fetch_worker.extended_prices()
+        now = now_et()
+        built = quotes.build_index_quotes(prices, State.daily, now, session_phase(now))
+        if built and data.save_index_quotes(built):
+            _publish_index_quotes()
+    except Exception:
+        log.exception("index quote refresh failed")
+    finally:
+        State.quoting = False
+
+
+def start_index_quotes() -> bool:
+    with State.lock:
+        if State.refreshing or State.quoting:
+            return False
+        State.quoting = True
+    threading.Thread(target=_run_index_quotes, daemon=True).start()
+    return True
+
+
 def start_refresh(full: bool = False, period: str | None = None, with_earnings: bool = True) -> bool:
     with State.lock:
-        if State.refreshing:
+        if State.refreshing or State.quoting:
             return False
         State.refreshing = True
         State.error = None
@@ -240,15 +271,21 @@ def _boot() -> None:
 
 def _scheduler_loop() -> None:
     last_poll = None
+    last_extended = None
     while True:
         time.sleep(20)
-        if config.AS_OF or State.refreshing:
+        if config.AS_OF or State.refreshing or State.quoting:
             continue
         now = now_et()
-        kind = decide(now, data.newest_bar_date(), last_poll)
+        if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():
+            _publish_index_quotes()
+        kind = decide(now, data.newest_bar_date(), last_poll, last_extended)
         if kind is None:
             continue
-        if kind == "intraday":
+        if kind == "extended":
+            last_extended = now
+            start_index_quotes()
+        elif kind == "intraday":
             last_poll = now
             start_refresh(full=False, period="5d", with_earnings=False)
         else:
@@ -568,7 +605,7 @@ def market(tf: str = Query("W", pattern="^(M|W|D|3M|6M)$"), bars: int = Query(60
     """State of the Market cards: QQQ, SPY and IWM, in that order."""
     _ensure_charts()
     by_symbol = {r["symbol"]: r for r in State.scan}
-    out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars)
+    out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars, quotes.active_quotes())
     return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily)}
 
 

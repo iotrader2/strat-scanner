@@ -76,6 +76,15 @@ CREATE TABLE IF NOT EXISTS session_bar (
     volume     REAL NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS index_quote (
+    symbol         TEXT PRIMARY KEY,
+    price          REAL NOT NULL,
+    previous_close REAL NOT NULL,
+    change_pct     REAL NOT NULL,
+    session        TEXT NOT NULL,
+    day            TEXT NOT NULL,
+    as_of          TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS scan_snapshot (
     id          INTEGER PRIMARY KEY CHECK (id = 1),
     version     INTEGER NOT NULL,
@@ -328,6 +337,58 @@ def save_session_bar(symbol: str, df: pd.DataFrame, db_path: Path | None = None)
 def clear_session_bar(symbol: str, db_path: Path | None = None) -> None:
     with _write_lock, connect(db_path) as conn:
         conn.execute("DELETE FROM session_bar WHERE symbol = ?", (symbol,))
+
+
+def load_index_quotes(db_path: Path | None = None) -> list[dict]:
+    """Cached premarket / after-hours prints for the index cards."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT symbol, price, previous_close, change_pct, session, day, as_of FROM index_quote ORDER BY symbol"
+        ).fetchall()
+    return [
+        {
+            "symbol": sym,
+            "price": price,
+            "previous_close": prev,
+            "change_pct": change,
+            "session": session,
+            "day": day,
+            "as_of": as_of,
+        }
+        for sym, price, prev, change, session, day, as_of in rows
+    ]
+
+
+def _index_quote_key(row: dict) -> tuple:
+    return (row["symbol"], row["price"], row["previous_close"], row["change_pct"], row["session"], row["day"])
+
+
+def save_index_quotes(rows: list[dict], db_path: Path | None = None) -> bool:
+    """Replace the cached index quotes. False when the displayed values did not change."""
+    rows = sorted(rows, key=lambda r: r["symbol"])
+    if [_index_quote_key(r) for r in load_index_quotes(db_path)] == [_index_quote_key(r) for r in rows]:
+        return False
+    with _write_lock, connect(db_path) as conn:
+        conn.execute("DELETE FROM index_quote")
+        conn.executemany(
+            "INSERT INTO index_quote(symbol, price, previous_close, change_pct, session, day, as_of) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (r["symbol"], r["price"], r["previous_close"], r["change_pct"], r["session"], r["day"], r["as_of"])
+                for r in rows
+            ],
+        )
+    return True
+
+
+def clear_index_quotes(db_path: Path | None = None) -> bool:
+    """Drop cached index quotes. False when there was nothing to drop."""
+    with _write_lock, connect(db_path) as conn:
+        n = conn.execute("SELECT COUNT(*) FROM index_quote").fetchone()[0]
+        if not n:
+            return False
+        conn.execute("DELETE FROM index_quote")
+    return True
 
 
 def _session_frames(db_path: Path | None) -> dict[str, pd.DataFrame]:
