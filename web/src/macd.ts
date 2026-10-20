@@ -21,8 +21,14 @@ export const MACD_COLORS = {
   histogramDown: "rgba(244,63,94,0.85)",
 } as const;
 
-/** Volume overlay on the price pane. Neutral gray so it is not read as the MACD histogram. */
-export const VOLUME_BAR_COLOR = "rgba(148,156,172,0.28)";
+/** Volume overlay on the price chart. Up green, down red, both at 25% opacity. */
+export const VOLUME_UP_COLOR = "rgba(34,197,94,0.25)";
+export const VOLUME_DOWN_COLOR = "rgba(244,63,94,0.25)";
+export const VOLUME_BASE_COLOR = "rgba(139,147,167,0.25)";
+
+export function volumeBarColor(close: number, open: number): string {
+  return close >= open ? VOLUME_UP_COLOR : VOLUME_DOWN_COLOR;
+}
 
 export const MACD_TOOLTIP =
   "Histogram only. MACD is EMA 6 minus EMA 20, minus its 9-period signal. Green at or above zero, red below.";

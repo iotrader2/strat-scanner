@@ -20,7 +20,8 @@ import {
   MACD_TRIGGER_COLOR,
   MACD_TRIGGER_NOTE,
   PRICE_PANE,
-  VOLUME_BAR_COLOR,
+  VOLUME_BASE_COLOR,
+  volumeBarColor,
   macdChartSeries,
 } from "../macd";
 import { CHART_AVERAGES, MA_LEGEND_TITLE, sma } from "../movingAverage";
@@ -102,12 +103,18 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       const volume = chart.addSeries(HistogramSeries, {
         priceFormat: { type: "volume" },
         priceScaleId: "vol",
-        color: VOLUME_BAR_COLOR,
+        color: VOLUME_BASE_COLOR,
         priceLineVisible: false,
         lastValueVisible: false,
       });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-      volume.setData(candles.map((c) => ({ time: c.time as Time, value: c.volume, color: VOLUME_BAR_COLOR })));
+      volume.setData(
+        candles.map((c) => ({
+          time: c.time as Time,
+          value: c.volume,
+          color: volumeBarColor(c.close, c.open),
+        })),
+      );
     }
 
     // Same chart instance, so the histogram pane shares the price chart's time scale and crosshair.

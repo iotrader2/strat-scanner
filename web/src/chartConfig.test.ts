@@ -8,7 +8,10 @@ import {
   MACD_TRIGGER_MIN_REDS,
   MACD_TRIGGER_NOTE,
   PRICE_PANE,
-  VOLUME_BAR_COLOR,
+  VOLUME_BASE_COLOR,
+  VOLUME_DOWN_COLOR,
+  VOLUME_UP_COLOR,
+  volumeBarColor,
 } from "./macd";
 import { CHART_AVERAGES, MA_COLORS, MA_LEGEND_TITLE, MA_PERIODS } from "./movingAverage";
 
@@ -39,9 +42,12 @@ describe("MACD pane", () => {
     expect(MACD_STRETCH).toBeLessThan(1);
     expect(MACD_COLORS.histogramUp).not.toBe(MACD_COLORS.histogramDown);
     expect(Object.keys(MACD_COLORS)).toEqual(["histogramUp", "histogramDown"]);
-    expect(VOLUME_BAR_COLOR).not.toBe(MACD_COLORS.histogramUp);
-    expect(VOLUME_BAR_COLOR).not.toBe(MACD_COLORS.histogramDown);
-    expect(VOLUME_BAR_COLOR).not.toMatch(/34,\s*197,\s*94|244,\s*63,\s*94/);
+    expect(VOLUME_UP_COLOR).toBe("rgba(34,197,94,0.25)");
+    expect(VOLUME_DOWN_COLOR).toBe("rgba(244,63,94,0.25)");
+    expect(VOLUME_BASE_COLOR).toBe("rgba(139,147,167,0.25)");
+    expect(volumeBarColor(11, 10)).toBe(VOLUME_UP_COLOR);
+    expect(volumeBarColor(10, 10)).toBe(VOLUME_UP_COLOR);
+    expect(volumeBarColor(9, 10)).toBe(VOLUME_DOWN_COLOR);
     expect(MACD_TRIGGER_MIN_REDS).toBe(3);
     expect(MACD_TRIGGER_NOTE).toBe("MACD trigger: first green after 3+ red");
   });
