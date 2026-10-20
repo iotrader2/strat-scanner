@@ -28,6 +28,15 @@ def test_atr_is_the_14_day_average_true_range():
     assert row["atr_pct"] == round(atr / float(df.close.iloc[-1]) * 100, 2)
 
 
+def test_row_carries_the_daily_macd_trend_of_its_last_bar():
+    from strat.macd import latest_daily_trend
+
+    df = _daily()
+    row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), df)
+    assert row["daily_trend"] == latest_daily_trend(df)
+    assert row["daily_trend"] in (None, "bullish", "bearish")
+
+
 def test_row_carries_score_breakdown():
     row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), _daily())
     assert row["score_max_raw"] == 100

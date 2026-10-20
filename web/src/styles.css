@@ -90,7 +90,7 @@ main { flex: 1; }
 .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 18px; flex-wrap: wrap; }
 .hero h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.02em; }
 .hero p { margin: 0; max-width: 640px; line-height: 1.5; }
-.stat-cards { display: flex; gap: 10px; }
+.stat-cards { display: flex; gap: 10px; flex-wrap: wrap; }
 .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 16px; display: flex; flex-direction: column; min-width: 120px; }
 .stat-card-btn {
   cursor: pointer; font: inherit; color: inherit; text-align: left;
@@ -289,8 +289,16 @@ th.num { text-align: right; }
 .macd-trigger-note { color: var(--muted); font-weight: 500; }
 .ma-legend i.trigger-swatch {
   width: 0; height: 0; border-radius: 0; background: transparent;
-  border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid #22c55e;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
 }
+.ma-legend i.trigger-swatch.up { border-bottom: 6px solid #22c55e; }
+.ma-legend i.trigger-swatch.down { border-top: 6px solid #f43f5e; }
+.trend-badge {
+  display: inline-block; margin: 0 4px 3px 0; padding: 1px 7px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; white-space: nowrap;
+}
+.trend-badge.bull { color: #052e16; background: #22c55e; }
+.trend-badge.bear { color: #fff; background: #e11d48; }
 /* The charting library pins its logo to the bottom pane. Lift it onto the price pane when MACD sits underneath. */
 .chart table tr:nth-child(3) #tv-attr-logo { bottom: auto; top: -28px; }
 .sector-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 26px; }

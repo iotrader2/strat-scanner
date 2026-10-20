@@ -175,6 +175,12 @@ export interface ScanRow {
   mw_green: boolean;
   monthly_2u: boolean;
   has_setup: boolean;
+  /**
+   * Daily MACD (6,20,9) histogram trigger on the most recent daily bar.
+   * "bullish" is the first green bar after 3+ red; "bearish" is the first red after 3+ green.
+   * Null when the latest bar is not that flip. Absent on a scan cached before this field existed.
+   */
+  daily_trend?: "bullish" | "bearish" | null;
   trigger: number | null;
   trigger_tf: Tf | null;
   setup: string | null;

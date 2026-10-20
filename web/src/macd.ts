@@ -36,15 +36,26 @@ export const MACD_TOOLTIP =
 /** First green histogram bar after this many red bars (histogram < 0). */
 export const MACD_TRIGGER_MIN_REDS = 3;
 
-export const MACD_TRIGGER_NOTE = "MACD trigger: first green after 3+ red";
+/** First red histogram bar after this many green bars (histogram >= 0). */
+export const MACD_TRIGGER_MIN_GREENS = 3;
 
-/** Up-arrow color for a trigger, on the histogram and under the candle. */
+export const MACD_TRIGGER_NOTE =
+  "MACD trigger: first green after 3+ red (up) / first red after 3+ green (down)";
+
+/** Up-arrow color for a bullish trigger, on the histogram and under the candle. */
 export const MACD_TRIGGER_COLOR = "#22c55e";
+
+/** Down-arrow color for a bearish trigger, on the histogram and above the candle. */
+export const MACD_TRIGGER_DOWN_COLOR = "#f43f5e";
+
+export type MacdTriggerDirection = "up" | "down";
 
 export interface MacdTrigger {
   time: string;
-  /** Histogram value of the triggering green bar. */
+  /** Histogram value of the triggering bar. */
   value: number;
+  /** Up: first green after 3+ red. Down: first red after 3+ green. */
+  direction: MacdTriggerDirection;
 }
 
 export interface MacdPoint {
@@ -124,22 +135,54 @@ export function macd(
 }
 
 /**
- * First green bar (histogram >= 0, the same rule as the bar color) after 3 or more red bars.
- * A green that continues the new run does not trigger again. Bars before the histogram exists are skipped.
+ * Histogram color flips.
+ * Up: the first green bar (histogram >= 0, the same rule as the bar color) after 3 or more red bars.
+ * Down: the first red bar (histogram < 0) after 3 or more green bars.
+ * A bar that continues the new color does not trigger again. Bars before the histogram exists are skipped.
+ * A run has to be consecutive: the other color resets it.
  */
 export function macdTriggers(points: readonly Pick<MacdPoint, "time" | "histogram">[]): MacdTrigger[] {
   const triggers: MacdTrigger[] = [];
   let reds = 0;
+  let greens = 0;
   for (const point of points) {
     if (point.histogram == null) continue;
     if (point.histogram >= 0) {
-      if (reds >= MACD_TRIGGER_MIN_REDS) triggers.push({ time: point.time, value: point.histogram });
+      if (reds >= MACD_TRIGGER_MIN_REDS) {
+        triggers.push({ time: point.time, value: point.histogram, direction: "up" });
+      }
       reds = 0;
+      greens += 1;
     } else {
+      if (greens >= MACD_TRIGGER_MIN_GREENS) {
+        triggers.push({ time: point.time, value: point.histogram, direction: "down" });
+      }
+      greens = 0;
       reds += 1;
     }
   }
   return triggers;
+}
+
+/** Where a trigger arrow sits. Bullish points up from below; bearish points down from above. */
+export function macdTriggerMarker(
+  trigger: Pick<MacdTrigger, "direction">,
+  pane: "histogram",
+): { position: "atPriceTop" | "atPriceBottom"; shape: "arrowUp" | "arrowDown"; color: string };
+export function macdTriggerMarker(
+  trigger: Pick<MacdTrigger, "direction">,
+  pane: "price",
+): { position: "aboveBar" | "belowBar"; shape: "arrowUp" | "arrowDown"; color: string };
+export function macdTriggerMarker(
+  trigger: Pick<MacdTrigger, "direction">,
+  pane: "price" | "histogram",
+): { position: "aboveBar" | "belowBar" | "atPriceTop" | "atPriceBottom"; shape: "arrowUp" | "arrowDown"; color: string } {
+  const down = trigger.direction === "down";
+  const color = down ? MACD_TRIGGER_DOWN_COLOR : MACD_TRIGGER_COLOR;
+  if (pane === "histogram") {
+    return { position: down ? "atPriceTop" : "atPriceBottom", shape: down ? "arrowDown" : "arrowUp", color };
+  }
+  return { position: down ? "aboveBar" : "belowBar", shape: down ? "arrowDown" : "arrowUp", color };
 }
 
 /** Histogram bars for the MACD pane. Null until at least one histogram value exists. */

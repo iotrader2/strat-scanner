@@ -17,12 +17,12 @@ import {
   MACD_PANE,
   MACD_STRETCH,
   MACD_TOOLTIP,
-  MACD_TRIGGER_COLOR,
   MACD_TRIGGER_NOTE,
   PRICE_PANE,
   VOLUME_BASE_COLOR,
   volumeBarColor,
   macdChartSeries,
+  macdTriggerMarker,
 } from "../macd";
 import { CHART_AVERAGES, MA_LEGEND_TITLE, sma } from "../movingAverage";
 
@@ -132,14 +132,17 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       histogram.setData(macdPane.histogram.map((p) => ({ time: p.time as Time, value: p.value, color: p.color })));
       createSeriesMarkers(
         histogram,
-        macdPane.triggers.map((trigger) => ({
-          time: trigger.time as Time,
-          position: "atPriceBottom" as const,
-          price: 0,
-          shape: "arrowUp" as const,
-          color: MACD_TRIGGER_COLOR,
-          size: compact ? 0.8 : 1,
-        })),
+        macdPane.triggers.map((trigger) => {
+          const marker = macdTriggerMarker(trigger, "histogram");
+          return {
+            time: trigger.time as Time,
+            position: marker.position,
+            price: 0,
+            shape: marker.shape,
+            color: marker.color,
+            size: compact ? 0.8 : 1,
+          };
+        }),
       );
       histogram.createPriceLine({
         price: 0,
@@ -165,7 +168,7 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       });
     }
 
-    // H = hammer, I = inside bar (Strat 1), and a green arrow where the MACD histogram triggers.
+    // H = hammer, I = inside bar (Strat 1). MACD triggers: green up-arrow under the candle, red down-arrow above it.
     const markers: SeriesMarker<Time>[] = [];
     for (const c of compact ? candles : candles.slice(-visibleBars)) {
       const time = c.time as Time;
@@ -177,11 +180,12 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       }
     }
     for (const trigger of macdPane?.triggers ?? []) {
+      const marker = macdTriggerMarker(trigger, "price");
       markers.push({
         time: trigger.time as Time,
-        position: "belowBar",
-        shape: "arrowUp",
-        color: MACD_TRIGGER_COLOR,
+        position: marker.position,
+        shape: marker.shape,
+        color: marker.color,
         size: compact ? 0.7 : 1,
       });
     }
@@ -218,7 +222,8 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
                 {macdPane.label}
               </span>
               <span className="macd-trigger-note" title={MACD_TRIGGER_NOTE}>
-                <i className="trigger-swatch" style={{ borderBottomColor: MACD_TRIGGER_COLOR }} />
+                <i className="trigger-swatch up" />
+                <i className="trigger-swatch down" />
                 {MACD_TRIGGER_NOTE}
               </span>
             </>

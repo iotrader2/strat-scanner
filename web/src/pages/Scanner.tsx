@@ -16,6 +16,9 @@ import {
   type LeadershipFilter,
 } from "../leadership";
 
+/** User-facing name of the filter group. The persisted value stays under the "leadership" key. */
+export const SETUPS_FILTER_LABEL = "Setups";
+
 /** Widest Min RS the Leaders / Weekly setups views allow — hero chips use this, not the current slider. */
 const CHIP_RS = sliderToRs(MIN_RS_RANGE.min);
 import { RsSlider } from "../components/RsSlider";
@@ -27,19 +30,31 @@ const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Continuity = "any" | "mw" | "full" | "m2u";
 type Kind = "all" | "stock" | "etf";
 
-const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
+export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "leaders", label: "Leaders", hint: "Relative strength at or above the Min RS slider, trend not broken." },
   {
     value: "setups_pending",
-    label: "Weekly setups · awaiting trigger",
+    label: "Weekly strat awaiting trigger",
     hint:
       "Leaders (Min RS slider, trend not broken) with a long-side weekly Strat setup on the last completed week — not the week still in progress — that has not broken its trigger yet: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger (that week's high) and distance to it. Sorted by score.",
   },
   {
     value: "setups_triggered",
-    label: "Weekly setups · triggered",
+    label: "Weekly strat already triggered",
     hint:
       "Leaders (Min RS slider, trend not broken) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer that cleared its high. The week still in progress does not count. Sorted by score.",
+  },
+  {
+    value: "daily_bullish",
+    label: "Daily bullish trend change",
+    hint:
+      "Daily MACD (6,20,9) histogram turned up on the most recent daily bar: the first green bar (at or above zero) after 3 or more red bars. Same math as the green chart arrow. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
+  },
+  {
+    value: "daily_bearish",
+    label: "Daily bearish trend change",
+    hint:
+      "Daily MACD (6,20,9) histogram turned down on the most recent daily bar: the first red bar (below zero) after 3 or more green bars. Same math as the red chart arrow. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
   },
   {
     value: "breakouts",
@@ -59,12 +74,23 @@ const LEADERSHIP_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "all", label: "All names" },
 ];
 
-type HeroChipKey = "all" | "leaders" | "setupsPending" | "setupsTriggered" | "breakouts" | "failedBreakouts" | "broken";
+type HeroChipKey =
+  | "all"
+  | "leaders"
+  | "setupsPending"
+  | "setupsTriggered"
+  | "dailyBullish"
+  | "dailyBearish"
+  | "breakouts"
+  | "failedBreakouts"
+  | "broken";
 const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
   { key: "all", filter: "all", label: "all names", tone: "muted" },
   { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
   { key: "setupsPending", filter: "setups_pending", label: "awaiting trigger", tone: "green" },
-  { key: "setupsTriggered", filter: "setups_triggered", label: "triggered setups", tone: "green" },
+  { key: "setupsTriggered", filter: "setups_triggered", label: "already triggered", tone: "green" },
+  { key: "dailyBullish", filter: "daily_bullish", label: "daily bullish", tone: "green" },
+  { key: "dailyBearish", filter: "daily_bearish", label: "daily bearish", tone: "red" },
   { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
   { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
   { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
@@ -203,6 +229,8 @@ export default function Scanner({ version }: { version: string | null }) {
       leaders: rows.filter((r) => matchesLeadership(r, "leaders", CHIP_RS)).length,
       setupsPending: rows.filter((r) => matchesLeadership(r, "setups_pending", CHIP_RS)).length,
       setupsTriggered: rows.filter((r) => matchesLeadership(r, "setups_triggered", CHIP_RS)).length,
+      dailyBullish: rows.filter((r) => matchesLeadership(r, "daily_bullish")).length,
+      dailyBearish: rows.filter((r) => matchesLeadership(r, "daily_bearish")).length,
       breakouts: rows.filter((r) => matchesLeadership(r, "breakouts")).length,
       failedBreakouts: rows.filter((r) => matchesLeadership(r, "failed_breakouts")).length,
       broken: rows.filter((r) => matchesLeadership(r, "broken")).length,
@@ -226,7 +254,7 @@ export default function Scanner({ version }: { version: string | null }) {
           <h1>Stock Scanner</h1>
           <p className="muted">Pick a group, then narrow the list with the filters.</p>
         </div>
-        <div className="stat-cards" role="group" aria-label="Leadership totals">
+        <div className="stat-cards" role="group" aria-label="Setups totals">
           {HERO_CHIPS.map((chip) => {
             const active = leadership === chip.filter;
             return (
@@ -267,7 +295,13 @@ export default function Scanner({ version }: { version: string | null }) {
           options={themeChoices}
           onChange={setTheme}
         />
-        <Dropdown label="Leadership" header="Filter by relative strength" value={leadership} options={LEADERSHIP_OPTIONS} onChange={setLeadership} />
+        <Dropdown
+          label={SETUPS_FILTER_LABEL}
+          header="Filter by setup"
+          value={leadership}
+          options={SETUPS_OPTIONS}
+          onChange={setLeadership}
+        />
         <Dropdown
           label="Continuity"
           header="Filter by continuity"

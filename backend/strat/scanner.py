@@ -33,6 +33,7 @@ from .leadership import (
     trend_metrics,
 )
 from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout, find_failed_breakout
+from .macd import latest_daily_trend
 from .perf import MomentumRanks, Perf, period_returns
 from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
 from .quotes import IndexQuote, percent_change
@@ -254,6 +255,8 @@ def scan_symbol(
         "mw_green": sc.mw_green,
         "monthly_2u": sc.monthly_2u,
         "has_setup": sc.has_setup,
+        # Same daily frame as the D badge, including today's session bar when it is overlaid.
+        "daily_trend": latest_daily_trend(daily),
         "trigger": round(primary.setup.trigger, 2) if primary else None,
         "trigger_tf": primary.tf if primary else None,
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,

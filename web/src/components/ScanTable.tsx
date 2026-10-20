@@ -2,7 +2,15 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow } from "../api";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
-import { breakoutLabel, failedBreakoutLabel, LEADER_RS, NO_SETUP_LEADER, noSetupLabel, triggerHint } from "../leadership";
+import {
+  breakoutLabel,
+  dailyTrendBadge,
+  failedBreakoutLabel,
+  LEADER_RS,
+  NO_SETUP_LEADER,
+  noSetupLabel,
+  triggerHint,
+} from "../leadership";
 import { rsChipView } from "../rsChange";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { EarningsIcon } from "./EarningsIcon";
@@ -195,7 +203,9 @@ export function ScanTable({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((r, i) => (
+          {sorted.map((r, i) => {
+            const trend = dailyTrendBadge(r.daily_trend);
+            return (
             <tr key={r.symbol} onClick={() => navigate(`/stock/${r.symbol}`)}>
               {watchColumn && (
                 <td className="watch-col">
@@ -247,6 +257,11 @@ export function ScanTable({
                 <TfBadges tf={r.tf} />
               </td>
               <td className="setup-cell">
+                {trend && (
+                  <span className={`trend-badge ${trend.tone}`} title={trend.title}>
+                    {trend.label}
+                  </span>
+                )}
                 {r.breakout && !r.failed_breakout && (
                   <span
                     className="breakout-badge"
@@ -295,7 +310,8 @@ export function ScanTable({
                 </td>
               )}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
