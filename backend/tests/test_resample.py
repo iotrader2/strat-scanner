@@ -187,9 +187,12 @@ class TestCtvaTrigger:
         prox = next(c["detail"] for c in row["score_breakdown"] if c["key"] == "proximity")
         assert "13.01" not in prox
 
+        # The weekly chart shows the week in progress (Monday's bar), like the daily chart shows today;
+        # the completed week before it is still the inside week the setup reads.
         candles = chart_payload(df, "W", 8)
-        assert candles[-1]["time"] == "2026-10-12"
-        assert candles[-1]["high"] == 18 and candles[-1]["strat"] == "1"
+        assert candles[-1]["time"] == "2026-10-19" and candles[-1]["high"] == 13.01
+        assert candles[-2]["time"] == "2026-10-12"
+        assert candles[-2]["high"] == 18 and candles[-2]["strat"] == "1"
         daily = chart_payload(df, "D", 3)
         assert daily[-1]["time"] == "2026-10-19" and daily[-1]["high"] == 13.01
 

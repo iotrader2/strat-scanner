@@ -184,6 +184,10 @@ export interface ScanRow {
   daily_trend?: "bullish" | "bearish" | null;
   /** Raw daily MACD (6,20,9) histogram trigger on the latest bar, the same as the chart arrow (no 50-day check). */
   daily_macd_trigger?: "bullish" | "bearish" | null;
+  /** Weekly bullish / bearish trend change setup: the same MACD trigger on the current (in-progress) weekly bar, with the latest close on the matching side of the 10-week SMA. */
+  weekly_trend?: "bullish" | "bearish" | null;
+  /** Raw weekly MACD (6,20,9) histogram trigger on the current week, the same as the weekly chart arrow (no 10-week check). */
+  weekly_macd_trigger?: "bullish" | "bearish" | null;
   trigger: number | null;
   trigger_tf: Tf | null;
   setup: string | null;

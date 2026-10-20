@@ -18,6 +18,8 @@ from strat.macd import (
     macd_histogram,
     trend_from_histogram,
     trigger_dates,
+    latest_weekly_trend,
+    weekly_trend_setup,
 )
 
 FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "macd_series.json"
@@ -150,3 +152,32 @@ def test_daily_trend_setup_with_short_history_has_no_50_day_sma():
     trend = trend_metrics(short)
     assert trend is not None and trend.sma[50] is None
     assert daily_trend_setup("bullish", trend) is None
+
+
+def _weekly(closes):
+    return pd.DataFrame({"close": closes}, index=pd.date_range("2025-01-06", periods=len(closes), freq="W-MON"))
+
+
+def test_latest_weekly_trend_is_the_same_trigger_on_the_weekly_frame():
+    frame = _step_frame()
+    weekly = pd.DataFrame({"close": frame.close.to_numpy()}, index=pd.date_range("2024-01-01", periods=len(frame), freq="W-MON"))
+    assert latest_weekly_trend(weekly) == "bullish"
+    assert latest_weekly_trend(weekly.iloc[:-1]) is None
+    assert latest_weekly_trend(None) is None
+
+
+@pytest.mark.parametrize(
+    "trigger, closes, expected",
+    [
+        ("bullish", [100.0] * 9 + [110.0], "bullish"),  # last close above the 10-week SMA
+        ("bullish", [100.0] * 9 + [90.0], None),
+        ("bullish", [100.0] * 10, None),  # on the SMA is not above it
+        ("bearish", [100.0] * 9 + [90.0], "bearish"),
+        ("bearish", [100.0] * 9 + [110.0], None),
+        ("bearish", [100.0] * 10, None),
+        ("bullish", [100.0] * 8 + [110.0], None),  # fewer than 10 weeks: no SMA, no match
+        (None, [100.0] * 9 + [110.0], None),
+    ],
+)
+def test_weekly_trend_setup_needs_the_close_on_the_matching_side_of_the_10_week(trigger, closes, expected):
+    assert weekly_trend_setup(trigger, _weekly(closes)) == expected

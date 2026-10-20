@@ -68,6 +68,9 @@ export function pageTitle(pathname: string): string {
 }
 
 export const TIMEFRAMES = ["M", "W", "D"] as const;
+
+/** Sticky chart timeframe of the detail page. */
+export const DETAIL_TF_KEY = "detailTf";
 export function isTimeframe(v: unknown): v is (typeof TIMEFRAMES)[number] {
   return typeof v === "string" && (TIMEFRAMES as readonly string[]).includes(v);
 }

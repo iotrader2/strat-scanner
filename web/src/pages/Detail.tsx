@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
-import { isTimeframe, usePersisted } from "../persist";
+import { DETAIL_TF_KEY, isTimeframe, usePersisted } from "../persist";
 import { LoadingIndicator } from "../components/Loading";
 import { NO_SETUP_LABEL } from "../watchlist";
 import { AddedChip, ScorePill, TfBadge } from "../components/Badges";
@@ -18,7 +18,7 @@ export default function Detail({ version }: { version: string | null }) {
   const { symbol = "" } = useParams();
   const [data, setData] = useState<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [storedTf, setTf] = usePersisted<Tf | null>("detailTf", null);
+  const [storedTf, setTf] = usePersisted<Tf | null>(DETAIL_TF_KEY, null);
 
   useEffect(() => {
     setData(null);

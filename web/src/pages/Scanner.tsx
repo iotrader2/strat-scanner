@@ -10,6 +10,7 @@ import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { clearRetiredFilters, readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
 import {
+  detailTfFor,
   leadershipUsesMinRs,
   matchesLeadership,
   MIN_RS_RANGE,
@@ -58,6 +59,18 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
       "Daily MACD (6,20,9) histogram turned down on the most recent daily bar (the first red bar, below zero, after 3 or more green bars; same math as the red chart arrow), with the latest close below the 50-day SMA. Names without a 50-day SMA are left out. Today's bar counts while the session is still open, the same way the daily Strat badge does. Ignores the Min RS slider.",
   },
   {
+    value: "weekly_bullish",
+    label: "Weekly bullish trend change",
+    hint:
+      "Weekly MACD (6,20,9) histogram turned up on the current weekly bar (the first green bar, at or above zero, after 3 or more red bars; same math as the green arrow on the weekly chart), with the latest close above the 10-week SMA. This week's bar counts while the week is still open, the same way the daily trend change uses today's bar. Names with fewer than 10 weeks are left out. Ignores the Min RS slider.",
+  },
+  {
+    value: "weekly_bearish",
+    label: "Weekly bearish trend change",
+    hint:
+      "Weekly MACD (6,20,9) histogram turned down on the current weekly bar (the first red bar, below zero, after 3 or more green bars; same math as the red arrow on the weekly chart), with the latest close below the 10-week SMA. This week's bar counts while the week is still open, the same way the daily trend change uses today's bar. Names with fewer than 10 weeks are left out. Ignores the Min RS slider.",
+  },
+  {
     value: "breakouts",
     label: "Recent breakouts",
     hint: "Tight-base weekly breakout (volume surge) in the last 3 weekly candles, RS at P50 or better. Ignores the Min RS slider.",
@@ -82,6 +95,8 @@ type HeroChipKey =
   | "setupsTriggered"
   | "dailyBullish"
   | "dailyBearish"
+  | "weeklyBullish"
+  | "weeklyBearish"
   | "breakouts"
   | "failedBreakouts"
   | "broken";
@@ -92,6 +107,8 @@ const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; t
   { key: "setupsTriggered", filter: "setups_triggered", label: "already triggered", tone: "green" },
   { key: "dailyBullish", filter: "daily_bullish", label: "daily bullish", tone: "green" },
   { key: "dailyBearish", filter: "daily_bearish", label: "daily bearish", tone: "red" },
+  { key: "weeklyBullish", filter: "weekly_bullish", label: "weekly bullish", tone: "green" },
+  { key: "weeklyBearish", filter: "weekly_bearish", label: "weekly bearish", tone: "red" },
   { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
   { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
   { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
@@ -227,6 +244,8 @@ export default function Scanner({ version }: { version: string | null }) {
       setupsTriggered: rows.filter((r) => matchesLeadership(r, "setups_triggered", CHIP_RS)).length,
       dailyBullish: rows.filter((r) => matchesLeadership(r, "daily_bullish")).length,
       dailyBearish: rows.filter((r) => matchesLeadership(r, "daily_bearish")).length,
+      weeklyBullish: rows.filter((r) => matchesLeadership(r, "weekly_bullish")).length,
+      weeklyBearish: rows.filter((r) => matchesLeadership(r, "weekly_bearish")).length,
       breakouts: rows.filter((r) => matchesLeadership(r, "breakouts")).length,
       failedBreakouts: rows.filter((r) => matchesLeadership(r, "failed_breakouts")).length,
       broken: rows.filter((r) => matchesLeadership(r, "broken")).length,
@@ -351,9 +370,10 @@ export default function Scanner({ version }: { version: string | null }) {
           minRs={minRs}
           extraColumns={FAILED_COLUMNS}
           initialSort={{ key: "failed_on", dir: -1 }}
+          detailTf={detailTfFor(leadership)}
         />
       ) : (
-        <ScanTable key="default" rows={filtered} onTheme={setTheme} minRs={minRs} />
+        <ScanTable key="default" rows={filtered} onTheme={setTheme} minRs={minRs} detailTf={detailTfFor(leadership)} />
       )}
     </div>
   );
