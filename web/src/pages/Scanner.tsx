@@ -3,7 +3,9 @@ import { useSearchParams } from "react-router-dom";
 import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
 import { Dropdown, type DropdownOption } from "../components/Dropdown";
+import { AtrSlider } from "../components/AtrSlider";
 import { LogSlider } from "../components/LogSlider";
+import { ATR_PCT_DEFAULT, normalizeAtrRange, passesAtr, type AtrRange } from "../atrFilter";
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
@@ -178,6 +180,8 @@ export default function Scanner({ version }: { version: string | null }) {
   const minRs = sliderToRs(minRsPct);
   const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
   const [kind, setKind] = usePersisted<Kind>("kind", "all");
+  const [savedAtr, setAtrRange] = usePersisted<AtrRange>("atrPct", ATR_PCT_DEFAULT);
+  const atrRange = useMemo(() => normalizeAtrRange(savedAtr), [savedAtr]);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -211,13 +215,14 @@ export default function Scanner({ version }: { version: string | null }) {
       if (!matchesLeadership(r, leadership, minRs)) return false;
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
+      if (!passesAtr(r, atrRange)) return false;
       if (continuity === "mw" && !r.mw_green) return false;
       if (continuity === "full" && !r.full_continuity) return false;
       if (continuity === "m2u" && !r.monthly_2u) return false;
       return matchesSetup(r, setupFilter);
     });
     return out;
-  }, [liquid, query, theme, kind, continuity, setupFilter, leadership, minRs]);
+  }, [liquid, query, theme, kind, continuity, setupFilter, leadership, minRs, atrRange]);
 
   /**
    * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
@@ -280,56 +285,61 @@ export default function Scanner({ version }: { version: string | null }) {
       </section>
 
       <section className="card filters">
-        <div className="search-field">
-          <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
-          {query && (
-            <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-              X
-            </button>
-          )}
+        <div className="filter-row filter-dropdowns">
+          <div className="search-field">
+            <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
+            {query && (
+              <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}>
+                X
+              </button>
+            )}
+          </div>
+          <Dropdown
+            label="Theme"
+            header="Filter by theme"
+            value={theme}
+            options={themeChoices}
+            onChange={setTheme}
+          />
+          <Dropdown
+            label={SETUPS_FILTER_LABEL}
+            header="Filter by setup"
+            value={leadership}
+            options={SETUPS_OPTIONS}
+            onChange={setLeadership}
+          />
+          <Dropdown
+            label="Continuity"
+            header="Filter by continuity"
+            value={continuity}
+            options={CONTINUITY_OPTIONS}
+            onChange={setContinuity}
+          />
+          <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
+          <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
         </div>
-        <Dropdown
-          label="Theme"
-          header="Filter by theme"
-          value={theme}
-          options={themeChoices}
-          onChange={setTheme}
-        />
-        <Dropdown
-          label={SETUPS_FILTER_LABEL}
-          header="Filter by setup"
-          value={leadership}
-          options={SETUPS_OPTIONS}
-          onChange={setLeadership}
-        />
-        <Dropdown
-          label="Continuity"
-          header="Filter by continuity"
-          value={continuity}
-          options={CONTINUITY_OPTIONS}
-          onChange={setContinuity}
-        />
-        <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
-        <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
-        {leadershipUsesMinRs(leadership) && (
-          <RsSlider value={minRsPct} min={MIN_RS_RANGE.min} max={MIN_RS_RANGE.max} onChange={setMinRs} />
-        )}
-        <LogSlider
-          label="Min price"
-          value={effPrice}
-          min={PRICE_RANGE.min}
-          max={PRICE_RANGE.max}
-          format={fmtPrice}
-          onChange={setMinPrice}
-        />
-        <LogSlider
-          label="Min avg $ volume"
-          value={effDv}
-          min={DOLLAR_VOL_RANGE.min}
-          max={DOLLAR_VOL_RANGE.max}
-          format={(v) => `$${fmtCompact(v)}`}
-          onChange={(v) => setMinDvM(v / 1e6)}
-        />
+        <div className="filter-row filter-sliders">
+          {leadershipUsesMinRs(leadership) && (
+            <RsSlider value={minRsPct} min={MIN_RS_RANGE.min} max={MIN_RS_RANGE.max} onChange={setMinRs} />
+          )}
+          <LogSlider
+            label="Min price"
+            value={effPrice}
+            min={PRICE_RANGE.min}
+            max={PRICE_RANGE.max}
+            format={fmtPrice}
+            onChange={setMinPrice}
+          />
+          <LogSlider
+            label="Min avg $ volume"
+            value={effDv}
+            min={DOLLAR_VOL_RANGE.min}
+            max={DOLLAR_VOL_RANGE.max}
+            format={(v) => `$${fmtCompact(v)}`}
+            onChange={(v) => setMinDvM(v / 1e6)}
+          />
+          <AtrSlider value={atrRange} onChange={setAtrRange} />
+        </div>
       </section>
 
       <div className="table-meta">

@@ -102,7 +102,12 @@ main { flex: 1; }
 .stat-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat-label { font-size: 11px; color: var(--muted); }
 
-.filters { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; align-items: flex-end; margin-bottom: 14px; }
+.filters { display: flex; flex-direction: column; gap: 12px; padding: 14px; margin-bottom: 14px; }
+/* Row 1: search and dropdowns. Row 2: every slider, sharing the width evenly and wrapping when narrow. */
+.filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.filter-sliders { gap: 12px 20px; padding-top: 12px; border-top: 1px solid var(--border, rgba(148, 163, 184, 0.15)); }
+.filter-sliders .slider-field { flex: 1 1 200px; max-width: 320px; }
+@media (max-width: 560px) { .filter-sliders .slider-field { flex-basis: 100%; max-width: none; } }
 .filters label, .filters .field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
 .input { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13px; text-transform: none; letter-spacing: 0; outline: none; }
 .input:focus { border-color: var(--accent); }
@@ -319,6 +324,13 @@ th.num { text-align: right; }
 .log-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--text); border: 3px solid var(--accent); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15); }
 .log-slider::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--text); border: 3px solid var(--accent); }
 .log-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.35); }
+/* ATR % two-handle range: two transparent range inputs stacked on one track; only the thumbs take the pointer. */
+.range-track { position: relative; height: 20px; margin: 2px 0 0; }
+.range-fill { position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: 999px; }
+.range-thumb { position: absolute; left: 0; top: 0; margin: 8px 0 0; background: transparent; pointer-events: none; }
+.range-thumb::-webkit-slider-thumb { pointer-events: auto; position: relative; z-index: 1; }
+.range-thumb::-moz-range-thumb { pointer-events: auto; }
+.range-thumb::-moz-range-track { background: transparent; }
 
 .score-pill.has-breakdown { cursor: help; outline: none; }
 .score-pill.has-breakdown:hover, .score-pill.has-breakdown:focus-visible { box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.45); }
