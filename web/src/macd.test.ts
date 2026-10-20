@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ema, histogramColor, macd, macdChartSeries, MACD_COLORS } from "./macd";
+import { ema, histogramColor, macd, macdChartSeries, macdTriggers, MACD_COLORS, type MacdPoint } from "./macd";
 
 const candles = (closes: number[]) => closes.map((close, i) => ({ time: `t${String(i).padStart(2, "0")}`, close }));
 
@@ -70,13 +70,57 @@ describe("macd chart series", () => {
 
     const series = macdChartSeries(candles(CLOSES));
     expect(series).not.toBeNull();
+    expect(series).toEqual({
+      label: "MACD (6,20,9)",
+      pane: 1,
+      histogram: expect.any(Array),
+      triggers: macdTriggers(macd(candles(CLOSES))),
+    });
+    expect(Object.keys(series!)).toEqual(["label", "pane", "histogram", "triggers"]);
     const up = series!.histogram.find((bar) => bar.time === "t27");
     const down = series!.histogram.find((bar) => bar.time === "t34");
     expect(up).toMatchObject({ value: expect.closeTo(0.1299806293, 8), color: MACD_COLORS.histogramUp });
     expect(down).toMatchObject({ value: expect.closeTo(-0.1058761837, 8), color: MACD_COLORS.histogramDown });
   });
 
-  it("returns nothing until the MACD line can be drawn", () => {
+  it("returns nothing until the histogram can be drawn", () => {
     expect(macdChartSeries(candles(CLOSES.slice(0, 20)))).toBeNull();
+    expect(macdChartSeries(candles(CLOSES.slice(0, 27)))).toBeNull();
+    expect(macdChartSeries(candles(CLOSES.slice(0, 28)))?.histogram).toHaveLength(1);
+  });
+});
+
+const hist = (values: Array<number | null>): MacdPoint[] =>
+  values.map((histogram, i) => ({ time: `t${i}`, macd: histogram ?? 0, signal: histogram == null ? null : 0, histogram }));
+
+describe("macd triggers", () => {
+  it("triggers on the first green after exactly 3 reds", () => {
+    expect(macdTriggers(hist([-1, -1, -1, 0.5]))).toEqual([{ time: "t3", value: 0.5 }]);
+    // Zero uses the same rule as the bar color: histogram >= 0 is green.
+    expect(macdTriggers(hist([-0.2, -0.4, -0.1, 0]))).toEqual([{ time: "t3", value: 0 }]);
+  });
+
+  it("does not trigger after only 2 reds", () => {
+    expect(macdTriggers(hist([-1, -1, 0.5]))).toEqual([]);
+    expect(macdTriggers(hist([-1, -1, -1, 0.4, -0.2, -0.3, 0.8]))).toEqual([{ time: "t3", value: 0.4 }]);
+  });
+
+  it("triggers once at the first green of a long red run", () => {
+    const triggers = macdTriggers(hist([-1, -0.5, -0.2, -0.8, -0.3, -0.1, 0.4, 0.9]));
+    expect(triggers).toEqual([{ time: "t6", value: 0.4 }]);
+  });
+
+  it("does not retrigger while greens continue", () => {
+    const triggers = macdTriggers(hist([-1, -1, -1, 0.2, 0.5, 0.1, 1]));
+    expect(triggers).toEqual([{ time: "t3", value: 0.2 }]);
+  });
+
+  it("does not treat a green at the start of the series as a trigger", () => {
+    expect(macdTriggers(hist([0.4]))).toEqual([]);
+    expect(macdTriggers(hist([1, 0.2, -1, -1, 0.3]))).toEqual([]);
+    expect(macdTriggers(hist([-1, -1, -1]))).toEqual([]);
+    // Reds that open the series count. The opening green does not.
+    expect(macdTriggers(hist([0.5, -1, -1, -1, 0.2]))).toEqual([{ time: "t4", value: 0.2 }]);
+    expect(macdTriggers(hist([null, null, -1, -1, -1, 0.3]))).toEqual([{ time: "t5", value: 0.3 }]);
   });
 });

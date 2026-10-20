@@ -17,14 +17,29 @@ export const MACD_PANE = 1;
 export const MACD_STRETCH = 0.36;
 
 export const MACD_COLORS = {
-  line: "#38bdf8",
-  signal: "#fbbf24",
-  histogramUp: "rgba(34,197,94,0.8)",
-  histogramDown: "rgba(244,63,94,0.8)",
+  histogramUp: "rgba(34,197,94,0.85)",
+  histogramDown: "rgba(244,63,94,0.85)",
 } as const;
 
+/** Volume overlay on the price pane. Neutral gray so it is not read as the MACD histogram. */
+export const VOLUME_BAR_COLOR = "rgba(148,156,172,0.28)";
+
 export const MACD_TOOLTIP =
-  "MACD line is EMA 6 minus EMA 20. Signal is the 9-period EMA of the MACD line. Histogram is MACD minus signal.";
+  "Histogram only. MACD is EMA 6 minus EMA 20, minus its 9-period signal. Green at or above zero, red below.";
+
+/** First green histogram bar after this many red bars (histogram < 0). */
+export const MACD_TRIGGER_MIN_REDS = 3;
+
+export const MACD_TRIGGER_NOTE = "MACD trigger: first green after 3+ red";
+
+/** Up-arrow color for a trigger, on the histogram and under the candle. */
+export const MACD_TRIGGER_COLOR = "#22c55e";
+
+export interface MacdTrigger {
+  time: string;
+  /** Histogram value of the triggering green bar. */
+  value: number;
+}
 
 export interface MacdPoint {
   time: string;
@@ -35,12 +50,12 @@ export interface MacdPoint {
   histogram: number | null;
 }
 
+/** What the MACD pane draws: the histogram only. The line and signal stay in the math and are not plotted. */
 export interface MacdChartSeries {
   label: typeof MACD_LABEL;
   pane: typeof MACD_PANE;
-  macd: { time: string; value: number }[];
-  signal: { time: string; value: number }[];
   histogram: { time: string; value: number; color: string }[];
+  triggers: MacdTrigger[];
 }
 
 /**
@@ -102,17 +117,31 @@ export function macd(
   });
 }
 
-/** Series payloads for the MACD pane. Null until the MACD line has two points to draw. */
+/**
+ * First green bar (histogram >= 0, the same rule as the bar color) after 3 or more red bars.
+ * A green that continues the new run does not trigger again. Bars before the histogram exists are skipped.
+ */
+export function macdTriggers(points: readonly Pick<MacdPoint, "time" | "histogram">[]): MacdTrigger[] {
+  const triggers: MacdTrigger[] = [];
+  let reds = 0;
+  for (const point of points) {
+    if (point.histogram == null) continue;
+    if (point.histogram >= 0) {
+      if (reds >= MACD_TRIGGER_MIN_REDS) triggers.push({ time: point.time, value: point.histogram });
+      reds = 0;
+    } else {
+      reds += 1;
+    }
+  }
+  return triggers;
+}
+
+/** Histogram bars for the MACD pane. Null until at least one histogram value exists. */
 export function macdChartSeries(candles: Pick<ChartCandle, "time" | "close">[]): MacdChartSeries | null {
   const points = macd(candles);
-  if (points.length < 2) return null;
-  return {
-    label: MACD_LABEL,
-    pane: MACD_PANE,
-    macd: points.map((p) => ({ time: p.time, value: p.macd })),
-    signal: points.filter((p): p is MacdPoint & { signal: number } => p.signal != null).map((p) => ({ time: p.time, value: p.signal })),
-    histogram: points
-      .filter((p): p is MacdPoint & { histogram: number } => p.histogram != null)
-      .map((p) => ({ time: p.time, value: p.histogram, color: histogramColor(p.histogram) })),
-  };
+  const histogram = points
+    .filter((p): p is MacdPoint & { histogram: number } => p.histogram != null)
+    .map((p) => ({ time: p.time, value: p.histogram, color: histogramColor(p.histogram) }));
+  if (histogram.length === 0) return null;
+  return { label: MACD_LABEL, pane: MACD_PANE, histogram, triggers: macdTriggers(points) };
 }

@@ -12,7 +12,17 @@ import {
   type Time,
 } from "lightweight-charts";
 import type { ChartCandle } from "../api";
-import { MACD_COLORS, MACD_PANE, MACD_STRETCH, MACD_TOOLTIP, PRICE_PANE, macdChartSeries } from "../macd";
+import {
+  MACD_COLORS,
+  MACD_PANE,
+  MACD_STRETCH,
+  MACD_TOOLTIP,
+  MACD_TRIGGER_COLOR,
+  MACD_TRIGGER_NOTE,
+  PRICE_PANE,
+  VOLUME_BAR_COLOR,
+  macdChartSeries,
+} from "../macd";
 import { CHART_AVERAGES, MA_LEGEND_TITLE, sma } from "../movingAverage";
 
 interface Props {
@@ -92,46 +102,39 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       const volume = chart.addSeries(HistogramSeries, {
         priceFormat: { type: "volume" },
         priceScaleId: "vol",
-        color: "rgba(139,147,167,0.25)",
+        color: VOLUME_BAR_COLOR,
         priceLineVisible: false,
         lastValueVisible: false,
       });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-      volume.setData(
-        candles.map((c) => ({
-          time: c.time as Time,
-          value: c.volume,
-          color: c.close >= c.open ? "rgba(34,197,94,0.25)" : "rgba(244,63,94,0.25)",
-        })),
-      );
+      volume.setData(candles.map((c) => ({ time: c.time as Time, value: c.volume, color: VOLUME_BAR_COLOR })));
     }
 
-    // Same chart instance, so the MACD pane shares the price chart's time scale and crosshair.
+    // Same chart instance, so the histogram pane shares the price chart's time scale and crosshair.
     let fitFrame = 0;
     if (macdPane) {
-      const lineWidth: 1 | 2 = compact ? 1 : 2;
-      if (macdPane.histogram.length > 0) {
-        const histogram = chart.addSeries(
-          HistogramSeries,
-          { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "price", precision: 2, minMove: 0.01 } },
-          MACD_PANE,
-        );
-        histogram.setData(macdPane.histogram.map((p) => ({ time: p.time as Time, value: p.value, color: p.color })));
-      }
-      const macdLine = chart.addSeries(
-        LineSeries,
+      const histogram = chart.addSeries(
+        HistogramSeries,
         {
-          color: MACD_COLORS.line,
-          lineWidth,
           priceLineVisible: false,
           lastValueVisible: false,
-          crosshairMarkerVisible: !compact,
           priceFormat: { type: "price", precision: 2, minMove: 0.01 },
         },
         MACD_PANE,
       );
-      macdLine.setData(macdPane.macd.map((p) => ({ time: p.time as Time, value: p.value })));
-      macdLine.createPriceLine({
+      histogram.setData(macdPane.histogram.map((p) => ({ time: p.time as Time, value: p.value, color: p.color })));
+      createSeriesMarkers(
+        histogram,
+        macdPane.triggers.map((trigger) => ({
+          time: trigger.time as Time,
+          position: "atPriceBottom" as const,
+          price: 0,
+          shape: "arrowUp" as const,
+          color: MACD_TRIGGER_COLOR,
+          size: compact ? 0.8 : 1,
+        })),
+      );
+      histogram.createPriceLine({
         price: 0,
         color: "rgba(139,147,167,0.55)",
         lineWidth: 1,
@@ -139,21 +142,6 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
         axisLabelVisible: false,
         title: "",
       });
-      if (macdPane.signal.length > 1) {
-        const signal = chart.addSeries(
-          LineSeries,
-          {
-            color: MACD_COLORS.signal,
-            lineWidth,
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false,
-            priceFormat: { type: "price", precision: 2, minMove: 0.01 },
-          },
-          MACD_PANE,
-        );
-        signal.setData(macdPane.signal.map((p) => ({ time: p.time as Time, value: p.value })));
-      }
       const fitMacdPane = () => {
         const macdPaneApi = chart.panes()[MACD_PANE];
         const priceHeight = chart.panes()[PRICE_PANE]?.getHeight() ?? 0;
@@ -170,7 +158,7 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       });
     }
 
-    // Only two marker kinds, to keep the candles readable: H = hammer, I = inside bar (Strat 1).
+    // H = hammer, I = inside bar (Strat 1), and a green arrow where the MACD histogram triggers.
     const markers: SeriesMarker<Time>[] = [];
     for (const c of compact ? candles : candles.slice(-visibleBars)) {
       const time = c.time as Time;
@@ -180,6 +168,15 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
       if (c.strat === "1") {
         markers.push({ time, position: "belowBar", shape: "arrowUp", color: "#facc15", text: "I", size: compact ? 0.7 : 1 });
       }
+    }
+    for (const trigger of macdPane?.triggers ?? []) {
+      markers.push({
+        time: trigger.time as Time,
+        position: "belowBar",
+        shape: "arrowUp",
+        color: MACD_TRIGGER_COLOR,
+        size: compact ? 0.7 : 1,
+      });
     }
     createSeriesMarkers(series, markers);
 
@@ -207,11 +204,17 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
             </span>
           )}
           {macdPane && (
-            <span className="macd-label" title={MACD_TOOLTIP}>
-              <i style={{ background: MACD_COLORS.line }} />
-              <i style={{ background: MACD_COLORS.signal }} />
-              {macdPane.label}
-            </span>
+            <>
+              <span className="macd-label" title={MACD_TOOLTIP}>
+                <i style={{ background: MACD_COLORS.histogramUp }} />
+                <i style={{ background: MACD_COLORS.histogramDown }} />
+                {macdPane.label}
+              </span>
+              <span className="macd-trigger-note" title={MACD_TRIGGER_NOTE}>
+                <i className="trigger-swatch" style={{ borderBottomColor: MACD_TRIGGER_COLOR }} />
+                {MACD_TRIGGER_NOTE}
+              </span>
+            </>
           )}
         </div>
       )}

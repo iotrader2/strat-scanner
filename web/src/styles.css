@@ -285,6 +285,12 @@ th.num { text-align: right; }
 .ma-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .ma-legend i { width: 14px; height: 2px; border-radius: 1px; }
 .macd-label { margin-left: auto; color: var(--text); font-weight: 600; gap: 6px; }
+.macd-label i { width: 8px; height: 8px; border-radius: 2px; }
+.macd-trigger-note { color: var(--muted); font-weight: 500; }
+.ma-legend i.trigger-swatch {
+  width: 0; height: 0; border-radius: 0; background: transparent;
+  border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid #22c55e;
+}
 /* The charting library pins its logo to the bottom pane. Lift it onto the price pane when MACD sits underneath. */
 .chart table tr:nth-child(3) #tv-attr-logo { bottom: auto; top: -28px; }
 .sector-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 26px; }
