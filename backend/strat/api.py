@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings, fetch_worker, quotes, trims
+from . import config, data, earnings, fetch_worker, memory, quotes, trims
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .scheduler import decide, fetch_period, now_et, session_phase
@@ -84,7 +84,22 @@ def _rescan_symbol(member: Member) -> None:
     State.scan = sorted(rows, key=lambda r: r["score"], reverse=True)
 
 
+def _log_rss(phase: str, **fields) -> None:
+    """One line per refresh, on stdout even when the root logger is left at WARNING.
+
+    ``STRAT_LOG_LEVEL=info`` records it through the logger. Heroku still shows the
+    printed line when that variable is unset.
+    """
+    detail = " ".join(f"{key}={value}" for key, value in fields.items())
+    message = f"refresh {phase} {detail} {memory.format_rss()}".strip()
+    log.info(message)
+    if not log.isEnabledFor(logging.INFO):
+        print(message, flush=True)
+
+
 def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True) -> None:
+    fetch = "child" if fetch_worker.use_child(full, with_earnings) else "in-process"
+    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch)
     try:
         symbols = [m.symbol for m in _universe()]
 
@@ -92,7 +107,7 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             State.progress = {"done": done, "total": total, "message": message}
             _publish_status()
 
-        if fetch_worker.enabled():
+        if fetch == "child":
             fetch_worker.fetch_in_child(full, period, with_earnings, progress)
         else:
             data.refresh(symbols, full=full, progress=progress, period=period)
@@ -105,8 +120,12 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
         State.error = str(exc)
     finally:
         State.refreshing = False
-        with _scan_lock:
-            _ensure_scan(force=True)
+        try:
+            with _scan_lock:
+                _ensure_scan(force=True)
+        finally:
+            memory.release_heap()
+            _log_rss("end", full=full, period=period or "", fetch=fetch)
 
 
 def _refresh_earnings(max_age_hours: float, progress=None) -> None:
@@ -136,6 +155,7 @@ def _publish_index_quotes() -> None:
 
 def _run_index_quotes() -> None:
     """Refresh the index pre/post prints without rescanning the universe."""
+    _log_rss("start", fetch="in-process", kind="extended")
     try:
         prices = fetch_worker.extended_prices()
         now = now_et()
@@ -146,6 +166,8 @@ def _run_index_quotes() -> None:
         log.exception("index quote refresh failed")
     finally:
         State.quoting = False
+        memory.release_heap()
+        _log_rss("end", fetch="in-process", kind="extended")
 
 
 def start_index_quotes() -> bool:
@@ -225,16 +247,22 @@ def _ensure_scan(force: bool = False) -> list[dict]:
 
 def _compute_scan(key: Optional[str]) -> list[dict]:
     previous = list(State.scan)
-    daily = data.load_all_daily()
-    State.daily = daily
+    # Theme indexes alias the previous price history. Drop them before the reload
+    # allocates, and fold new bars into State.daily in batches so the old and new
+    # universe are not resident together. Charts keep reading State.daily; a symbol
+    # stays on its previous bars until its batch is replaced.
+    State.result = None
+    data.reload_daily(State.daily)
+    memory.release_heap()
     State.theme_map = _load_theme_map()
-    result = scan_all(_universe(), daily, State.theme_map)
+    result = scan_all(_universe(), State.daily, State.theme_map)
     State.result, State.scan = result, result.rows
     State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
     State.scan_key = key
     State.version += 1
     data.save_snapshot(State.version, key or "", State.scan)
     hub.publish(_wire_message("delta" if previous else "snapshot", previous))
+    memory.release_heap()
     return State.scan
 
 

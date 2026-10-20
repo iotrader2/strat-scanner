@@ -1,8 +1,10 @@
 """Optional child-process fetch (STRAT_FETCH_SUBPROCESS=1), for small hosts such as a 512 MB Heroku dyno.
 
-Yahoo downloads and the 8-thread earnings lookup leave a few hundred MB of fragmented heap
-behind in a long-lived process. Running each refresh in a short-lived spawned child hands that
-memory back to the OS when the child exits; the API process only keeps the scan itself.
+A full history download and the earnings lookup leave a few hundred MB of fragmented heap
+behind. Those two run in a short-lived child so the memory returns to the OS when the child
+exits. A 5-day poll and the index-quote fetch are smaller than a second Python interpreter
+(pandas and yfinance are ~100 MB, and the dyno bills parent and child together), so they run
+in the API process.
 """
 
 from __future__ import annotations
@@ -16,6 +18,15 @@ ProgressFn = Callable[[int, int, str], None]
 
 def enabled() -> bool:
     return os.environ.get("STRAT_FETCH_SUBPROCESS", "").strip().lower() in ("1", "true", "yes")
+
+
+def use_child(full: bool, with_earnings: bool) -> bool:
+    """True when this refresh is large enough that a child process pays for itself.
+
+    The child is the full history download (``full``) and any pass that also refreshes
+    earnings. The 15-minute 5-day poll sets neither.
+    """
+    return enabled() and (full or with_earnings)
 
 
 def fetch(full: bool, period: Optional[str], with_earnings: bool, progress: ProgressFn) -> None:
@@ -44,55 +55,12 @@ def _child(full: bool, period: Optional[str], with_earnings: bool, queue) -> Non
         queue.put(("error", f"{type(exc).__name__}: {exc}"))
 
 
-def _quote_child(queue) -> None:
-    from .stage import configure_logging, use_private_yfinance_cache
-
-    configure_logging()
-    use_private_yfinance_cache()
-    try:
-        from .quotes import fetch_extended_prices
-
-        queue.put(("prices", fetch_extended_prices()))
-    except BaseException as exc:  # report, then let the parent raise
-        queue.put(("error", f"{type(exc).__name__}: {exc}"))
-
-
-def extended_prices_in_child() -> dict[str, float]:
-    """Index pre/post prices in a short-lived process, so the Yahoo heap does not stay in the API."""
-    ctx = multiprocessing.get_context("spawn")
-    queue = ctx.Queue()
-    proc = ctx.Process(target=_quote_child, args=(queue,), daemon=True)
-    proc.start()
-    prices: dict[str, float] = {}
-    error = None
-    try:
-        while True:
-            try:
-                msg = queue.get(timeout=5)
-            except Exception:  # queue.Empty: check the child is still alive
-                if not proc.is_alive():
-                    error = error or f"quote process exited with code {proc.exitcode}"
-                    break
-                continue
-            if msg[0] == "prices":
-                prices = msg[1] or {}
-                break
-            if msg[0] == "error":
-                error = msg[1]
-                break
-    finally:
-        proc.join(timeout=30)
-        if proc.is_alive():
-            proc.kill()
-    if error:
-        raise RuntimeError(error)
-    return prices
-
-
 def extended_prices() -> dict[str, float]:
-    """Latest index prints. Uses the fetch child when STRAT_FETCH_SUBPROCESS is set."""
-    if enabled():
-        return extended_prices_in_child()
+    """Latest index prints, in this process.
+
+    The quote is a few symbols and one request. Spawning a child for it costs more
+    memory than the download, and the dyno counts both processes.
+    """
     from .quotes import fetch_extended_prices
 
     return fetch_extended_prices()
