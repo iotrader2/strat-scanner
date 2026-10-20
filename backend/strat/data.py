@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS positions (
     entry_date  TEXT NOT NULL,
     added_at    TEXT NOT NULL
 );
+-- Partial sells. symbol is the position id (positions.symbol). One position can have many trims.
+CREATE TABLE IF NOT EXISTS position_trims (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol     TEXT NOT NULL,
+    shares     REAL NOT NULL,
+    price      REAL NOT NULL,
+    trimmed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS position_trims_symbol ON position_trims(symbol);
 CREATE TABLE IF NOT EXISTS earnings (
     symbol     TEXT PRIMARY KEY,
     date       TEXT,
@@ -95,10 +104,26 @@ CREATE TABLE IF NOT EXISTS scan_snapshot (
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Add columns introduced after a cache file was created."""
+    """Add columns and tables introduced after a cache file was created.
+
+    New tables in SCHEMA are created above via CREATE TABLE IF NOT EXISTS, so an
+    existing cache gains position_trims the next time it is opened.
+    """
     cols = {r[1] for r in conn.execute("PRAGMA table_info(extra_symbols)")}
     if "industry" not in cols:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
+    # Restate the trim table for caches opened before it existed. executescript(SCHEMA)
+    # already does this; repeating it here keeps the migration next to the other upgrades.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS position_trims (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol     TEXT NOT NULL,
+            shares     REAL NOT NULL,
+            price      REAL NOT NULL,
+            trimmed_at TEXT NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS position_trims_symbol ON position_trims(symbol)")
 
 _write_lock = threading.Lock()
 WAL = os.environ.get("STRAT_SQLITE_WAL", "").strip().lower() in ("1", "true", "yes")
@@ -172,8 +197,80 @@ def save_position(
         )
 
 
+class PositionMissing(Exception):
+    """No open position for this symbol."""
+
+
+class TrimRejected(Exception):
+    """A trim (or an edit that would contradict one) cannot be saved."""
+
+
+def _fmt_shares(n: float) -> str:
+    return f"{n:g}"
+
+
+def trims_by_symbol(db_path: Path | None = None) -> dict[str, list[dict]]:
+    """symbol -> trims, oldest first. Each trim is id, shares, price, trimmed_at."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, symbol, shares, price, trimmed_at FROM position_trims ORDER BY trimmed_at, id"
+        ).fetchall()
+    grouped: dict[str, list[dict]] = {}
+    for trim_id, symbol, shares, price, trimmed_at in rows:
+        grouped.setdefault(symbol, []).append(
+            {"id": trim_id, "shares": shares, "price": price, "trimmed_at": trimmed_at}
+        )
+    return grouped
+
+
+def trimmed_shares(symbol: str, db_path: Path | None = None) -> float:
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT COALESCE(SUM(shares), 0) FROM position_trims WHERE symbol = ?", (symbol,)).fetchone()
+    return float(row[0])
+
+
+def add_trim(symbol: str, shares: float, price: float, db_path: Path | None = None) -> dict:
+    """Record a partial sell. Shares stay on the position; remaining is initial minus trims.
+
+    Rejects a trim that would sell every share still held — that is a close, not a trim.
+    """
+    when = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _write_lock, connect(db_path) as conn:
+        row = conn.execute("SELECT shares FROM positions WHERE symbol = ?", (symbol,)).fetchone()
+        if row is None:
+            raise PositionMissing(symbol)
+        initial = row[0]
+        if initial is None:
+            raise TrimRejected("Add a share count before trimming. Use Edit entry.")
+        sold = float(
+            conn.execute("SELECT COALESCE(SUM(shares), 0) FROM position_trims WHERE symbol = ?", (symbol,)).fetchone()[0]
+        )
+        remaining = float(initial) - sold
+        if shares >= remaining - 1e-9:
+            raise TrimRejected(
+                f"Only {_fmt_shares(remaining)} shares remain. Selling all of them closes the position — use Close position."
+            )
+        cur = conn.execute(
+            "INSERT INTO position_trims(symbol, shares, price, trimmed_at) VALUES (?, ?, ?, ?)",
+            (symbol, shares, price, when),
+        )
+        return {"id": cur.lastrowid, "shares": shares, "price": price, "trimmed_at": when}
+
+
+def delete_trim(symbol: str, trim_id: int, db_path: Path | None = None) -> None:
+    """Remove one trim. Raises PositionMissing when that trim is not on this position."""
+    with _write_lock, connect(db_path) as conn:
+        held = conn.execute("SELECT 1 FROM positions WHERE symbol = ?", (symbol,)).fetchone()
+        if held is None:
+            raise PositionMissing(symbol)
+        cur = conn.execute("DELETE FROM position_trims WHERE id = ? AND symbol = ?", (trim_id, symbol))
+        if cur.rowcount == 0:
+            raise PositionMissing(trim_id)
+
+
 def remove_position(symbol: str, db_path: Path | None = None) -> None:
     with _write_lock, connect(db_path) as conn:
+        conn.execute("DELETE FROM position_trims WHERE symbol = ?", (symbol,))
         conn.execute("DELETE FROM positions WHERE symbol = ?", (symbol,))
 
 

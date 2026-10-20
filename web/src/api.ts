@@ -420,6 +420,10 @@ export const api = {
   closePosition: (symbol: string) => get<Positions>(`/api/positions/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
   positionToWatchlist: (symbol: string) =>
     get<Positions>(`/api/positions/${encodeURIComponent(symbol)}/watchlist`, { method: "POST" }),
+  trimPosition: (symbol: string, req: { shares: number; price: number }) =>
+    send<Positions>(`/api/positions/${encodeURIComponent(symbol)}/trims`, "POST", req),
+  undoTrim: (symbol: string, trimId: number) =>
+    get<Positions>(`/api/positions/${encodeURIComponent(symbol)}/trims/${trimId}`, { method: "DELETE" }),
 };
 
 function send<T>(url: string, method: string, body: unknown): Promise<T> {
@@ -433,11 +437,27 @@ export interface PositionInput {
   entry_date?: string | null;
 }
 
+export interface PositionTrim {
+  id: number;
+  shares: number;
+  price: number;
+  trimmed_at: string;
+}
+
 export interface Position {
   symbol: string;
+  /** Initial buy price. Trims do not change it. */
   entry_price: number;
+  /** Shares originally bought. Null until a share count is entered. */
   shares: number | null;
   entry_date: string;
+  /** Shares still held (initial minus trims). Null when no share count was entered. */
+  remaining_shares: number | null;
+  /** Trim-adjusted cost basis. Equals the buy price when there are no trims; zero or negative is a free trade. */
+  break_even: number;
+  /** Realized P/L from trims versus the buy price. */
+  realized_pnl: number;
+  trims: PositionTrim[];
   /** Live scan row; null until the symbol has cached data. */
   row: ScanRow | null;
 }

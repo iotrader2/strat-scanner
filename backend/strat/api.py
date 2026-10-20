@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings, fetch_worker, quotes
+from . import config, data, earnings, fetch_worker, quotes, trims
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .scheduler import decide, fetch_period, now_et, session_phase
@@ -418,6 +418,11 @@ class PositionUpdate(BaseModel):
     entry_date: date
 
 
+class TrimRequest(BaseModel):
+    shares: float = Field(gt=0)
+    price: float = Field(gt=0)
+
+
 TICKER_RE = re.compile(r"^\^?[A-Z0-9][A-Z0-9.\-=]{0,14}$")
 
 
@@ -505,12 +510,20 @@ def remove_watch(symbol: str):
 
 def _positions_payload() -> dict:
     held = data.positions()
+    by_trim = data.trims_by_symbol()
     held_symbols = {p["symbol"] for p in held}
     rows = {r["symbol"]: r for r in _with_earnings([r for r in _rows_by_symbol().values() if r["symbol"] in held_symbols])}
     return {
         "symbols": [p["symbol"] for p in held],
-        "positions": [{**p, "row": rows.get(p["symbol"])} for p in held],
+        "positions": [
+            {**trims.annotate(p, by_trim.get(p["symbol"], [])), "row": rows.get(p["symbol"])} for p in held
+        ],
     }
+
+
+def _publish_positions() -> None:
+    """Tell open clients to refetch positions. The body stays empty so a 512 MB dyno is not asked to fan out scan rows."""
+    hub.publish({"type": "positions"})
 
 
 def _check_entry_date(d: date) -> str:
@@ -553,7 +566,39 @@ def update_position(symbol: str, req: PositionUpdate):
     symbol = symbol.strip().upper()
     if not any(p["symbol"] == symbol for p in data.positions()):
         raise HTTPException(404, f"{symbol} is not in Positions")
+    sold = data.trimmed_shares(symbol)
+    if sold and (req.shares is None or req.shares <= sold + 1e-9):
+        raise HTTPException(
+            422,
+            f"Share count must stay above the {sold:g} shares already trimmed. Undo a trim to reduce it further.",
+        )
     data.save_position(symbol, req.entry_price, req.shares, _check_entry_date(req.entry_date))
+    return _positions_payload()
+
+
+@app.post("/api/positions/{symbol}/trims")
+def trim_position(symbol: str, req: TrimRequest):
+    """Sell part of a position. Selling every share still held is refused; that is Close position."""
+    symbol = symbol.strip().upper()
+    try:
+        data.add_trim(symbol, req.shares, req.price)
+    except data.PositionMissing:
+        raise HTTPException(404, f"{symbol} is not in Positions")
+    except data.TrimRejected as exc:
+        raise HTTPException(422, str(exc))
+    _publish_positions()
+    return _positions_payload()
+
+
+@app.delete("/api/positions/{symbol}/trims/{trim_id}")
+def undo_trim(symbol: str, trim_id: int):
+    """Delete one recorded trim and restore its shares to the position."""
+    symbol = symbol.strip().upper()
+    try:
+        data.delete_trim(symbol, trim_id)
+    except data.PositionMissing:
+        raise HTTPException(404, f"Trim {trim_id} is not on {symbol}")
+    _publish_positions()
     return _positions_payload()
 
 

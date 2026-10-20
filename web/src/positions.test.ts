@@ -1,7 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, errorDetail, type ScanRow } from "./api";
 import { sortBy } from "./components/ScanTable";
-import { daysBetween, fmtPnl, parseEntry, positionStats, todayIso } from "./positions";
+import {
+  breakEven,
+  daysBetween,
+  fmtPnl,
+  formatBreakEven,
+  parseEntry,
+  parseTrim,
+  positionStats,
+  realizedTrimPnl,
+  remainingShares,
+  todayIso,
+  trimHistoryTitle,
+  trimPreview,
+} from "./positions";
 
 describe("positionStats", () => {
   it("computes % gain, $ P/L and days held", () => {
@@ -20,6 +33,12 @@ describe("positionStats", () => {
 
   it("has no $ P/L without shares", () => {
     expect(positionStats({ entry_price: 10, shares: null, entry_date: "2026-10-01" }, 11, "2026-10-02").pnl).toBeNull();
+  });
+
+  it("keeps unrealized P/L on the buy price for the remaining shares", () => {
+    const s = positionStats({ entry_price: 100, shares: 75, entry_date: "2026-10-01" }, 110, "2026-10-20");
+    expect(s.pct).toBeCloseTo(10);
+    expect(s.pnl).toBeCloseTo(750);
   });
 
   it("counts calendar days across month and DST boundaries", () => {
@@ -71,6 +90,69 @@ describe("parseEntry", () => {
   });
 });
 
+describe("trim dialog", () => {
+  const held = { entry_price: 50, initial_shares: 100, trims: [{ shares: 25, price: 60 }] };
+
+  it("previews remaining shares, this trim's realized P/L, and the new break-even", () => {
+    const parsed = parseTrim({ price: "$80", shares: "25" }, remainingShares(held.initial_shares, held.trims));
+    expect(parsed).toEqual({ ok: true, price: 80, shares: 25 });
+    if (!parsed.ok) return;
+    const preview = trimPreview(held, parsed);
+    expect(preview.remaining).toBe(50);
+    expect(preview.realized).toBeCloseTo(25 * (80 - 50));
+    // (100 * 50 - 25 * 60 - 25 * 80) / 50 = 30
+    expect(preview.breakEven).toBeCloseTo(30);
+  });
+
+  it("matches the cost-basis formula for one trim, several trims, and a free trade", () => {
+    expect(breakEven(100, 50, [])).toBe(50);
+    expect(breakEven(100, 50, [{ shares: 25, price: 60 }])).toBeCloseTo(3500 / 75);
+    expect(realizedTrimPnl(50, [{ shares: 25, price: 60 }])).toBe(250);
+    const lots = [{ shares: 20, price: 12 }, { shares: 30, price: 15 }];
+    expect(breakEven(100, 10, lots)).toBeCloseTo(6.2);
+    expect(realizedTrimPnl(10, lots)).toBeCloseTo(190);
+    expect(breakEven(100, 10, [{ shares: 50, price: 20 }])).toBe(0);
+    expect(breakEven(100, 10, [{ shares: 40, price: 30 }])).toBeCloseTo(-200 / 60);
+    expect(formatBreakEven(0)).toEqual({ label: "Free", note: "Cost covered" });
+    expect(formatBreakEven(-10)).toEqual({ label: "−10.00", note: "Free trade" });
+    expect(formatBreakEven(46.666)).toEqual({ label: "46.67", note: null });
+  });
+
+  it("refuses a non-positive price or a sale of every share still held", () => {
+    expect(parseTrim({ price: "", shares: "1" }, 10)).toMatchObject({ ok: false, error: "Enter a trim price" });
+    expect(parseTrim({ price: "0", shares: "1" }, 10).ok).toBe(false);
+    expect(parseTrim({ price: "-2", shares: "1" }, 10).ok).toBe(false);
+    expect(parseTrim({ price: "abc", shares: "1" }, 10).ok).toBe(false);
+    expect(parseTrim({ price: "10", shares: "" }, 10)).toMatchObject({ ok: false, error: "Enter the shares to trim" });
+    expect(parseTrim({ price: "10", shares: "0" }, 10)).toMatchObject({ ok: false, error: "Shares must be greater than 0" });
+    expect(parseTrim({ price: "10", shares: "-1" }, 10).ok).toBe(false);
+    expect(parseTrim({ price: "1,200.5", shares: "1" }, 40)).toMatchObject({ ok: true, price: 1200.5, shares: 1 });
+    for (const shares of ["10", "11", "10.0000001"]) {
+      const parsed = parseTrim({ price: "15", shares }, 10);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.error).toMatch(/Close position/);
+    }
+    expect(parseTrim({ price: "15", shares: "1" }, null)).toMatchObject({ ok: false, error: expect.stringMatching(/Edit entry/) });
+    expect(parseTrim({ price: "15", shares: "1" }, 0).ok).toBe(false);
+  });
+
+  it("puts trim history and realized P/L in the row tooltip", () => {
+    const title = trimHistoryTitle({
+      entry_price: 50,
+      shares: 100,
+      remaining_shares: 75,
+      break_even: 3500 / 75,
+      realized_pnl: 250,
+      trims: [{ id: 1, shares: 25, price: 60, trimmed_at: "2026-10-20T15:04:00+00:00" }],
+    });
+    expect(title).toContain("Buy 100 sh @ 50.00");
+    expect(title).toContain("Remaining 75 sh");
+    expect(title).toContain("46.67");
+    expect(title).toContain("+$250.00");
+    expect(title).toContain("25 sh @ 60.00");
+  });
+});
+
 describe("positions table sorting", () => {
   it("sorts by a position column with missing values last", () => {
     const rows = ["A", "B", "C"].map((symbol) => ({ symbol }) as ScanRow);
@@ -106,6 +188,13 @@ describe("positions API client", () => {
     expect(fetch).toHaveBeenLastCalledWith("/api/positions/BRK-B", { method: "DELETE" });
     await api.positionToWatchlist("BRK-B");
     expect(fetch).toHaveBeenLastCalledWith("/api/positions/BRK-B/watchlist", { method: "POST" });
+    await api.trimPosition("BRK-B", { shares: 2, price: 500 });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/positions/BRK-B/trims",
+      expect.objectContaining({ method: "POST", body: '{"shares":2,"price":500}' }),
+    );
+    await api.undoTrim("BRK-B", 7);
+    expect(fetch).toHaveBeenLastCalledWith("/api/positions/BRK-B/trims/7", { method: "DELETE" });
   });
 
   it("surfaces validation messages", async () => {
