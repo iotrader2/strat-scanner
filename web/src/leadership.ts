@@ -1,11 +1,13 @@
 import type { ScanRow } from "./api";
 import { NO_SETUP_LABEL } from "./watchlist";
 
-/** Leadership filter of the Stock Scanner. Leaders and Weekly setups use the Min RS slider; Recent breakouts, Failed breakouts and Broken leaders ignore it. */
+/** Setups filter of the Stock Scanner (the dropdown labeled "Setups"). Leaders and the weekly Strat views use the Min RS slider; Recent breakouts, Failed breakouts, Broken leaders and the daily MACD trend changes ignore it. */
 export type LeadershipFilter =
   | "leaders"
   | "setups_pending"
   | "setups_triggered"
+  | "daily_bullish"
+  | "daily_bearish"
   | "breakouts"
   | "failed_breakouts"
   | "broken"
@@ -19,6 +21,7 @@ export const BREAKOUT_MIN_RS = 0.5;
 type LeaderFields = Pick<ScanRow, "rs"> & {
   has_setup?: boolean;
   triggered?: boolean | null;
+  daily_trend?: ScanRow["daily_trend"];
   leadership?: Pick<ScanRow["leadership"], "breakdown">;
   breakout?: ScanRow["breakout"];
   failed_breakout?: ScanRow["failed_breakout"];
@@ -28,19 +31,42 @@ const rsAtLeast = (r: LeaderFields, min: number) => r.rs !== null && r.rs !== un
 const isBroken = (r: LeaderFields) => r.leadership?.breakdown === "broken";
 const isSetupLeader = (r: LeaderFields, minRs: number) => rsAtLeast(r, minRs) && !isBroken(r) && !!r.has_setup;
 
-/** True when the Min RS slider applies to this Leadership option (Leaders and both Weekly setups views). */
+/** True when the Min RS slider applies to this Setups option (Leaders and both weekly Strat views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
   return filter === "leaders" || filter === "setups_pending" || filter === "setups_triggered";
 }
 
+/** Chip shown on a scan row when the latest daily MACD bar is a trend-change trigger. */
+export function dailyTrendBadge(
+  trend: ScanRow["daily_trend"],
+): { label: string; tone: "bull" | "bear"; title: string } | null {
+  if (trend === "bullish") {
+    return {
+      label: "Daily bullish",
+      tone: "bull",
+      title: "Daily MACD (6,20,9): first green histogram bar after 3 or more red bars, on the latest daily bar",
+    };
+  }
+  if (trend === "bearish") {
+    return {
+      label: "Daily bearish",
+      tone: "bear",
+      title: "Daily MACD (6,20,9): first red histogram bar after 3 or more green bars, on the latest daily bar",
+    };
+  }
+  return null;
+}
+
 /**
- * Whether a scan row passes the Stock Scanner "Leadership" filter. `minRs` is the slider as a 0..1 percentile. Broken
- * trends are never listed as leaders. Weekly setups is Leaders that also have a long-side weekly Strat setup on the last
- * completed weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger vs already triggered.
- * Recent breakouts ignores the slider: it needs a tight-base breakout and RS >= P50. Broken leaders ignores the slider:
- * any name whose trend is broken (same flag as the RS chip). Failed breakouts is the opposite of Recent breakouts: a
- * breakout of the last 8 weeks whose level price has since lost (`failed_breakout`, from the backend), RS >= P50, any
- * trend; it ignores the slider. A failed breakout is no longer listed under Recent breakouts.
+ * Whether a scan row passes the Stock Scanner "Setups" filter. `minRs` is the slider as a 0..1 percentile. Broken
+ * trends are never listed as leaders. The weekly Strat views are Leaders that also have a long-side weekly Strat setup
+ * on the last completed weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger
+ * vs already triggered. Daily bullish / bearish trend change is the daily MACD (6,20,9) histogram trigger on the most
+ * recent daily bar (`daily_trend`); it ignores the slider and the weekly setup. Recent breakouts ignores the slider:
+ * it needs a tight-base breakout and RS >= P50. Broken leaders ignores the slider: any name whose trend is broken
+ * (same flag as the RS chip). Failed breakouts is the opposite of Recent breakouts: a breakout of the last 8 weeks
+ * whose level price has since lost (`failed_breakout`, from the backend), RS >= P50, any trend; it ignores the slider.
+ * A failed breakout is no longer listed under Recent breakouts.
  */
 export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, minRs: number = LEADER_RS): boolean {
   switch (filter) {
@@ -50,6 +76,10 @@ export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, min
       return isSetupLeader(r, minRs) && !r.triggered;
     case "setups_triggered":
       return isSetupLeader(r, minRs) && r.triggered === true;
+    case "daily_bullish":
+      return r.daily_trend === "bullish";
+    case "daily_bearish":
+      return r.daily_trend === "bearish";
     case "broken":
       return isBroken(r);
     case "breakouts":
@@ -77,6 +107,8 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
     case "leaders":
     case "setups_pending":
     case "setups_triggered":
+    case "daily_bullish":
+    case "daily_bearish":
     case "breakouts":
     case "failed_breakouts":
     case "broken":

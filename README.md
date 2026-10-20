@@ -244,11 +244,11 @@ halved again; this shows as a negative "Pinned penalty" line.
 
 **Who counts as a leader.** The scanner **filters** rather than just ranking lower. A name is a *leader* when its blended
 1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
-`LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Leadership**
-filter has seven options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly setups · awaiting
-trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips are
-full-universe totals for those categories (not the current filters); click a chip or pick a Leadership option to dig in. The Min RS slider
-applies to *Leaders* and both *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
+`LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Setups**
+filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly strat awaiting
+trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips are
+full-universe totals for those categories (not the current filters); click a chip or pick a Setups option to dig in. The Min RS slider
+applies to *Leaders* and both weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
 (default true) and `min_rs`. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
 **RS chip** (the RS change such as `▼7`, with *weakening* / *broken* / *kill candle* flags and the NEW markers below; the RS percentile itself is in the tooltip, since it already drives the score).
@@ -274,7 +274,7 @@ fewer than 6 sessions behind it) simply leaves the fields empty. The scan row ex
 
 **Weekly setups (leaders you can act on now).** *Leaders* that also have a **long-side weekly Strat setup on the last weekly
 candle**: RS at or above the Min RS slider (default P90), trend not broken (a *weakening* name stays; a *broken* one never
-does) and `has_setup`. The Leadership filter splits them into **awaiting trigger** (`triggered` is false) and **triggered**
+does) and `has_setup`. The Setups filter splits them into **Weekly strat awaiting trigger** (`triggered` is false) and **Weekly strat already triggered**
 (`triggered` is true). The setups are the ones the scanner already classifies, nothing is duplicated
 (`find_long_setups` in `backend/strat/candles.py`): an **inside week** (1), **2-1-2** and **3-1-2** in progress (the inside
 bar is done and price has not yet broken its high), **2-1-2 / 3-1-2 / 1-2-2 / 2D-2U** already triggered (the chip says
@@ -285,6 +285,8 @@ as *Leaders*, so each setup view is always a subset of Leaders at the same Min R
 **completed** week: Friday after the close, Saturday, and Sunday include the week that just ended; Monday through Friday
 before the close, and a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday 2026-08-13), use the week before that. Hover the
 option in the dropdown for the same definition. See the *Weekly setups backtest* below for how the combined filter did.
+
+**Daily MACD trend change.** *Daily bullish trend change* and *Daily bearish trend change* in the Setups dropdown are the daily MACD (6, 20, 9) histogram trigger on the most recent daily bar (`daily_trend` on the scan row). Bullish is the first green histogram bar (at or above zero) after 3 or more red bars; bearish is the first red bar (below zero) after 3 or more green bars. The EMA matches the chart: SMA seed, then `k = 2 / (period + 1)`. The hero chips count every matching name. A row shows a *Daily bullish* or *Daily bearish* chip. The most recent bar is the last row of the daily frame the scan already uses, so today's in-progress session counts when it has been overlaid, the same way the daily Strat badge does. Weekly Strat views still ignore the week still in progress.
 
 **Recent breakouts (future leaders, early).** Meant to surface names before they are leaders, so it ignores the slider
 and uses an RS floor of **P50** (`MIN_RS` in `backend/strat/breakout.py`) plus an unbroken trend. On the weekly chart:
@@ -402,7 +404,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     cards by Score, 1M, 3M or 6M. Cards load 24 at a time.
   - The Monthly / Weekly / Daily toggle and the sort are saved separately from the other tabs.
 - **Stock Scanner** (`/`): ranked, sortable and filterable table of market leaders, with their weekly setup (if any) as timing.
-  - Filters: search, **Leadership** (*Leaders* by default, plus *Weekly setups · awaiting trigger*, *Weekly setups · triggered*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs, using
+  - Filters: search, **Setups** (*Leaders* by default, plus *Weekly strat awaiting trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), continuity (defaults to **Any**; includes Monthly 2U), weekly setup type and stocks/ETFs, using
     a custom dropdown (arrow keys, Home/End, type-to-jump, Enter/Space to pick, Esc or an outside click to close).
     The Setup filter has **Any**, **Awaiting trigger** (a trigger above price that has not traded yet), **Already
     triggered** (only rows whose weekly setup carries the TRIGGERED chip: 2-1-2 / 3-1-2 bullish, 2D-2U reversal, 1-2-2
@@ -412,7 +414,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     rises; moves under 3 points are left off) and a `NEW` marker for a breakdown that just worsened or a leader that just crossed P90 (last 3
     sessions). A name with no change and no flag shows no chip. See [What changed lately](#how-scoring-works).
   - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders* and both
-    *Weekly setups* views; *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
+    weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
     - **min price**: $1–$1,000, default $10 (`STRAT_MIN_PRICE`).
     - **min average dollar volume**: $10M–$5B.

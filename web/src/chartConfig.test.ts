@@ -5,6 +5,8 @@ import {
   MACD_PANE,
   MACD_SETTINGS,
   MACD_STRETCH,
+  MACD_TRIGGER_DOWN_COLOR,
+  MACD_TRIGGER_MIN_GREENS,
   MACD_TRIGGER_MIN_REDS,
   MACD_TRIGGER_NOTE,
   PRICE_PANE,
@@ -49,6 +51,8 @@ describe("MACD pane", () => {
     expect(volumeBarColor(10, 10)).toBe(VOLUME_UP_COLOR);
     expect(volumeBarColor(9, 10)).toBe(VOLUME_DOWN_COLOR);
     expect(MACD_TRIGGER_MIN_REDS).toBe(3);
-    expect(MACD_TRIGGER_NOTE).toBe("MACD trigger: first green after 3+ red");
+    expect(MACD_TRIGGER_MIN_GREENS).toBe(3);
+    expect(MACD_TRIGGER_DOWN_COLOR).toBe("#f43f5e");
+    expect(MACD_TRIGGER_NOTE).toBe("MACD trigger: first green after 3+ red (up) / first red after 3+ green (down)");
   });
 });

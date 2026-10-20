@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { ema, histogramColor, macd, macdChartSeries, macdTriggers, MACD_COLORS, type MacdPoint } from "./macd";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  ema,
+  histogramColor,
+  macd,
+  macdChartSeries,
+  macdTriggerMarker,
+  macdTriggers,
+  MACD_COLORS,
+  MACD_TRIGGER_DOWN_COLOR,
+  type MacdPoint,
+} from "./macd";
 
 const candles = (closes: number[]) => closes.map((close, i) => ({ time: `t${String(i).padStart(2, "0")}`, close }));
 
@@ -93,26 +106,29 @@ describe("macd chart series", () => {
 const hist = (values: Array<number | null>): MacdPoint[] =>
   values.map((histogram, i) => ({ time: `t${i}`, macd: histogram ?? 0, signal: histogram == null ? null : 0, histogram }));
 
+const up = (time: string, value: number) => ({ time, value, direction: "up" as const });
+const down = (time: string, value: number) => ({ time, value, direction: "down" as const });
+
 describe("macd triggers", () => {
   it("triggers on the first green after exactly 3 reds", () => {
-    expect(macdTriggers(hist([-1, -1, -1, 0.5]))).toEqual([{ time: "t3", value: 0.5 }]);
+    expect(macdTriggers(hist([-1, -1, -1, 0.5]))).toEqual([up("t3", 0.5)]);
     // Zero uses the same rule as the bar color: histogram >= 0 is green.
-    expect(macdTriggers(hist([-0.2, -0.4, -0.1, 0]))).toEqual([{ time: "t3", value: 0 }]);
+    expect(macdTriggers(hist([-0.2, -0.4, -0.1, 0]))).toEqual([up("t3", 0)]);
   });
 
   it("does not trigger after only 2 reds", () => {
     expect(macdTriggers(hist([-1, -1, 0.5]))).toEqual([]);
-    expect(macdTriggers(hist([-1, -1, -1, 0.4, -0.2, -0.3, 0.8]))).toEqual([{ time: "t3", value: 0.4 }]);
+    expect(macdTriggers(hist([-1, -1, -1, 0.4, -0.2, -0.3, 0.8]))).toEqual([up("t3", 0.4)]);
   });
 
   it("triggers once at the first green of a long red run", () => {
     const triggers = macdTriggers(hist([-1, -0.5, -0.2, -0.8, -0.3, -0.1, 0.4, 0.9]));
-    expect(triggers).toEqual([{ time: "t6", value: 0.4 }]);
+    expect(triggers).toEqual([up("t6", 0.4)]);
   });
 
   it("does not retrigger while greens continue", () => {
     const triggers = macdTriggers(hist([-1, -1, -1, 0.2, 0.5, 0.1, 1]));
-    expect(triggers).toEqual([{ time: "t3", value: 0.2 }]);
+    expect(triggers).toEqual([up("t3", 0.2)]);
   });
 
   it("does not treat a green at the start of the series as a trigger", () => {
@@ -120,7 +136,77 @@ describe("macd triggers", () => {
     expect(macdTriggers(hist([1, 0.2, -1, -1, 0.3]))).toEqual([]);
     expect(macdTriggers(hist([-1, -1, -1]))).toEqual([]);
     // Reds that open the series count. The opening green does not.
-    expect(macdTriggers(hist([0.5, -1, -1, -1, 0.2]))).toEqual([{ time: "t4", value: 0.2 }]);
-    expect(macdTriggers(hist([null, null, -1, -1, -1, 0.3]))).toEqual([{ time: "t5", value: 0.3 }]);
+    expect(macdTriggers(hist([0.5, -1, -1, -1, 0.2]))).toEqual([up("t4", 0.2)]);
+    expect(macdTriggers(hist([null, null, -1, -1, -1, 0.3]))).toEqual([up("t5", 0.3)]);
+  });
+});
+
+describe("macd bearish triggers", () => {
+  it("triggers on the first red after exactly 3 greens", () => {
+    expect(macdTriggers(hist([1, 1, 1, -0.5]))).toEqual([down("t3", -0.5)]);
+    // Zero is green, so three zeros then a red is the bearish trigger.
+    expect(macdTriggers(hist([0, 0, 0, -0.2]))).toEqual([down("t3", -0.2)]);
+  });
+
+  it("does not trigger after only 2 greens", () => {
+    expect(macdTriggers(hist([1, 1, -0.5]))).toEqual([]);
+    expect(macdTriggers(hist([1, 1, 1, -0.4, 0.2, 0.3, -0.8]))).toEqual([down("t3", -0.4)]);
+  });
+
+  it("triggers once at the first red of a long green run", () => {
+    const triggers = macdTriggers(hist([1, 0.5, 0.2, 0.8, 0.3, 0.1, -0.4, -0.9]));
+    expect(triggers).toEqual([down("t6", -0.4)]);
+  });
+
+  it("does not retrigger while reds continue", () => {
+    const triggers = macdTriggers(hist([1, 1, 1, -0.2, -0.5, -0.1, -1]));
+    expect(triggers).toEqual([down("t3", -0.2)]);
+  });
+
+  it("does not treat a red at the start of the series as a trigger", () => {
+    expect(macdTriggers(hist([-0.4]))).toEqual([]);
+    expect(macdTriggers(hist([-1, -0.2, 1, 1, -0.3]))).toEqual([]);
+    expect(macdTriggers(hist([1, 1, 1]))).toEqual([]);
+    // Greens that open the series count. The opening red does not.
+    expect(macdTriggers(hist([-0.5, 1, 1, 1, -0.2]))).toEqual([down("t4", -0.2)]);
+    expect(macdTriggers(hist([null, null, 1, 1, 1, -0.3]))).toEqual([down("t5", -0.3)]);
+  });
+
+  it("marks both flips in one series and draws the red arrow down from above", () => {
+    expect(macdTriggers(hist([-1, -1, -1, 0.4, 0.2, 0.1, -0.3]))).toEqual([up("t3", 0.4), down("t6", -0.3)]);
+    expect(macdTriggerMarker({ direction: "up" }, "histogram")).toEqual({
+      position: "atPriceBottom",
+      shape: "arrowUp",
+      color: "#22c55e",
+    });
+    expect(macdTriggerMarker({ direction: "up" }, "price")).toEqual({
+      position: "belowBar",
+      shape: "arrowUp",
+      color: "#22c55e",
+    });
+    expect(macdTriggerMarker({ direction: "down" }, "histogram")).toEqual({
+      position: "atPriceTop",
+      shape: "arrowDown",
+      color: MACD_TRIGGER_DOWN_COLOR,
+    });
+    expect(macdTriggerMarker({ direction: "down" }, "price")).toEqual({
+      position: "aboveBar",
+      shape: "arrowDown",
+      color: MACD_TRIGGER_DOWN_COLOR,
+    });
+  });
+});
+
+describe("macd trigger dates match the backend fixture", () => {
+  it("marks the same bars as the Python scanner on the shared close series", () => {
+    const path = resolve(dirname(fileURLToPath(import.meta.url)), "../../fixtures/macd_series.json");
+    const fixture = JSON.parse(readFileSync(path, "utf8")) as {
+      times: string[];
+      closes: number[];
+      triggers: { time: string; direction: "up" | "down" }[];
+    };
+    const points = macd(fixture.times.map((time, i) => ({ time, close: fixture.closes[i] })));
+    const triggers = macdTriggers(points).map(({ time, direction }) => ({ time, direction }));
+    expect(triggers).toEqual(fixture.triggers);
   });
 });

@@ -6,6 +6,7 @@ import {
   MIN_RS_RANGE,
   NO_SETUP_LEADER,
   breakoutLabel,
+  dailyTrendBadge,
   failedBreakoutLabel,
   fmtRs,
   formatWeight,
@@ -81,6 +82,8 @@ describe("matchesLeadership", () => {
     expect(leadershipUsesMinRs("setups_triggered")).toBe(true);
     expect(leadershipUsesMinRs("breakouts")).toBe(false);
     expect(leadershipUsesMinRs("broken")).toBe(false);
+    expect(leadershipUsesMinRs("daily_bullish")).toBe(false);
+    expect(leadershipUsesMinRs("daily_bearish")).toBe(false);
     expect(leadershipUsesMinRs("all")).toBe(false);
   });
 
@@ -227,6 +230,35 @@ describe("Failed breakouts", () => {
   });
 });
 
+describe("daily MACD trend change", () => {
+  const bull = { ...row(0.2), daily_trend: "bullish" as const };
+  const bear = { ...row(0.99, "broken"), daily_trend: "bearish" as const };
+  const earlier = { ...row(0.95), daily_trend: null };
+
+  it("keeps a name only when the latest daily bar is that trigger", () => {
+    expect(matchesLeadership(bull, "daily_bullish")).toBe(true);
+    expect(matchesLeadership(bear, "daily_bullish")).toBe(false);
+    expect(matchesLeadership(earlier, "daily_bullish")).toBe(false);
+    expect(matchesLeadership(row(0.99), "daily_bullish")).toBe(false);
+    expect(matchesLeadership(bear, "daily_bearish")).toBe(true);
+    expect(matchesLeadership(bull, "daily_bearish")).toBe(false);
+  });
+
+  it("ignores the Min RS slider, a broken trend and whether there is a weekly setup", () => {
+    expect(matchesLeadership(bull, "daily_bullish", sliderToRs(99))).toBe(true);
+    expect(matchesLeadership(bear, "daily_bearish", sliderToRs(50))).toBe(true);
+    expect(leadershipUsesMinRs("daily_bullish")).toBe(false);
+    expect(leadershipUsesMinRs("daily_bearish")).toBe(false);
+  });
+
+  it("labels the row chip the way the other setup badges are labeled", () => {
+    expect(dailyTrendBadge("bullish")).toMatchObject({ label: "Daily bullish", tone: "bull" });
+    expect(dailyTrendBadge("bearish")).toMatchObject({ label: "Daily bearish", tone: "bear" });
+    expect(dailyTrendBadge(null)).toBeNull();
+    expect(dailyTrendBadge(undefined)).toBeNull();
+  });
+});
+
 describe("migrateLeadership", () => {
   it("maps the old Leaders and Broad leaders options onto Leaders plus a Min RS value", () => {
     expect(migrateLeadership("p90")).toEqual({ filter: "leaders", minRs: 90 });
@@ -239,6 +271,8 @@ describe("migrateLeadership", () => {
     expect(migrateLeadership("setups")).toEqual({ filter: "setups_pending", minRs: null });
     expect(migrateLeadership("setups_pending")).toEqual({ filter: "setups_pending", minRs: null });
     expect(migrateLeadership("setups_triggered")).toEqual({ filter: "setups_triggered", minRs: null });
+    expect(migrateLeadership("daily_bullish")).toEqual({ filter: "daily_bullish", minRs: null });
+    expect(migrateLeadership("daily_bearish")).toEqual({ filter: "daily_bearish", minRs: null });
     expect(migrateLeadership(null)).toEqual({ filter: "leaders", minRs: null });
     expect(migrateLeadership("nonsense")).toEqual({ filter: "leaders", minRs: null });
   });
