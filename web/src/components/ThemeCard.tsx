@@ -26,7 +26,7 @@ function Chip({ chip }: { chip: ThemeChip }) {
 }
 
 /** Theme card: equal-weight index candles with H/I markers, M/W/D badges, score, returns, members and a Scan theme link. */
-export function ThemeCard({ theme, chartHeight = 180 }: { theme: ThemeCardData; chartHeight?: number }) {
+export function ThemeCard({ theme, chartHeight = 240 }: { theme: ThemeCardData; chartHeight?: number }) {
   const r = theme.row;
   const [expanded, setExpanded] = useState(false);
   const setup = r.setups?.[0];

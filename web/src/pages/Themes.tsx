@@ -122,7 +122,7 @@ export default function Themes({ version }: { version: string | null }) {
       </div>
 
       {error && <div className="banner error">{error}</div>}
-      {loading && themes.length === 0 && <SkeletonCards count={9} label="Building theme indexes…" />}
+      {loading && themes.length === 0 && <SkeletonCards count={9} chartHeight={240} label="Building theme indexes…" />}
       <div className="sector-grid theme-grid">
         {visible.slice(0, shown).map((t) => (
           <div key={t.id} id={`theme-${t.id}`}>

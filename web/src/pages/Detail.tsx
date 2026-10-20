@@ -52,7 +52,7 @@ export default function Detail({ version }: { version: string | null }) {
               <span className="skeleton-bar pill" />
               <span className="skeleton-bar pill" />
             </div>
-            <div className="skeleton-chart" style={{ height: 480 }} />
+            <div className="skeleton-chart" style={{ height: 600 }} />
           </section>
           <aside className="side">
             {[0, 1, 2].map((i) => (
@@ -132,7 +132,7 @@ export default function Detail({ version }: { version: string | null }) {
             </div>
             <span className="muted small">H = hammer · I = inside bar</span>
           </div>
-          <CandleChart candles={data.charts[activeTf]} height={480} visibleBars={activeTf === "M" ? 60 : 70} />
+          <CandleChart candles={data.charts[activeTf]} height={600} visibleBars={activeTf === "M" ? 60 : 70} />
         </section>
 
         <aside className="side">
