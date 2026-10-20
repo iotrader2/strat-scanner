@@ -275,16 +275,27 @@ export interface FearGreed {
   previous_month: number | null;
 }
 
+/** Up, down and unchanged names in the scanner's universe. */
 export interface IssueCounts {
   advancing: number;
   declining: number;
   unchanged: number;
+  /** Names included in the count. */
+  names: number;
+}
+
+/** 52-week new highs and new lows in the same universe. */
+export interface HighLowCounts {
+  highs: number;
+  lows: number;
+  names: number;
 }
 
 export interface Breadth {
   nasi: Nasi | null;
   fear_greed: FearGreed | null;
-  issues: { nasdaq?: IssueCounts; nyse?: IssueCounts } | null;
+  issues: IssueCounts | null;
+  highs_lows: HighLowCounts | null;
 }
 
 export type TrendCall = "on" | "off" | "caution";
@@ -390,7 +401,7 @@ export const api = {
   /** QQQ, SPY and IWM for the State of the Market tab. */
   market: (tf: Tf | HigherTf, bars = 60) =>
     get<{ tf: Tf | HigherTf; as_of: string | null; etfs: MarketEtf[]; trend: Trend | null }>(`/api/market?tf=${tf}&bars=${bars}`),
-  /** $NASI, Fear & Greed and advancers vs decliners. */
+  /** $NASI, Fear & Greed, and breadth of the symbols the scanner tracks. */
   breadth: () => get<Breadth>("/api/breadth"),
   watchlist: () => get<Watchlist>("/api/watchlist"),
   watch: (symbol: string) =>

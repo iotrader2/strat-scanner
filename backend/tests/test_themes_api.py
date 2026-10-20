@@ -142,10 +142,20 @@ def test_market_endpoint_validates_timeframe(api_client):
     assert api_client.get("/api/market?tf=Y").status_code == 422
 
 
-def test_breadth_endpoint(api_client, monkeypatch):
-    payload = {"nasi": None, "fear_greed": None, "issues": None}
-    monkeypatch.setattr(api, "fetch_breadth", lambda: payload)
-    assert api_client.get("/api/breadth").json() == payload
+def test_breadth_endpoint_counts_the_scanned_universe(api_client, monkeypatch, result, history):
+    from strat.breadth import universe_breadth
+
+    monkeypatch.setattr(api, "fetch_breadth", lambda: {"nasi": {"value": 1.0}, "fear_greed": None})
+    body = api_client.get("/api/breadth").json()
+    expected = universe_breadth(result.rows, history)
+    assert body["nasi"] == {"value": 1.0}
+    assert body["fear_greed"] is None
+    assert body["issues"] == expected["issues"]
+    assert body["highs_lows"] == expected["highs_lows"]
+    assert body["issues"]["names"] == len(result.rows)
+    assert "nasdaq" not in body["issues"] and "nyse" not in body["issues"]
+    # The fixture history is shorter than a 52-week window, so nobody qualifies.
+    assert body["highs_lows"] == {"highs": 0, "lows": 0, "names": len(result.rows)}
 
 
 def test_config_lists_themes_for_the_scanner_filter(api_client):

@@ -17,7 +17,7 @@ from . import config, data, earnings, fetch_worker
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .scheduler import decide, fetch_period, now_et
-from .breadth import fetch_breadth
+from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
 from .leadership import LEADER_MIN_RS, is_leader
@@ -550,8 +550,17 @@ def themes(tf: str = Query("W", pattern="^[MWD]$"), bars: int = Query(60, ge=10,
 
 @app.get("/api/breadth")
 def breadth():
-    """$NASI, CNN Fear & Greed and Nasdaq/NYSE advancers vs decliners for State of the Market."""
-    return fetch_breadth()
+    """$NASI, CNN Fear & Greed, and breadth of the symbols this scanner tracks.
+
+    Advancers and 52-week highs/lows are counted from the scan rows and daily bars already
+    in memory. They are not a Nasdaq or NYSE exchange statistic, and this route does not
+    download prices.
+    """
+    payload = fetch_breadth()
+    counts = universe_breadth(State.scan, State.daily)
+    payload["issues"] = None if counts is None else counts["issues"]
+    payload["highs_lows"] = None if counts is None else counts["highs_lows"]
+    return payload
 
 
 @app.get("/api/market")
