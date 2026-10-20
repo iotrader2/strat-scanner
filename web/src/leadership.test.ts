@@ -7,6 +7,8 @@ import {
   NO_SETUP_LEADER,
   breakoutLabel,
   dailyTrendBadge,
+  detailTfFor,
+  weeklyTrendBadge,
   failedBreakoutLabel,
   fmtRs,
   formatWeight,
@@ -227,6 +229,54 @@ describe("Failed breakouts", () => {
 
   it("is kept by the saved-filter migration", () => {
     expect(migrateLeadership("failed_breakouts")).toEqual({ filter: "failed_breakouts", minRs: null });
+  });
+});
+
+describe("detail chart timeframe from the Setups option", () => {
+  it("opens Daily for the daily trend changes, Weekly for the weekly ones, and keeps the sticky choice otherwise", () => {
+    expect(detailTfFor("daily_bullish")).toBe("D");
+    expect(detailTfFor("daily_bearish")).toBe("D");
+    expect(detailTfFor("weekly_bullish")).toBe("W");
+    expect(detailTfFor("weekly_bearish")).toBe("W");
+    for (const f of ["leaders", "setups_pending", "setups_triggered", "breakouts", "failed_breakouts", "broken", "all"] as const) {
+      expect(detailTfFor(f)).toBeNull();
+    }
+  });
+});
+
+describe("weekly MACD trend change", () => {
+  const bull = { ...row(0.2), weekly_trend: "bullish" as const };
+  const bear = { ...row(0.99, "broken"), weekly_trend: "bearish" as const };
+
+  it("keeps a name only when the backend's 10-week-gated weekly_trend matches", () => {
+    expect(matchesLeadership(bull, "weekly_bullish")).toBe(true);
+    expect(matchesLeadership(bear, "weekly_bullish")).toBe(false);
+    expect(matchesLeadership(row(0.99), "weekly_bullish")).toBe(false);
+    expect(matchesLeadership(bear, "weekly_bearish")).toBe(true);
+    expect(matchesLeadership(bull, "weekly_bearish")).toBe(false);
+    // The raw trigger alone (close on the wrong side of the 10-week SMA) does not count.
+    const belowTen = { ...row(0.9), weekly_trend: null, weekly_macd_trigger: "bullish" as const };
+    expect(matchesLeadership(belowTen, "weekly_bullish")).toBe(false);
+  });
+
+  it("is independent of the daily trend change", () => {
+    const daily = { ...row(0.9), daily_trend: "bullish" as const, weekly_trend: null };
+    expect(matchesLeadership(daily, "weekly_bullish")).toBe(false);
+    expect(matchesLeadership(bull, "daily_bullish")).toBe(false);
+  });
+
+  it("ignores the Min RS slider and is kept by the saved-filter migration", () => {
+    expect(matchesLeadership(bull, "weekly_bullish", sliderToRs(99))).toBe(true);
+    expect(leadershipUsesMinRs("weekly_bullish")).toBe(false);
+    expect(leadershipUsesMinRs("weekly_bearish")).toBe(false);
+    expect(migrateLeadership("weekly_bullish")).toEqual({ filter: "weekly_bullish", minRs: null });
+    expect(migrateLeadership("weekly_bearish")).toEqual({ filter: "weekly_bearish", minRs: null });
+  });
+
+  it("labels the row chip", () => {
+    expect(weeklyTrendBadge("bullish")?.label).toBe("Weekly bullish");
+    expect(weeklyTrendBadge("bearish")?.tone).toBe("bear");
+    expect(weeklyTrendBadge(null)).toBeNull();
   });
 });
 

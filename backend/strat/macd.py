@@ -22,6 +22,12 @@ The Daily bullish / bearish trend change *setups* (filter, row chip, hero count)
 latest close on the right side of the 50-day SMA: above it for bullish, below it for bearish
 (``daily_trend_setup``). Names without a 50-day SMA never match. The chart arrows stay purely
 MACD-based.
+
+The Weekly bullish / bearish trend change setups use the same trigger on the weekly candles the
+weekly chart draws, including the week still in progress (``resample(daily, "W",
+completed_only=False)``), the same way the daily setup uses today's bar. The weekly Strat setups
+still read completed weeks only. The trigger is confirmed by the latest weekly close (today's
+price) against the 10-week SMA, the weekly analog of the 50-day (``weekly_trend_setup``).
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ TRIGGER_MIN_RUN = 3
 BULLISH = "bullish"
 BEARISH = "bearish"
 SETUP_SMA = 50
+WEEKLY_SETUP_SMA = 10
 
 if TYPE_CHECKING:
     from .leadership import Trend
@@ -159,5 +166,30 @@ def daily_trend_setup(trigger: Optional[str], trend: "Optional[Trend]", period: 
     if trigger == BULLISH and trend.price > sma:
         return BULLISH
     if trigger == BEARISH and trend.price < sma:
+        return BEARISH
+    return None
+
+
+def latest_weekly_trend(weekly: Optional[pd.DataFrame]) -> Optional[str]:
+    """Trend change on the current weekly bar, or None. ``weekly`` is ``resample(daily, "W", completed_only=False)``,
+    so the week in progress counts, like today's bar for ``latest_daily_trend``."""
+    return latest_daily_trend(weekly)
+
+
+def weekly_trend_setup(trigger: Optional[str], weekly: Optional[pd.DataFrame], period: int = WEEKLY_SETUP_SMA) -> Optional[str]:
+    """The Weekly bullish / bearish trend change setup: a weekly MACD trigger, confirmed by the 10-week SMA.
+
+    ``trigger`` is ``latest_weekly_trend`` for the same weekly frame. Bullish needs the last weekly
+    close above the SMA of the last ``period`` weekly closes, bearish below it. Fewer than ``period``
+    weeks: nothing matches.
+    """
+    if trigger is None or weekly is None or len(weekly) < period or "close" not in weekly.columns:
+        return None
+    closes = weekly["close"].to_numpy(dtype=np.float64)
+    price = float(closes[-1])
+    sma = float(closes[-period:].mean())
+    if trigger == BULLISH and price > sma:
+        return BULLISH
+    if trigger == BEARISH and price < sma:
         return BEARISH
     return None

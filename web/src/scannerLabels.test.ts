@@ -9,6 +9,8 @@ describe("Setups filter labels", () => {
     expect(labels).toContain("Weekly strat already triggered");
     expect(labels).toContain("Daily bullish trend change");
     expect(labels).toContain("Daily bearish trend change");
+    expect(labels).toContain("Weekly bullish trend change");
+    expect(labels).toContain("Weekly bearish trend change");
     for (const label of labels) expect(label.toLowerCase()).not.toContain("setups");
   });
 
@@ -17,5 +19,7 @@ describe("Setups filter labels", () => {
     expect(SETUPS_OPTIONS.find((option) => option.label === "Weekly strat already triggered")?.value).toBe("setups_triggered");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Daily bullish trend change")?.value).toBe("daily_bullish");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Daily bearish trend change")?.value).toBe("daily_bearish");
+    expect(SETUPS_OPTIONS.find((option) => option.label === "Weekly bullish trend change")?.value).toBe("weekly_bullish");
+    expect(SETUPS_OPTIONS.find((option) => option.label === "Weekly bearish trend change")?.value).toBe("weekly_bearish");
   });
 });

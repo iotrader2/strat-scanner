@@ -1,10 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { fmtMoney, fmtPct, type ScanRow } from "../api";
+import { fmtMoney, fmtPct, type ScanRow, type Tf } from "../api";
+import { DETAIL_TF_KEY, writePersisted } from "../persist";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
 import {
   breakoutLabel,
   dailyTrendBadge,
+  weeklyTrendBadge,
   failedBreakoutLabel,
   LEADER_RS,
   NO_SETUP_LEADER,
@@ -136,6 +138,8 @@ interface Props {
   /** Trailing per-row action cell. */
   actions?: (r: ScanRow) => ReactNode;
   actionsLabel?: string;
+  /** Chart timeframe to switch the detail page to when a row is clicked; omitted keeps its sticky choice. */
+  detailTf?: Tf | null;
   /** The Min RS slider as a 0..1 percentile, used to label leaders that have no weekly setup. */
   minRs?: number;
   /** Sort the table starts in (default: score, highest first). */
@@ -153,6 +157,7 @@ export function ScanTable({
   actionsLabel = "Actions",
   minRs = LEADER_RS,
   initialSort = { key: "score", dir: -1 },
+  detailTf,
 }: Props) {
   const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>(initialSort);
@@ -205,8 +210,12 @@ export function ScanTable({
         <tbody>
           {sorted.map((r, i) => {
             const trend = dailyTrendBadge(r.daily_trend);
+            const weeklyTrend = weeklyTrendBadge(r.weekly_trend);
             return (
-            <tr key={r.symbol} onClick={() => navigate(`/stock/${r.symbol}`)}>
+            <tr key={r.symbol} onClick={() => {
+              if (detailTf) writePersisted(DETAIL_TF_KEY, detailTf);
+              navigate(`/stock/${r.symbol}`);
+            }}>
               {watchColumn && (
                 <td className="watch-col">
                   <WatchButton symbol={r.symbol} />
@@ -260,6 +269,11 @@ export function ScanTable({
                 {trend && (
                   <span className={`trend-badge ${trend.tone}`} title={trend.title}>
                     {trend.label}
+                  </span>
+                )}
+                {weeklyTrend && (
+                  <span className={`trend-badge ${weeklyTrend.tone}`} title={weeklyTrend.title}>
+                    {weeklyTrend.label}
                   </span>
                 )}
                 {r.breakout && !r.failed_breakout && (

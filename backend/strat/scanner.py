@@ -33,7 +33,7 @@ from .leadership import (
     trend_metrics,
 )
 from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout, find_failed_breakout
-from .macd import daily_trend_setup, latest_daily_trend
+from .macd import daily_trend_setup, latest_daily_trend, latest_weekly_trend, weekly_trend_setup
 from .perf import MomentumRanks, Perf, period_returns
 from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
 from .quotes import IndexQuote, percent_change
@@ -133,6 +133,9 @@ def scan_symbol(
     secondary_names = [themes.by_id(t).name for t in secondary] if themes else []
     trend = trend_metrics(daily)
     macd_trigger = latest_daily_trend(daily)
+    # The weekly trend change reads the week in progress (like today's daily bar); the weekly Strat state does not.
+    weekly_live = resample(daily, "W", completed_only=False)
+    weekly_macd_trigger = latest_weekly_trend(weekly_live)
     excess = qqq_excess(perf, qqq)
     long_rs = long_term_rs(momentum.percentiles) if momentum else None
     trend_break = assess_breakdown(trend, perf, long_rs)
@@ -261,6 +264,9 @@ def scan_symbol(
         # is the setup: that trigger plus the close on the matching side of the 50-day SMA.
         "daily_macd_trigger": macd_trigger,
         "daily_trend": daily_trend_setup(macd_trigger, trend),
+        # Same trigger on the weekly candles including the week in progress (the weekly chart), gated on the 10-week SMA.
+        "weekly_macd_trigger": weekly_macd_trigger,
+        "weekly_trend": weekly_trend_setup(weekly_macd_trigger, weekly_live),
         "trigger": round(primary.setup.trigger, 2) if primary else None,
         "trigger_tf": primary.tf if primary else None,
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,
@@ -347,8 +353,12 @@ def scan_all(
 
 
 def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:
-    """Candles with their Strat number and hammer flag, for the chart markers."""
-    df = resample(daily, tf)
+    """Candles with their Strat number and hammer flag, for the chart markers.
+
+    The weekly chart includes the week in progress, as the daily chart includes today's bar, so its MACD
+    arrow matches the Weekly trend change setup. Monthly stays on completed months.
+    """
+    df = resample(daily, tf, completed_only=tf != "W")
     candles = to_candles(df)
     types = classify_series(candles)
     out = []

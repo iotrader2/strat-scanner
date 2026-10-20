@@ -66,6 +66,36 @@ def test_daily_trend_setup_in_the_scan_row_needs_the_50_day_side(monkeypatch):
         assert row["daily_trend"] == expected, (trigger, expected)
 
 
+def test_row_carries_the_weekly_macd_trend_of_the_week_in_progress():
+    from strat.data import resample
+    from strat.macd import latest_weekly_trend, weekly_trend_setup
+
+    df = _daily()
+    weekly = resample(df, "W", completed_only=False)
+    row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), df)
+    assert row["weekly_macd_trigger"] == latest_weekly_trend(weekly)
+    assert row["weekly_trend"] == weekly_trend_setup(latest_weekly_trend(weekly), weekly)
+    assert row["weekly_trend"] in (None, "bullish", "bearish")
+
+
+def test_weekly_trend_setup_in_the_scan_row_needs_the_10_week_side(monkeypatch):
+    import strat.scanner as scanner
+
+    member = Member("TEST", "Test", "Industrials", "stock", "SP500")
+    rising = _trend_frame([100 + i for i in range(80)])
+    falling = _trend_frame([200 - i for i in range(80)])
+    for trigger, frame, expected in (
+        ("bullish", rising, "bullish"),
+        ("bullish", falling, None),
+        ("bearish", falling, "bearish"),
+        ("bearish", rising, None),
+    ):
+        monkeypatch.setattr(scanner, "latest_weekly_trend", lambda weekly, t=trigger: t)
+        row = scan_symbol(member, frame)
+        assert row["weekly_macd_trigger"] == trigger
+        assert row["weekly_trend"] == expected, (trigger, expected)
+
+
 def test_row_carries_score_breakdown():
     row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), _daily())
     assert row["score_max_raw"] == 100
