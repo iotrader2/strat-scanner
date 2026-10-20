@@ -21,6 +21,7 @@ from .change import (
 )
 from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
 from .data import resample
+from .periods import completed_week_high_labels
 from . import legacy_scoring, scoring
 from .leadership import (
     BENCHMARK,
@@ -159,9 +160,10 @@ def scan_symbol(
     new_breakdown = worsened(trend_break.level, history, as_of)
     new_leader = entered_leaders(rs, trend_break.level, history, as_of)
     near = None
-    if primary is None:
+    if primary is None and candles["W"]:
+        recent, prior = completed_week_high_labels(daily.index[-1].date())
         weekly = candles["W"]
-        levels = [(weekly[-1].high, "this week's high")] + ([(weekly[-2].high, "last week's high")] if len(weekly) > 1 else [])
+        levels = [(weekly[-1].high, recent)] + ([(weekly[-2].high, prior)] if len(weekly) > 1 else [])
         near = nearest_trigger(price, levels)
     return {
         "symbol": member.symbol,

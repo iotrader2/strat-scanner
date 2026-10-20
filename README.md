@@ -82,8 +82,14 @@ A single thread in the API process is the only thing that talks to Yahoo:
 
 ## What it computes
 
-Weekly (Mon-Fri) and monthly candles are built from the cached daily bars. The **last candle is the
-current, still-forming period**, which is how The Strat is read in real time.
+Weekly (Mon-Fri) and monthly candles are built from the cached daily bars. Strat classification —
+the setup, the trigger, distance to it, continuity, and the M/W chips — uses the last **completed**
+week and the last **completed** month. The week still in progress is left out, including Monday's
+high and a mid-week `STRAT_AS_OF` cut-off. A week is complete after the close of its last session
+(Friday, or Thursday when Friday is a holiday): Friday after the close, Saturday, and Sunday all
+count that week. The same rule applies to months, quarters, and half-years. Daily candles still
+include the current session. A Monday bar is its own next week (`W-FRI`, closed on the right); it
+is not folded into the week that already ended.
 
 **Strat number** of each candle vs. the previous one:
 
@@ -92,6 +98,7 @@ current, still-forming period**, which is how The Strat is read in real time.
 - `3` outside: takes out both
 
 **Continuity**: a timeframe is green when price is above that period's open (red if below).
+Weekly and monthly continuity use the last completed period; daily uses the latest session.
 Monthly **and** Weekly green is a timing nuance, not a default gate: the Stock Scanner's Continuity filter defaults to **Any** (see [Backtest](#backtest) for why).
 
 **Hammer**: lower wick ≥ 2× body, small upper wick (≤ the body or ≤ 10% of the range), and a close in
@@ -99,18 +106,18 @@ the top third of the range.
 
 **Long setups** are detected on the **weekly** timeframe only (a monthly or daily pattern is context, not a setup). A
 weekly setup is optional for the scanner: leaders without one are listed as *No setup / leader*, and the Trigger column
-shows their **nearest trigger** (the closer of this week's and last week's high above price, in muted type).
+shows their **nearest trigger** (the closer of the last two completed weeks' highs above price, in muted type).
 
 | Setup | Pattern | Trigger |
 | --- | --- | --- |
-| Inside week (ready to trigger) | current week is `1` | above the inside-week high |
-| 2-1 → 2-1-2, 3-1 → 3-1-2 (pending) | `2`/`3` week then current week `1` | inside-week high |
-| Weekly hammer | current week is a hammer | hammer high |
+| Inside week (ready to trigger) | last completed week is `1` | above the inside-week high |
+| 2-1 → 2-1-2, 3-1 → 3-1-2 (pending) | `2`/`3` week then last completed week `1` | inside-week high |
+| Weekly hammer | last completed week is a hammer | hammer high |
 | 2-1-2 bullish (2D-1-2U, 2U-1-2U) | triggered | inside-week high |
 | 3-1-2 bullish | triggered | inside-week high |
 | 1-2-2 RevStrat | `1`, `2D`, `2U` weeks | 2D-week high |
 | 2D-2U reversal | `2D` week then `2U` week | 2D-week high |
-| Hammer triggered | prior week a hammer, current week breaks its high | hammer high |
+| Hammer triggered | prior week a hammer, last completed week breaks its high | hammer high |
 
 Stops are intentionally not shown: they are managed intraday (e.g. on the 5-minute chart), which is out of
 scope for this scanner.
@@ -186,8 +193,8 @@ shows the weight next to each label (`Vs QQQ (30%)  +23.8 / 30`) and the sub-wei
 | **Range tightness** | 5 | 5% | last-10 vs 50-day range 60% · last-5 vs 20-day contraction 40% | Calm, contracting daily ranges score high and loose, expanding ones low. See below. |
 | **Strat timing · weekly setup** | 4 | 4% | none | `4 × setup points / 25`: the strongest weekly setup plus 25% of the others, capped at 25 setup points (2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8). 0 with no setup. |
 | **Strat timing · distance to trigger** | 2.5 | 2.5% | none | `2.5 × (1 − d / 5%)` for how far price is below the weekly trigger (0 at 5% or more below). An already triggered setup gets half credit. |
-| **Strat timing · continuity** | 2 | 2% | Monthly 0.75 · Weekly 0.75 · Daily 0.25 · all three +0.25 | Price above the period open on each timeframe, plus a bonus when all three are green. |
-| **Strat timing · Monthly 2U** | 1.5 | 1.5% | none | +1.5 when the current monthly candle is a 2U. |
+| **Strat timing · continuity** | 2 | 2% | Monthly 0.75 · Weekly 0.75 · Daily 0.25 · all three +0.25 | Price above the period open. Weekly and monthly use the last completed candle; daily uses the latest session. Plus a bonus when all three are green. |
+| **Strat timing · Monthly 2U** | 1.5 | 1.5% | none | +1.5 when the last completed monthly candle is a 2U. |
 | **Liquidity** | 5 | 5% | none | `5 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 5 at $5B or more. Not used for themes. |
 | **Kill candle** | penalty | 0 (multiplier) | up to −25%, fading to 0 over 10 sessions | A multiplier on the whole score, shown in the tooltip as `Kill candle (2026-10-05)` with the points removed. See below. |
 | **Total** | **100** | **100%** | | Leadership 80% (RS 15 + Vs QQQ 30 + Theme 25 + Trend 10), range tightness 5%, liquidity 5% and the Strat overlay 10% (4 + 2.5 + 2 + 1.5). |
@@ -274,10 +281,10 @@ bar is done and price has not yet broken its high), **2-1-2 / 3-1-2 / 1-2-2 / 2D
 TRIGGERED), and a **weekly hammer** (pending below its own high, or triggered above the prior high). Each row shows the
 **trigger** (the weekly high for longs; the prior high once triggered) and **To trigger**, the distance from price (positive =
 still below the trigger, negative = already through it), and the rows keep the normal score order. It uses the same slider
-as *Leaders*, so each setup view is always a subset of Leaders at the same Min RS. "Last weekly candle" is the latest weekly
-bar in the data: complete on a Friday, Saturday or Sunday, partial for a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday
-2026-08-13 uses the week in progress), exactly as the rest of the scanner reads it. Hover the option in the dropdown for the
-same definition. See the *Weekly setups backtest* below for how the combined filter did.
+as *Leaders*, so each setup view is always a subset of Leaders at the same Min RS. "Last weekly candle" is the last
+**completed** week: Friday after the close, Saturday, and Sunday include the week that just ended; Monday through Friday
+before the close, and a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday 2026-08-13), use the week before that. Hover the
+option in the dropdown for the same definition. See the *Weekly setups backtest* below for how the combined filter did.
 
 **Recent breakouts (future leaders, early).** Meant to surface names before they are leaders, so it ignores the slider
 and uses an RS floor of **P50** (`MIN_RS` in `backend/strat/breakout.py`) plus an unbroken trend. On the weekly chart:
@@ -345,7 +352,7 @@ and closeness, with a small preference for setups that have not triggered yet.
 | Range tightness | 3.80 / 5 | 10-day range 7.7% of price vs 7.9% over 50 days (0.97×); last 5 days 7.0% vs 8.2% (0.85×) |
 | Strat timing | 3 / 10 | no weekly setup (0), Monthly and Weekly green (1.5), Monthly 2U (1.5) |
 | Liquidity | 4.29 / 5 | $2.6B/day |
-| **Raw total** | **84.09 / 100** | score 84.1; nearest trigger 514.00 (+3.9%, this week's high) |
+| **Raw total** | **84.09 / 100** | score 84.1; nearest trigger is the closer completed-week high above price |
 
 **The same family after a breakdown (HPE, Oct 16 2026):** RS fell to P83 (1M -2.7%), the close is below the 50-day average
 and 25% under the 6-month high, so the raw 37.0 is multiplied by 0.5 (a −18.5 *Breakdown penalty*) for a score of 18.5, and

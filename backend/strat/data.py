@@ -15,6 +15,8 @@ from typing import Callable, Iterable, Iterator, Optional
 import pandas as pd
 
 from . import config
+from .periods import period_complete
+
 log = logging.getLogger(__name__)
 
 SCHEMA = """
@@ -428,11 +430,25 @@ def load_snapshot(db_path: Path | None = None) -> Optional[dict]:
     return {"version": int(row[0]), "computed_at": row[1], "rows": json.loads(row[2])}
 
 
-def resample(daily: pd.DataFrame, tf: str) -> pd.DataFrame:
+def resample(
+    daily: pd.DataFrame,
+    tf: str,
+    *,
+    completed_only: bool = True,
+    now: datetime | None = None,
+) -> pd.DataFrame:
     """Aggregate daily bars into weekly, monthly, quarterly, or 6-month candles.
 
-    The last candle is the current, still-forming period, which is what The
-    Strat classifies in real time.
+    Weeks are ``W-FRI`` bins closed and labeled on the right, then relabeled to
+    their first trading day. A Monday therefore opens the *next* Friday's bin;
+    it is never folded into the week that already ended. Months, quarters, and
+    half-years are left-labeled period starts (``MS``, ``QS``, ``6MS``).
+
+    By default the in-progress bin is dropped. Strat setup, trigger, continuity,
+    and the higher-timeframe chips all read this series, so they stay on the
+    last completed week or month: after the close on Friday (or Thursday when
+    Friday is a holiday), and not on Monday's high. ``completed_only=False``
+    keeps the forming bin for callers that scale a partial week on purpose.
     """
     if tf == "D" or daily.empty:
         return daily
@@ -442,7 +458,13 @@ def resample(daily: pd.DataFrame, tf: str) -> pd.DataFrame:
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     )
     agg = agg.dropna(subset=["open"])
-    if tf == "W":
+    if completed_only and not agg.empty:
+        last = pd.Timestamp(daily.index[-1])
+        if last.tzinfo is not None:
+            last = last.tz_convert("America/New_York").tz_localize(None)
+        if not period_complete(tf, last.date(), now):
+            agg = agg.iloc[:-1].copy()
+    if tf == "W" and not agg.empty:
         # Label weeks by their first trading day so chart times line up with the week open.
         first_day = daily.index.to_series().resample(rule, label="right", closed="right").first()
         agg.index = first_day.reindex(agg.index).values
