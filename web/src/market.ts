@@ -1,5 +1,18 @@
 import type { Nasi, ScanRow, TrendCall } from "./api";
 
+export type IndexSession = "premarket" | "after_hours";
+
+/** Label for the index-card badge, or null during the regular session and when the market is closed. */
+export function sessionBadge(session: IndexSession | null | undefined): { label: string; title: string } | null {
+  if (session === "premarket") {
+    return { label: "Premarket", title: "Change versus the prior regular-session close" };
+  }
+  if (session === "after_hours") {
+    return { label: "After hours", title: "Change versus today's regular-session close" };
+  }
+  return null;
+}
+
 export interface MarketRead {
   tone: "green" | "red" | "mixed";
   summary: string;

@@ -132,13 +132,36 @@ def test_sectors_endpoint_is_gone(api_client):
 
 
 @pytest.mark.parametrize("tf", ["M", "W", "D", "3M", "6M"])
-def test_market_endpoint_lists_qqq_spy_iwm_in_order(api_client, tf):
+def test_market_endpoint_lists_qqq_spy_iwm_in_order(api_client, tf, monkeypatch):
+    monkeypatch.setattr("strat.quotes.active_quotes", lambda now=None: {})
     body = api_client.get(f"/api/market?tf={tf}&bars=30").json()
     assert body["tf"] == tf
     assert [e["symbol"] for e in body["etfs"]] == ["QQQ", "SPY", "IWM"]
+    assert all(e["session"] is None for e in body["etfs"])
     assert all(e["group"] == "benchmark" and e["candles"] and e["row"]["perf"]["1m"] is not None for e in body["etfs"])
     assert body["trend"]["call"] == "on"
     assert [i["symbol"] for i in body["trend"]["indexes"]] == ["QQQ", "SPY", "IWM"]
+
+
+def test_market_payload_flags_an_extended_session_on_the_card(api_client, monkeypatch):
+    from strat.quotes import IndexQuote
+
+    quote = IndexQuote("QQQ", 99.0, 100.0, -1.0, "premarket", "2026-10-20", "2026-10-20T08:00:00-04:00")
+    monkeypatch.setattr("strat.quotes.active_quotes", lambda now=None: {"QQQ": quote})
+    body = api_client.get("/api/market?tf=D&bars=30").json()
+    by = {e["symbol"]: e for e in body["etfs"]}
+    assert by["QQQ"]["session"] == "premarket"
+    assert by["QQQ"]["row"]["price"] == 99.0
+    assert by["QQQ"]["row"]["change_pct"] == -1.0
+    assert by["SPY"]["session"] is None and by["IWM"]["session"] is None
+
+    quote = IndexQuote("SPY", 101.5, 100.0, 1.5, "after_hours", "2026-10-20", "2026-10-20T17:00:00-04:00")
+    monkeypatch.setattr("strat.quotes.active_quotes", lambda now=None: {"SPY": quote})
+    body = api_client.get("/api/market?tf=W&bars=30").json()
+    by = {e["symbol"]: e for e in body["etfs"]}
+    assert by["SPY"]["session"] == "after_hours"
+    assert by["SPY"]["row"]["change_pct"] == 1.5
+    assert by["QQQ"]["session"] is None
 
 
 def test_market_endpoint_validates_timeframe(api_client):

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { declinersPerAdvancer, marketRead, nasiRead, trendLabel, universeLabel } from "./market";
+import { declinersPerAdvancer, marketRead, nasiRead, sessionBadge, trendLabel, universeLabel } from "./market";
 
 const row = (symbol: string, mw_green: boolean, full_continuity = false) => ({ symbol, mw_green, full_continuity });
 
@@ -56,6 +56,18 @@ describe("declinersPerAdvancer", () => {
   it("measures how many stocks fell for each one that rose", () => {
     expect(declinersPerAdvancer(1289, 3669)).toBeCloseTo(2.85, 2);
     expect(declinersPerAdvancer(0, 10)).toBeNull();
+  });
+});
+
+describe("sessionBadge", () => {
+  it("names the extended session and stays off once the regular session is back", () => {
+    expect(sessionBadge("premarket")).toEqual({
+      label: "Premarket",
+      title: "Change versus the prior regular-session close",
+    });
+    expect(sessionBadge("after_hours")?.label).toBe("After hours");
+    expect(sessionBadge(null)).toBeNull();
+    expect(sessionBadge(undefined)).toBeNull();
   });
 });
 
