@@ -141,10 +141,7 @@ class TestWeights:
         ]
         assert by["trend"].sub_weights[0] == "10-day 5 pts · 20-day 5 pts"
         assert "above 3" in by["trend"].sub_weights[1] and "rising 2" in by["trend"].sub_weights[1]
-        assert by["continuity"].sub_weights == [
-            "weekly setup 4", "distance to trigger 2.5", "M/W/D green 2 (M 0.75 · W 0.75 · D 0.25 · all three +0.25)",
-            "Monthly 2U 1.5",
-        ]
+        assert by["continuity"].sub_weights == ["M 4 · W 4 · D 1 · all three +1"]
 
 
 class TestLeadershipComesFirst:
@@ -154,18 +151,21 @@ class TestLeadershipComesFirst:
         assert not leader.has_setup and laggard.has_setup
         assert leader.score > laggard.score + 20
 
-    def test_the_setup_is_a_bonus_of_at_most_the_overlay(self):
+    def test_a_weekly_setup_does_not_score(self):
+        # Same M/W/D colours (all green); only one has an inside-week setup. The setup is shown, not scored.
         with_setup = _score(INSIDE_SETUP, LEADER_PERF)
         without = _score(NO_SETUP, LEADER_PERF)
-        gap = with_setup.score - without.score
-        assert 0 < gap <= STRAT_OVERLAY_MAX
+        assert with_setup.has_setup and with_setup.primary is not None and with_setup.trigger_distance_pct is not None
+        assert not without.has_setup
+        assert with_setup.score == without.score and with_setup.raw == without.raw
+        assert STRAT_OVERLAY_MAX == 10
 
     def test_a_leader_without_a_setup_is_not_filtered_by_the_score(self):
         s = _score(NO_SETUP, LEADER_PERF)
         assert s.is_leader
         assert "No weekly setup" in s.reasons
         cont = next(c for c in s.breakdown if c.key == "continuity")
-        assert "weekly setup 0/4" in cont.detail and "leader still scores" in cont.detail
+        assert cont.points == 10  # M+W+D green with no setup still earns full Continuity
         # This fixture has no theme, so the lower Vs QQQ cap (30, was 45) leaves it in the 50s.
         # The same leader in the #1 theme gains the full 25 and stays a high score with no setup.
         themed = _score(NO_SETUP, LEADER_PERF, theme=TOP_THEME)
@@ -393,26 +393,37 @@ class TestScan:
 
 
 class TestContinuityScore:
-    """All Strat timing is one Continuity score out of 10; its parts keep their old points, so totals are unchanged."""
+    """Continuity is Monthly / Weekly / Daily alignment only, out of 10: M 4 · W 4 · D 1 · all three +1."""
 
-    def test_continuity_is_the_sum_of_the_four_old_strat_timing_parts(self):
+    @pytest.mark.parametrize(
+        "m, w, d, points",
+        [
+            (GREEN_UP, GREEN_UP, GREEN_UP, 10.0),
+            (GREEN_UP, GREEN_UP, RED_DOWN, 8.0),
+            (GREEN_UP, RED_DOWN, GREEN_UP, 5.0),
+            (RED_DOWN, GREEN_UP, RED_DOWN, 4.0),
+            (RED_DOWN, RED_DOWN, GREEN_UP, 1.0),
+            (RED_DOWN, RED_DOWN, RED_DOWN, 0.0),
+        ],
+    )
+    def test_points_by_timeframe(self, m, w, d, points):
+        cont = next(c for c in _score(_states(m, w, d), LEADER_PERF).breakdown if c.key == "continuity")
+        assert cont.points == points and cont.max_points == 10
+
+    def test_detail_names_the_green_timeframes(self):
+        full = next(c for c in _score(NO_SETUP, LEADER_PERF).breakdown if c.key == "continuity")
+        assert full.detail == "M +4 · W +4 · D +1 · all three +1"
+        mw = next(c for c in _score(_states(GREEN_UP, GREEN_UP, RED_DOWN), LEADER_PERF).breakdown if c.key == "continuity")
+        assert mw.detail == "M +4 · W +4 (D not green)"
+        none = next(c for c in _score(RED, LEADER_PERF).breakdown if c.key == "continuity")
+        assert none.detail == "no timeframe green (M/W/D not green)"
+
+    def test_setup_trigger_and_monthly_2u_are_not_scored(self):
         s = _score(INSIDE_SETUP, LEADER_PERF)
-        cont = next(c for c in s.breakdown if c.key == "continuity")
-        setup = 4 * 20 / 25  # inside week, 20 of 25 setup points
-        dist = (106 - 105) / 105 * 100  # price 105 below the inside-week high 106
-        prox = 2.5 * (1 - dist / 5)
-        green, monthly_2u = 0.75 + 0.75 + 0.25 + 0.25, 1.5  # M+W+D green with the full bonus; completed month 2U
-        assert cont.points == pytest.approx(setup + prox + green + monthly_2u)
-        assert 0 <= cont.points <= cont.max_points == 10
-        assert "weekly setup 3.2/4 — Inside bar: 20/25 setup quality" in cont.detail
-        assert "M/W/D green 2/2 — M +0.75 W +0.75 D +0.25, full M+W+D bonus +0.25" in cont.detail
-        assert "Monthly 2U 1.5/1.5 — completed month is 2U" in cont.detail
+        keys = {c.key for c in s.breakdown}
+        assert not {"weekly_setup", "proximity", "monthly_2u"} & keys
+        assert s.monthly_2u and s.has_setup  # still reported for display and filters
         assert sum(c.points for c in s.breakdown) == pytest.approx(s.raw, abs=0.01)
-
-    def test_no_strat_timing_scores_zero_continuity(self):
-        cont = next(c for c in _score(RED, LEADER_PERF).breakdown if c.key == "continuity")
-        assert cont.points == 0
-        assert "weekly setup 0/4" in cont.detail and "no timeframe green" in cont.detail
 
     def test_continuity_keeps_ten_points_for_etfs_and_themes(self):
         for kind, max_raw in (("etf", ETF_MAX_RAW_POINTS), ("theme", THEME_MAX_RAW_POINTS)):
