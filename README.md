@@ -4,7 +4,7 @@ A **local-only** stock scanner for market **leaders**, with Rob Smith's **The St
 It scans liquid US names (S&P 500 + Nasdaq-100 + sector/industry ETFs + the QQQ, SPY and IWM index ETFs) and shows
 **only the true leaders**: names in the top decile of 1M/3M/6M relative strength whose trend is still intact, ranked by a
 leadership-first score. **Weekly** Strat setups (inside weeks, weekly hammers and bullish weekly combos) are shown and filterable but do
-not score and are not a gate: a leader with no setup still appears, labelled *No setup / leader* with its nearest trigger.
+not score and are not a gate: a leader with no setup still appears, labelled *Leader · no setup* with its nearest trigger.
 Monthly, Weekly and Daily candles are all classified and shown as context (Strat number and continuity).
 
 It runs on your machine only (API and UI bind to `127.0.0.1`). There is no deploy or hosting config.
@@ -105,7 +105,7 @@ Monthly **and** Weekly green is a timing nuance, not a gate: the Stock Scanner h
 the top third of the range.
 
 **Long setups** are detected on the **weekly** timeframe only (a monthly or daily pattern is context, not a setup). A
-weekly setup is optional for the scanner: leaders without one are listed as *No setup / leader*, and the Trigger column
+weekly setup is optional for the scanner: leaders without one are listed as *Leader · no setup*, and the Trigger column
 shows their **nearest trigger** (the closer of the last two completed weeks' highs above price, in muted type).
 
 | Setup | Pattern | Trigger |
@@ -243,7 +243,7 @@ halved again; this shows as a negative "Pinned penalty" line.
 **Who counts as a leader.** The scanner **filters** rather than just ranking lower. A name is a *leader* when its blended
 1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
 `LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Setups**
-filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (uses the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`), *Weekly strat awaiting
+filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (only rows marked leader, `is_leader`: RS ≥ P90 and trend not broken, highest score first; the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`, can raise the cut above P90 but never adds non-leaders), *Weekly strat awaiting
 trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips are
 full-universe totals for those categories (not the current filters); click a chip or pick a Setups option to dig in. The Min RS slider
 applies to *Leaders* and both weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
@@ -271,7 +271,7 @@ fewer than 6 sessions behind it) simply leaves the fields empty. The scan row ex
 (`SNAPSHOT_OFFSETS` in `change.py`; the peer distributions are built once per date and reused for every symbol); the backtest skips them.
 
 **Weekly setups (leaders you can act on now).** *Leaders* that also have a **long-side weekly Strat setup on the last weekly
-candle**: RS at or above the Min RS slider (default P90), trend not broken (a *weakening* name stays; a *broken* one never
+candle**: marked leader (RS ≥ P90; the Min RS slider can raise the cut), trend not broken (a *weakening* name stays; a *broken* one never
 does) and `has_setup`. The Setups filter splits them into **Weekly strat awaiting trigger** (`triggered` is false) and **Weekly strat already triggered**
 (`triggered` is true). The setups are the ones the scanner already classifies, nothing is duplicated
 (`find_long_setups` in `backend/strat/candles.py`): an **inside week** (1), **2-1-2** and **3-1-2** in progress (the inside
@@ -411,8 +411,8 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
   - The **RS chip** under each symbol shows the change in RS percentile vs 5 sessions ago (`▼7` red for drops, `▲12` green for
     rises; moves under 3 points are left off) and a `NEW` marker for a breakdown that just worsened or a leader that just crossed P90 (last 3
     sessions). A name with no change and no flag shows no chip. See [What changed lately](#how-scoring-works).
-  - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) sets the relative-strength cut of *Leaders* and both
-    weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
+  - A **Min RS** slider (50–99, step 1, default 90, readout `≥ P90`) raises the relative-strength cut of *Leaders* and both
+    weekly Strat views above P90 (below P90 it changes nothing there: those views only list rows marked leader); the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it (the slider is hidden for those options).
   - Three log-scale sliders, each with a live readout such as `≥ $10` or `≥ 2.5M`:
     - **min price**: $1–$1,000, default $10 (`STRAT_MIN_PRICE`).
     - **min average dollar volume**: $10M–$5B.
@@ -433,7 +433,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
   - The Watchlist tab shows a count badge.
   - It lists the watched names with the Stock Scanner's columns, badges, trigger and score tooltip. The first-column
     check/**−** toggle removes a name.
-  - Names stay on the list whether or not they are leaders or have a weekly setup; they are then marked “no active setup” (leaders: “No setup / leader”).
+  - Names stay on the list whether or not they are leaders or have a weekly setup; they are then marked “no active setup” (leaders: “Leader · no setup”).
   - The list is stored in the `watchlist` table of the local SQLite cache, so it survives restarts and data refreshes.
   - **Add symbol** (on the Watchlist tab) takes any Yahoo Finance ticker, not just universe names: type it (it is
     upper-cased) and press Enter.

@@ -33,18 +33,18 @@ const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Kind = "all" | "stock" | "etf";
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
-  { value: "leaders", label: "Leaders", hint: "Relative strength at or above the Min RS slider, trend not broken." },
+  { value: "leaders", label: "Leaders", hint: "Only names marked leader (relative strength P90 or better, trend not broken), highest score first. The Min RS slider can raise the cut above P90; it never adds non-leaders." },
   {
     value: "setups_pending",
     label: "Weekly strat awaiting trigger",
     hint:
-      "Leaders (Min RS slider, trend not broken) with a long-side weekly Strat setup on the last completed week — not the week still in progress — that has not broken its trigger yet: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger (that week's high) and distance to it. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut) with a long-side weekly Strat setup on the last completed week — not the week still in progress — that has not broken its trigger yet: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger (that week's high) and distance to it. Sorted by score.",
   },
   {
     value: "setups_triggered",
     label: "Weekly strat already triggered",
     hint:
-      "Leaders (Min RS slider, trend not broken) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer that cleared its high. The week still in progress does not count. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer that cleared its high. The week still in progress does not count. Sorted by score.",
   },
   {
     value: "daily_bullish",
