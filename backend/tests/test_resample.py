@@ -182,10 +182,9 @@ class TestCtvaTrigger:
         monthly = row["tf"]["M"]
         assert monthly["strat"] == "2U" and monthly["color"] == "green" and monthly["high"] == 48
         assert row["monthly_2u"] is True and row["mw_green"] is False
-        detail = next(c["detail"] for c in row["score_breakdown"] if c["key"] == "monthly_2u")
-        assert detail == "completed month is 2U"
-        prox = next(c["detail"] for c in row["score_breakdown"] if c["key"] == "proximity")
-        assert "13.01" not in prox
+        detail = next(c["detail"] for c in row["score_breakdown"] if c["key"] == "continuity")
+        assert "Monthly 2U 1.5/1.5 — completed month is 2U" in detail
+        assert "13.01" not in detail
 
         # The weekly chart shows the week in progress (Monday's bar), like the daily chart shows today;
         # the completed week before it is still the inside week the setup reads.

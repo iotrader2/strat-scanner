@@ -100,14 +100,10 @@ class TestWeights:
         by = {c.key: c for c in s.breakdown}
         assert by["rs"].weight_pct == 15 and by["qqq"].weight_pct == 30 and by["theme_strength"].weight_pct == 25
         assert by["trend"].weight_pct == 10 and by["tightness"].weight_pct == 5 and by["liquidity"].weight_pct == 5
-        strat = (
-            by["weekly_setup"].weight_pct + by["proximity"].weight_pct
-            + by["continuity"].weight_pct + by["monthly_2u"].weight_pct
-        )
-        assert (by["weekly_setup"].max_points, by["proximity"].max_points, by["continuity"].max_points, by["monthly_2u"].max_points) == (
-            4, 2.5, 2, 1.5,
-        )
-        assert strat == pytest.approx(10.0)
+        # All Strat timing is one Continuity line out of 10, the weight the four old lines had together.
+        assert not {"weekly_setup", "proximity", "monthly_2u"} & set(by)
+        assert by["continuity"].label == "Continuity"
+        assert by["continuity"].max_points == 10 and by["continuity"].weight_pct == pytest.approx(10.0)
         assert sum(c.weight_pct for c in s.breakdown) == pytest.approx(100.0, abs=0.2)
 
     def test_a_number_one_theme_is_worth_25_and_lifts_the_refiners_example(self):
@@ -145,7 +141,10 @@ class TestWeights:
         ]
         assert by["trend"].sub_weights[0] == "10-day 5 pts · 20-day 5 pts"
         assert "above 3" in by["trend"].sub_weights[1] and "rising 2" in by["trend"].sub_weights[1]
-        assert by["continuity"].sub_weights[-1] == "all three +0.25"
+        assert by["continuity"].sub_weights == [
+            "weekly setup 4", "distance to trigger 2.5", "M/W/D green 2 (M 0.75 · W 0.75 · D 0.25 · all three +0.25)",
+            "Monthly 2U 1.5",
+        ]
 
 
 class TestLeadershipComesFirst:
@@ -165,8 +164,8 @@ class TestLeadershipComesFirst:
         s = _score(NO_SETUP, LEADER_PERF)
         assert s.is_leader
         assert "No weekly setup" in s.reasons
-        setup_part = next(c for c in s.breakdown if c.key == "weekly_setup")
-        assert setup_part.points == 0 and "leader still scores" in setup_part.detail
+        cont = next(c for c in s.breakdown if c.key == "continuity")
+        assert "weekly setup 0/4" in cont.detail and "leader still scores" in cont.detail
         # This fixture has no theme, so the lower Vs QQQ cap (30, was 45) leaves it in the 50s.
         # The same leader in the #1 theme gains the full 25 and stays a high score with no setup.
         themed = _score(NO_SETUP, LEADER_PERF, theme=TOP_THEME)
@@ -353,7 +352,8 @@ class TestScan:
         for r in scan_all(members, hist, MAP).rows:
             assert 0 <= r["score"] <= 100
             keys = [c["key"] for c in r["score_breakdown"]]
-            assert keys[:2] == ["rs", "qqq"] and {"trend", "weekly_setup", "proximity"} <= set(keys)
+            assert keys[:2] == ["rs", "qqq"] and {"trend", "continuity"} <= set(keys)
+            assert not {"weekly_setup", "proximity", "monthly_2u"} & set(keys)
             assert sum(c["points"] for c in r["score_breakdown"]) == pytest.approx(r["score_raw"], abs=0.1)
 
     def test_theme_strength_comes_from_the_themes_leadership_rank(self):
@@ -390,3 +390,32 @@ class TestScan:
         assert hit["kill_candle"] is not None and hit["kill_candle"]["penalty"] > 0
         assert any(c["key"] == "kill_candle" and c["points"] < 0 for c in hit["score_breakdown"])
         assert hit["score"] < clean["score"]
+
+
+class TestContinuityScore:
+    """All Strat timing is one Continuity score out of 10; its parts keep their old points, so totals are unchanged."""
+
+    def test_continuity_is_the_sum_of_the_four_old_strat_timing_parts(self):
+        s = _score(INSIDE_SETUP, LEADER_PERF)
+        cont = next(c for c in s.breakdown if c.key == "continuity")
+        setup = 4 * 20 / 25  # inside week, 20 of 25 setup points
+        dist = (106 - 105) / 105 * 100  # price 105 below the inside-week high 106
+        prox = 2.5 * (1 - dist / 5)
+        green, monthly_2u = 0.75 + 0.75 + 0.25 + 0.25, 1.5  # M+W+D green with the full bonus; completed month 2U
+        assert cont.points == pytest.approx(setup + prox + green + monthly_2u)
+        assert 0 <= cont.points <= cont.max_points == 10
+        assert "weekly setup 3.2/4 — Inside bar: 20/25 setup quality" in cont.detail
+        assert "M/W/D green 2/2 — M +0.75 W +0.75 D +0.25, full M+W+D bonus +0.25" in cont.detail
+        assert "Monthly 2U 1.5/1.5 — completed month is 2U" in cont.detail
+        assert sum(c.points for c in s.breakdown) == pytest.approx(s.raw, abs=0.01)
+
+    def test_no_strat_timing_scores_zero_continuity(self):
+        cont = next(c for c in _score(RED, LEADER_PERF).breakdown if c.key == "continuity")
+        assert cont.points == 0
+        assert "weekly setup 0/4" in cont.detail and "no timeframe green" in cont.detail
+
+    def test_continuity_keeps_ten_points_for_etfs_and_themes(self):
+        for kind, max_raw in (("etf", ETF_MAX_RAW_POINTS), ("theme", THEME_MAX_RAW_POINTS)):
+            cont = next(c for c in _score(NO_SETUP, LEADER_PERF, kind=kind).breakdown if c.key == "continuity")
+            assert cont.max_points == 10
+            assert cont.weight_pct == pytest.approx(round(10 / max_raw * 100, 1))
