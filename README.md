@@ -27,7 +27,7 @@ whichever tab you used last.
 
 `npm run dev` does everything on first run: it creates `backend/.venv`, installs the Python requirements and the
 web dependencies, starts the FastAPI backend on `127.0.0.1:8000` and the Vite UI on `127.0.0.1:5173`.
-If the cache is empty, the first download (646 symbols, 3 years of daily bars) starts automatically and
+If the cache is empty, the first download (647 symbols, 3 years of daily bars) starts automatically and
 takes about a minute. The top bar shows a live indicator: *Updating · N symbols* while that runs, then
 *15-min delayed · updated 12:45 PM PDT* once a scan is saved (the clock uses the browser's timezone). Press `Ctrl+C` to stop both servers.
 
@@ -475,7 +475,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
   - Tables (Stock Scanner, Watchlist, Positions) show shimmering skeleton rows, and the chart views (State of the Market,
     Themes, detail page) show skeleton cards with a shimmering chart area, until the first data arrives.
   - The top bar is a live indicator, not a button. A grey dot means *Connecting* or *Reconnecting*. A blue dot means
-    *Updating · 80/646 symbols*. A green dot means *15-min delayed · updated 12:45 PM PDT* (browser timezone). A yellow dot means
+    *Updating · 80/647 symbols*. A green dot means *15-min delayed · updated 12:45 PM PDT* (browser timezone). A yellow dot means
     *Cut-off view, data through 2026-08-13*. A failed download shows *Price update failed* under the tabs.
   - With `prefers-reduced-motion: reduce` there is no pulsing, shimmer or spinning: the spinner becomes a static blue
     ring and the skeletons are drawn flat.
