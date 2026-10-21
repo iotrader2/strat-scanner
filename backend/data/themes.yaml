@@ -14,7 +14,7 @@
 #   clustering, flagged members). The report only suggests; the map below always wins.
 #
 # Bump `version` whenever the membership changes.
-version: 4
+version: 5
 
 themes:
   # ---- Technology -------------------------------------------------------------------------------------------------
@@ -185,8 +185,8 @@ themes:
 
   life-science-tools:
     name: Life-science tools
-    description: "Instruments, reagents and CROs."
-    members: "A DHR TMO WAT MTD IQV CRL ILMN RVTY TECH"
+    description: "Instruments, reagents, CROs and genomic diagnostics."
+    members: "A DHR TMO WAT MTD IQV CRL ILMN RVTY TECH NTRA"
 
   managed-care:
     name: Managed care
