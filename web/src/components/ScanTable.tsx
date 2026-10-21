@@ -15,6 +15,7 @@ import {
 } from "../leadership";
 import { rsChipView } from "../rsChange";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
+import { pinExactSymbol } from "../symbolSearch";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
 
@@ -144,6 +145,8 @@ interface Props {
   minRs?: number;
   /** Sort the table starts in (default: score, highest first). */
   initialSort?: { key: string; dir: 1 | -1 };
+  /** Symbol search text: the row whose ticker equals it is shown first, whatever the sort. */
+  pinSymbol?: string;
 }
 
 export function ScanTable({
@@ -158,14 +161,16 @@ export function ScanTable({
   minRs = LEADER_RS,
   initialSort = { key: "score", dir: -1 },
   detailTf,
+  pinSymbol = "",
 }: Props) {
   const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>(initialSort);
   const custom = useMemo(() => [...leadColumns, ...extraColumns], [leadColumns, extraColumns]);
   const sorted = useMemo(() => {
     const col = custom.find((c) => c.key === sort.key);
-    return col ? sortBy(rows, col.sortValue, sort.dir) : sortRows(rows, sort.key as SortKey, sort.dir);
-  }, [rows, sort, custom]);
+    const out = col ? sortBy(rows, col.sortValue, sort.dir) : sortRows(rows, sort.key as SortKey, sort.dir);
+    return pinExactSymbol(out, pinSymbol);
+  }, [rows, sort, custom, pinSymbol]);
 
   const ascendingFirst = (key: string) =>
     custom.find((c) => c.key === key)?.ascendingFirst ?? ASCENDING_FIRST.includes(key as SortKey);

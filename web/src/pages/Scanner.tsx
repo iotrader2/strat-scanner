@@ -9,6 +9,8 @@ import { ATR_PCT_DEFAULT, normalizeAtrRange, passesAtr, type AtrRange } from "..
 import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { clearRetiredFilters, readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
+import { SymbolSearch } from "../components/SymbolSearch";
+import { matchesSymbol } from "../symbolSearch";
 import {
   detailTfFor,
   leadershipUsesMinRs,
@@ -220,9 +222,8 @@ export default function Scanner({ version }: { version: string | null }) {
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toUpperCase();
     const out = liquid.filter((r) => {
-      if (q && !r.symbol.includes(q) && !r.name.toUpperCase().includes(q)) return false;
+      if (!matchesSymbol(r.symbol, query)) return false;
       if (!matchesLeadership(r, leadership, minRs)) return false;
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
@@ -296,14 +297,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
       <section className="card filters">
         <div className="filter-row filter-dropdowns">
-          <div className="search-field">
-            <input className="input search" placeholder="Search symbol or name…" value={query} onChange={(e) => setQuery(e.target.value)} />
-            {query && (
-              <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-                X
-              </button>
-            )}
-          </div>
+          <SymbolSearch value={query} onChange={setQuery} />
           <Dropdown
             label="Theme"
             header="Filter by theme"
@@ -366,6 +360,7 @@ export default function Scanner({ version }: { version: string | null }) {
         <ScanTable
           key="failed"
           rows={filtered}
+          pinSymbol={query}
           onTheme={setTheme}
           minRs={minRs}
           extraColumns={FAILED_COLUMNS}
@@ -373,7 +368,7 @@ export default function Scanner({ version }: { version: string | null }) {
           detailTf={detailTfFor(leadership)}
         />
       ) : (
-        <ScanTable key="default" rows={filtered} onTheme={setTheme} minRs={minRs} detailTf={detailTfFor(leadership)} />
+        <ScanTable key="default" rows={filtered} pinSymbol={query} onTheme={setTheme} minRs={minRs} detailTf={detailTfFor(leadership)} />
       )}
     </div>
   );
