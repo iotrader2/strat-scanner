@@ -335,7 +335,7 @@ th.num { text-align: right; }
 .score-pill.has-breakdown { cursor: help; outline: none; }
 .score-pill.has-breakdown:hover, .score-pill.has-breakdown:focus-visible { box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.45); }
 .score-tooltip {
-  position: fixed; z-index: 100; width: 380px; pointer-events: none;
+  position: fixed; z-index: 100; width: 380px; max-width: calc(100vw - 24px); pointer-events: none;
   background: #0d121a; border: 1px solid var(--border-2); border-radius: 12px;
   padding: 12px 14px; box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.8);
 }

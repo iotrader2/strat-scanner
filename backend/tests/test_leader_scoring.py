@@ -100,14 +100,10 @@ class TestWeights:
         by = {c.key: c for c in s.breakdown}
         assert by["rs"].weight_pct == 15 and by["qqq"].weight_pct == 30 and by["theme_strength"].weight_pct == 25
         assert by["trend"].weight_pct == 10 and by["tightness"].weight_pct == 5 and by["liquidity"].weight_pct == 5
-        strat = (
-            by["weekly_setup"].weight_pct + by["proximity"].weight_pct
-            + by["continuity"].weight_pct + by["monthly_2u"].weight_pct
-        )
-        assert (by["weekly_setup"].max_points, by["proximity"].max_points, by["continuity"].max_points, by["monthly_2u"].max_points) == (
-            4, 2.5, 2, 1.5,
-        )
-        assert strat == pytest.approx(10.0)
+        # All Strat timing is one Continuity line out of 10, the weight the four old lines had together.
+        assert not {"weekly_setup", "proximity", "monthly_2u"} & set(by)
+        assert by["continuity"].label == "Continuity"
+        assert by["continuity"].max_points == 10 and by["continuity"].weight_pct == pytest.approx(10.0)
         assert sum(c.weight_pct for c in s.breakdown) == pytest.approx(100.0, abs=0.2)
 
     def test_a_number_one_theme_is_worth_25_and_lifts_the_refiners_example(self):
@@ -145,7 +141,7 @@ class TestWeights:
         ]
         assert by["trend"].sub_weights[0] == "10-day 5 pts · 20-day 5 pts"
         assert "above 3" in by["trend"].sub_weights[1] and "rising 2" in by["trend"].sub_weights[1]
-        assert by["continuity"].sub_weights[-1] == "all three +0.25"
+        assert by["continuity"].sub_weights == ["M 4 · W 4 · D 1 · all three +1"]
 
 
 class TestLeadershipComesFirst:
@@ -155,18 +151,21 @@ class TestLeadershipComesFirst:
         assert not leader.has_setup and laggard.has_setup
         assert leader.score > laggard.score + 20
 
-    def test_the_setup_is_a_bonus_of_at_most_the_overlay(self):
+    def test_a_weekly_setup_does_not_score(self):
+        # Same M/W/D colours (all green); only one has an inside-week setup. The setup is shown, not scored.
         with_setup = _score(INSIDE_SETUP, LEADER_PERF)
         without = _score(NO_SETUP, LEADER_PERF)
-        gap = with_setup.score - without.score
-        assert 0 < gap <= STRAT_OVERLAY_MAX
+        assert with_setup.has_setup and with_setup.primary is not None and with_setup.trigger_distance_pct is not None
+        assert not without.has_setup
+        assert with_setup.score == without.score and with_setup.raw == without.raw
+        assert STRAT_OVERLAY_MAX == 10
 
     def test_a_leader_without_a_setup_is_not_filtered_by_the_score(self):
         s = _score(NO_SETUP, LEADER_PERF)
         assert s.is_leader
         assert "No weekly setup" in s.reasons
-        setup_part = next(c for c in s.breakdown if c.key == "weekly_setup")
-        assert setup_part.points == 0 and "leader still scores" in setup_part.detail
+        cont = next(c for c in s.breakdown if c.key == "continuity")
+        assert cont.points == 10  # M+W+D green with no setup still earns full Continuity
         # This fixture has no theme, so the lower Vs QQQ cap (30, was 45) leaves it in the 50s.
         # The same leader in the #1 theme gains the full 25 and stays a high score with no setup.
         themed = _score(NO_SETUP, LEADER_PERF, theme=TOP_THEME)
@@ -353,7 +352,8 @@ class TestScan:
         for r in scan_all(members, hist, MAP).rows:
             assert 0 <= r["score"] <= 100
             keys = [c["key"] for c in r["score_breakdown"]]
-            assert keys[:2] == ["rs", "qqq"] and {"trend", "weekly_setup", "proximity"} <= set(keys)
+            assert keys[:2] == ["rs", "qqq"] and {"trend", "continuity"} <= set(keys)
+            assert not {"weekly_setup", "proximity", "monthly_2u"} & set(keys)
             assert sum(c["points"] for c in r["score_breakdown"]) == pytest.approx(r["score_raw"], abs=0.1)
 
     def test_theme_strength_comes_from_the_themes_leadership_rank(self):
@@ -390,3 +390,43 @@ class TestScan:
         assert hit["kill_candle"] is not None and hit["kill_candle"]["penalty"] > 0
         assert any(c["key"] == "kill_candle" and c["points"] < 0 for c in hit["score_breakdown"])
         assert hit["score"] < clean["score"]
+
+
+class TestContinuityScore:
+    """Continuity is Monthly / Weekly / Daily alignment only, out of 10: M 4 · W 4 · D 1 · all three +1."""
+
+    @pytest.mark.parametrize(
+        "m, w, d, points",
+        [
+            (GREEN_UP, GREEN_UP, GREEN_UP, 10.0),
+            (GREEN_UP, GREEN_UP, RED_DOWN, 8.0),
+            (GREEN_UP, RED_DOWN, GREEN_UP, 5.0),
+            (RED_DOWN, GREEN_UP, RED_DOWN, 4.0),
+            (RED_DOWN, RED_DOWN, GREEN_UP, 1.0),
+            (RED_DOWN, RED_DOWN, RED_DOWN, 0.0),
+        ],
+    )
+    def test_points_by_timeframe(self, m, w, d, points):
+        cont = next(c for c in _score(_states(m, w, d), LEADER_PERF).breakdown if c.key == "continuity")
+        assert cont.points == points and cont.max_points == 10
+
+    def test_detail_names_the_green_timeframes(self):
+        full = next(c for c in _score(NO_SETUP, LEADER_PERF).breakdown if c.key == "continuity")
+        assert full.detail == "M +4 · W +4 · D +1 · all three +1"
+        mw = next(c for c in _score(_states(GREEN_UP, GREEN_UP, RED_DOWN), LEADER_PERF).breakdown if c.key == "continuity")
+        assert mw.detail == "M +4 · W +4 (D not green)"
+        none = next(c for c in _score(RED, LEADER_PERF).breakdown if c.key == "continuity")
+        assert none.detail == "no timeframe green (M/W/D not green)"
+
+    def test_setup_trigger_and_monthly_2u_are_not_scored(self):
+        s = _score(INSIDE_SETUP, LEADER_PERF)
+        keys = {c.key for c in s.breakdown}
+        assert not {"weekly_setup", "proximity", "monthly_2u"} & keys
+        assert s.monthly_2u and s.has_setup  # still reported for display and filters
+        assert sum(c.points for c in s.breakdown) == pytest.approx(s.raw, abs=0.01)
+
+    def test_continuity_keeps_ten_points_for_etfs_and_themes(self):
+        for kind, max_raw in (("etf", ETF_MAX_RAW_POINTS), ("theme", THEME_MAX_RAW_POINTS)):
+            cont = next(c for c in _score(NO_SETUP, LEADER_PERF, kind=kind).breakdown if c.key == "continuity")
+            assert cont.max_points == 10
+            assert cont.weight_pct == pytest.approx(round(10 / max_raw * 100, 1))

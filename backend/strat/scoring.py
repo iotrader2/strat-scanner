@@ -1,8 +1,9 @@
 """Leadership-first score for the Stock Scanner (0-100, higher is better).
 
 Leadership comes first: relative strength of the 1M/3M/6M returns (against the peer group and against QQQ),
-theme strength and trend (price above a rising 10- and 20-day average) are 80% of the points. The weekly Strat setup is a timing overlay worth at most
-10 points. It is never a gate, and a name with no setup still scores on its leadership. A leader that is losing its
+theme strength and trend (price above a rising 10- and 20-day average) are 80% of the points. Strat timing is one Continuity score worth at most
+10 points: Monthly / Weekly / Daily alignment (M 4, W 4, D 1, all three +1). The weekly setup and its trigger are shown and
+filtered on but do not score. It is never a gate, and a name with no setup still scores on its leadership. A leader that is losing its
 trend (lost moving averages, a deep drawdown from the high, 1M momentum turning negative) is demoted by a breakdown penalty.
 """
 
@@ -23,10 +24,8 @@ from .leadership import (
     LAGGARD,
 )
 from .legacy_scoring import (
-    MAX_SETUP_POINTS,
     MIN_ATR_PCT,
     PINNED_PENALTY,
-    PROXIMITY_POINTS as LEGACY_PROXIMITY_POINTS,
     SETUP_POINTS,
     SETUP_TF,
     TF_NAMES,
@@ -36,7 +35,6 @@ from .legacy_scoring import (
     _describe,
     _pick_primary,
     liquidity_points,
-    proximity_points as legacy_proximity_points,
     trigger_distance_pct,
 )
 from .pricebehavior import (
@@ -65,14 +63,15 @@ TREND_POINTS = 10.0  # price above a rising 10-day and a rising 20-day average
 TIGHTNESS_POINTS = 5.0  # calm, contracting daily ranges
 LIQUIDITY_POINTS = 5.0
 
-# Strat timing overlay (10 of 100)
-SETUP_OVERLAY_POINTS = 4.0
-PROXIMITY_OVERLAY_POINTS = 2.5
-CONTINUITY_POINTS = {"M": 0.75, "W": 0.75, "D": 0.25}
-FULL_CONTINUITY_BONUS = 0.25
-MONTHLY_2U_POINTS = 1.5
-CONTINUITY_MAX = sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS
-STRAT_OVERLAY_MAX = SETUP_OVERLAY_POINTS + PROXIMITY_OVERLAY_POINTS + CONTINUITY_MAX + MONTHLY_2U_POINTS
+# Continuity (10 of 100): Monthly / Weekly / Daily alignment only, each timeframe green (price above its open).
+# The weekly setup, the distance to its trigger and Monthly 2U are display and filter data and do not score.
+TF_GREEN_POINTS = {"M": 4.0, "W": 4.0, "D": 1.0}
+FULL_GREEN_BONUS = 1.0
+CONTINUITY_MAX = sum(TF_GREEN_POINTS.values()) + FULL_GREEN_BONUS
+STRAT_OVERLAY_MAX = CONTINUITY_MAX  # the old name for the same 10 points
+CONTINUITY_SUB_WEIGHTS = [
+    f"M {TF_GREEN_POINTS['M']:g} · W {TF_GREEN_POINTS['W']:g} · D {TF_GREEN_POINTS['D']:g} · all three +{FULL_GREEN_BONUS:g}"
+]
 
 TREND_PERIODS = (10, 20)  # only these averages score; the 50-day and the highs only feed the breakdown rules
 TREND_ABOVE_POINTS = 3.0  # per average the price is above
@@ -82,11 +81,6 @@ TREND_SUB_WEIGHTS = [
     f"10-day {TREND_PER_MA_POINTS:g} pts · 20-day {TREND_PER_MA_POINTS:g} pts",
     f"each: price above {TREND_ABOVE_POINTS:g} + average rising {TREND_RISING_POINTS:g}",
 ]
-CONTINUITY_SUB_WEIGHTS = [
-    "Monthly " + f"{CONTINUITY_POINTS['M']:g}", "Weekly " + f"{CONTINUITY_POINTS['W']:g}",
-    "Daily " + f"{CONTINUITY_POINTS['D']:g}", f"all three +{FULL_CONTINUITY_BONUS:g}",
-]
-
 # Breakdown: share of the score that is kept.
 BROKEN_FACTOR = 0.5
 WARNING_FACTOR = 0.9
@@ -203,52 +197,15 @@ def score_symbol(
     ordered = sorted(scored, key=lambda s: s.points, reverse=True)
     primary = _pick_primary(scored, price)
 
-    setup_raw = 0.0
-    setup_detail = "no weekly setup (not required: a leader still scores on leadership)"
-    if ordered:
-        extra = 0.25 * sum(s.points for s in ordered[1:])
-        setup_raw = min(MAX_SETUP_POINTS, ordered[0].points + extra)
-        setup_detail = f"{ordered[0].setup.label}: {setup_raw:g}/{MAX_SETUP_POINTS:g} setup quality"
-    parts.append(
-        Component(
-            "weekly_setup", "Strat timing · weekly setup", SETUP_OVERLAY_POINTS * setup_raw / MAX_SETUP_POINTS,
-            SETUP_OVERLAY_POINTS, setup_detail,
-        )
-    )
-
-    dist = None
-    prox = 0.0
-    prox_detail = "no trigger"
-    if primary:
-        dist = trigger_distance_pct(price, primary.setup.trigger)
-        prox = PROXIMITY_OVERLAY_POINTS * legacy_proximity_points(dist, primary.setup.triggered) / LEGACY_PROXIMITY_POINTS
-        prox_detail = (
-            "already triggered (half credit)"
-            if primary.setup.triggered or dist <= 0
-            else f"{dist:.2f}% below trigger (full credit at 0%, none at 5%)"
-        )
-    parts.append(Component("proximity", "Strat timing · distance to trigger", prox, PROXIMITY_OVERLAY_POINTS, prox_detail))
+    dist = trigger_distance_pct(price, primary.setup.trigger) if primary else None
 
     colors = {tf: (s.color if s else None) for tf, s in states.items()}
     green = [tf for tf in ("M", "W", "D") if colors.get(tf) == "green"]
     full = len(green) == 3
     mw_green = "M" in green and "W" in green
-    cont = sum(CONTINUITY_POINTS[tf] for tf in green) + (FULL_CONTINUITY_BONUS if full else 0.0)
-    cont_detail = " ".join(f"{tf} +{CONTINUITY_POINTS[tf]:g}" for tf in green) or "no timeframe green"
-    if full:
-        cont_detail += f", full M+W+D bonus +{FULL_CONTINUITY_BONUS:g}"
-    parts.append(
-        Component("continuity", "Strat timing · continuity", cont, CONTINUITY_MAX, cont_detail, sub_weights=CONTINUITY_SUB_WEIGHTS)
-    )
-
     monthly = states.get("M")
     monthly_2u = bool(monthly and monthly.strat == TWO_UP)
-    parts.append(
-        Component(
-            "monthly_2u", "Strat timing · Monthly 2U", MONTHLY_2U_POINTS if monthly_2u else 0.0, MONTHLY_2U_POINTS,
-            "completed month is 2U" if monthly_2u else f"completed month is {monthly.strat if monthly else 'n/a'}",
-        )
-    )
+    parts.append(_continuity_component(green))
 
     if kind != "theme":
         liq = liquidity_points(avg_dollar_volume) * LIQUIDITY_POINTS / 10.0
@@ -320,6 +277,19 @@ def score_symbol(
         status=leader_status(rs, trend_break),
         trend_break=trend_break,
     )
+
+
+def _continuity_component(green: list[str]) -> Component:
+    """Continuity out of 10: which of Monthly / Weekly / Daily are green, plus a bonus when all three are."""
+    full = len(green) == 3
+    points = sum(TF_GREEN_POINTS[tf] for tf in green) + (FULL_GREEN_BONUS if full else 0.0)
+    detail = " · ".join(f"{tf} +{TF_GREEN_POINTS[tf]:g}" for tf in green) or "no timeframe green"
+    if full:
+        detail += f" · all three +{FULL_GREEN_BONUS:g}"
+    red = [tf for tf in ("M", "W", "D") if tf not in green]
+    if red:
+        detail += f" ({'/'.join(red)} not green)"
+    return Component("continuity", "Continuity", points, CONTINUITY_MAX, detail, sub_weights=CONTINUITY_SUB_WEIGHTS)
 
 
 def _peer_label(momentum: Momentum) -> str:

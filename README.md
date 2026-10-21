@@ -3,8 +3,8 @@
 A **local-only** stock scanner for market **leaders**, with Rob Smith's **The Strat** as the timing overlay, long bias only.
 It scans liquid US names (S&P 500 + Nasdaq-100 + sector/industry ETFs + the QQQ, SPY and IWM index ETFs) and shows
 **only the true leaders**: names in the top decile of 1M/3M/6M relative strength whose trend is still intact, ranked by a
-leadership-first score. **Weekly** Strat setups (inside weeks, weekly hammers and bullish weekly combos) are a modest
-timing bonus, not a gate: a leader with no setup still appears, labelled *No setup / leader* with its nearest trigger.
+leadership-first score. **Weekly** Strat setups (inside weeks, weekly hammers and bullish weekly combos) are shown and filterable but do
+not score and are not a gate: a leader with no setup still appears, labelled *No setup / leader* with its nearest trigger.
 Monthly, Weekly and Daily candles are all classified and shown as context (Strat number and continuity).
 
 It runs on your machine only (API and UI bind to `127.0.0.1`). There is no deploy or hosting config.
@@ -170,8 +170,9 @@ Its M/W/D Strat badges, weekly setups, continuity and H/I markers are computed o
 
 ## How scoring works
 
-**The highest scores go to the stocks that go up the most; the Strat setup is a small timing bonus.** The score is 0–100.
-Of the 100 points, 90 describe leadership and price behaviour and 10 are Strat timing. Vs QQQ is still the largest single
+**The highest scores go to the stocks that go up the most; Strat timing is a small Continuity bonus.** The score is 0–100.
+Of the 100 points, 90 describe leadership and price behaviour and 10 are **Continuity**: Monthly / Weekly / Daily alignment.
+The weekly setup, its trigger distance and Monthly 2U are still shown (setups and trend changes are still filterable) but do not score. Vs QQQ is still the largest single
 factor (30): the size of a stock's outperformance over QQQ ranks big multi-month winners better than a percentile, which
 saturates at P99. Theme strength is 25, so a name in the top theme is not held down by a middling QQQ comparison.
 
@@ -191,26 +192,23 @@ shows the weight next to each label (`Vs QQQ (30%)  +23.8 / 30`) and the sub-wei
 | **Theme strength** | 25 | 25% | none | Stocks only. `25 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 25). Themes are ranked by their own leadership score. 0 for a stock in no theme. Raised from 10 so a #1-theme name can reach the top of the list. |
 | **Trend** | 10 | 10% | 10-day 5 pts · 20-day 5 pts; each = price above the average 3 + average rising 2 | Only the **10-day and 20-day** averages score. For each: +3 when the close is above it and +2 when it is rising (above its value 5 bars ago), so a name above a rising 10-day and a rising 20-day gets all 10. The 50-day average and the distance from the highs do not score; they only feed the breakdown rules below. |
 | **Range tightness** | 5 | 5% | last-10 vs 50-day range 60% · last-5 vs 20-day contraction 40% | Calm, contracting daily ranges score high and loose, expanding ones low. See below. |
-| **Strat timing · weekly setup** | 4 | 4% | none | `4 × setup points / 25`: the strongest weekly setup plus 25% of the others, capped at 25 setup points (2-1 → 2-1-2 or 3-1 → 3-1-2 pending 23, inside week 20, hammer 18, 2-1-2 / 3-1-2 triggered 12, 1-2-2 RevStrat 10, 2D-2U 9, hammer triggered 8). 0 with no setup. |
-| **Strat timing · distance to trigger** | 2.5 | 2.5% | none | `2.5 × (1 − d / 5%)` for how far price is below the weekly trigger (0 at 5% or more below). An already triggered setup gets half credit. |
-| **Strat timing · continuity** | 2 | 2% | Monthly 0.75 · Weekly 0.75 · Daily 0.25 · all three +0.25 | Price above the period open. Weekly and monthly use the last completed candle; daily uses the latest session. Plus a bonus when all three are green. |
-| **Strat timing · Monthly 2U** | 1.5 | 1.5% | none | +1.5 when the last completed monthly candle is a 2U. |
+| **Continuity** | 10 | 10% | M 4 · W 4 · D 1 · all three +1 | Monthly / Weekly / Daily alignment: +4 when the monthly candle is green (price above its open), +4 for weekly, +1 for daily, and +1 more when all three are green. Weekly and monthly use the last completed candle; daily uses the latest session. Shown as `Continuity (10%)  +8 / 10` with the green timeframes in the detail (`M +4 · W +4 (D not green)`). The weekly setup, distance to trigger and Monthly 2U are not scored (they were 4 + 2.5 + 1.5 of these 10 points before); they still drive the Setup column, the Setups filters and the reasons. The M/W/D badges on the rows are unchanged. |
 | **Liquidity** | 5 | 5% | none | `5 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 5 at $5B or more. Not used for themes. |
 | **Kill candle** | penalty | 0 (multiplier) | up to −25%, fading to 0 over 10 sessions | A multiplier on the whole score, shown in the tooltip as `Kill candle (2026-10-05)` with the points removed. See below. |
-| **Total** | **100** | **100%** | | Leadership 80% (RS 15 + Vs QQQ 30 + Theme 25 + Trend 10), range tightness 5%, liquidity 5% and the Strat overlay 10% (4 + 2.5 + 2 + 1.5). |
+| **Total** | **100** | **100%** | | Leadership 80% (RS 15 + Vs QQQ 30 + Theme 25 + Trend 10), range tightness 5%, liquidity 5% and Continuity 10% (M 4 + W 4 + D 1 + all three 1). |
 
-The Strat overlay is **at most 10 points** (4 + 2.5 + 2 + 1.5), so a perfect setup cannot lift a non-leader, and the same
-leader scores at most 10 points higher with the best setup than with none.
+Continuity is **at most 10 points** (M 4 + W 4 + D 1 + all three 1), so timeframe alignment cannot lift a non-leader. A
+weekly setup adds nothing: two names with the same M/W/D colours score the same with or without one.
 
 **What changed from the first version, and why (evidence in the [backtest](#backtest)).** The requested weights were
 RS 32 / Vs QQQ 15 / Theme 20 / Trend 13 / Strat 15 / Liquidity 5. The scanner at those weights (without the tightness and kill-candle rules) ranked the biggest winners worse than
 RS 15 / Vs QQQ 45 / Theme 10 / Trend 10 / Strat 10 / Liquidity 5 on both the train and the test dates, so that second set became the default (range tightness 5 was added in the same family of changes), and the requested variant
 is reported next to them in the pull request. That comparison changes several things at once, so it does not isolate Theme and Trend.
 
-Theme was later raised from 10 to 25 and Vs QQQ cut from 45 to 30 (the table above). A stock that is #1 in its theme was earning only 10 points there, while a middling Vs QQQ score, worth up to 45, kept it off the top of the list. Vs QQQ stays the largest single factor. The other weights are unchanged: RS 15, Trend 10, range tightness 5, Strat overlay 10 (4 + 2.5 + 2 + 1.5) and Liquidity 5.
+Theme was later raised from 10 to 25 and Vs QQQ cut from 45 to 30 (the table above). A stock that is #1 in its theme was earning only 10 points there, while a middling Vs QQQ score, worth up to 45, kept it off the top of the list. Vs QQQ stays the largest single factor. The other weights are unchanged: RS 15, Trend 10, range tightness 5, Strat timing 10 (now Continuity: M/W/D alignment only) and Liquidity 5.
 
 To change them, edit the constants at the top of `backend/strat/scoring.py`
-(`RS_POINTS`, `QQQ_POINTS`, `THEME_POINTS`, `TREND_ABOVE_POINTS` / `TREND_RISING_POINTS`, the Strat overlay points) and
+(`RS_POINTS`, `QQQ_POINTS`, `THEME_POINTS`, `TREND_ABOVE_POINTS` / `TREND_RISING_POINTS`, the Continuity points `TF_GREEN_POINTS` / `FULL_GREEN_BONUS`) and
 `FULL_EXCESS_PCT` in `backend/strat/leadership.py`; the maximum points and weights in the tooltip follow from them.
 
 **Range tightness (5 points).** `0.6 × f(ratio) + 0.4 × f(contraction)`, where `ratio` is the average true range (as a % of
@@ -340,10 +338,10 @@ once the close below the level is on or before the cut-off). It is a warning or 
 - Scan order: returns and percentile distributions first, then the theme indexes and their scores, then the stock rows.
   A symbol added from the Watchlist or Positions that no theme lists scores 0 for this component.
 
-When a name has several weekly setups, the one used for the trigger is the setup with the best combination of setup points
-and closeness, with a small preference for setups that have not triggered yet.
+When a name has several weekly setups, the one used for the trigger (display only) is the setup with the best combination of
+setup quality and closeness, with a small preference for setups that have not triggered yet.
 
-**Worked example (DELL, Dell Technologies, cut off at Aug 13 2026, `STRAT_AS_OF=2026-08-13`):** a leader with no weekly setup, #1 on that date.
+**Worked example (DELL, Dell Technologies, cut off at Aug 13 2026, `STRAT_AS_OF=2026-08-13`):** a leader with no weekly setup (it was #1 on that date).
 
 | Component | Points | Why |
 | --- | ---: | --- |
@@ -352,9 +350,9 @@ and closeness, with a small preference for setups that have not triggered yet.
 | Theme strength | 24.70 / 25 | AI hardware & servers, #2 of 82 themes (`25 × 81 / 82`) |
 | Trend | 10 / 10 | above a rising 10-day (5) and a rising 20-day (5) average |
 | Range tightness | 3.80 / 5 | 10-day range 7.7% of price vs 7.9% over 50 days (0.97×); last 5 days 7.0% vs 8.2% (0.85×) |
-| Strat timing | 3 / 10 | no weekly setup (0), Monthly and Weekly green (1.5), Monthly 2U (1.5) |
+| Continuity | 8 / 10 | Monthly +4, Weekly +4; Daily not green, so no all-three bonus (the Monthly 2U and the missing setup do not score) |
 | Liquidity | 4.29 / 5 | $2.6B/day |
-| **Raw total** | **84.09 / 100** | score 84.1; nearest trigger is the closer completed-week high above price |
+| **Raw total** | **89.09 / 100** | score 89.1; nearest trigger is the closer completed-week high above price |
 
 **The same family after a breakdown (HPE, Oct 16 2026):** RS fell to P83 (1M -2.7%), the close is below the 50-day average
 and 25% under the 6-month high, so the raw 37.0 is multiplied by 0.5 (a −18.5 *Breakdown penalty*) for a score of 18.5, and
@@ -535,7 +533,7 @@ for the direction of a change, not as a promise of future returns. The results o
 ```
 backend/
   strat/candles.py    Strat classification, continuity, hammer, long setups (pure, unit tested)
-  strat/scoring.py    leadership-first score (relative strength, benchmarks, theme, trend; Strat timing overlay; breakdown penalty)
+  strat/scoring.py    leadership-first score (relative strength, benchmarks, theme, trend; Continuity: M/W/D alignment out of 10; breakdown penalty)
   strat/leadership.py trend structure, QQQ excess, breakdown detection, leader cut, nearest trigger
   strat/legacy_scoring.py  the previous Strat-first score, kept only for the backtest comparison
   strat/backtest.py   rank-quality backtest over biweekly cut-offs (`npm run backtest:leaders`)

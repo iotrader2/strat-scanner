@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ScanRow } from "../api";
 import { formatWeight } from "../leadership";
+import { placeTooltip, type Rect } from "../tooltipPlacement";
 
 type ScoreFields = Pick<ScanRow, "score" | "score_raw" | "score_max_raw" | "score_breakdown">;
 
@@ -55,14 +56,28 @@ export function BreakdownTable({ row, showDetail = false }: { row: ScoreFields; 
 }
 
 export function ScorePill({ score, row }: { score: number; row?: ScoreFields }) {
-  const [pos, setPos] = useState<{ x: number; y: number; above: boolean } | null>(null);
+  const [anchor, setAnchor] = useState<Rect | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const level = score >= 70 ? "hi" : score >= 50 ? "mid" : "lo";
 
   const show = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    const above = r.bottom + 440 > window.innerHeight;
-    setPos({ x: Math.min(r.right, window.innerWidth - 12), y: above ? r.top - 8 : r.bottom + 8, above });
+    setPos(null);
+    setAnchor({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
   };
+  const hide = () => {
+    setAnchor(null);
+    setPos(null);
+  };
+
+  // Measure the rendered tooltip, then place it fully inside the viewport (it is hidden until placed).
+  useLayoutEffect(() => {
+    if (!anchor || !tipRef.current) return;
+    const { width, height } = tipRef.current.getBoundingClientRect();
+    const p = placeTooltip(anchor, { width, height }, { width: window.innerWidth, height: window.innerHeight });
+    setPos({ left: p.left, top: p.top });
+  }, [anchor]);
 
   return (
     <>
@@ -70,18 +85,19 @@ export function ScorePill({ score, row }: { score: number; row?: ScoreFields }) 
         className={`score-pill ${level} ${row ? "has-breakdown" : ""}`}
         tabIndex={row ? 0 : undefined}
         onMouseEnter={row ? (e) => show(e.currentTarget) : undefined}
-        onMouseLeave={() => setPos(null)}
+        onMouseLeave={hide}
         onFocus={row ? (e) => show(e.currentTarget) : undefined}
-        onBlur={() => setPos(null)}
+        onBlur={hide}
       >
         {score.toFixed(0)}
       </span>
-      {row && pos &&
+      {row && anchor &&
         createPortal(
           <div
+            ref={tipRef}
             className="score-tooltip"
             role="tooltip"
-            style={{ left: pos.x, top: pos.y, transform: `translate(-100%, ${pos.above ? "-100%" : "0"})` }}
+            style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: "hidden" }}
           >
             <div className="tt-title">Score breakdown</div>
             <BreakdownTable row={row} />
