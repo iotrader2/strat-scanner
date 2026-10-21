@@ -21,6 +21,8 @@ export const MIN_RS_RANGE = { min: 50, max: 99, default: 90 };
 export const BREAKOUT_MIN_RS = 0.5;
 
 type LeaderFields = Pick<ScanRow, "rs"> & {
+  /** The backend's leader flag (RS >= P90 and trend not broken). Rows without it fall back to the same rule. */
+  is_leader?: boolean;
   has_setup?: boolean;
   triggered?: boolean | null;
   daily_trend?: ScanRow["daily_trend"];
@@ -32,7 +34,11 @@ type LeaderFields = Pick<ScanRow, "rs"> & {
 
 const rsAtLeast = (r: LeaderFields, min: number) => r.rs !== null && r.rs !== undefined && r.rs >= min;
 const isBroken = (r: LeaderFields) => r.leadership?.breakdown === "broken";
-const isSetupLeader = (r: LeaderFields, minRs: number) => rsAtLeast(r, minRs) && !isBroken(r) && !!r.has_setup;
+/** Marked leader by the backend: RS at or above P90 with the trend intact (a weakening trend still counts). */
+export const isLeader = (r: LeaderFields): boolean => r.is_leader ?? (rsAtLeast(r, LEADER_RS) && !isBroken(r));
+/** Leaders view: only rows marked leader; the Min RS slider can raise the cut above P90 but never adds non-leaders. */
+const isListedLeader = (r: LeaderFields, minRs: number) => isLeader(r) && rsAtLeast(r, minRs);
+const isSetupLeader = (r: LeaderFields, minRs: number) => isListedLeader(r, minRs) && !!r.has_setup;
 
 /** True when the Min RS slider applies to this Setups option (Leaders and both weekly Strat views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
@@ -106,7 +112,7 @@ export function weeklyTrendBadge(
 export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, minRs: number = LEADER_RS): boolean {
   switch (filter) {
     case "leaders":
-      return rsAtLeast(r, minRs) && !isBroken(r);
+      return isListedLeader(r, minRs);
     case "setups_pending":
       return isSetupLeader(r, minRs) && !r.triggered;
     case "setups_triggered":
@@ -199,11 +205,11 @@ export function triggerHint(
   return null;
 }
 
-export const NO_SETUP_LEADER = "No setup / leader";
+export const NO_SETUP_LEADER = "Leader · no setup";
 
-/** Label for the setup cell of a row without a weekly setup. */
+/** Label for the setup cell of a row without a weekly setup: a leader is still listed, it just has no weekly setup. */
 export function noSetupLabel(r: LeaderFields, minRs: number = LEADER_RS): string {
-  return rsAtLeast(r, minRs) && !isBroken(r) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
+  return isListedLeader(r, minRs) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
 }
 
 /** A score line's weight as shown in the breakdown, e.g. 32 -> "32%", 35.6 -> "35.6%". */

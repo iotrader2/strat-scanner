@@ -12,6 +12,7 @@ import {
   failedBreakoutLabel,
   fmtRs,
   formatWeight,
+  isLeader,
   leadershipUsesMinRs,
   matchesLeadership,
   migrateLeadership,
@@ -67,10 +68,26 @@ describe("matchesLeadership", () => {
     expect(pick("leaders")).toEqual([leader, weakening]);
   });
 
-  it("the Min RS slider moves the Leaders cut", () => {
-    expect(pick("leaders", sliderToRs(80))).toEqual([leader, weakening, midLeader]);
+  it("the Min RS slider can raise the Leaders cut but never adds non-leaders", () => {
     expect(pick("leaders", sliderToRs(97))).toEqual([leader]);
-    expect(pick("leaders", sliderToRs(60))).toEqual([leader, weakening, midLeader, midBreakout]);
+    // Below P90 the slider no longer pulls in P80 names labelled as leaders: only rows marked leader are listed.
+    expect(pick("leaders", sliderToRs(80))).toEqual([leader, weakening]);
+    expect(pick("leaders", sliderToRs(60))).toEqual([leader, weakening]);
+    expect(pick("leaders", sliderToRs(50))).not.toContain(midLeader);
+  });
+
+  it("Leaders follows the backend is_leader flag", () => {
+    const flagged = { rs: 0.95, is_leader: true, leadership: { breakdown: "none" as const } };
+    const unflagged = { rs: 0.95, is_leader: false, leadership: { breakdown: "none" as const } };
+    expect(matchesLeadership(flagged, "leaders")).toBe(true);
+    expect(matchesLeadership(unflagged, "leaders")).toBe(false);
+    expect(matchesLeadership(unflagged, "leaders", sliderToRs(50))).toBe(false);
+    expect(isLeader(flagged)).toBe(true);
+    expect(isLeader(unflagged)).toBe(false);
+    // Without the flag (older rows) the same rule applies: RS >= P90 and not broken.
+    expect(isLeader(leader)).toBe(true);
+    expect(isLeader(midLeader)).toBe(false);
+    expect(isLeader(brokenLeader)).toBe(false);
   });
 
   it("Broken leaders ignores the Min RS slider and lists every broken trend", () => {
@@ -146,8 +163,9 @@ describe("Weekly setups", () => {
   });
 
   it("reuses the Min RS slider for both setup views", () => {
-    expect(pending(sliderToRs(80))).toEqual([pendingLeader, pendingWarning, pendingMid]);
-    expect(triggered(sliderToRs(80))).toEqual([triggeredLeader, triggeredMid]);
+    // Below P90 the setup views stay leaders-only too.
+    expect(pending(sliderToRs(80))).toEqual([pendingLeader, pendingWarning]);
+    expect(triggered(sliderToRs(80))).toEqual([triggeredLeader]);
     expect(pending(sliderToRs(95))).toEqual([pendingLeader]);
     expect(triggered(sliderToRs(50))).not.toContain(setupNoRs);
   });
@@ -375,11 +393,12 @@ describe("fmtRs", () => {
 describe("noSetupLabel", () => {
   it("labels a leader with no setup, and any other name as having no active setup", () => {
     expect(noSetupLabel(leader)).toBe(NO_SETUP_LEADER);
-    expect(noSetupLabel(leader)).toBe("No setup / leader");
+    expect(noSetupLabel(leader)).toBe("Leader · no setup");
     expect(noSetupLabel(laggard)).toBe("no active setup");
     expect(noSetupLabel(brokenLeader)).toBe("no active setup");
     expect(noSetupLabel(midLeader)).toBe("no active setup");
-    expect(noSetupLabel(midLeader, 0.8)).toBe(NO_SETUP_LEADER);
+    expect(noSetupLabel(midLeader, 0.8)).toBe("no active setup"); // P85 is not a leader at any slider position
+    expect(noSetupLabel(leader, 0.98)).toBe("no active setup"); // below a raised cut it is not listed as a leader
   });
 });
 
