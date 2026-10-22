@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Mapping, Optional
 
 import pandas as pd
@@ -19,7 +19,16 @@ from .change import (
     snapshot,
     worsened,
 )
-from .candles import Candle, TimeframeState, apply_live_triggers, candle_pattern, classify_series, is_hammer, timeframe_state
+from .candles import (
+    Candle,
+    TimeframeState,
+    apply_live_triggers,
+    candle_pattern,
+    classify_series,
+    is_hammer,
+    price_vs_open,
+    timeframe_state,
+)
 from .data import resample
 from .periods import completed_week_high_labels, daily_bar_complete
 from . import legacy_scoring, scoring
@@ -89,6 +98,22 @@ def to_candles(df: pd.DataFrame) -> list[Candle]:
     return [Candle(r.open, r.high, r.low, r.close) for r in df.itertuples()]
 
 
+def live_opens(daily: pd.DataFrame) -> dict[str, Optional[float]]:
+    """Open of the bar in progress for each continuity timeframe.
+
+    D: the latest daily bar (today's session once it exists; before that, e.g. premarket, the last session).
+    W / M: the current week / month including the bars so far. When the new period has no session yet (Monday premarket,
+    the 1st of a month before the open), the latest bin is the one just finished, the same fallback as D.
+    """
+    if daily is None or daily.empty:
+        return {}
+    out: dict[str, Optional[float]] = {"D": float(daily.open.iloc[-1])}
+    for tf in ("W", "M"):
+        bins = resample(daily, tf, completed_only=False)
+        out[tf] = float(bins.open.iloc[-1]) if not bins.empty else None
+    return out
+
+
 def _tf_payload(st: Optional[TimeframeState]) -> Optional[dict]:
     if st is None:
         return None
@@ -146,6 +171,10 @@ def scan_symbol(
     live_highs = {tf: in_progress_high(daily, frames[tf], tf, price) for tf in LIVE_TRIGGER_TFS}
     for tf, high in live_highs.items():
         states[tf] = apply_live_triggers(states[tf], high)
+    # Continuity (score, badges, M+W / full flags) reads the bars in progress; the Strat state above does not.
+    for tf, open_ in live_opens(daily).items():
+        if states.get(tf) is not None and open_ is not None:
+            states[tf] = replace(states[tf], live_color=price_vs_open(price, open_), live_open=round(open_, 4))
     recent = daily.tail(config.ADV_LOOKBACK_DAYS)
     adv = float((recent.close * recent.volume).mean())
     avg_volume = float(recent.volume.mean())

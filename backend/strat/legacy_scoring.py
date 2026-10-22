@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Mapping, Optional
 
-from .candles import TWO_UP, Setup, TimeframeState
+from .candles import TWO_UP, Setup, TimeframeState, continuity_color
 from .perf import MOMENTUM_WEIGHTS, PERIOD_LABELS, PERIODS, Momentum
 
 TF_NAMES = {"M": "Monthly", "W": "Weekly", "D": "Daily"}
@@ -177,7 +177,7 @@ def score_symbol(
         )
     )
 
-    colors = {tf: (s.color if s else None) for tf, s in states.items()}
+    colors = {tf: continuity_color(s) for tf, s in states.items()}  # bars in progress (live)
     green = [tf for tf in ("M", "W", "D") if colors.get(tf) == "green"]
     full = len(green) == 3
     mw_green = "M" in green and "W" in green

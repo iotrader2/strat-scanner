@@ -3,14 +3,21 @@ import type { HigherTf, Tf, TfState } from "../api";
 const STRAT_CLASS: Record<string, string> = { "1": "s1", "2U": "s2u", "2D": "s2d", "3": "s3" };
 const STRAT_LABEL: Record<string, string> = { "1": "INSIDE", "2U": "UP", "2D": "DOWN", "3": "OUTSIDE" };
 
+/** Badge color = Continuity: the bar in progress when the scan sent it, else the last completed bar. */
+export function badgeContinuity(state: TfState): { color: TfState["color"]; open: number; live: boolean } {
+  if (state.live_color && state.live_open != null) return { color: state.live_color, open: state.live_open, live: true };
+  return { color: state.color, open: state.open, live: false };
+}
+
 export function TfBadge({ tf, state }: { tf: Tf | HigherTf; state: TfState | null | undefined }) {
   if (!state) return <span className="tf-badge empty">{tf}</span>;
   const strat = state.strat ?? "–";
-  const title = `${tf}: Strat ${strat}, ${state.color} vs open ${state.open.toFixed(2)}${
+  const { color, open, live } = badgeContinuity(state);
+  const title = `${tf}: Strat ${strat} (last completed bar), ${color} vs open ${open.toFixed(2)}${live ? " (bar in progress)" : ""}${
     state.hammer ? ", hammer" : ""
   }${state.inside ? ", inside bar" : ""}`;
   return (
-    <span className={`tf-badge ${state.color} ${STRAT_CLASS[strat] ?? ""}`} title={title}>
+    <span className={`tf-badge ${color} ${STRAT_CLASS[strat] ?? ""}`} title={title}>
       <span className="tf-label">{tf}</span>
       <span className="tf-strat">{STRAT_LABEL[strat] ?? strat}</span>
       {state.hammer && <span className="tf-flag" title="Hammer">H</span>}

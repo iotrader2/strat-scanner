@@ -1,7 +1,7 @@
 """When a weekly, monthly, quarterly, or half-year candle is finished.
 
-Strat triggers, setup type, continuity, and the M/W chips read the last
-*completed* period. The week (or month) still in progress is not a candle yet.
+Strat triggers, setup type, and the M/W Strat numbers read the last
+*completed* period (continuity reads the bar in progress; see scanner.live_opens). The week (or month) still in progress is not a candle yet.
 A period finishes at the close of its last NYSE session: Friday for a normal
 week, Thursday when Friday is a holiday, and the last weekday of a month when
 the calendar month ends on a weekend. Daily bars are sessions and are not

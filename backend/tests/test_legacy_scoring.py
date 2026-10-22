@@ -168,3 +168,15 @@ def test_setup_points_cap_is_explained():
     setup = next(c for c in s.breakdown if c.key == "weekly_setup")
     assert setup.points == 25
     assert "capped at 25" in setup.detail
+
+
+def test_legacy_continuity_reads_the_bars_in_progress():
+    from dataclasses import replace
+
+    red = _states(RED_DOWN, RED_DOWN, RED_DOWN)
+    live = {tf: replace(s, live_color={"M": "green", "W": "green", "D": "red"}[tf], live_open=1.0) for tf, s in red.items()}
+    sc = score_symbol(live, 104, 1e9)
+    cont = next(c for c in sc.breakdown if c.key == "continuity")
+    assert cont.detail.startswith("M +")
+    assert sc.mw_green is True and sc.full_continuity is False
+    assert next(c for c in score_symbol(red, 104, 1e9).breakdown if c.key == "continuity").points == 0

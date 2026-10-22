@@ -235,3 +235,61 @@ def test_daily_bar_complete():
     assert not daily_bar_complete(date(2026, 8, 14), datetime(2026, 8, 14, 15, 59, tzinfo=ET))
     assert daily_bar_complete(date(2026, 8, 14), datetime(2026, 8, 14, 16, 0, tzinfo=ET))
     assert daily_bar_complete(date(2026, 8, 13), datetime(2026, 8, 14, 8, 0, tzinfo=ET))
+
+
+def _team_like():
+    """TEAM-like daily bars through Thu Oct 22 2026: September red (190.58 -> 179.29), the week of Oct 12 red
+    (208.97 -> 207.82), the week in progress green (open 208.11) and today red (226.27 -> 223.16)."""
+    rows = []
+    for day in pd.bdate_range("2026-06-01", "2026-08-31"):
+        rows.append((day, 185.0, 186.0, 184.0, 185.0))
+    sep = pd.bdate_range("2026-09-01", "2026-09-30")
+    for i, day in enumerate(sep):
+        o = 190.58 if i == 0 else 190.0 - i * 0.5
+        c = 179.29 if i == len(sep) - 1 else 190.0 - (i + 1) * 0.5
+        rows.append((day, o, max(o, c) + 1, min(o, c) - 1, c))
+    for i, day in enumerate(pd.bdate_range("2026-10-01", "2026-10-09")):
+        o, c = 180.0 + i * 4, 184.0 + i * 4
+        rows.append((day, o, c + 1, o - 1, c))
+    week = [(208.97, 210.0), (210.0, 209.0), (209.0, 208.5), (208.5, 208.0), (208.0, 207.82)]
+    for day, (o, c) in zip(pd.bdate_range("2026-10-12", "2026-10-16"), week):
+        rows.append((day, o, max(o, c) + 1, min(o, c) - 1, c))
+    live = [(208.11, 215.0), (215.0, 221.0), (221.0, 226.27), (226.27, 223.16)]
+    for day, (o, c) in zip(pd.bdate_range("2026-10-19", "2026-10-22"), live):
+        rows.append((day, o, max(o, c) + 1, min(o, c) - 1, c))
+    idx = pd.DatetimeIndex([r[0] for r in rows])
+    df = pd.DataFrame([r[1:] for r in rows], index=idx, columns=["open", "high", "low", "close"])
+    df["volume"] = 2_000_000.0
+    return df
+
+
+def test_continuity_uses_the_month_week_and_day_in_progress(monkeypatch):
+    from datetime import datetime
+
+    from strat import periods
+    from strat.scheduler import ET
+
+    monkeypatch.setattr(periods, "clock", lambda: datetime(2026, 10, 22, 12, 0, tzinfo=ET))
+    row = scan_symbol(MEMBER, _team_like())
+    tf = row["tf"]
+    # The Strat state (and its color) is still the last completed month / week; today is the session so far.
+    assert (tf["M"]["color"], tf["M"]["open"]) == ("red", 190.58)
+    assert (tf["W"]["color"], tf["W"]["open"]) == ("red", 208.97)
+    # Continuity is the bar in progress: October and this week are green, today is red.
+    assert (tf["M"]["live_color"], tf["M"]["live_open"]) == ("green", 180.0)
+    assert (tf["W"]["live_color"], tf["W"]["live_open"]) == ("green", 208.11)
+    assert (tf["D"]["live_color"], tf["D"]["live_open"]) == ("red", 226.27)
+    cont = next(c for c in row["score_breakdown"] if c["key"] == "continuity")
+    assert cont["points"] == 8
+    assert row["mw_green"] is True and row["full_continuity"] is False
+    assert "M+W green" in row["reason"]
+
+
+def test_live_opens_fall_back_to_the_latest_bar_before_a_new_period_has_a_session():
+    from strat.scanner import live_opens
+
+    df = _team_like()
+    assert live_opens(df) == {"D": 226.27, "W": 208.11, "M": 180.0}
+    # Through Friday Oct 16 only: the latest week is the one just finished (no Monday bar yet).
+    friday = df.loc[:"2026-10-16"]
+    assert live_opens(friday) == {"D": 208.0, "W": 208.97, "M": 180.0}
