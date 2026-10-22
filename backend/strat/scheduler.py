@@ -20,6 +20,7 @@ OPEN = time(9, 30)
 CLOSE = time(16, 0)
 AFTER_HOURS_END = time(20, 0)
 EOD_AT = time(16, 20)
+CLOSING_POLL_END = time(16, 1)  # the 16:00:10 poll picks up the 15:55 bar
 
 
 def now_et(clock: datetime | None = None) -> datetime:
@@ -69,13 +70,46 @@ def history_due(now: datetime, newest_bar: date | None) -> bool:
     return newest_bar < last_completed_session(now)
 
 
-def intraday_due(now: datetime, last_poll: datetime | None, interval: int | None = None) -> bool:
+def last_mark(now: datetime) -> datetime:
+    """Most recent ``LIVE_POLL_MINUTES`` mark plus ``LIVE_POLL_OFFSET_SECONDS`` at or before ``now``."""
+    local = now_et(now)
+    step = config.LIVE_POLL_MINUTES
+    mark = local.replace(minute=local.minute - local.minute % step, second=0, microsecond=0) + timedelta(
+        seconds=config.LIVE_POLL_OFFSET_SECONDS
+    )
+    if mark > local:
+        mark -= timedelta(minutes=step)
+    return mark
+
+
+def intraday_due(
+    now: datetime, last_poll: datetime | None, interval: int | None = None, *, aligned: bool = False
+) -> bool:
+    """Regular-session poll.
+
+    ``aligned`` (Alpaca 5-minute bars): once per mark, about 10 seconds after each 5-minute boundary,
+    including the 16:00 mark that closes the last bar. Otherwise every ``STRAT_POLL_SECONDS``.
+    """
+    if aligned:
+        local = now_et(now)
+        closing = local.weekday() < 5 and CLOSE <= local.time() < CLOSING_POLL_END
+        if not (regular_session(now) or closing):
+            return False
+        return last_poll is None or now_et(last_poll) < last_mark(now)
     if not regular_session(now):
         return False
     if last_poll is None:
         return True
     gap = (now_et(now) - now_et(last_poll)).total_seconds()
     return gap >= (config.POLL_SECONDS if interval is None else interval)
+
+
+def scheduler_sleep(now: datetime, aligned: bool, default: float = 20.0) -> float:
+    """Seconds until the scheduler should look again: 20, or less so an aligned poll lands near its mark."""
+    if not aligned:
+        return default
+    nxt = last_mark(now) + timedelta(minutes=config.LIVE_POLL_MINUTES)
+    return max(1.0, min(default, (nxt - now_et(now)).total_seconds() + 0.5))
 
 
 def extended_due(now: datetime, last_poll: datetime | None, interval: int | None = None) -> bool:
@@ -98,7 +132,12 @@ def fetch_period(now: datetime, newest_bar: date | None, *, full: bool = False) 
 
 
 def decide(
-    now: datetime, newest_bar: date | None, last_poll: datetime | None, last_extended: datetime | None = None
+    now: datetime,
+    newest_bar: date | None,
+    last_poll: datetime | None,
+    last_extended: datetime | None = None,
+    *,
+    aligned: bool = False,
 ) -> str | None:
     """``intraday`` updates today's bar. ``history`` confirms completed sessions.
 
@@ -107,7 +146,7 @@ def decide(
     """
     if history_due(now, newest_bar):
         return "history"
-    if intraday_due(now, last_poll):
+    if intraday_due(now, last_poll, aligned=aligned):
         return "intraday"
     if extended_due(now, last_extended):
         return "extended"

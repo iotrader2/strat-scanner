@@ -50,4 +50,9 @@ describe("liveStatus", () => {
     expect(view.label).toBe(`15-min delayed · updated ${local}`);
     expect(view.label).not.toMatch(/ ET$/);
   });
+
+  it("labels Alpaca's 5-minute bars instead of a 15-minute delay", () => {
+    const view = liveStatus({ ...status(), delay: "5m", source: "alpaca" }, "open");
+    expect(view.label).toMatch(/^5-min bars · updated /);
+  });
 });

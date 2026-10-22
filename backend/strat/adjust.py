@@ -13,8 +13,11 @@ import pandas as pd
 Split = tuple[str, float]  # ex-date (YYYY-MM-DD), ratio (4.0 means 4-for-1)
 
 
-def apply_splits(df: pd.DataFrame, splits: Sequence[Split], as_of) -> pd.DataFrame:
-    """Divide OHLC and multiply volume by splits whose ex-date is after the bar and on or before ``as_of``."""
+def apply_splits(df: pd.DataFrame, splits: Sequence[Split], as_of, *, volume: bool = True) -> pd.DataFrame:
+    """Divide OHLC and multiply volume by splits whose ex-date is after the bar and on or before ``as_of``.
+
+    ``volume=False`` adjusts prices only: spin-off factors change the price level, not the share count.
+    """
     if df is None or df.empty or not splits:
         return df
     as_of_ts = pd.Timestamp(as_of)
@@ -34,6 +37,6 @@ def apply_splits(df: pd.DataFrame, splits: Sequence[Split], as_of) -> pd.DataFra
     for col in ("open", "high", "low", "close"):
         if col in out.columns:
             out[col] = out[col] / factor
-    if "volume" in out.columns:
+    if volume and "volume" in out.columns:
         out["volume"] = out["volume"] * factor
     return out

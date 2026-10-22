@@ -1,4 +1,4 @@
-"""Local OHLCV cache (SQLite) filled from Yahoo Finance via yfinance (no API key)."""
+"""Local OHLCV cache (SQLite) filled by the configured provider (Alpaca by default, Yahoo selectable)."""
 
 from __future__ import annotations
 
@@ -84,6 +84,18 @@ CREATE TABLE IF NOT EXISTS session_bar (
     close      REAL NOT NULL,
     volume     REAL NOT NULL,
     updated_at TEXT NOT NULL
+);
+-- Today's 5-minute bars (Alpaca: IEX live, replaced by SIP once 15 minutes old). See intraday.py.
+CREATE TABLE IF NOT EXISTS intraday_bars (
+    symbol TEXT NOT NULL,
+    ts     TEXT NOT NULL,
+    open   REAL NOT NULL,
+    high   REAL NOT NULL,
+    low    REAL NOT NULL,
+    close  REAL NOT NULL,
+    volume REAL NOT NULL,
+    feed   TEXT NOT NULL,
+    PRIMARY KEY (symbol, ts)
 );
 CREATE TABLE IF NOT EXISTS index_quote (
     symbol         TEXT PRIMARY KEY,
@@ -394,10 +406,25 @@ def save_splits(symbol: str, splits: list[tuple[str, float]], db_path: Path | No
         )
 
 
-def load_splits(db_path: Path | None = None) -> dict[str, list[tuple[str, float]]]:
+def save_spinoffs(symbol: str, factors: list[tuple[str, float]], db_path: Path | None = None) -> None:
+    """Spin-off price factors (prior close / ex-date open). Earlier prices are divided by them; volume is not."""
+    if not factors:
+        return
+    with _write_lock, connect(db_path) as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO corporate_actions(symbol, ex_date, kind, ratio) VALUES (?, ?, 'spinoff', ?)",
+            [(symbol, ex, float(f)) for ex, f in factors if f and float(f) != 1.0],
+        )
+
+
+def load_spinoffs(db_path: Path | None = None) -> dict[str, list[tuple[str, float]]]:
+    return load_splits(db_path, kind="spinoff")
+
+
+def load_splits(db_path: Path | None = None, kind: str = "split") -> dict[str, list[tuple[str, float]]]:
     with connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT symbol, ex_date, ratio FROM corporate_actions WHERE kind = 'split' ORDER BY symbol, ex_date"
+            "SELECT symbol, ex_date, ratio FROM corporate_actions WHERE kind = ? ORDER BY symbol, ex_date", (kind,)
         ).fetchall()
     out: dict[str, list[tuple[str, float]]] = {}
     for sym, ex, ratio in rows:
@@ -428,6 +455,19 @@ def save_session_bar(symbol: str, df: pd.DataFrame, db_path: Path | None = None)
                 float(0 if pd.isna(r.Volume) else r.Volume),
                 updated,
             ),
+        )
+
+
+def save_session_bars(rows: list[tuple], db_path: Path | None = None) -> None:
+    """Bulk (symbol, date, open, high, low, close, volume) into ``session_bar``."""
+    if not rows:
+        return
+    updated = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _write_lock, connect(db_path) as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO session_bar(symbol, date, open, high, low, close, volume, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(*r, updated) for r in rows],
         )
 
 
@@ -516,9 +556,14 @@ def _adjust(frames: dict[str, pd.DataFrame], as_of: str, db_path: Path | None) -
     from .adjust import apply_splits
 
     splits = load_splits(db_path)
-    if not splits:
+    spins = load_spinoffs(db_path)
+    if not splits and not spins:
         return frames
-    return {sym: apply_splits(df, splits.get(sym, ()), as_of) for sym, df in frames.items()}
+    out = {}
+    for sym, df in frames.items():
+        df = apply_splits(df, splits.get(sym, ()), as_of)
+        out[sym] = apply_splits(df, spins.get(sym, ()), as_of, volume=False)
+    return out
 
 
 # A rescan used to read every symbol into a second dict while the API still held the
@@ -789,6 +834,7 @@ def refresh(
             if fetched is not None:
                 for sym, sub in fetched.frames.items():
                     save_splits(sym, fetched.splits.get(sym, []), db_path)
+                    save_spinoffs(sym, getattr(fetched, "spinoffs", {}).get(sym, []), db_path)
                     done_bars, session = _split_partial(sub)
                     n = save_bars(sym, done_bars, db_path)
                     if session is None:

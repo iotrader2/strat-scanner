@@ -91,7 +91,7 @@ def _drive(monkeypatch, *, now, newest, ticks, refreshing_until):
         elif step["n"] == refreshing_until + 1:
             api.State.refreshing = False
 
-    def start_refresh(full=False, period=None, with_earnings=True):
+    def start_refresh(full=False, period=None, with_earnings=True, intraday=False):
         refreshes.append({"full": full, "period": period, "with_earnings": with_earnings})
         api.State.refreshing = True
         return True

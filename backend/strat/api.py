@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from . import config, data, earnings, fetch_worker, memory, quotes, trims
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
-from .scheduler import decide, fetch_period, now_et, session_phase
+from .provider import live_bars_enabled
+from .scheduler import decide, fetch_period, now_et, scheduler_sleep, session_phase
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
@@ -97,9 +98,10 @@ def _log_rss(phase: str, **fields) -> None:
         print(message, flush=True)
 
 
-def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True) -> None:
+def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True, intraday: bool = False) -> None:
+    live = intraday and live_bars_enabled()
     fetch = "child" if fetch_worker.use_child(full, with_earnings) else "in-process"
-    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch)
+    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch, **({"kind": "live5m"} if live else {}))
     try:
         symbols = [m.symbol for m in _universe()]
 
@@ -107,7 +109,12 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             State.progress = {"done": done, "total": total, "message": message}
             _publish_status()
 
-        if fetch == "child":
+        if live:
+            from . import intraday as intraday_bars
+
+            stats = intraday_bars.poll(symbols)
+            log.info("live 5m poll %s", stats)
+        elif fetch == "child":
             fetch_worker.fetch_in_child(full, period, with_earnings, progress)
         else:
             data.refresh(symbols, full=full, progress=progress, period=period)
@@ -179,7 +186,9 @@ def start_index_quotes() -> bool:
     return True
 
 
-def start_refresh(full: bool = False, period: str | None = None, with_earnings: bool = True) -> bool:
+def start_refresh(
+    full: bool = False, period: str | None = None, with_earnings: bool = True, intraday: bool = False
+) -> bool:
     with State.lock:
         if State.refreshing or State.quoting:
             return False
@@ -187,7 +196,7 @@ def start_refresh(full: bool = False, period: str | None = None, with_earnings: 
         State.error = None
         State.progress = {"done": 0, "total": 0, "message": "Starting"}
     _publish_status()
-    threading.Thread(target=_run_refresh, args=(full, period, with_earnings), daemon=True).start()
+    threading.Thread(target=_run_refresh, args=(full, period, with_earnings, intraday), daemon=True).start()
     return True
 
 
@@ -301,13 +310,13 @@ def _scheduler_loop() -> None:
     last_poll = None
     last_extended = None
     while True:
-        time.sleep(20)
+        time.sleep(scheduler_sleep(now_et(), live_bars_enabled()))
         if config.AS_OF or State.refreshing or State.quoting:
             continue
         now = now_et()
         if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():
             _publish_index_quotes()
-        kind = decide(now, data.newest_bar_date(), last_poll, last_extended)
+        kind = decide(now, data.newest_bar_date(), last_poll, last_extended, aligned=live_bars_enabled())
         if kind is None:
             continue
         if kind == "extended":
@@ -315,7 +324,7 @@ def _scheduler_loop() -> None:
             start_index_quotes()
         elif kind == "intraday":
             last_poll = now
-            start_refresh(full=False, period="5d", with_earnings=False)
+            start_refresh(full=False, period="5d", with_earnings=False, intraday=True)
         else:
             newest = data.newest_bar_date()
             window = fetch_period(now, newest)
@@ -345,7 +354,9 @@ def _status_body() -> dict:
         "universe_size": len(universe),
         "version": State.version,
         "computed_at": State.scan_key,
-        "delay": "15m",
+        # Alpaca: prices from real-time IEX 5-minute bars (volume trails ~15 min on SIP). Yahoo: ~15-minute delay.
+        "delay": "5m" if live_bars_enabled() else "15m",
+        "source": "alpaca" if live_bars_enabled() else "yahoo",
     }
 
 
@@ -481,6 +492,7 @@ def _fetch_off_universe(symbol: str) -> None:
     from .provider import splits_in
 
     data.save_splits(symbol, splits_in(bars))
+    data.save_spinoffs(symbol, bars.attrs.get("spinoffs", []))
     data.save_bars(symbol, bars)
     data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"], meta.get("industry", ""))
     if meta["kind"] == "stock":

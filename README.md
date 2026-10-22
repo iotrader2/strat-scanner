@@ -8,8 +8,10 @@ not score and are not a gate: a leader with no setup still appears, labelled *Le
 Monthly, Weekly and Daily candles are all classified and shown as context (Strat number and continuity).
 
 It runs on your machine only (API and UI bind to `127.0.0.1`). There is no deploy or hosting config.
-Data comes from Yahoo Finance via [yfinance](https://github.com/ranaroussi/yfinance) (no API key needed)
-and is cached in a local SQLite file. One background fetcher keeps that cache current and fans the
+Prices come from the [Alpaca Market Data API](https://docs.alpaca.markets/us/docs/about-market-data-api)
+(free Basic plan) when `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` are set, otherwise from Yahoo Finance via
+[yfinance](https://github.com/ranaroussi/yfinance). Earnings dates, names/sectors/industries and the premarket /
+after-hours index prints always come from Yahoo. Everything is cached in a local SQLite file. One background fetcher keeps that cache current and fans the
 result out to every open browser over a WebSocket. The page has no refresh button.
 
 ## Quick start
@@ -60,7 +62,13 @@ Defaults can be changed with environment variables (the UI filters can also be c
 | `STRAT_HISTORY_PERIOD` | `3y` | History fetched for new symbols / a full catch-up |
 | `STRAT_INCREMENTAL_PERIOD` | `3mo` | Window used when the cache is behind by more than a few sessions |
 | `STRAT_POLL_SECONDS` | `900` | Minimum gap between intraday quote polls (15 minutes) |
-| `STRAT_DATA_PROVIDER` | `yahoo` | Market-data provider. `yahoo` is the only implementation |
+| `STRAT_DATA_PROVIDER` | `alpaca` when its keys are set, else `yahoo` | Price provider. `STRAT_DATA_PROVIDER=yahoo` rolls back to Yahoo without a code change |
+| `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` | unset | Alpaca keys (any free account, paper is fine). Sent as `APCA-API-KEY-ID` / `APCA-API-SECRET-KEY`; never logged |
+| `ALPACA_ADJUSTMENT` | `raw` | Daily-bar adjustment. `raw` keeps the cache unadjusted; splits and spin-offs come from Alpaca's corporate actions and are applied point-in-time |
+| `ALPACA_MAX_RPM` | `180` | Request budget per minute (the free plan allows 200) |
+| `ALPACA_RECENT_FEED` | `clamp` | SIP is only served 15 minutes after the fact on the free plan. `clamp` moves a too-recent `end` back; `delayed_sip` asks for that feed instead (paid plans) |
+| `STRAT_LIVE_POLL_MINUTES` / `STRAT_LIVE_POLL_OFFSET_SECONDS` | `5` / `10` | Alpaca: today's bar is rebuilt from 5-minute bars this many seconds after each mark |
+| `STRAT_LIVE_TRIGGER_TOLERANCE` | `0.05` | Alpaca, regular session: a live IEX high must clear a weekly / monthly trigger by more than this many dollars to count as broken |
 | `STRAT_SCHEDULER` | `1` | Set to `0` to disable the background fetcher (the test suite does this) |
 | `STRAT_API_PORT` / `STRAT_WEB_PORT` | `8000` / `5173` | Local ports |
 | `STRAT_CACHE_DB` | `backend/data/cache.sqlite3` | Cache location |
@@ -70,10 +78,12 @@ Example: `STRAT_MIN_PRICE=20 STRAT_MIN_DOLLAR_VOLUME=100000000 npm run dev`.
 
 ### How prices stay current
 
-A single thread in the API process is the only thing that talks to Yahoo:
+A single thread in the API process is the only thing that talks to the price provider:
 
 - When the newest confirmed daily bar is older than the last completed session, it downloads history (5 days if the gap is small, 3 months if the cache is merely behind, 3 years for a symbol that has never been downloaded).
-- During the regular session (09:30–16:00 America/New_York, weekdays) it polls quotes at most every 15 minutes. Today's bar is kept beside the confirmed history, so a restart cannot overwrite a finished day with a partial one.
+- During the regular session (09:30–16:00 America/New_York, weekdays) it rebuilds today's bar. Today's bar is kept beside the confirmed history, so a restart cannot overwrite a finished day with a partial one.
+  - **Alpaca**: about 10 seconds after every 5-minute mark it fetches the universe's 5-minute bars from IEX (real time, free) and, for every bar that closed at least 15 minutes ago, the SIP version (all exchanges), which overwrites the IEX row. Today's open / high / low / close come from those bars; today's volume is the SIP bars only, so it trails by ~15 minutes but is never mixed with IEX volume (~2.5% of the market). About 8 requests per poll; the first poll of a day catches up from the open.
+  - **Yahoo**: quotes at most every 15 minutes.
 - After each download it recomputes the scan and stores the rows in `scan_snapshot`. The next page load reads that snapshot immediately. Chart pages still build from the bar cache.
 - Browsers connect to `/ws` (proxied by Vite). They receive the snapshot on connect, a delta when the scan changes, and a ping every 15 seconds. If the socket drops, the page reconnects on its own and falls back to `GET /api/status` until it is back.
 - Splits are stored raw. A scan, a `STRAT_AS_OF` cut-off, and the backtest adjust a bar only by splits whose ex-date is on or before the date being viewed. A split that lands inside a forward-return window does not look like a crash.
@@ -566,7 +576,9 @@ backend/
   strat/themes.py     theme map loader/validator, equal-weight theme index, universe sync (`python -m strat.themes`)
   strat/themes_report.py  correlation validation and clustering report (`npm run themes:report`)
   strat/data.py       SQLite cache (bars, splits, session bar, scan snapshot, watchlist, positions, earnings)
-  strat/provider.py   MarketDataProvider; Yahoo is the Phase 1 implementation
+  strat/provider.py   MarketDataProvider: Alpaca (default with keys) and Yahoo
+  strat/alpaca.py     Alpaca Market Data client: feeds, pagination, rate limit, corporate actions
+  strat/intraday.py   Today's bar from Alpaca 5-minute bars (IEX live, SIP backfill)
   strat/scheduler.py  when to download history vs poll the open session
   strat/adjust.py     point-in-time split adjustment
   strat/hub.py        WebSocket fan-out (one upstream fetcher, N browsers)
@@ -600,7 +612,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 | `PUT /api/positions/{symbol}` | Edit `entry_price`, `shares` and `entry_date` |
 | `DELETE /api/positions/{symbol}` | Close (remove) a position |
 | `POST /api/positions/{symbol}/watchlist` | Move a position back to the watchlist |
-| `GET /api/status` | Cache status: `updating`, `version`, `computed_at`, `delay` (`15m` on Yahoo) |
+| `GET /api/status` | Cache status: `updating`, `version`, `computed_at`, `delay` (`5m` on Alpaca, `15m` on Yahoo), `source` |
 | `WS /ws` | Snapshot on connect, deltas after a rescan, `ping` every 15 seconds |
 | `POST /api/refresh` | Operator hook for a download. The scheduler calls the same job; the UI does not |
 

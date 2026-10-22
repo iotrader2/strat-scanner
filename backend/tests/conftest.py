@@ -7,3 +7,4 @@ imports the app means TestClient never opens a Yahoo connection.
 import os
 
 os.environ["STRAT_SCHEDULER"] = "0"
+os.environ.setdefault("STRAT_DATA_PROVIDER", "yahoo")
