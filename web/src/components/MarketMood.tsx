@@ -1,5 +1,5 @@
 import { fmtPct, type IssueCounts, type Trend } from "../api";
-import { declinersPerAdvancer, maChip, marketScoreRead, ragnarFor, trendLabel } from "../market";
+import { declinersPerAdvancer, maChip, marketScoreRead, moodTone, ragnarFor, trendLabel } from "../market";
 
 export interface DayChange {
   symbol: string;
@@ -16,6 +16,7 @@ export function MarketMood({ trend, days, issues }: { trend: Trend; days: DayCha
   const ragnar = ragnarFor(trend.score);
   const bySymbol = new Map(days.map((d) => [d.symbol, d.change_pct]));
   const changes = trend.indexes.map((index) => bySymbol.get(index.symbol)).filter((v): v is number => v !== undefined);
+  const tone = moodTone(changes);
   const allDown = changes.length === trend.indexes.length && changes.every((v) => v < 0);
   const ratio = issues ? declinersPerAdvancer(issues.advancing, issues.declining) : null;
   const lopsided = ratio !== null && ratio >= 2;
@@ -30,7 +31,7 @@ export function MarketMood({ trend, days, issues }: { trend: Trend; days: DayCha
             {detail}
             {lopsided && ratio !== null && <> Universe decliners were {ratio.toFixed(1)} to 1.</>}
           </p>
-          <div className="market-score-msg">{read.message}</div>
+          <div className={`market-score-msg ${tone}-text`}>{read.message}</div>
         </div>
       </div>
       <div className="trend-indexes">

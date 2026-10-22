@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Trend } from "../api";
-import { MARKET_SCORE_MESSAGES, RAGNAR_MOODS, ragnarFor } from "../market";
+import { MARKET_SCORE_MESSAGES, RAGNAR_MOODS, moodTone, ragnarFor } from "../market";
 import { MarketMood } from "./MarketMood";
 
 const avg = (period: number, above: boolean) => ({ period, value: 100, above });
@@ -66,5 +66,24 @@ describe("MarketMood", () => {
     expect(renderToStaticMarkup(<MarketMood trend={trend("on", 9)} days={days} />)).toContain("trend-banner market-mood on");
     expect(renderToStaticMarkup(<MarketMood trend={trend("caution", 4)} days={days} />)).toContain("market-mood caution");
     expect(renderToStaticMarkup(<MarketMood trend={trend("off", 0)} days={days} />)).toContain("market-mood off smash");
+  });
+});
+
+describe("moodTone", () => {
+  it("is red when most indexes are down on the day, green otherwise, sum as tie-break", () => {
+    expect(moodTone([-2.82, -1.35, -0.26])).toBe("red");
+    expect(moodTone([-0.5, -0.1, 1.2])).toBe("red");
+    expect(moodTone([0.5, 0.1, -1.2])).toBe("green");
+    expect(moodTone([-1, 0, 0.4])).toBe("red");
+    expect(moodTone([1, 0, -0.4])).toBe("green");
+    expect(moodTone([0, 0, 0])).toBe("green");
+    expect(moodTone([])).toBe("green");
+  });
+
+  it("colors the message with the same classes as the index moves", () => {
+    const down = renderToStaticMarkup(<MarketMood trend={trend("caution", 1)} days={days} />);
+    expect(down).toContain('class="market-score-msg red-text"');
+    const up = days.map((d) => ({ ...d, change_pct: Math.abs(d.change_pct) }));
+    expect(renderToStaticMarkup(<MarketMood trend={trend("caution", 1)} days={up} />)).toContain('class="market-score-msg green-text"');
   });
 });
