@@ -6,6 +6,7 @@ import { CARD_BARS, EtfCard, TfToggle } from "../components/EtfCard";
 import { MA_WARMUP } from "../movingAverage";
 import { BreadthPanel } from "../components/Breadth";
 import { TrendBanner } from "../components/TrendBanner";
+import { MarketScoreBanner } from "../components/MarketScoreBanner";
 import { marketRead } from "../market";
 import { SkeletonCards } from "../components/Loading";
 
@@ -58,6 +59,8 @@ export default function Market({ version }: { version: string | null }) {
           </p>
         </div>
       </section>
+
+      {trend && <MarketScoreBanner trend={trend} />}
 
       {trend && (
         <TrendBanner

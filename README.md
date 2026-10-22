@@ -385,6 +385,12 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     Weekly green continuity.
   - Each card also shows the 1M / 3M / 6M price return, green or red.
   - A Monthly / Weekly / Daily toggle (saved separately from the Themes one) switches the charts.
+  - A **Market score N/6** banner sits at the top: two points per index, +1 when the price is above its 6-day simple
+    average and +1 when the 6-day is above the 20-day (simple, like the chart averages). The price is the one the card
+    shows, so a premarket or after-hours quote counts while it is active. The banner goes red (0/6, "Market is screwed. DO
+    NOT TRADE") to green (6/6, "GAME ON"), with a funny line per level and a per-index breakdown (`QQQ 2/2 · SPY 1/2 · IWM 0/2`).
+  - The trend banner below it calls **GAME ON / CAUTION / DO NOT TRADE** from each index versus its 6, 20 and 50 day
+    simple averages (all above / mixed / all below), with the same card price.
   - A summary line counts how many of the three have Monthly + Weekly green continuity (and full M+W+D), with each
     index's score.
   - These are the only benchmark ETFs; DIA is no longer part of the universe. They are still scanned and appear in the

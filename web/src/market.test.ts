@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { declinersPerAdvancer, marketRead, nasiRead, sessionBadge, trendLabel, universeLabel } from "./market";
+import {
+  declinersPerAdvancer,
+  MARKET_SCORE_MESSAGES,
+  marketRead,
+  marketScoreBreakdown,
+  marketScoreRead,
+  nasiRead,
+  sessionBadge,
+  trendLabel,
+  universeLabel,
+} from "./market";
 
 const row = (symbol: string, mw_green: boolean, full_continuity = false) => ({ symbol, mw_green, full_continuity });
 
@@ -76,5 +86,37 @@ describe("universeLabel", () => {
     expect(universeLabel(645)).toBe("Universe, 645 names");
     expect(universeLabel(2308)).toBe("Universe, 2,308 names");
     expect(universeLabel(1)).toBe("Universe, 1 name");
+  });
+});
+
+describe("marketScoreRead", () => {
+  it("maps every score 0–6 to its message, red to green", () => {
+    const reads = [0, 1, 2, 3, 4, 5, 6].map((n) => marketScoreRead(n, 6));
+    expect(reads.map((r) => r.message)).toEqual(MARKET_SCORE_MESSAGES);
+    expect(reads[0].message).toBe("🚨 Market is screwed. DO NOT TRADE. Close the laptop and go touch grass.");
+    expect(reads[6].message).toBe("🔥 GAME ON. All engines firing. Size up on A+ setups and trust your stops.");
+    expect(reads[3].message).toContain("Coin flip market");
+    expect(reads[0].hue).toBe(0);
+    expect(reads[6].hue).toBe(120);
+    expect(reads.map((r) => r.hue)).toEqual([...reads.map((r) => r.hue)].sort((a, b) => a - b));
+  });
+
+  it("clamps bad input instead of breaking", () => {
+    expect(marketScoreRead(-3, 6).score).toBe(0);
+    expect(marketScoreRead(9, 6).score).toBe(6);
+    expect(marketScoreRead(Number.NaN, 6).message).toBe(MARKET_SCORE_MESSAGES[0]);
+    expect(marketScoreRead(3, 0).max).toBe(6);
+  });
+});
+
+describe("marketScoreBreakdown", () => {
+  it("lists each index out of 2", () => {
+    expect(
+      marketScoreBreakdown([
+        { symbol: "QQQ", points: 2 },
+        { symbol: "SPY", points: 1 },
+        { symbol: "IWM", points: 0 },
+      ]),
+    ).toBe("QQQ 2/2 · SPY 1/2 · IWM 0/2");
   });
 });
