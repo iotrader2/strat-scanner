@@ -51,11 +51,23 @@ def classify_series(candles: Sequence[Candle]) -> list[Optional[str]]:
 
 def continuity(c: Candle) -> str:
     """Green if price is above the period open, red if below, flat if equal."""
-    if c.close > c.open:
+    return price_vs_open(c.close, c.open)
+
+
+def price_vs_open(price: float, open_: float) -> str:
+    """Green if ``price`` is above ``open_``, red if below, flat if equal."""
+    if price > open_:
         return "green"
-    if c.close < c.open:
+    if price < open_:
         return "red"
     return "flat"
+
+
+def continuity_color(state: Optional["TimeframeState"]) -> Optional[str]:
+    """The color Continuity scores and shows: the bar in progress when known, else the last completed bar."""
+    if state is None:
+        return None
+    return state.live_color or state.color
 
 
 def is_hammer(
@@ -109,6 +121,10 @@ class TimeframeState:
     inside: bool
     hammer: bool
     setups: list[Setup] = field(default_factory=list)
+    # Continuity of the bar in progress (current month / week / today's session): price vs that bar's open. The
+    # fields above stay on the last completed bar (Strat number, triggers, setups). None when not computed.
+    live_color: Optional[str] = None
+    live_open: Optional[float] = None
 
 
 def find_long_setups(candles: Sequence[Candle], types: Sequence[Optional[str]]) -> list[Setup]:

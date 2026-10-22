@@ -182,8 +182,11 @@ class TestCtvaTrigger:
         monthly = row["tf"]["M"]
         assert monthly["strat"] == "2U" and monthly["color"] == "green" and monthly["high"] == 48
         assert row["monthly_2u"] is True and row["mw_green"] is False
+        # Continuity reads the bars in progress: this week (Monday 12.40 -> 12.80) is green, October (open 44) is red.
+        assert (weekly["live_color"], weekly["live_open"]) == ("green", 12.40)
+        assert (monthly["live_color"], monthly["live_open"]) == ("red", 44)
         detail = next(c["detail"] for c in row["score_breakdown"] if c["key"] == "continuity")
-        assert detail == "M +4 · D +1 (W not green)"  # the setup and Monthly 2U add nothing
+        assert detail == "W +4 · D +1 (M not green)"  # the setup and Monthly 2U add nothing
         assert "13.01" not in detail
 
         # The weekly chart shows the week in progress (Monday's bar), like the daily chart shows today;

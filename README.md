@@ -83,8 +83,8 @@ A single thread in the API process is the only thing that talks to Yahoo:
 ## What it computes
 
 Weekly (Mon-Fri) and monthly candles are built from the cached daily bars. Strat classification —
-the setup, the trigger, distance to it, continuity, and the M/W chips — uses the last **completed**
-week and the last **completed** month. The week still in progress is left out, including Monday's
+the setup, the trigger, distance to it, and the M/W Strat numbers — uses the last **completed**
+week and the last **completed** month (continuity is the exception: it reads the bars in progress, see below). The week still in progress is left out, including Monday's
 high and a mid-week `STRAT_AS_OF` cut-off. The one exception is whether a pending trigger has **broken**: a weekly (or
 monthly) setup whose trigger, set by the last completed week (month), has been traded above by the week (month) in
 progress counts as triggered (`triggered_live` on the row, chip *triggered this week*). The trigger level itself never
@@ -100,8 +100,10 @@ is not folded into the week that already ended.
 - `2U`: takes out the prior high only; `2D`: takes out the prior low only
 - `3` outside: takes out both
 
-**Continuity**: a timeframe is green when price is above that period's open (red if below).
-Weekly and monthly continuity use the last completed period; daily uses the latest session.
+**Continuity**: a timeframe is green when price is above the open of its bar **in progress** (red if below): the current
+month, the current week, and today's session. Before a new period has a session (Monday premarket, the 1st of a month
+before the open) it reads the latest bar, like the daily before today's bar exists. Triggers, setups, candle patterns
+and Monthly 2U stay on completed bars.
 Monthly **and** Weekly green is a timing nuance, not a gate: the Stock Scanner has no continuity filter (the M/W/D badges, the green row border and the score still show it; see [Backtest](#backtest) for why).
 
 **Hammer**: lower wick ≥ 2× body, small upper wick (≤ the body or ≤ 10% of the range), and a close in
@@ -195,7 +197,7 @@ shows the weight next to each label (`Vs QQQ (30%)  +23.8 / 30`) and the sub-wei
 | **Theme strength** | 25 | 25% | none | Stocks only. `25 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 25). Themes are ranked by their own leadership score. 0 for a stock in no theme. Raised from 10 so a #1-theme name can reach the top of the list. |
 | **Trend** | 10 | 10% | 10-day 5 pts · 20-day 5 pts; each = price above the average 3 + average rising 2 | Only the **10-day and 20-day** averages score. For each: +3 when the close is above it and +2 when it is rising (above its value 5 bars ago), so a name above a rising 10-day and a rising 20-day gets all 10. The 50-day average and the distance from the highs do not score; they only feed the breakdown rules below. |
 | **Range tightness** | 5 | 5% | last-10 vs 50-day range 60% · last-5 vs 20-day contraction 40% | Calm, contracting daily ranges score high and loose, expanding ones low. See below. |
-| **Continuity** | 10 | 10% | M 4 · W 4 · D 1 · all three +1 | Monthly / Weekly / Daily alignment: +4 when the monthly candle is green (price above its open), +4 for weekly, +1 for daily, and +1 more when all three are green. Weekly and monthly use the last completed candle; daily uses the latest session. Shown as `Continuity (10%)  +8 / 10` with the green timeframes in the detail (`M +4 · W +4 (D not green)`). The weekly setup, distance to trigger and Monthly 2U are not scored (they were 4 + 2.5 + 1.5 of these 10 points before); they still drive the Setup column, the Setups filters and the reasons. The M/W/D badges on the rows are unchanged. |
+| **Continuity** | 10 | 10% | M 4 · W 4 · D 1 · all three +1 | Monthly / Weekly / Daily alignment: +4 when the monthly candle is green (price above its open), +4 for weekly, +1 for daily, and +1 more when all three are green. Each reads the bar in progress (current month / week / today's session, price vs its open). Shown as `Continuity (10%)  +8 / 10` with the green timeframes in the detail (`M +4 · W +4 (D not green)`). The weekly setup, distance to trigger and Monthly 2U are not scored (they were 4 + 2.5 + 1.5 of these 10 points before); they still drive the Setup column, the Setups filters and the reasons. The M/W/D badges on the rows are unchanged. |
 | **Liquidity** | 5 | 5% | none | `5 × log10(ADV / $50M) / log10(100)`: 0 at a $50M average daily dollar volume (20 days), 5 at $5B or more. Not used for themes. |
 | **Kill candle** | penalty | 0 (multiplier) | up to −25%, fading to 0 over 10 sessions | A multiplier on the whole score, shown in the tooltip as `Kill candle (2026-10-05)` with the points removed. See below. |
 | **Total** | **100** | **100%** | | Leadership 80% (RS 15 + Vs QQQ 30 + Theme 25 + Trend 10), range tightness 5%, liquidity 5% and Continuity 10% (M 4 + W 4 + D 1 + all three 1). |
@@ -443,8 +445,8 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     `localStorage`.
   - Columns include **Theme** (click it to filter by that theme), **1M / 3M / 6M** price returns (sortable, green/red),
     **Avg vol** (shares) and **Avg $vol**. The Watchlist and Positions tables have the same columns.
-  - M/W/D badges show the Strat number (text colour, yellow outline for `1`, purple for `3`) on a green/red fill for
-    continuity; `H` marks a hammer.
+  - M/W/D badges show the Strat number of the last completed bar (text colour, yellow outline for `1`, purple for `3`)
+    on a green/red fill for continuity of the bar in progress (hover shows its open); `H` marks a hammer.
 - **Detail** (`/stock/SYMBOL`): interactive candlestick chart ([TradingView lightweight-charts](https://github.com/tradingview/lightweight-charts))
   with a Monthly/Weekly/Daily toggle and the dashed weekly trigger line.
   - The chart has only two markers: a blue **H** arrow under hammers and a yellow **I** arrow under inside bars (Strat 1).

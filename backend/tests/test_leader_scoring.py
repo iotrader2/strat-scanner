@@ -430,3 +430,44 @@ class TestContinuityScore:
             cont = next(c for c in _score(NO_SETUP, LEADER_PERF, kind=kind).breakdown if c.key == "continuity")
             assert cont.max_points == 10
             assert cont.weight_pct == pytest.approx(round(10 / max_raw * 100, 1))
+
+
+def _live(states, **colors):
+    from dataclasses import replace
+
+    return {tf: replace(s, live_color=colors.get(tf), live_open=100.0 if colors.get(tf) else None) for tf, s in states.items()}
+
+
+class TestContinuityReadsTheBarsInProgress:
+    """TEAM, Oct 22 2026: September, the last completed week and today are red, but the week and month in progress are green."""
+
+    def test_completed_red_but_month_and_week_in_progress_green_is_8_of_10(self):
+        sc = _score(_live(RED, M="green", W="green", D="red"), LEADER_PERF)
+        cont = next(c for c in sc.breakdown if c.key == "continuity")
+        assert cont.points == 8
+        assert sc.mw_green is True
+        assert sc.full_continuity is False
+        assert "M+W green" in sc.reasons
+        assert "No green continuity" not in sc.reasons
+
+    def test_all_in_progress_green_is_full_continuity(self):
+        sc = _score(_live(RED, M="green", W="green", D="green"), LEADER_PERF)
+        assert next(c for c in sc.breakdown if c.key == "continuity").points == 10
+        assert sc.full_continuity is True
+
+    def test_in_progress_red_beats_a_green_completed_bar(self):
+        sc = _score(_live(NO_SETUP, M="red", W="red", D="red"), LEADER_PERF)
+        assert next(c for c in sc.breakdown if c.key == "continuity").points == 0
+        assert sc.mw_green is False
+
+    def test_without_live_colors_it_falls_back_to_the_completed_bar(self):
+        assert next(c for c in _score(RED, LEADER_PERF).breakdown if c.key == "continuity").points == 0
+        assert next(c for c in _score(NO_SETUP, LEADER_PERF).breakdown if c.key == "continuity").points == 10
+
+    def test_setups_and_monthly_2u_stay_on_completed_bars(self):
+        live = _score(_live(INSIDE_SETUP, M="red", W="red", D="red"), LEADER_PERF)
+        done = _score(INSIDE_SETUP, LEADER_PERF)
+        assert live.monthly_2u == done.monthly_2u
+        assert [(s.tf, s.setup.kind, s.setup.trigger) for s in live.setups] == [
+            (s.tf, s.setup.kind, s.setup.trigger) for s in done.setups
+        ]

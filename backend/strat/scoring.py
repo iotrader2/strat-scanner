@@ -13,7 +13,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Mapping, Optional
 
-from .candles import TWO_UP, TimeframeState
+from .candles import TWO_UP, TimeframeState, continuity_color
 from .leadership import (
     BROKEN,
     FULL_EXCESS_PCT,
@@ -199,7 +199,7 @@ def score_symbol(
 
     dist = trigger_distance_pct(price, primary.setup.trigger) if primary else None
 
-    colors = {tf: (s.color if s else None) for tf, s in states.items()}
+    colors = {tf: continuity_color(s) for tf, s in states.items()}  # bars in progress (live)
     green = [tf for tf in ("M", "W", "D") if colors.get(tf) == "green"]
     full = len(green) == 3
     mw_green = "M" in green and "W" in green

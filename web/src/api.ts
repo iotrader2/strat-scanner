@@ -31,6 +31,9 @@ export interface TfState {
   close: number;
   inside: boolean;
   hammer: boolean;
+  /** Continuity of the bar in progress (current month / week / today): price vs its open. Absent on 3M / 6M. */
+  live_color?: "green" | "red" | "flat" | null;
+  live_open?: number | null;
 }
 
 export type LeaderStatus = "leader" | "broken" | "laggard";

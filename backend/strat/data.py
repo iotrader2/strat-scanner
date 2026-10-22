@@ -693,8 +693,8 @@ def resample(
     it is never folded into the week that already ended. Months, quarters, and
     half-years are left-labeled period starts (``MS``, ``QS``, ``6MS``).
 
-    By default the in-progress bin is dropped. Strat setup, trigger, continuity,
-    and the higher-timeframe chips all read this series, so they stay on the
+    By default the in-progress bin is dropped. Strat setup, trigger and the
+    higher-timeframe chips all read this series (continuity reads the bin in progress), so they stay on the
     last completed week or month: after the close on Friday (or Thursday when
     Friday is a holiday), and not on Monday's high. ``completed_only=False``
     keeps the forming bin for callers that scale a partial week on purpose.
