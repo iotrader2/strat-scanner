@@ -6,7 +6,7 @@ import { MarketScoreBanner } from "./MarketScoreBanner";
 describe("MarketScoreBanner", () => {
   it("shows only the message, with no score label or per-index breakdown", () => {
     const html = renderToStaticMarkup(<MarketScoreBanner trend={{ score: 1 }} />);
-    expect(html).toContain("Barely a pulse");
+    expect(html).toContain("💀 Barely a pulse. Cash is a position, and today it&#x27;s the best one.");
     expect(html).not.toMatch(/Market score|\/9|\/3|QQQ|SPY|IWM/);
   });
 

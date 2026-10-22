@@ -104,7 +104,7 @@ export function universeLabel(names: number): string {
 /** Banner copy for the market score (0–9), from worst to best. */
 export const MARKET_SCORE_MESSAGES: readonly string[] = [
   "🚨 Market is screwed. DO NOT TRADE. Close the laptop and go touch grass.",
-  "⚰️ Barely a pulse. Cash is a position, and today it's the best one.",
+  "💀 Barely a pulse. Cash is a position, and today it's the best one.",
   "🤡 Clown market. Every breakout is a trap with a bow on it.",
   "🫠 Choppy slop. The market is a blender and your account is the smoothie.",
   "🤷 Coin flip market. Half size, A+ setups only, no revenge trades.",
