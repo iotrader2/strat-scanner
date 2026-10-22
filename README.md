@@ -385,10 +385,12 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     Weekly green continuity.
   - Each card also shows the 1M / 3M / 6M price return, green or red.
   - A Monthly / Weekly / Daily toggle (saved separately from the Themes one) switches the charts.
-  - A **Market score N/6** banner sits at the top: two points per index, +1 when the price is above its 6-day simple
-    average and +1 when the 6-day is above the 20-day (simple, like the chart averages). The price is the one the card
-    shows, so a premarket or after-hours quote counts while it is active. The banner goes red (0/6, "Market is screwed. DO
-    NOT TRADE") to green (6/6, "GAME ON"), with a funny line per level and a per-index breakdown (`QQQ 2/2 · SPY 1/2 · IWM 0/2`).
+  - A one-line market banner sits at the top. A hidden 0–9 score picks its message and color: for each of QQQ, SPY and
+    IWM, +1 for each of its 6, 20 and 50 day simple averages (like the chart averages) the price is strictly above, so
+    each index counts its green 6/20/50 chips. The price is the one the card shows, so a premarket or after-hours quote
+    counts while it is active. The banner goes red (0, "Market is screwed. DO NOT TRADE") to green (9, "GAME ON"), with a
+    funny line per level. No number or breakdown is printed: the red / green chips on the trend banner below show which
+    averages each index is above. 0 and 9 agree with the trend banner's DO NOT TRADE / GAME ON.
   - The trend banner below it calls **GAME ON / CAUTION / DO NOT TRADE** from each index versus its 6, 20 and 50 day
     simple averages (all above / mixed / all below), with the same card price.
   - A summary line counts how many of the three have Monthly + Weekly green continuity (and full M+W+D), with each

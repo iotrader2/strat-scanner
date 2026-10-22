@@ -11,8 +11,7 @@ import pandas as pd
 
 SYMBOLS = ("QQQ", "SPY", "IWM")
 PERIODS = (6, 20, 50)
-SHORT, MID = 6, 20
-SCORE_MAX = 2 * len(SYMBOLS)
+SCORE_MAX = len(PERIODS) * len(SYMBOLS)
 
 
 def _sma(closes: list[float], period: int) -> Optional[float]:
@@ -21,11 +20,9 @@ def _sma(closes: list[float], period: int) -> Optional[float]:
     return sum(closes[-period:]) / period
 
 
-def index_points(price: float, short: float, mid: float) -> dict:
-    """Market-score points for one index: +1 when price is above the 6-day average, +1 when the 6-day is above the 20-day."""
-    above_short = price > short
-    short_over_mid = short > mid
-    return {"above_short": above_short, "short_over_mid": short_over_mid, "points": int(above_short) + int(short_over_mid)}
+def index_points(price: float, averages: list[float]) -> int:
+    """Market-score points for one index: +1 for each average the price is strictly above (0-3 for 6/20/50)."""
+    return sum(1 for value in averages if price > value)
 
 
 def index_trend(daily_by_symbol: dict[str, pd.DataFrame], prices: Optional[Mapping[str, float]] = None) -> Optional[dict]:
@@ -35,7 +32,7 @@ def index_trend(daily_by_symbol: dict[str, pd.DataFrame], prices: Optional[Mappi
     after-hours quote), so the call, the chips and the score agree with the cards. The averages always
     use the regular-session daily closes.
 
-    ``score`` is out of ``SCORE_MAX`` (6): two points per index, see ``index_points``.
+    ``score`` is out of ``SCORE_MAX`` (9): one point per index per average it is above, matching the 6/20/50 chips.
 
     Returns None when any index is missing the 50 days needed for the longest average.
     """
@@ -53,8 +50,8 @@ def index_trend(daily_by_symbol: dict[str, pd.DataFrame], prices: Optional[Mappi
             if value is None:
                 return None
             averages.append({"period": period, "value": value, "above": price > value})
-        by_period = {a["period"]: a["value"] for a in averages}
-        indexes.append({"symbol": symbol, "price": price, "averages": averages, **index_points(price, by_period[SHORT], by_period[MID])})
+        points = index_points(price, [a["value"] for a in averages])
+        indexes.append({"symbol": symbol, "price": price, "averages": averages, "points": points, "max_points": len(PERIODS)})
 
     if all(all(a["above"] for a in index["averages"]) for index in indexes):
         call = "on"

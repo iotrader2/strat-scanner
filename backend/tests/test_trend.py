@@ -45,37 +45,42 @@ def test_missing_history_hides_the_call():
     assert index_trend({"QQQ": _daily(_flat(10)), "SPY": _daily(_flat(10))}) is None
 
 
-def test_index_points_are_price_over_6_and_6_over_20():
-    assert index_points(11, 10, 9) == {"above_short": True, "short_over_mid": True, "points": 2}
-    assert index_points(9, 10, 9) == {"above_short": False, "short_over_mid": True, "points": 1}
-    assert index_points(11, 10, 12) == {"above_short": True, "short_over_mid": False, "points": 1}
-    assert index_points(9, 10, 12)["points"] == 0
+
+def test_index_points_count_averages_strictly_below_the_price():
+    assert index_points(11, [10, 9, 8]) == 3
+    assert index_points(9.5, [10, 9, 8]) == 2
+    assert index_points(8.5, [10, 9, 8]) == 1
+    assert index_points(7, [10, 9, 8]) == 0
     # Sitting exactly on an average does not score.
-    assert index_points(10, 10, 10)["points"] == 0
+    assert index_points(10, [10, 10, 10]) == 0
 
 
-def test_score_is_six_when_everything_is_rising_and_zero_when_falling():
+def test_score_is_nine_when_everything_is_rising_and_zero_when_falling():
     up = index_trend({s: _daily(list(range(1, 61))) for s in ("QQQ", "SPY", "IWM")})
     down = index_trend({s: _daily(list(range(60, 0, -1))) for s in ("QQQ", "SPY", "IWM")})
-    assert SCORE_MAX == 6
-    assert (up["score"], up["score_max"]) == (6, 6)
-    assert [i["points"] for i in up["indexes"]] == [2, 2, 2]
+    assert SCORE_MAX == 9
+    assert (up["score"], up["score_max"]) == (9, 9)
+    assert [(i["points"], i["max_points"]) for i in up["indexes"]] == [(3, 3)] * 3
     assert down["score"] == 0
+    assert (up["call"], down["call"]) == ("on", "off")
 
 
-def test_score_adds_up_per_index():
+def test_score_matches_the_chips():
     history = {"QQQ": _daily(list(range(1, 61))), "SPY": _daily(list(range(60, 0, -1))), "IWM": _daily(_flat(10))}
     trend = index_trend(history)
-    assert [i["points"] for i in trend["indexes"]] == [2, 0, 0]
-    assert trend["score"] == 2
+    for index in trend["indexes"]:
+        assert index["points"] == sum(a["above"] for a in index["averages"])
+    assert [i["points"] for i in trend["indexes"]] == [3, 0, 0]
+    assert trend["score"] == 3
 
 
 def test_card_price_overrides_the_last_close():
-    rising = list(range(1, 61))  # 6-day SMA 57.5, 20-day 50.5
+    rising = list(range(1, 61))  # 6-day SMA 57.5, 20-day 50.5, 50-day 35.5
     history = {s: _daily(rising) for s in ("QQQ", "SPY", "IWM")}
     trend = index_trend(history, {"QQQ": 50.0})
     qqq = trend["indexes"][0]
     assert qqq["price"] == 50.0
-    assert (qqq["above_short"], qqq["short_over_mid"], qqq["points"]) == (False, True, 1)
-    assert trend["score"] == 5
+    assert [a["above"] for a in qqq["averages"]] == [False, False, True]
+    assert qqq["points"] == 1
+    assert trend["score"] == 7
     assert trend["call"] == "caution"

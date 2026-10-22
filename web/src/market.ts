@@ -101,35 +101,46 @@ export function universeLabel(names: number): string {
   return `Universe, ${n.toLocaleString("en-US")} ${n === 1 ? "name" : "names"}`;
 }
 
-/** Banner copy for the market score (0–6), from worst to best. */
+/** Banner copy for the market score (0–9), from worst to best. */
 export const MARKET_SCORE_MESSAGES: readonly string[] = [
   "🚨 Market is screwed. DO NOT TRADE. Close the laptop and go touch grass.",
-  "🤡 One leg on the bike. Cash is a position, and today it's the best one.",
+  "⚰️ Barely a pulse. Cash is a position, and today it's the best one.",
+  "🤡 Clown market. Every breakout is a trap with a bow on it.",
   "🫠 Choppy slop. The market is a blender and your account is the smoothie.",
   "🤷 Coin flip market. Half size, A+ setups only, no revenge trades.",
   "👀 Getting interesting. Leaders are stretching, start loading the watchlist.",
-  "🚀 Almost there. Green light for the best setups, don't chase.",
+  "🌤️ Sun's peeking out. Starter positions on the best setups.",
+  "🚀 Almost there. Green light for A+ setups, don't chase.",
+  "💪 One straggler left. Press the leaders, keep your stops tight.",
   "🔥 GAME ON. All engines firing. Size up on A+ setups and trust your stops.",
 ];
+
+export const MARKET_SCORE_MAX = MARKET_SCORE_MESSAGES.length - 1;
 
 export interface MarketScoreRead {
   score: number;
   max: number;
   message: string;
-  /** Red (0) to green (max), as an HSL hue. */
+  /** Red (0) to green (9), as an HSL hue. */
   hue: number;
 }
 
-/** Message and color for a market score. Out-of-range or fractional scores are clamped and rounded. */
-export function marketScoreRead(score: number, max = MARKET_SCORE_MESSAGES.length - 1): MarketScoreRead {
-  const top = MARKET_SCORE_MESSAGES.length - 1;
-  const safeMax = max > 0 ? max : top;
-  const clamped = Math.min(safeMax, Math.max(0, Math.round(Number.isFinite(score) ? score : 0)));
-  const level = Math.round((clamped / safeMax) * top);
-  return { score: clamped, max: safeMax, message: MARKET_SCORE_MESSAGES[level], hue: Math.round((level / top) * 120) };
+/** Message and color for a 0–9 market score. Out-of-range, fractional or missing scores are clamped and rounded. */
+export function marketScoreRead(score: number): MarketScoreRead {
+  const top = MARKET_SCORE_MAX;
+  const level = Math.min(top, Math.max(0, Math.round(Number.isFinite(score) ? score : 0)));
+  return { score: level, max: top, message: MARKET_SCORE_MESSAGES[level], hue: Math.round((level / top) * 120) };
 }
 
-/** "QQQ 2/2 · SPY 1/2 · IWM 0/2" */
-export function marketScoreBreakdown(indexes: { symbol: string; points: number }[]): string {
-  return indexes.map((i) => `${i.symbol} ${i.points}/2`).join(" · ");
+export interface MaChip {
+  className: "above" | "below";
+  title: string;
+}
+
+/** A 6/20/50 chip on the trend banner: green when the price is above the average, red otherwise (on it counts as below). */
+export function maChip(avg: { period: number; value: number; above: boolean }): MaChip {
+  return {
+    className: avg.above ? "above" : "below",
+    title: `Price ${avg.above ? "above" : "below"} the ${avg.period}-day simple average (${avg.value.toFixed(2)})`,
+  };
 }
