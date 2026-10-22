@@ -5,11 +5,10 @@ import { CARD_BARS, TfToggle } from "../components/EtfCard";
 import { MA_WARMUP } from "../movingAverage";
 import { LoadingIndicator, SkeletonCards } from "../components/Loading";
 import { ThemeCard } from "../components/ThemeCard";
-import { filterThemes, sortThemes, THEME_SORTS, type ThemeSort } from "../themeCards";
+import { RANK_N, sortThemes, THEME_SORTS, themeTiles, type RankDir, type ThemeSort } from "../themeCards";
 
 const PAGE = 24;
-const LEADERS = 12;
-type RankDir = "top" | "bottom";
+const LEADERS = RANK_N;
 
 export default function Themes({ version }: { version: string | null }) {
   const [storedTf, setTf] = usePersisted<Tf>("themesTf", "W");
@@ -41,13 +40,16 @@ export default function Themes({ version }: { version: string | null }) {
 
   const ranked = useMemo(() => sortThemes(themes, "score"), [themes]);
   const byScore = useMemo(() => (rankDir === "bottom" ? [...ranked].reverse() : ranked), [ranked, rankDir]);
-  const visible = useMemo(() => {
-    const sorted = sortThemes(filterThemes(themes, query), sort);
-    return sort === "score" && rankDir === "bottom" ? [...sorted].reverse() : sorted;
-  }, [themes, query, sort, rankDir]);
+  // Top 12 / Bottom 12 show exactly 12 tiles by the current sort; "show all" (allLeaders), a jump or a search lists more.
+  const [jumped, setJumped] = useState(false);
+  const grid = useMemo(
+    () => themeTiles(themes, { sort, dir: rankDir, query, expanded: allLeaders || jumped, shown }),
+    [themes, sort, rankDir, query, allLeaders, jumped, shown],
+  );
   const jumpTo = (e: MouseEvent<HTMLAnchorElement>, id: string) => {
     e.preventDefault();
     setQuery("");
+    setJumped(true);
     setShown(themes.length);
     window.setTimeout(() => document.getElementById(`theme-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
   };
@@ -56,6 +58,7 @@ export default function Themes({ version }: { version: string | null }) {
     setRankDir("bottom");
     setSort("score");
     setAllLeaders(false);
+    setJumped(false);
     setShown(PAGE);
   };
 
@@ -71,7 +74,7 @@ export default function Themes({ version }: { version: string | null }) {
 
       <div className="card leaderboard">
         <div className="seg" role="group" aria-label="Score rank">
-          <button type="button" className={rankDir === "top" ? "active" : ""} onClick={() => { setRankDir("top"); setAllLeaders(false); }}>
+          <button type="button" className={rankDir === "top" ? "active" : ""} onClick={() => { setRankDir("top"); setAllLeaders(false); setJumped(false); setShown(PAGE); }}>
             Top 12
           </button>
           <button type="button" className={rankDir === "bottom" ? "active" : ""} onClick={showBottom}>
@@ -86,7 +89,7 @@ export default function Themes({ version }: { version: string | null }) {
           </a>
         ))}
         {ranked.length > LEADERS && (
-          <button type="button" className="chip" onClick={() => setAllLeaders((v) => !v)}>
+          <button type="button" className="chip" onClick={() => { setAllLeaders((v) => !v); setJumped(false); setShown(themes.length); }}>
             {allLeaders ? (rankDir === "bottom" ? "show bottom 12" : "show top 12") : `show all ${ranked.length}`}
           </button>
         )}
@@ -117,27 +120,27 @@ export default function Themes({ version }: { version: string | null }) {
           </div>
         </div>
         <span className="muted small theme-count">
-          {query ? `${visible.length} of ${themes.length} themes` : `${themes.length} themes`}
+          {query ? `${grid.matches} of ${themes.length} themes` : `${themes.length} themes`}
         </span>
       </div>
 
       {error && <div className="banner error">{error}</div>}
       {loading && themes.length === 0 && <SkeletonCards count={9} chartHeight={240} label="Building theme indexes…" />}
       <div className="sector-grid theme-grid">
-        {visible.slice(0, shown).map((t) => (
+        {grid.tiles.map((t) => (
           <div key={t.id} id={`theme-${t.id}`}>
             <ThemeCard theme={t} />
           </div>
         ))}
       </div>
-      {visible.length > shown && (
+      {grid.more > 0 && (
         <div className="show-more">
           <button className="btn" onClick={() => setShown((n) => n + PAGE)}>
-            Show {Math.min(PAGE, visible.length - shown)} more themes ({visible.length - shown} left)
+            Show {Math.min(PAGE, grid.more)} more themes ({grid.more} left)
           </button>
         </div>
       )}
-      {!loading && themes.length > 0 && visible.length === 0 && (
+      {!loading && themes.length > 0 && grid.matches === 0 && (
         <div className="card empty-state">No theme or member matches “{query}”.</div>
       )}
     </div>

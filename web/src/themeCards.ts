@@ -35,3 +35,33 @@ export function filterThemes(themes: ThemeCard[], query: string): ThemeCard[] {
       t.also.some((m) => m.symbol.toLowerCase() === q),
   );
 }
+
+export type RankDir = "top" | "bottom";
+
+/** How many theme tiles "Top 12" / "Bottom 12" show. */
+export const RANK_N = 12;
+
+/** Weakest first by the same key (unknown returns still last); ties keep sortThemes' name order. */
+export function sortThemesWeakest(themes: ThemeCard[], key: ThemeSort): ThemeCard[] {
+  const sorted = sortThemes(themes, key);
+  const known = (t: ThemeCard) => (key === "score" ? true : (t.row.perf?.[key.slice(5) as PerfPeriod] ?? null) !== null);
+  return [...sorted.filter(known).reverse(), ...sorted.filter((t) => !known(t))];
+}
+
+/**
+ * The theme tiles the grid renders. "Top 12" / "Bottom 12" show exactly RANK_N tiles: the strongest or weakest by the
+ * current sort. `expanded` (the "show all" chip, or jumping to a theme) and a search query list every match instead,
+ * `shown` at a time, with `more` saying how many are left for "Show more".
+ */
+export function themeTiles(
+  themes: ThemeCard[],
+  opts: { sort: ThemeSort; dir: RankDir; query: string; expanded: boolean; shown: number; n?: number },
+): { tiles: ThemeCard[]; matches: number; more: number } {
+  const matches = filterThemes(themes, opts.query);
+  const ordered = opts.dir === "bottom" ? sortThemesWeakest(matches, opts.sort) : sortThemes(matches, opts.sort);
+  if (!opts.expanded && !opts.query.trim()) {
+    return { tiles: ordered.slice(0, opts.n ?? RANK_N), matches: ordered.length, more: 0 };
+  }
+  const tiles = ordered.slice(0, opts.shown);
+  return { tiles, matches: ordered.length, more: ordered.length - tiles.length };
+}
