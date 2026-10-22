@@ -168,14 +168,3 @@ export const RAGNAR_MOODS: readonly RagnarMood[] = [
 export function ragnarFor(score: number): RagnarMood {
   return RAGNAR_MOODS[marketScoreRead(score).score];
 }
-
-/**
- * Color of the funny score line, from the indexes' day moves: red when more of QQQ / SPY / IWM are down than up (flat
- * counts as neither), green when more are up; a tie goes by the sum of the moves (red only if it is negative).
- */
-export function moodTone(changes: number[]): "red" | "green" {
-  const down = changes.filter((c) => c < 0).length;
-  const up = changes.filter((c) => c > 0).length;
-  if (down !== up) return down > up ? "red" : "green";
-  return changes.reduce((a, c) => a + c, 0) < 0 ? "red" : "green";
-}

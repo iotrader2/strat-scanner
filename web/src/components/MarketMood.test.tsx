@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Trend } from "../api";
-import { MARKET_SCORE_MESSAGES, RAGNAR_MOODS, moodTone, ragnarFor } from "../market";
+import { MARKET_SCORE_MESSAGES, RAGNAR_MOODS, ragnarFor } from "../market";
 import { MarketMood } from "./MarketMood";
 
 const avg = (period: number, above: boolean) => ({ period, value: 100, above });
@@ -69,21 +71,22 @@ describe("MarketMood", () => {
   });
 });
 
-describe("moodTone", () => {
-  it("is red when most indexes are down on the day, green otherwise, sum as tie-break", () => {
-    expect(moodTone([-2.82, -1.35, -0.26])).toBe("red");
-    expect(moodTone([-0.5, -0.1, 1.2])).toBe("red");
-    expect(moodTone([0.5, 0.1, -1.2])).toBe("green");
-    expect(moodTone([-1, 0, 0.4])).toBe("red");
-    expect(moodTone([1, 0, -0.4])).toBe("green");
-    expect(moodTone([0, 0, 0])).toBe("green");
-    expect(moodTone([])).toBe("green");
+describe("score message color", () => {
+  it("has no day-direction color class; it takes the trend call's color from the card", () => {
+    for (const call of ["on", "caution", "off"] as const) {
+      const html = renderToStaticMarkup(<MarketMood trend={trend(call, 4)} days={days} />);
+      expect(html).toContain(`market-mood ${call}`);
+      expect(html).toContain('class="market-score-msg"');
+      expect(html).not.toMatch(/market-score-msg (red|green)-text/);
+    }
   });
 
-  it("colors the message with the same classes as the index moves", () => {
-    const down = renderToStaticMarkup(<MarketMood trend={trend("caution", 1)} days={days} />);
-    expect(down).toContain('class="market-score-msg red-text"');
-    const up = days.map((d) => ({ ...d, change_pct: Math.abs(d.change_pct) }));
-    expect(renderToStaticMarkup(<MarketMood trend={trend("caution", 1)} days={up} />)).toContain('class="market-score-msg green-text"');
+  it("uses the same color as the trend label for each call (styles.css)", () => {
+    const css = readFileSync(resolve(__dirname, "../styles.css"), "utf8");
+    const colors: Record<string, string> = { on: "var(--green)", off: "var(--red)", caution: "var(--yellow)" };
+    for (const [call, color] of Object.entries(colors)) {
+      const rule = new RegExp(`\\.trend-banner\\.${call} \\.trend-label, \\.trend-banner\\.${call} \\.market-score-msg \\{ color: ${color.replace(/[()]/g, "\\$&")}; \\}`);
+      expect(css).toMatch(rule);
+    }
   });
 });

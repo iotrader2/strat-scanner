@@ -51,6 +51,17 @@ nav { display: flex; gap: 4px; }
 nav a { padding: 7px 14px; border-radius: 999px; color: var(--muted); font-weight: 500; }
 nav a:hover { color: var(--text); }
 nav a.active { color: var(--text); background: var(--card-2); border: 1px solid var(--border-2); }
+/* Tabs never wrap inside their pill. On narrow screens (iPad portrait) the labels used to break into 2–3 lines, which
+   turned the 999px-radius active outline into a tall oval with extra space. Below 1100px the tabs get their own row
+   (scrolling sideways if they still don't fit) and the brand and status share the row above. */
+nav a { white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+nav a:focus { outline: none; }
+nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 1100px) {
+  .topbar { flex-wrap: wrap; row-gap: 10px; padding: 10px 20px; }
+  .topbar nav { order: 3; flex: 1 0 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .topbar nav::-webkit-scrollbar { display: none; }
+}
 .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .live-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
@@ -263,9 +274,9 @@ th.num { text-align: right; }
 .trend-ragnar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none; border: 2px solid rgba(244, 63, 94, 0.7); }
 .trend-banner.on .trend-ragnar { border-color: rgba(34, 197, 94, 0.8); }
 .trend-label { font-size: 26px; font-weight: 800; letter-spacing: 0.06em; line-height: 1; }
-.trend-banner.on .trend-label { color: var(--green); }
-.trend-banner.off .trend-label { color: var(--red); }
-.trend-banner.caution .trend-label { color: var(--yellow); }
+.trend-banner.on .trend-label, .trend-banner.on .market-score-msg { color: var(--green); }
+.trend-banner.off .trend-label, .trend-banner.off .market-score-msg { color: var(--red); }
+.trend-banner.caution .trend-label, .trend-banner.caution .market-score-msg { color: var(--yellow); }
 .trend-detail { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
 .trend-indexes { display: flex; flex-wrap: wrap; gap: 22px; }
 .trend-index { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
@@ -587,7 +598,10 @@ th.num { text-align: right; }
 .member-day { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .member-more { background: none; border: 1px dashed var(--border-2); color: var(--accent); border-radius: 999px; font-size: 11.5px; padding: 2px 9px; cursor: pointer; }
 .member-note { margin-top: -2px; }
-.theme-tools { align-items: flex-end; }
+/* Themes toolbar: one row (search, sort, count). .filters went to a column for the Scanner sliders, so set the row back here. */
+.theme-tools { flex-direction: row; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 14px; }
+.theme-tools .field { flex-direction: row; align-items: center; gap: 8px; }
+.theme-tools .input.search { flex: 0 1 280px; min-width: 200px; }
 .theme-tools .theme-count { margin-left: auto; align-self: center; }
 .theme-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
 .theme-grid > div { display: flex; }
