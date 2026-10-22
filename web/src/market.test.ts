@@ -96,7 +96,7 @@ describe("marketScoreRead", () => {
     expect(reads.map((r) => r.message)).toEqual(MARKET_SCORE_MESSAGES);
     expect(reads.map((r) => `${r.score}/${r.max}`)).toEqual(["0/9", "1/9", "2/9", "3/9", "4/9", "5/9", "6/9", "7/9", "8/9", "9/9"]);
     expect(reads[0].message).toBe("🚨 Market is screwed. DO NOT TRADE. Close the laptop and go touch grass.");
-    expect(reads[1].message).toBe("⚰️ Barely a pulse. Cash is a position, and today it's the best one.");
+    expect(reads[1].message).toBe("💀 Barely a pulse. Cash is a position, and today it's the best one.");
     expect(reads[2].message).toBe("🤡 Clown market. Every breakout is a trap with a bow on it.");
     expect(reads[6].message).toBe("🌤️ Sun's peeking out. Starter positions on the best setups.");
     expect(reads[8].message).toBe("💪 One straggler left. Press the leaders, keep your stops tight.");
