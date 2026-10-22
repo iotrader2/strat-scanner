@@ -28,7 +28,14 @@ export const SETUPS_FILTER_LABEL = "Setups";
 /** Widest Min RS the Leaders / Weekly setups views allow — hero chips use this, not the current slider. */
 const CHIP_RS = sliderToRs(MIN_RS_RANGE.min);
 import { RsSlider } from "../components/RsSlider";
-import { matchesSetup, type SetupFilter } from "../setupFilter";
+import {
+  CANDLE_PATTERNS,
+  CANDLE_PATTERN_LABELS,
+  isCandlePattern,
+  matchesCandlePattern,
+  migrateSetupFilter,
+  type CandlePattern,
+} from "../candlePattern";
 import { matchesTheme, themeName, themeOptions } from "../themes";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
@@ -94,8 +101,6 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
 type HeroChipKey =
   | "all"
   | "leaders"
-  | "setupsPending"
-  | "setupsTriggered"
   | "dailyBullish"
   | "dailyBearish"
   | "weeklyBullish"
@@ -103,18 +108,17 @@ type HeroChipKey =
   | "breakouts"
   | "failedBreakouts"
   | "broken";
-const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
+/** Summary tiles, in this order (the weekly Strat views have no tile; pick them from Setups). */
+export const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
   { key: "all", filter: "all", label: "all names", tone: "muted" },
   { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
-  { key: "setupsPending", filter: "setups_pending", label: "awaiting trigger", tone: "green" },
-  { key: "setupsTriggered", filter: "setups_triggered", label: "already triggered", tone: "green" },
-  { key: "dailyBullish", filter: "daily_bullish", label: "daily bullish", tone: "green" },
-  { key: "dailyBearish", filter: "daily_bearish", label: "daily bearish", tone: "red" },
+  { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
   { key: "weeklyBullish", filter: "weekly_bullish", label: "weekly bullish", tone: "green" },
   { key: "weeklyBearish", filter: "weekly_bearish", label: "weekly bearish", tone: "red" },
+  { key: "dailyBullish", filter: "daily_bullish", label: "daily bullish", tone: "green" },
+  { key: "dailyBearish", filter: "daily_bearish", label: "daily bearish", tone: "red" },
   { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
   { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
-  { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
 ];
 /** Columns of the Failed breakouts view: when it broke out, the level, how far price is below it and when it failed. */
 const FAILED_COLUMNS: ExtraColumn[] = [
@@ -160,13 +164,10 @@ const FAILED_COLUMNS: ExtraColumn[] = [
       ),
   },
 ];
-const SETUP_OPTIONS: DropdownOption<SetupFilter>[] = [
-  { value: "any", label: "Any" },
-  { value: "pending", label: "Awaiting trigger" },
-  { value: "triggered", label: "Already triggered" },
-  { value: "inside", label: "Inside week" },
-  { value: "hammer", label: "Weekly hammer" },
-];
+export const CANDLE_PATTERN_OPTIONS: DropdownOption<CandlePattern>[] = CANDLE_PATTERNS.map((value) => ({
+  value,
+  label: CANDLE_PATTERN_LABELS[value],
+}));
 const KIND_OPTIONS: DropdownOption<Kind>[] = [
   { value: "all", label: "Stocks + ETFs" },
   { value: "stock", label: "Stocks" },
@@ -189,7 +190,12 @@ export default function Scanner({ version }: { version: string | null }) {
   const [minRsSlider, setMinRs] = usePersisted<number | null>("minRs", null);
   const minRsPct = minRsSlider ?? savedLeadership.minRs ?? MIN_RS_RANGE.default;
   const minRs = sliderToRs(minRsPct);
-  const [setupFilter, setSetupFilter] = usePersisted<SetupFilter>("setup", "any");
+  // Saved under its own key; the old "Setup" filter's Inside week / Weekly hammer carry over once.
+  const [storedPattern, setCandlePattern] = usePersisted<CandlePattern>(
+    "candlePattern",
+    migrateSetupFilter(readPersisted<string | null>("setup", null)),
+  );
+  const candlePattern: CandlePattern = isCandlePattern(storedPattern) ? storedPattern : "any";
   const [kind, setKind] = usePersisted<Kind>("kind", "all");
   const [savedAtr, setAtrRange] = usePersisted<AtrRange>("atrPct", ATR_PCT_DEFAULT);
   const atrRange = useMemo(() => normalizeAtrRange(savedAtr), [savedAtr]);
@@ -230,10 +236,10 @@ export default function Scanner({ version }: { version: string | null }) {
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
       if (!passesAtr(r, atrRange)) return false;
-      return matchesSetup(r, setupFilter);
+      return matchesCandlePattern(r, candlePattern);
     });
     return out;
-  }, [liquid, query, theme, kind, setupFilter, leadership, minRs, atrRange]);
+  }, [liquid, query, theme, kind, candlePattern, leadership, minRs, atrRange]);
 
   /**
    * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
@@ -243,8 +249,6 @@ export default function Scanner({ version }: { version: string | null }) {
     () => ({
       all: rows.length,
       leaders: rows.filter((r) => matchesLeadership(r, "leaders", CHIP_RS)).length,
-      setupsPending: rows.filter((r) => matchesLeadership(r, "setups_pending", CHIP_RS)).length,
-      setupsTriggered: rows.filter((r) => matchesLeadership(r, "setups_triggered", CHIP_RS)).length,
       dailyBullish: rows.filter((r) => matchesLeadership(r, "daily_bullish")).length,
       dailyBearish: rows.filter((r) => matchesLeadership(r, "daily_bearish")).length,
       weeklyBullish: rows.filter((r) => matchesLeadership(r, "weekly_bullish")).length,
@@ -299,6 +303,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
       <section className="card filters">
         <div className="filter-row filter-dropdowns">
+          <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
           <SymbolSearch value={query} onChange={setQuery} />
           <Dropdown
             label="Theme"
@@ -314,8 +319,13 @@ export default function Scanner({ version }: { version: string | null }) {
             options={SETUPS_OPTIONS}
             onChange={setLeadership}
           />
-          <Dropdown label="Setup" header="Filter by weekly setup" value={setupFilter} options={SETUP_OPTIONS} onChange={setSetupFilter} />
-          <Dropdown label="Type" header="Filter by type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
+          <Dropdown
+            label="Candle Pattern"
+            header="Inside bar or hammer on the last completed weekly / daily bar"
+            value={candlePattern}
+            options={CANDLE_PATTERN_OPTIONS}
+            onChange={setCandlePattern}
+          />
         </div>
         <div className="filter-row filter-sliders">
           {leadershipUsesMinRs(leadership) && (

@@ -13,6 +13,13 @@ export interface Setup {
   live?: boolean;
 }
 
+export interface CandlePatternBar {
+  inside: boolean;
+  hammer: boolean;
+  /** Date of that bar (week start for weekly). */
+  date: string | null;
+}
+
 export interface TfState {
   tf: Tf;
   strat: Strat;
@@ -193,6 +200,8 @@ export interface ScanRow {
   trigger: number | null;
   trigger_tf: Tf | null;
   setup: string | null;
+  /** Inside bar / hammer on the last completed weekly and daily bar (the Candle Pattern filter). */
+  candle_patterns?: { W: CandlePatternBar | null; D: CandlePatternBar | null } | null;
   triggered: boolean | null;
   /** True when the in-progress week traded above the trigger (set from the last completed week). */
   triggered_live?: boolean | null;

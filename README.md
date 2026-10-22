@@ -247,12 +247,13 @@ halved again; this shows as a negative "Pinned penalty" line.
 1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
 `LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Setups**
 filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (only rows marked leader, `is_leader`: RS ≥ P90 and trend not broken, **and a score strictly above 70** (`LEADERS_MIN_SCORE`; 70.0 is out, 70.1 is in), highest score first; the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`, can raise the cut above P90 but never adds non-leaders), *Weekly strat awaiting
-trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips are
+trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips (in order: all names, leaders, broken leaders, weekly bullish, weekly bearish,
+daily bullish, daily bearish, recent breakouts, failed breakouts; the weekly strat views have no tile) are
 full-universe totals for those categories (not the current filters); click a chip or pick a Setups option to dig in. The Min RS slider
 applies to *Leaders* and both weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
 (default true; RS cut, trend not broken and score > 70) and `min_rs`. The score cut is a list filter only: the leader flag,
-the leader badge and the score stay RS + trend, since the score is itself built from leader status and the breakdown. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
+the leader badge and the score stay RS + trend, since the score is itself built from leader status and the breakdown. The Candle Pattern filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
 **RS chip** (the RS change such as `▼7`, with *weakening* / *broken* / *kill candle* flags and the NEW markers below; the RS percentile itself is in the tooltip, since it already drives the score).
 
 **What changed lately (RS change and NEW markers).** RS is a point-in-time reading, so the chip shows how it is changing (change detection:
@@ -419,11 +420,13 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     cards by Score, 1M, 3M or 6M. Cards load 24 at a time.
   - The Monthly / Weekly / Daily toggle and the sort are saved separately from the other tabs.
 - **Stock Scanner** (`/`): ranked, sortable and filterable table of market leaders, with their weekly setup (if any) as timing.
-  - Filters: **Symbol** search (ticker only, prefix match: `NV` finds NVDA; typed text is uppercased and limited to A-Z, 0-9, `.` and `-`; an exact ticker is listed first), **Setups** (*Leaders* by default, plus *Weekly strat awaiting trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists), weekly setup type and stocks/ETFs on the first row; the sliders on their own row below (Min RS, Min price, Min avg $ volume and **ATR %**, a two-handle range on the 14-day ATR as a percent of the last close, 0% to 12%+, defaulting to Any; the right end means no upper limit; saved like the other filters), using
+  - Filters: **Type** (Stocks + ETFs / Stocks / ETFs) first, then **Symbol** search (ticker only, prefix match: `NV` finds NVDA; typed text is uppercased and limited to A-Z, 0-9, `.` and `-`; an exact ticker is listed first), **Setups** (*Leaders* by default, plus *Weekly strat awaiting trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*; see [How scoring works](#how-scoring-works)), **theme** (matches a stock's primary or secondary themes; also **No theme** for ETFs and stocks no theme lists) and **Candle Pattern** on the first row; the sliders on their own row below (Min RS, Min price, Min avg $ volume and **ATR %**, a two-handle range on the 14-day ATR as a percent of the last close, 0% to 12%+, defaulting to Any; the right end means no upper limit; saved like the other filters), using
     a custom dropdown (arrow keys, Home/End, type-to-jump, Enter/Space to pick, Esc or an outside click to close).
-    The Setup filter has **Any**, **Awaiting trigger** (a trigger above price that has not traded yet), **Already
-    triggered** (only rows whose weekly setup carries the TRIGGERED chip: 2-1-2 / 3-1-2 bullish, 2D-2U reversal, 1-2-2
-    RevStrat and Hammer triggered), **Inside week** and **Weekly hammer**. The
+    The **Candle Pattern** filter (formerly *Setup*) has **Any**, **Weekly Hammer**, **Weekly Inside**, **Daily Hammer** and
+    **Daily Inside**: the hammer / inside-bar rules of the Strat state on the last **completed** weekly bar and the last
+    **completed** daily bar (today's session counts only after the 4:00 PM ET close; `candle_patterns` on the scan row). The
+    old *Awaiting trigger* / *Already triggered* choices are covered by the Setups options *Weekly strat awaiting trigger* /
+    *already triggered*; a saved *Inside week* or *Weekly hammer* carries over. The
     "To trigger" column is sortable by closeness to the weekly trigger.
   - The **RS chip** under each symbol shows the change in RS percentile vs 5 sessions ago (`▼7` red for drops, `▲12` green for
     rises; moves under 3 points are left off) and a `NEW` marker for a breakdown that just worsened or a leader that just crossed P90 (last 3
