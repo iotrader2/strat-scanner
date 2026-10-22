@@ -47,8 +47,8 @@ export const hasLeaderScore = (r: Pick<LeaderFields, "score">): boolean =>
   typeof r.score === "number" && r.score > LEADERS_MIN_SCORE;
 /** Leaders view: marked leader at the slider's RS cut and a score above 70. */
 const isListedLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && hasLeaderScore(r);
-/** Weekly Strat views: Leaders (including the score > 70 cut) with a weekly setup, so always a subset of Leaders. */
-const isSetupLeader = (r: LeaderFields, minRs: number) => isListedLeader(r, minRs) && !!r.has_setup;
+/** Weekly Strat views: marked leaders with a weekly setup. They do not apply the score > 70 cut. */
+const isSetupLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && !!r.has_setup;
 
 /** True when the Min RS slider applies to this Setups option (Leaders and both weekly Strat views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
