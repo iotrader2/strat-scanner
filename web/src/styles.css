@@ -139,6 +139,7 @@ th.num { text-align: right; }
 .sym { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .sub { font-size: 11.5px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .etf-chip { font-size: 9px; font-weight: 700; color: var(--purple); border: 1px solid rgba(167, 139, 250, 0.4); border-radius: 5px; padding: 1px 4px; }
+.etf-chip.index-chip { color: var(--accent); border-color: rgba(56, 189, 248, 0.45); }
 .sector-link { cursor: pointer; }
 .sector-link:hover { color: var(--accent); }
 .setup-cell { max-width: 290px; }

@@ -388,7 +388,10 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
   - A summary line counts how many of the three have Monthly + Weekly green continuity (and full M+W+D), with each
     index's score.
   - These are the only benchmark ETFs; DIA is no longer part of the universe. They are still scanned and appear in the
-    Stock Scanner (they have no theme), but they are not on the Themes page or in its ranking.
+    Stock Scanner (they have no theme), but they are not on the Themes page or in its ranking. With **Type: ETFs** they are
+    always listed, tagged **INDEX**, whatever the Setups option (they are rarely ETF leaders, so *Leaders* would hide them);
+    search, theme, setup, liquidity and ATR filters still apply. They are ordinary ETF rows otherwise: same score, and they
+    were always part of the ETF peer group for the RS percentiles (QQQ's own Vs QQQ excess is 0).
 - **Themes** (`/themes`): one card per theme (82 at the moment), strongest first.
   - Each card has a candlestick chart of the theme's equal-weight index with **H** hammer and **I** inside-bar markers
     and the weekly trigger line, its weekly setup and trigger, M/W/D Strat badges, the score (with the hover
