@@ -321,14 +321,20 @@ export interface TrendAverage {
 
 export interface TrendIndex {
   symbol: string;
+  /** The price the card shows (premarket / after-hours quote when active, else the last close). */
   price: number;
   averages: TrendAverage[];
+  /** Market-score points: how many of the 6/20/50 averages the price is above (0–3). */
+  points: number;
+  max_points: number;
 }
 
-/** QQQ, SPY and IWM versus their 10, 20 and 50 day averages. */
+/** QQQ, SPY and IWM versus their 6, 20 and 50 day simple averages, plus the market score out of 9. */
 export interface Trend {
   call: TrendCall;
   indexes: TrendIndex[];
+  score: number;
+  score_max: number;
 }
 
 /** QQQ, SPY or IWM card on State of the Market. */

@@ -16,6 +16,7 @@ import {
 import { rsChipView } from "../rsChange";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
 import { pinExactSymbol } from "../symbolSearch";
+import { isIndexEtf } from "../indexEtfs";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
 
@@ -231,7 +232,7 @@ export function ScanTable({
                 <div className="sym">
                   {r.symbol}
                   <EarningsIcon earnings={r.earnings} />
-                  {r.kind === "etf" && <span className="etf-chip">ETF</span>}
+                  {r.kind === "etf" && (isIndexEtf(r) ? <span className="etf-chip index-chip" title="Index ETF: always listed in the ETFs view">INDEX</span> : <span className="etf-chip">ETF</span>)}
                   <RsChip row={r} />
                   {r.in_universe === false && <AddedChip />}
                 </div>

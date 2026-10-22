@@ -1,12 +1,12 @@
 import { fmtPct, type IssueCounts, type Trend } from "../api";
-import { declinersPerAdvancer, trendLabel } from "../market";
+import { declinersPerAdvancer, maChip, trendLabel } from "../market";
 
 export interface DayChange {
   symbol: string;
   change_pct: number;
 }
 
-/** Bold 10/20/50-day call, with today's index moves at the same size so a bad session is obvious. */
+/** Bold 6/20/50-day call, with today's index moves at the same size so a bad session is obvious. */
 export function TrendBanner({ trend, days, issues }: { trend: Trend; days: DayChange[]; issues?: IssueCounts }) {
   const { label, detail } = trendLabel(trend.call);
   const bySymbol = new Map(days.map((d) => [d.symbol, d.change_pct]));
@@ -43,11 +43,14 @@ export function TrendBanner({ trend, days, issues }: { trend: Trend; days: DayCh
                 <span className={`trend-day ${down ? "red-text" : "green-text"}`}>{fmtPct(change, 2)}</span>
               )}
               <span className="trend-mas">
-                {index.averages.map((avg) => (
-                  <span key={avg.period} className={`trend-ma ${avg.above ? "above" : "below"}`} title={`${avg.period}-day average ${avg.value.toFixed(2)}`}>
-                    {avg.period}
-                  </span>
-                ))}
+                {index.averages.map((avg) => {
+                  const chip = maChip(avg);
+                  return (
+                    <span key={avg.period} className={`trend-ma ${chip.className}`} title={chip.title}>
+                      {avg.period}
+                    </span>
+                  );
+                })}
               </span>
             </div>
           );

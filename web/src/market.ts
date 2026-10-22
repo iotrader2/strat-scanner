@@ -36,15 +36,15 @@ export interface TrendLabel {
   detail: string;
 }
 
-/** Banner copy for the 10/20/50-day trend call. */
+/** Banner copy for the 6/20/50-day trend call. */
 export function trendLabel(call: TrendCall): TrendLabel {
   if (call === "on") {
-    return { label: "GAME ON!", detail: "QQQ, SPY and IWM are above their 10, 20 and 50 day averages." };
+    return { label: "GAME ON!", detail: "QQQ, SPY and IWM are above their 6, 20 and 50 day averages." };
   }
   if (call === "off") {
-    return { label: "DO NOT TRADE", detail: "QQQ, SPY and IWM are below their 10, 20 and 50 day averages." };
+    return { label: "DO NOT TRADE", detail: "QQQ, SPY and IWM are below their 6, 20 and 50 day averages." };
   }
-  return { label: "CAUTION", detail: "The indexes are split around their 10, 20 and 50 day averages." };
+  return { label: "CAUTION", detail: "The indexes are split around their 6, 20 and 50 day averages." };
 }
 
 export interface NasiRead {
@@ -99,4 +99,48 @@ export function declinersPerAdvancer(advancing: number, declining: number): numb
 export function universeLabel(names: number): string {
   const n = Math.max(0, Math.round(names));
   return `Universe, ${n.toLocaleString("en-US")} ${n === 1 ? "name" : "names"}`;
+}
+
+/** Banner copy for the market score (0–9), from worst to best. */
+export const MARKET_SCORE_MESSAGES: readonly string[] = [
+  "🚨 Market is screwed. DO NOT TRADE. Close the laptop and go touch grass.",
+  "⚰️ Barely a pulse. Cash is a position, and today it's the best one.",
+  "🤡 Clown market. Every breakout is a trap with a bow on it.",
+  "🫠 Choppy slop. The market is a blender and your account is the smoothie.",
+  "🤷 Coin flip market. Half size, A+ setups only, no revenge trades.",
+  "👀 Getting interesting. Leaders are stretching, start loading the watchlist.",
+  "🌤️ Sun's peeking out. Starter positions on the best setups.",
+  "🚀 Almost there. Green light for A+ setups, don't chase.",
+  "💪 One straggler left. Press the leaders, keep your stops tight.",
+  "🔥 GAME ON. All engines firing. Size up on A+ setups and trust your stops.",
+];
+
+export const MARKET_SCORE_MAX = MARKET_SCORE_MESSAGES.length - 1;
+
+export interface MarketScoreRead {
+  score: number;
+  max: number;
+  message: string;
+  /** Red (0) to green (9), as an HSL hue. */
+  hue: number;
+}
+
+/** Message and color for a 0–9 market score. Out-of-range, fractional or missing scores are clamped and rounded. */
+export function marketScoreRead(score: number): MarketScoreRead {
+  const top = MARKET_SCORE_MAX;
+  const level = Math.min(top, Math.max(0, Math.round(Number.isFinite(score) ? score : 0)));
+  return { score: level, max: top, message: MARKET_SCORE_MESSAGES[level], hue: Math.round((level / top) * 120) };
+}
+
+export interface MaChip {
+  className: "above" | "below";
+  title: string;
+}
+
+/** A 6/20/50 chip on the trend banner: green when the price is above the average, red otherwise (on it counts as below). */
+export function maChip(avg: { period: number; value: number; above: boolean }): MaChip {
+  return {
+    className: avg.above ? "above" : "below",
+    title: `Price ${avg.above ? "above" : "below"} the ${avg.period}-day simple average (${avg.value.toFixed(2)})`,
+  };
 }

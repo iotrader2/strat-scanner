@@ -678,8 +678,11 @@ def market(tf: str = Query("W", pattern="^(M|W|D|3M|6M)$"), bars: int = Query(60
     """State of the Market cards: QQQ, SPY and IWM, in that order."""
     _ensure_charts()
     by_symbol = {r["symbol"]: r for r in State.scan}
-    out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars, quotes.active_quotes())
-    return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily)}
+    active = quotes.active_quotes()
+    out = etf_cards(MARKET_ETFS, by_symbol, State.daily, tf, bars, active)
+    # The call and the market score use the same premarket / after-hours price the cards show.
+    prices = {sym: q.price for sym, q in active.items()}
+    return {"tf": tf, "as_of": State.scan_key, "etfs": out, "trend": index_trend(State.daily, prices)}
 
 
 # Last, so every /api route above wins over the UI catch-all. No-op without a built web/dist.

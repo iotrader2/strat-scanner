@@ -385,10 +385,21 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     Weekly green continuity.
   - Each card also shows the 1M / 3M / 6M price return, green or red.
   - A Monthly / Weekly / Daily toggle (saved separately from the Themes one) switches the charts.
+  - A one-line market banner sits at the top. A hidden 0–9 score picks its message and color: for each of QQQ, SPY and
+    IWM, +1 for each of its 6, 20 and 50 day simple averages (like the chart averages) the price is strictly above, so
+    each index counts its green 6/20/50 chips. The price is the one the card shows, so a premarket or after-hours quote
+    counts while it is active. The banner goes red (0, "Market is screwed. DO NOT TRADE") to green (9, "GAME ON"), with a
+    funny line per level. No number or breakdown is printed: the red / green chips on the trend banner below show which
+    averages each index is above. 0 and 9 agree with the trend banner's DO NOT TRADE / GAME ON.
+  - The trend banner below it calls **GAME ON / CAUTION / DO NOT TRADE** from each index versus its 6, 20 and 50 day
+    simple averages (all above / mixed / all below), with the same card price.
   - A summary line counts how many of the three have Monthly + Weekly green continuity (and full M+W+D), with each
     index's score.
   - These are the only benchmark ETFs; DIA is no longer part of the universe. They are still scanned and appear in the
-    Stock Scanner (they have no theme), but they are not on the Themes page or in its ranking.
+    Stock Scanner (they have no theme), but they are not on the Themes page or in its ranking. With **Type: ETFs** they are
+    always listed, tagged **INDEX**, whatever the Setups option (they are rarely ETF leaders, so *Leaders* would hide them);
+    search, theme, setup, liquidity and ATR filters still apply. They are ordinary ETF rows otherwise: same score, and they
+    were always part of the ETF peer group for the RS percentiles (QQQ's own Vs QQQ excess is 0).
 - **Themes** (`/themes`): one card per theme (82 at the moment), strongest first.
   - Each card has a candlestick chart of the theme's equal-weight index with **H** hammer and **I** inside-bar markers
     and the weekly trigger line, its weekly setup and trigger, M/W/D Strat badges, the score (with the hover

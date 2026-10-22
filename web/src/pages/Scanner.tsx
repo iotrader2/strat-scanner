@@ -11,6 +11,7 @@ import { clearRetiredFilters, readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
 import { SymbolSearch } from "../components/SymbolSearch";
 import { matchesSymbol } from "../symbolSearch";
+import { keepIndexEtf } from "../indexEtfs";
 import {
   detailTfFor,
   leadershipUsesMinRs,
@@ -224,7 +225,8 @@ export default function Scanner({ version }: { version: string | null }) {
   const filtered = useMemo(() => {
     const out = liquid.filter((r) => {
       if (!matchesSymbol(r.symbol, query)) return false;
-      if (!matchesLeadership(r, leadership, minRs)) return false;
+      // ETFs view: QQQ / SPY / IWM are always listed as reference rows (they are rarely ETF leaders).
+      if (!keepIndexEtf(r, kind) && !matchesLeadership(r, leadership, minRs)) return false;
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
       if (!passesAtr(r, atrRange)) return false;

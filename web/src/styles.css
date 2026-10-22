@@ -139,6 +139,7 @@ th.num { text-align: right; }
 .sym { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .sub { font-size: 11.5px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .etf-chip { font-size: 9px; font-weight: 700; color: var(--purple); border: 1px solid rgba(167, 139, 250, 0.4); border-radius: 5px; padding: 1px 4px; }
+.etf-chip.index-chip { color: var(--accent); border-color: rgba(56, 189, 248, 0.45); }
 .sector-link { cursor: pointer; }
 .sector-link:hover { color: var(--accent); }
 .setup-cell { max-width: 290px; }
@@ -244,6 +245,8 @@ th.num { text-align: right; }
 .ad-adv { background: var(--green); }
 .ad-unch { background: rgba(139, 147, 167, 0.7); }
 .ad-dec { background: var(--red); }
+.market-score { display: flex; align-items: center; gap: 18px; padding: 14px 18px; margin-bottom: 14px; border-width: 1px; border-style: solid; }
+.market-score-msg { font-size: 17px; font-weight: 700; }
 .trend-banner { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; margin-bottom: 14px; }
 .trend-banner.on { border-color: rgba(34, 197, 94, 0.55); background: linear-gradient(90deg, rgba(34, 197, 94, 0.16), var(--card)); }
 .trend-banner.off { border-color: rgba(244, 63, 94, 0.6); background: linear-gradient(90deg, rgba(244, 63, 94, 0.16), var(--card)); }
@@ -261,9 +264,9 @@ th.num { text-align: right; }
 .trend-index { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .trend-day { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
 .trend-mas { display: flex; gap: 4px; }
-.trend-ma { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 7px; border: 1px solid transparent; }
-.trend-ma.above { color: #86efac; background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.35); }
-.trend-ma.below { color: #fda4af; background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.35); }
+.trend-ma { font-size: 12px; font-weight: 800; border-radius: 999px; padding: 2px 8px; border: 1px solid transparent; }
+.trend-ma.above { color: #04210f; background: var(--green); border-color: #4ade80; }
+.trend-ma.below { color: #fff; background: var(--red); border-color: #fb7185; }
 .market-read .small { margin-right: 8px; font-weight: 600; }
 .market-read.green { border-color: rgba(34, 197, 94, 0.35); }
 .market-read.red { border-color: rgba(244, 63, 94, 0.35); }
@@ -314,6 +317,7 @@ th.num { text-align: right; }
   .stat-cards { flex-wrap: wrap; }
   .breadth-grid { grid-template-columns: 1fr; }
   .trend-banner { flex-direction: column; align-items: flex-start; }
+  .market-score { flex-direction: column; align-items: flex-start; gap: 6px; }
 }
 
 .slider-field { min-width: 180px; }
