@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from . import config, data, earnings, fetch_worker, memory, quotes, trims
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
-from .scheduler import decide, fetch_period, now_et, session_phase
+from .provider import live_bars_enabled
+from .scheduler import decide, fetch_period, now_et, scheduler_sleep, session_phase
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
@@ -51,6 +52,24 @@ class State:
     theme_map: Optional[ThemeMap] = None
     version: int = 0
     quoting: bool = False
+    # The one background job allowed at a time ("refresh", "quotes", "earnings"), held from the start of its
+    # download until its rescan has finished. Two jobs never download, write the cache or hold a second copy
+    # of the universe in memory together.
+    job: Optional[str] = None
+
+
+def _claim_job(kind: str) -> bool:
+    """Take the single job slot. False when another download / rescan is still running."""
+    with State.lock:
+        if State.job is not None or State.refreshing or State.quoting:
+            return False
+        State.job = kind
+        return True
+
+
+def _release_job() -> None:
+    with State.lock:
+        State.job = None
 
 
 def _universe() -> list[Member]:
@@ -97,9 +116,10 @@ def _log_rss(phase: str, **fields) -> None:
         print(message, flush=True)
 
 
-def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True) -> None:
+def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True, intraday: bool = False) -> None:
+    live = intraday and live_bars_enabled()
     fetch = "child" if fetch_worker.use_child(full, with_earnings) else "in-process"
-    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch)
+    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch, **({"kind": "live5m"} if live else {}))
     try:
         symbols = [m.symbol for m in _universe()]
 
@@ -107,7 +127,12 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             State.progress = {"done": done, "total": total, "message": message}
             _publish_status()
 
-        if fetch == "child":
+        if live:
+            from . import intraday as intraday_bars
+
+            stats = intraday_bars.poll(symbols)
+            log.info("live 5m poll %s", stats)
+        elif fetch == "child":
             fetch_worker.fetch_in_child(full, period, with_earnings, progress)
         else:
             data.refresh(symbols, full=full, progress=progress, period=period)
@@ -125,7 +150,27 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
                 _ensure_scan(force=True)
         finally:
             memory.release_heap()
+            _release_job()
             _log_rss("end", full=full, period=period or "", fetch=fetch)
+
+
+def _warm_earnings(wait_seconds: float = 900, poll: float = 5.0) -> None:
+    """Boot-time earnings check, run in the job slot so it never overlaps a price download.
+
+    Waits (up to ``wait_seconds``) for a running job to finish instead of racing it.
+    """
+    deadline = time.monotonic() + wait_seconds
+    while not _claim_job("earnings"):
+        if time.monotonic() >= deadline:
+            log.warning("earnings warm-up skipped: another fetch held the job slot")
+            return
+        time.sleep(poll)
+    try:
+        _refresh_earnings(max_age_hours=earnings.MAX_AGE_HOURS)
+    except Exception:
+        log.exception("earnings warm-up failed")
+    finally:
+        _release_job()
 
 
 def _refresh_earnings(max_age_hours: float, progress=None) -> None:
@@ -166,28 +211,33 @@ def _run_index_quotes() -> None:
         log.exception("index quote refresh failed")
     finally:
         State.quoting = False
+        _release_job()
         memory.release_heap()
         _log_rss("end", fetch="in-process", kind="extended")
 
 
 def start_index_quotes() -> bool:
     with State.lock:
-        if State.refreshing or State.quoting:
+        if State.job is not None or State.refreshing or State.quoting:
             return False
+        State.job = "quotes"
         State.quoting = True
     threading.Thread(target=_run_index_quotes, daemon=True).start()
     return True
 
 
-def start_refresh(full: bool = False, period: str | None = None, with_earnings: bool = True) -> bool:
+def start_refresh(
+    full: bool = False, period: str | None = None, with_earnings: bool = True, intraday: bool = False
+) -> bool:
     with State.lock:
-        if State.refreshing or State.quoting:
+        if State.job is not None or State.refreshing or State.quoting:
             return False
+        State.job = "refresh"
         State.refreshing = True
         State.error = None
         State.progress = {"done": 0, "total": 0, "message": "Starting"}
     _publish_status()
-    threading.Thread(target=_run_refresh, args=(full, period, with_earnings), daemon=True).start()
+    threading.Thread(target=_run_refresh, args=(full, period, with_earnings, intraday), daemon=True).start()
     return True
 
 
@@ -291,7 +341,7 @@ def _boot() -> None:
         log.info("Cache is empty, starting the initial download")
         start_refresh(full=True)
     else:
-        threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
+        threading.Thread(target=_warm_earnings, daemon=True).start()
         with _scan_lock:
             _ensure_scan(force=True)
     _scheduler_loop()
@@ -301,13 +351,13 @@ def _scheduler_loop() -> None:
     last_poll = None
     last_extended = None
     while True:
-        time.sleep(20)
-        if config.AS_OF or State.refreshing or State.quoting:
+        time.sleep(scheduler_sleep(now_et(), live_bars_enabled()))
+        if config.AS_OF or State.refreshing or State.quoting or State.job is not None:
             continue
         now = now_et()
         if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():
             _publish_index_quotes()
-        kind = decide(now, data.newest_bar_date(), last_poll, last_extended)
+        kind = decide(now, data.newest_bar_date(), last_poll, last_extended, aligned=live_bars_enabled())
         if kind is None:
             continue
         if kind == "extended":
@@ -315,7 +365,7 @@ def _scheduler_loop() -> None:
             start_index_quotes()
         elif kind == "intraday":
             last_poll = now
-            start_refresh(full=False, period="5d", with_earnings=False)
+            start_refresh(full=False, period="5d", with_earnings=False, intraday=True)
         else:
             newest = data.newest_bar_date()
             window = fetch_period(now, newest)
@@ -345,7 +395,9 @@ def _status_body() -> dict:
         "universe_size": len(universe),
         "version": State.version,
         "computed_at": State.scan_key,
-        "delay": "15m",
+        # Alpaca: prices from real-time IEX 5-minute bars (volume trails ~15 min on SIP). Yahoo: ~15-minute delay.
+        "delay": "5m" if live_bars_enabled() else "15m",
+        "source": "alpaca" if live_bars_enabled() else "yahoo",
     }
 
 
@@ -481,6 +533,7 @@ def _fetch_off_universe(symbol: str) -> None:
     from .provider import splits_in
 
     data.save_splits(symbol, splits_in(bars))
+    data.save_spinoffs(symbol, bars.attrs.get("spinoffs", []))
     data.save_bars(symbol, bars)
     data.save_extra_symbol(symbol, meta["name"], meta["sector"], meta["kind"], meta.get("industry", ""))
     if meta["kind"] == "stock":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
+from datetime import datetime
 from typing import Mapping, Optional
 
 import pandas as pd
@@ -70,6 +71,20 @@ def candle_patterns(daily: pd.DataFrame, frames: Mapping[str, pd.DataFrame], can
         dates = daily.index
     out["D"] = {**candle_pattern(days), "date": dates[-1].strftime("%Y-%m-%d") if len(dates) else None}
     return out
+
+
+def live_trigger_tolerance(daily: pd.DataFrame, now: Optional[datetime] = None) -> float:
+    """``STRAT_LIVE_TRIGGER_TOLERANCE`` while today's bar is live from IEX (Alpaca, regular session); else 0."""
+    if config.AS_OF or daily is None or daily.empty or config.LIVE_TRIGGER_TOLERANCE <= 0:
+        return 0.0
+    from .provider import live_bars_enabled
+    from .scheduler import now_et, regular_session
+
+    clock = now_et(now)
+    if not regular_session(clock) or not live_bars_enabled():
+        return 0.0
+    last = pd.Timestamp(daily.index[-1])
+    return config.LIVE_TRIGGER_TOLERANCE if last.date() == clock.date() else 0.0
 
 
 def in_progress_high(daily: pd.DataFrame, completed: pd.DataFrame, tf: str, price: float) -> Optional[float]:
@@ -169,8 +184,11 @@ def scan_symbol(
     price = float(last.close)
     # Weekly / monthly triggers stay on the last completed bar; the bar in progress only decides whether one has broken.
     live_highs = {tf: in_progress_high(daily, frames[tf], tf, price) for tf in LIVE_TRIGGER_TFS}
+    tolerance = live_trigger_tolerance(daily)
     for tf, high in live_highs.items():
-        states[tf] = apply_live_triggers(states[tf], high)
+        # The IEX allowance only applies when today's live bar is what set the in-progress high.
+        today_sets_high = high is not None and max(float(last.high), price) >= high
+        states[tf] = apply_live_triggers(states[tf], high, tolerance if today_sets_high else 0.0)
     # Continuity (score, badges, M+W / full flags) reads the bars in progress; the Strat state above does not.
     for tf, open_ in live_opens(daily).items():
         if states.get(tf) is not None and open_ is not None:

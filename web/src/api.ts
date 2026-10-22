@@ -263,8 +263,10 @@ export interface Status {
   /** Bumps when a new scan snapshot is published. */
   version?: number;
   computed_at?: string | null;
-  /** Quote delay label from the provider. Phase 1 is always 15 minutes. */
+  /** Quote delay from the provider: "5m" (Alpaca IEX 5-minute bars, real-time prices) or "15m" (Yahoo). */
   delay?: string;
+  /** Price source: "alpaca" or "yahoo". */
+  source?: string;
 }
 
 export interface AppConfig {
