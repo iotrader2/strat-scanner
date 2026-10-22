@@ -246,12 +246,13 @@ halved again; this shows as a negative "Pinned penalty" line.
 **Who counts as a leader.** The scanner **filters** rather than just ranking lower. A name is a *leader* when its blended
 1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
 `LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Setups**
-filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (only rows marked leader, `is_leader`: RS ≥ P90 and trend not broken, highest score first; the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`, can raise the cut above P90 but never adds non-leaders), *Weekly strat awaiting
+filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (only rows marked leader, `is_leader`: RS ≥ P90 and trend not broken, **and a score strictly above 70** (`LEADERS_MIN_SCORE`; 70.0 is out, 70.1 is in), highest score first; the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`, can raise the cut above P90 but never adds non-leaders), *Weekly strat awaiting
 trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips are
 full-universe totals for those categories (not the current filters); click a chip or pick a Setups option to dig in. The Min RS slider
 applies to *Leaders* and both weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
-(default true) and `min_rs`. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
+(default true; RS cut, trend not broken and score > 70) and `min_rs`. The score cut is a list filter only: the leader flag,
+the leader badge and the score stay RS + trend, since the score is itself built from leader status and the breakdown. The Setup filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
 **RS chip** (the RS change such as `▼7`, with *weakening* / *broken* / *kill candle* flags and the NEW markers below; the RS percentile itself is in the tooltip, since it already drives the score).
 
 **What changed lately (RS change and NEW markers).** RS is a point-in-time reading, so the chip shows how it is changing (change detection:
@@ -273,7 +274,7 @@ fewer than 6 sessions behind it) simply leaves the fields empty. The scan row ex
 (`{since, sessions_ago, from_rs}`), all `null` when nothing happened. The prior sessions cost four extra ranking passes per scan
 (`SNAPSHOT_OFFSETS` in `change.py`; the peer distributions are built once per date and reused for every symbol); the backtest skips them.
 
-**Weekly setups (leaders you can act on now).** *Leaders* that also have a **long-side weekly Strat setup on the last weekly
+**Weekly setups (leaders you can act on now).** *Leaders* (including the score > 70 cut) that also have a **long-side weekly Strat setup on the last weekly
 candle**: marked leader (RS ≥ P90; the Min RS slider can raise the cut), trend not broken (a *weakening* name stays; a *broken* one never
 does) and `has_setup`. The Setups filter splits them into **Weekly strat awaiting trigger** (`triggered` is false) and **Weekly strat already triggered**
 (`triggered` is true; this includes a pending setup whose trigger the week in progress has already traded above, marked
@@ -283,7 +284,7 @@ bar is done and price has not yet broken its high), **2-1-2 / 3-1-2 / 1-2-2 / 2D
 TRIGGERED), and a **weekly hammer** (pending below its own high, or triggered above the prior high). Each row shows the
 **trigger** (the weekly high for longs; the prior high once triggered) and **To trigger**, the distance from price (positive =
 still below the trigger, negative = already through it), and the rows keep the normal score order. It uses the same slider
-as *Leaders*, so each setup view is always a subset of Leaders at the same Min RS. "Last weekly candle" is the last
+as *Leaders* and its score > 70 cut, so each setup view is always a subset of Leaders at the same Min RS. "Last weekly candle" is the last
 **completed** week: Friday after the close, Saturday, and Sunday include the week that just ended; Monday through Friday
 before the close, and a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday 2026-08-13), use the week before that. Hover the
 option in the dropdown for the same definition. See the *Weekly setups backtest* below for how the combined filter did.
@@ -578,7 +579,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/scan` | Ranked scan rows, leaders only by default (`leaders_only=false` for every name, `min_rs=0.8` for a looser cut). Rows without a weekly setup carry `nearest_trigger`; every row carries `rs_prev`, `rs_prev_date`, `rs_change` and `leadership.breakdown_new` / `leader_new` (see *What changed lately*) |
+| `GET /api/scan` | Ranked scan rows, Leaders scan only by default (marked leader and score > 70; `leaders_only=false` for every name, `min_rs=0.8` for a looser cut). Rows without a weekly setup carry `nearest_trigger`; every row carries `rs_prev`, `rs_prev_date`, `rs_change` and `leadership.breakdown_new` / `leader_new` (see *What changed lately*) |
 | `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
 | `GET /api/themes?tf=W` | Theme cards for a timeframe, strongest first: index candles, scan row and member chips |
 | `GET /api/config` | Liquidity defaults, `leader_min_rs` and the theme list (`id`, `name`, `count`) for the Scanner's filter |

@@ -125,6 +125,19 @@ class TestLeaderStatus:
         assert not is_leader(0.92, "broken") and not is_leader(0.5, "none") and not is_leader(None, "none")
         assert is_leader(0.82, "none", min_rs=0.8)
 
+    def test_leaders_scan_adds_a_score_strictly_above_70(self):
+        from strat.leadership import LEADERS_MIN_SCORE, in_leaders_scan
+
+        assert LEADERS_MIN_SCORE == 70.0
+        assert not in_leaders_scan(0.92, "none", 70.0)
+        assert in_leaders_scan(0.92, "none", 70.1)
+        assert in_leaders_scan(0.92, "warning", 85.0)
+        assert not in_leaders_scan(0.92, "broken", 95.0)
+        assert not in_leaders_scan(0.5, "none", 95.0)
+        assert not in_leaders_scan(0.92, "none", None)
+        # The leader flag itself does not look at the score.
+        assert is_leader(0.92, "none")
+
 
 def test_long_term_rs_blends_3m_and_6m_only():
     assert long_term_rs({"1m": 0.0, "3m": 0.8, "6m": 1.0}) == pytest.approx(0.9)

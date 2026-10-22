@@ -132,7 +132,7 @@ def test_fetch_earnings_without_calendar_returns_no_date(monkeypatch):
 def test_api_rows_carry_the_warning_only_for_stocks_reporting_soon(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CACHE_DB", tmp_path / "cache.sqlite3")
     monkeypatch.setattr(earnings, "today_et", lambda: TODAY)
-    base = {"has_setup": True, "price": 100.0, "avg_dollar_volume": 1e9, "score": 50.0, "rs": 0.95, "leadership": {"breakdown": "none"}}
+    base = {"has_setup": True, "price": 100.0, "avg_dollar_volume": 1e9, "score": 80.0, "rs": 0.95, "leadership": {"breakdown": "none"}}
     monkeypatch.setattr(api.State, "scan", [
         {**base, "symbol": "TSLA", "kind": "stock"},
         {**base, "symbol": "JPM", "kind": "stock"},

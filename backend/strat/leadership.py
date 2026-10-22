@@ -27,6 +27,9 @@ BENCHMARK = "QQQ"
 # A leader needs at least this blended 1M/3M/6M return percentile among its peers (stocks vs stocks, ETFs vs ETFs):
 # the top decile. The backtest favours this over P80 (see README).
 LEADER_MIN_RS = 0.90
+# The Leaders scan (and /api/scan?leaders_only=true) also needs a top score, strictly above this. It is a list filter
+# only: leader_status / is_leader stay RS + trend, because the score itself is built from leader status and breakdown.
+LEADERS_MIN_SCORE = 70.0
 # Breakdown thresholds (percent below the 6-month high).
 WARN_DRAWDOWN_PCT = 12.0
 BROKEN_DRAWDOWN_PCT = 25.0
@@ -164,3 +167,12 @@ def nearest_trigger(price: float, weekly: Sequence[tuple[float, str]]) -> Option
 
 def is_leader(rs: Optional[float], breakdown_level: str, min_rs: float = LEADER_MIN_RS) -> bool:
     return leader_status(rs, Breakdown(breakdown_level), min_rs) == LEADER
+
+
+def in_leaders_scan(
+    rs: Optional[float], breakdown_level: str, score: Optional[float], min_rs: float = LEADER_MIN_RS,
+    min_score: float = LEADERS_MIN_SCORE,
+) -> bool:
+    """Listed by the Leaders scan: marked leader (RS at or above ``min_rs``, trend not broken) and score strictly above
+    ``min_score`` (70)."""
+    return is_leader(rs, breakdown_level, min_rs) and score is not None and score > min_score
