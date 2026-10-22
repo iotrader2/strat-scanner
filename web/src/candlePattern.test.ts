@@ -43,7 +43,7 @@ describe("Candle Pattern filter", () => {
 });
 
 describe("summary tiles", () => {
-  it("are in the requested order, with the weekly Strat tiles after", () => {
+  it("are exactly the nine requested tiles, in order (no weekly Strat tiles)", () => {
     expect(HERO_CHIPS.map((c) => c.label)).toEqual([
       "all names",
       "leaders",
@@ -54,8 +54,6 @@ describe("summary tiles", () => {
       "daily bearish",
       "recent breakouts",
       "failed breakouts",
-      "awaiting trigger",
-      "already triggered",
     ]);
   });
 });

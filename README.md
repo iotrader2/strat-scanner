@@ -248,7 +248,7 @@ halved again; this shows as a negative "Pinned penalty" line.
 `LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Setups**
 filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (only rows marked leader, `is_leader`: RS ≥ P90 and trend not broken, **and a score strictly above 70** (`LEADERS_MIN_SCORE`; 70.0 is out, 70.1 is in), highest score first; the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`, can raise the cut above P90 but never adds non-leaders), *Weekly strat awaiting
 trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips (in order: all names, leaders, broken leaders, weekly bullish, weekly bearish,
-daily bullish, daily bearish, recent breakouts, failed breakouts, then awaiting trigger and already triggered) are
+daily bullish, daily bearish, recent breakouts, failed breakouts; the weekly strat views have no tile) are
 full-universe totals for those categories (not the current filters); click a chip or pick a Setups option to dig in. The Min RS slider
 applies to *Leaders* and both weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`

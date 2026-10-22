@@ -101,8 +101,6 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
 type HeroChipKey =
   | "all"
   | "leaders"
-  | "setupsPending"
-  | "setupsTriggered"
   | "dailyBullish"
   | "dailyBearish"
   | "weeklyBullish"
@@ -110,7 +108,7 @@ type HeroChipKey =
   | "breakouts"
   | "failedBreakouts"
   | "broken";
-/** Summary tiles, in this order. Tiles beyond the requested nine (the weekly Strat views) come last. */
+/** Summary tiles, in this order (the weekly Strat views have no tile; pick them from Setups). */
 export const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
   { key: "all", filter: "all", label: "all names", tone: "muted" },
   { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
@@ -121,8 +119,6 @@ export const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: st
   { key: "dailyBearish", filter: "daily_bearish", label: "daily bearish", tone: "red" },
   { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
   { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
-  { key: "setupsPending", filter: "setups_pending", label: "awaiting trigger", tone: "green" },
-  { key: "setupsTriggered", filter: "setups_triggered", label: "already triggered", tone: "green" },
 ];
 /** Columns of the Failed breakouts view: when it broke out, the level, how far price is below it and when it failed. */
 const FAILED_COLUMNS: ExtraColumn[] = [
@@ -253,8 +249,6 @@ export default function Scanner({ version }: { version: string | null }) {
     () => ({
       all: rows.length,
       leaders: rows.filter((r) => matchesLeadership(r, "leaders", CHIP_RS)).length,
-      setupsPending: rows.filter((r) => matchesLeadership(r, "setups_pending", CHIP_RS)).length,
-      setupsTriggered: rows.filter((r) => matchesLeadership(r, "setups_triggered", CHIP_RS)).length,
       dailyBullish: rows.filter((r) => matchesLeadership(r, "daily_bullish")).length,
       dailyBearish: rows.filter((r) => matchesLeadership(r, "daily_bearish")).length,
       weeklyBullish: rows.filter((r) => matchesLeadership(r, "weekly_bullish")).length,
