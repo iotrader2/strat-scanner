@@ -392,14 +392,16 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     Weekly green continuity.
   - Each card also shows the 1M / 3M / 6M price return, green or red.
   - A Monthly / Weekly / Daily toggle (saved separately from the Themes one) switches the charts.
-  - A one-line market banner sits at the top. A hidden 0–9 score picks its message and color: for each of QQQ, SPY and
-    IWM, +1 for each of its 6, 20 and 50 day simple averages (like the chart averages) the price is strictly above, so
-    each index counts its green 6/20/50 chips. The price is the one the card shows, so a premarket or after-hours quote
-    counts while it is active. The banner goes red (0, "Market is screwed. DO NOT TRADE") to green (9, "GAME ON"), with a
-    funny line per level. No number or breakdown is printed: the red / green chips on the trend banner below show which
-    averages each index is above. 0 and 9 agree with the trend banner's DO NOT TRADE / GAME ON.
-  - The trend banner below it calls **GAME ON / CAUTION / DO NOT TRADE** from each index versus its 6, 20 and 50 day
-    simple averages (all above / mixed / all below), with the same card price.
+  - One **market card** sits at the top (`MarketMood`), in this order:
+    - **Ragnar**, one of ten moods (`web/public/ragnar/ragnar-0..9.webp`: 0 furious, 1 holding a skull, 2 facepalm,
+      3 seasick, 4 finger wag, 5 beard stroke, 6 OK sign, 7 pointing, 8 flexing, 9 thumbs up), picked by a hidden 0–9
+      score: for each of QQQ, SPY and IWM, +1 for each of its 6, 20 and 50 day simple averages (like the chart averages)
+      the price is strictly above. The price is the one the card shows, so a premarket or after-hours quote counts while
+      it is active. His ring is red / yellow / green with the trend call.
+    - The trend call, **GAME ON / CAUTION / DO NOT TRADE** (all above / mixed / all below the 6, 20 and 50 day averages,
+      same price), with its detail line and, on a lopsided day, the universe decliners-per-advancer note.
+    - The funny line for the score, from "🚨 Market is screwed. DO NOT TRADE" (0) to "🔥 GAME ON" (9). No number is printed.
+    - QQQ, SPY and IWM with today's move and their red / green 6/20/50 chips (which averages each index is above).
   - A summary line counts how many of the three have Monthly + Weekly green continuity (and full M+W+D), with each
     index's score.
   - These are the only benchmark ETFs; DIA is no longer part of the universe. They are still scanned and appear in the

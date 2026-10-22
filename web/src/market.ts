@@ -144,3 +144,27 @@ export function maChip(avg: { period: number; value: number; above: boolean }): 
     title: `Price ${avg.above ? "above" : "below"} the ${avg.period}-day simple average (${avg.value.toFixed(2)})`,
   };
 }
+
+export interface RagnarMood {
+  src: string;
+  alt: string;
+}
+
+/** Ragnar's face for each market score 0–9 (web/public/ragnar/ragnar-N.webp). */
+export const RAGNAR_MOODS: readonly RagnarMood[] = [
+  { src: "/ragnar/ragnar-0.webp", alt: "Ragnar, furious, fists clenched" },
+  { src: "/ragnar/ragnar-1.webp", alt: "Ragnar holding a skull" },
+  { src: "/ragnar/ragnar-2.webp", alt: "Ragnar facepalming" },
+  { src: "/ragnar/ragnar-3.webp", alt: "Ragnar looking seasick" },
+  { src: "/ragnar/ragnar-4.webp", alt: "Ragnar wagging a finger" },
+  { src: "/ragnar/ragnar-5.webp", alt: "Ragnar stroking his beard" },
+  { src: "/ragnar/ragnar-6.webp", alt: "Ragnar making the OK sign" },
+  { src: "/ragnar/ragnar-7.webp", alt: "Ragnar pointing at you" },
+  { src: "/ragnar/ragnar-8.webp", alt: "Ragnar flexing" },
+  { src: "/ragnar/ragnar-9.webp", alt: "Ragnar giving a thumbs up" },
+];
+
+/** Ragnar for a market score, clamped to 0–9 the same way as the message. */
+export function ragnarFor(score: number): RagnarMood {
+  return RAGNAR_MOODS[marketScoreRead(score).score];
+}
