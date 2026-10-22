@@ -152,3 +152,23 @@ class TestSetups:
     def test_timeframe_state(self):
         st = timeframe_state("W", [Candle(95, 100, 90, 98), Candle(96, 99, 91, 97.5)])
         assert st.strat == INSIDE and st.inside and st.color == "green"
+
+
+def test_apply_live_triggers_marks_pending_long_setups_above_the_trigger():
+    from strat.candles import Setup, TimeframeState, apply_live_triggers
+
+    def state(tf="W"):
+        return TimeframeState(
+            tf, "1", "2U", "green", 1, 2, 0.5, 1.5, True, False,
+            setups=[Setup("2-1-2-pending", "2-1 → 2-1-2 setup", 10.0, False), Setup("2-1-2", "2-1-2 bullish", 9.0, True, "x")],
+        )
+
+    hit = apply_live_triggers(state(), 10.5)
+    assert [(s.triggered, s.live) for s in hit.setups] == [(True, True), (True, False)]
+    assert hit.setups[0].trigger == 10.0
+    assert hit.setups[0].detail == "broke 10.00 this week (high 10.50)"
+    assert hit.setups[1].detail == "x"
+    assert [s.triggered for s in apply_live_triggers(state(), 10.0).setups] == [False, True]
+    assert [s.triggered for s in apply_live_triggers(state(), None).setups] == [False, True]
+    assert apply_live_triggers(state("M"), 11.0).setups[0].detail.startswith("broke 10.00 this month")
+    assert apply_live_triggers(None, 11.0) is None

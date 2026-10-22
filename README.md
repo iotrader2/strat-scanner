@@ -85,7 +85,10 @@ A single thread in the API process is the only thing that talks to Yahoo:
 Weekly (Mon-Fri) and monthly candles are built from the cached daily bars. Strat classification —
 the setup, the trigger, distance to it, continuity, and the M/W chips — uses the last **completed**
 week and the last **completed** month. The week still in progress is left out, including Monday's
-high and a mid-week `STRAT_AS_OF` cut-off. A week is complete after the close of its last session
+high and a mid-week `STRAT_AS_OF` cut-off. The one exception is whether a pending trigger has **broken**: a weekly (or
+monthly) setup whose trigger, set by the last completed week (month), has been traded above by the week (month) in
+progress counts as triggered (`triggered_live` on the row, chip *triggered this week*). The trigger level itself never
+comes from the bar in progress. A week is complete after the close of its last session
 (Friday, or Thursday when Friday is a holiday): Friday after the close, Saturday, and Sunday all
 count that week. The same rule applies to months, quarters, and half-years. Daily candles still
 include the current session. A Monday bar is its own next week (`W-FRI`, closed on the right); it
@@ -273,7 +276,8 @@ fewer than 6 sessions behind it) simply leaves the fields empty. The scan row ex
 **Weekly setups (leaders you can act on now).** *Leaders* that also have a **long-side weekly Strat setup on the last weekly
 candle**: marked leader (RS ≥ P90; the Min RS slider can raise the cut), trend not broken (a *weakening* name stays; a *broken* one never
 does) and `has_setup`. The Setups filter splits them into **Weekly strat awaiting trigger** (`triggered` is false) and **Weekly strat already triggered**
-(`triggered` is true). The setups are the ones the scanner already classifies, nothing is duplicated
+(`triggered` is true; this includes a pending setup whose trigger the week in progress has already traded above, marked
+*triggered this week*). The setups are the ones the scanner already classifies, nothing is duplicated
 (`find_long_setups` in `backend/strat/candles.py`): an **inside week** (1), **2-1-2** and **3-1-2** in progress (the inside
 bar is done and price has not yet broken its high), **2-1-2 / 3-1-2 / 1-2-2 / 2D-2U** already triggered (the chip says
 TRIGGERED), and a **weekly hammer** (pending below its own high, or triggered above the prior high). Each row shows the
@@ -284,7 +288,7 @@ as *Leaders*, so each setup view is always a subset of Leaders at the same Min R
 before the close, and a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday 2026-08-13), use the week before that. Hover the
 option in the dropdown for the same definition. See the *Weekly setups backtest* below for how the combined filter did.
 
-**Daily MACD trend change.** *Daily bullish trend change* and *Daily bearish trend change* in the Setups dropdown are the daily MACD (6, 20, 9) histogram trigger on the most recent daily bar (`daily_trend` on the scan row). Bullish is the first green histogram bar (at or above zero) after 3 or more red bars, with the latest close above the 50-day SMA; bearish is the first red bar (below zero) after 3 or more green bars, with the latest close below the 50-day SMA. Names without a 50-day SMA never match. The chart arrows stay MACD-only (the raw trigger is `daily_macd_trigger` on the row). The EMA matches the chart: SMA seed, then `k = 2 / (period + 1)`. The hero chips count every matching name. A row shows a *Daily bullish* or *Daily bearish* chip. The most recent bar is the last row of the daily frame the scan already uses, so today's in-progress session counts when it has been overlaid, the same way the daily Strat badge does. Weekly Strat views still ignore the week still in progress.
+**Daily MACD trend change.** *Daily bullish trend change* and *Daily bearish trend change* in the Setups dropdown are the daily MACD (6, 20, 9) histogram trigger on the most recent daily bar (`daily_trend` on the scan row). Bullish is the first green histogram bar (at or above zero) after 3 or more red bars, with the latest close above the 50-day SMA; bearish is the first red bar (below zero) after 3 or more green bars, with the latest close below the 50-day SMA. Names without a 50-day SMA never match. The chart arrows stay MACD-only (the raw trigger is `daily_macd_trigger` on the row). The EMA matches the chart: SMA seed, then `k = 2 / (period + 1)`. The hero chips count every matching name. A row shows a *Daily bullish* or *Daily bearish* chip. The most recent bar is the last row of the daily frame the scan already uses, so today's in-progress session counts when it has been overlaid, the same way the daily Strat badge does. Weekly Strat views still take their setup and trigger from the last completed week (the week in progress only marks a trigger as broken).
 
 **Recent breakouts (future leaders, early).** Meant to surface names before they are leaders, so it ignores the slider
 and uses an RS floor of **P50** (`MIN_RS` in `backend/strat/breakout.py`) plus an unbroken trend. On the weekly chart:

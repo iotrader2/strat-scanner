@@ -41,13 +41,13 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "setups_pending",
     label: "Weekly strat awaiting trigger",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut) with a long-side weekly Strat setup on the last completed week — not the week still in progress — that has not broken its trigger yet: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger (that week's high) and distance to it. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut) with a long-side weekly Strat setup on the last completed week (the trigger is that week's high, never the week still in progress) that has not been broken yet, not even by this week's high: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger and distance to it. Sorted by score.",
   },
   {
     value: "setups_triggered",
     label: "Weekly strat already triggered",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, or a hammer that cleared its high. The week still in progress does not count. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, a hammer that cleared its high, or a pending setup whose trigger (set by the last completed week) the week in progress has traded above (marked “triggered this week”). Sorted by score.",
   },
   {
     value: "daily_bullish",

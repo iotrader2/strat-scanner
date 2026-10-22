@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { fmtMoney, fmtPct, type ScanRow, type Tf } from "../api";
+import { triggerChip } from "../setupFilter";
 import { DETAIL_TF_KEY, writePersisted } from "../persist";
 import { fmtPerf, isPerfSort, perfClass, perfSortValue, PERF_PERIODS, type PerfSort } from "../perf";
 import {
@@ -217,6 +218,7 @@ export function ScanTable({
           {sorted.map((r, i) => {
             const trend = dailyTrendBadge(r.daily_trend);
             const weeklyTrend = weeklyTrendBadge(r.weekly_trend);
+            const chip = triggerChip({ triggered: r.triggered, live: r.triggered_live, trigger: r.trigger });
             return (
             <tr key={r.symbol} onClick={() => {
               if (detailTf) writePersisted(DETAIL_TF_KEY, detailTf);
@@ -302,7 +304,11 @@ export function ScanTable({
                   <>
                     <div className={r.triggered ? "setup triggered" : "setup"}>
                       {r.setup}
-                      {r.triggered && <span className="trig-chip">triggered</span>}
+                      {chip && (
+                        <span className="trig-chip" title={chip.title}>
+                          {chip.label}
+                        </span>
+                      )}
                     </div>
                     <div className="sub muted reason" title={r.reason}>
                       {r.reason.split(" · ").slice(1).join(" · ")}

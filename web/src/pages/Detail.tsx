@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
+import { triggerChip } from "../setupFilter";
 import { DETAIL_TF_KEY, isTimeframe, usePersisted } from "../persist";
 import { LoadingIndicator } from "../components/Loading";
 import { NO_SETUP_LABEL } from "../watchlist";
@@ -183,7 +184,14 @@ export default function Detail({ version }: { version: string | null }) {
                 {row.setups.map((s, i) => (
                   <li key={i}>
                     <span className="tf-tag">{s.tf}</span>
-                    <span className="grow">{s.label}{s.triggered && <span className="trig-chip">triggered</span>}</span>
+                    <span className="grow">
+                      {s.label}
+                      {triggerChip(s) && (
+                        <span className="trig-chip" title={triggerChip(s)?.title}>
+                          {triggerChip(s)?.label}
+                        </span>
+                      )}
+                    </span>
                     <span className="accent-text">{s.trigger.toFixed(2)}</span>
                   </li>
                 ))}
