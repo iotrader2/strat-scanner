@@ -155,13 +155,13 @@ def test_off_universe_symbols_are_refreshed_and_scanned_only_while_watched(clien
 
 def test_off_universe_rows_reach_the_scanner_only_through_its_filters(client):
     api.State.scan.append(
-        {"symbol": "PENNY", "kind": "stock", "has_setup": True, "price": 4.0, "avg_dollar_volume": 2e6, "score": 70.0, **LEADER}
+        {"symbol": "PENNY", "kind": "stock", "has_setup": True, "price": 4.0, "avg_dollar_volume": 2e6, "score": 75.0, **LEADER}
     )
     api.State.scan.append(
-        {"symbol": "NOSETUP", "kind": "stock", "has_setup": False, "price": 50.0, "avg_dollar_volume": 9e8, "score": 60.0, **LEADER}
+        {"symbol": "NOSETUP", "kind": "stock", "has_setup": False, "price": 50.0, "avg_dollar_volume": 9e8, "score": 75.0, **LEADER}
     )
     api.State.scan.append(
-        {"symbol": "LAGGARD", "kind": "stock", "has_setup": True, "price": 50.0, "avg_dollar_volume": 9e8, "score": 60.0,
+        {"symbol": "LAGGARD", "kind": "stock", "has_setup": True, "price": 50.0, "avg_dollar_volume": 9e8, "score": 80.0,
          "rs": 0.4, "leadership": {"breakdown": "none"}}
     )
     api.State.scan.append(
@@ -179,6 +179,20 @@ def test_off_universe_rows_reach_the_scanner_only_through_its_filters(client):
     assert {"LAGGARD", "BROKEN"} <= set(everyone)
     loose_rs = [r["symbol"] for r in client.get("/api/scan?min_rs=0.3").json()["rows"]]
     assert "LAGGARD" in loose_rs and "BROKEN" not in loose_rs
+
+
+def test_leaders_scan_needs_a_score_strictly_above_70(client):
+    for r in api.State.scan:
+        r.update(price=100.0, avg_dollar_volume=1e9, kind="stock")
+    for symbol, score in (("AT70", 70.0), ("OVER70", 70.1)):
+        api.State.scan.append(
+            {"symbol": symbol, "kind": "stock", "has_setup": False, "price": 50.0, "avg_dollar_volume": 9e8, "score": score, **LEADER}
+        )
+    leaders = [r["symbol"] for r in client.get("/api/scan").json()["rows"]]
+    assert "OVER70" in leaders and "AT70" not in leaders
+    everyone = [r["symbol"] for r in client.get("/api/scan?leaders_only=false").json()["rows"]]
+    assert {"AT70", "OVER70"} <= set(everyone)
+    assert client.get("/api/config").json()["leaders_min_score"] == 70.0
 
 
 def test_status_counts_only_symbols_in_the_current_universe(client):

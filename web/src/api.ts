@@ -260,6 +260,8 @@ export interface AppConfig {
   min_dollar_volume: number;
   /** Relative-strength percentile (0..1) a name needs to count as a leader. */
   leader_min_rs: number;
+  /** The Leaders scan also needs a score strictly above this (70). */
+  leaders_min_score?: number;
   themes: ThemeInfo[];
 }
 

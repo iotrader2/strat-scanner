@@ -20,7 +20,7 @@ from .scheduler import decide, fetch_period, now_et, session_phase
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
-from .leadership import LEADER_MIN_RS, is_leader
+from .leadership import LEADER_MIN_RS, LEADERS_MIN_SCORE, in_leaders_scan
 from .perf import MomentumRanks, Perf
 from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol, theme_cards
 from .themes import ThemeError, ThemeMap, load_themes
@@ -381,6 +381,7 @@ def get_config():
         "min_price": config.MIN_PRICE,
         "min_dollar_volume": config.MIN_DOLLAR_VOLUME,
         "leader_min_rs": LEADER_MIN_RS,
+        "leaders_min_score": LEADERS_MIN_SCORE,
         "themes": [
             {"id": t.id, "name": t.name, "count": len(t.everyone)}
             for t in sorted((State.theme_map or _load_theme_map() or ThemeMap(0, [])).themes, key=lambda t: t.name)
@@ -396,8 +397,8 @@ def scan(
     leaders_only: bool = True,
     min_rs: float = Query(None, ge=0, le=1),
 ):
-    """Ranked scan rows. By default only leaders: relative strength at or above ``min_rs`` (a 0..1 percentile,
-    default P90) with the trend intact. A weekly setup is not required; names without one are labelled in the row."""
+    """Ranked scan rows. By default only the Leaders scan: relative strength at or above ``min_rs`` (a 0..1 percentile,
+    default P90) with the trend intact, and a score strictly above ``LEADERS_MIN_SCORE`` (70). A weekly setup is not required; names without one are labelled in the row."""
     min_price = config.MIN_PRICE if min_price is None else min_price
     min_dollar_volume = config.MIN_DOLLAR_VOLUME if min_dollar_volume is None else min_dollar_volume
     cut = LEADER_MIN_RS if min_rs is None else min_rs
@@ -407,7 +408,7 @@ def scan(
         if r["price"] >= min_price
         and r["avg_dollar_volume"] >= min_dollar_volume
         and (include_etfs or r["kind"] == "stock")
-        and (not leaders_only or is_leader(r["rs"], r["leadership"]["breakdown"], cut))
+        and (not leaders_only or in_leaders_scan(r["rs"], r["leadership"]["breakdown"], r["score"], cut))
     ])
     return {"as_of": State.scan_key, "count": len(rows), "rows": rows}
 

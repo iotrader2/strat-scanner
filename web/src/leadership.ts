@@ -16,11 +16,15 @@ export type LeadershipFilter =
   | "all";
 
 export const LEADER_RS = 0.9;
+/** The Leaders view also needs a top score, strictly above this; matches the backend `LEADERS_MIN_SCORE`. A list filter
+ * only: the leader flag / badge stays RS + trend (the score is itself built from leader status and breakdown). */
+export const LEADERS_MIN_SCORE = 70;
 export const MIN_RS_RANGE = { min: 50, max: 99, default: 90 };
 /** Relative-strength floor for Recent breakouts (future leaders may still be mid-pack); matches the backend `MIN_RS`. */
 export const BREAKOUT_MIN_RS = 0.5;
 
 type LeaderFields = Pick<ScanRow, "rs"> & {
+  score?: number;
   /** The backend's leader flag (RS >= P90 and trend not broken). Rows without it fall back to the same rule. */
   is_leader?: boolean;
   has_setup?: boolean;
@@ -36,9 +40,15 @@ const rsAtLeast = (r: LeaderFields, min: number) => r.rs !== null && r.rs !== un
 const isBroken = (r: LeaderFields) => r.leadership?.breakdown === "broken";
 /** Marked leader by the backend: RS at or above P90 with the trend intact (a weakening trend still counts). */
 export const isLeader = (r: LeaderFields): boolean => r.is_leader ?? (rsAtLeast(r, LEADER_RS) && !isBroken(r));
-/** Leaders view: only rows marked leader; the Min RS slider can raise the cut above P90 but never adds non-leaders. */
-const isListedLeader = (r: LeaderFields, minRs: number) => isLeader(r) && rsAtLeast(r, minRs);
-const isSetupLeader = (r: LeaderFields, minRs: number) => isListedLeader(r, minRs) && !!r.has_setup;
+/** Marked leader at the Min RS slider: the slider can raise the cut above P90 but never adds non-leaders. */
+const isLeaderAtRs = (r: LeaderFields, minRs: number) => isLeader(r) && rsAtLeast(r, minRs);
+/** Score strictly above `LEADERS_MIN_SCORE` (70). */
+export const hasLeaderScore = (r: Pick<LeaderFields, "score">): boolean =>
+  typeof r.score === "number" && r.score > LEADERS_MIN_SCORE;
+/** Leaders view: marked leader at the slider's RS cut and a score above 70. */
+const isListedLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && hasLeaderScore(r);
+/** Weekly Strat views: marked leaders with a weekly setup. They do not apply the score > 70 cut. */
+const isSetupLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && !!r.has_setup;
 
 /** True when the Min RS slider applies to this Setups option (Leaders and both weekly Strat views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
@@ -210,7 +220,7 @@ export const NO_SETUP_LEADER = "Leader · no setup";
 
 /** Label for the setup cell of a row without a weekly setup: a leader is still listed, it just has no weekly setup. */
 export function noSetupLabel(r: LeaderFields, minRs: number = LEADER_RS): string {
-  return isListedLeader(r, minRs) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
+  return isLeaderAtRs(r, minRs) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
 }
 
 /** A score line's weight as shown in the breakdown, e.g. 32 -> "32%", 35.6 -> "35.6%". */

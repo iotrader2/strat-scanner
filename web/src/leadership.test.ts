@@ -3,6 +3,7 @@ import type { ScanRow } from "./api";
 import {
   BREAKOUT_MIN_RS,
   LEADER_RS,
+  LEADERS_MIN_SCORE,
   MIN_RS_RANGE,
   NO_SETUP_LEADER,
   breakoutLabel,
@@ -12,6 +13,7 @@ import {
   failedBreakoutLabel,
   fmtRs,
   formatWeight,
+  hasLeaderScore,
   isLeader,
   leadershipUsesMinRs,
   matchesLeadership,
@@ -40,12 +42,14 @@ const row = (
   breakout: Breakout | null = null,
   has_setup = false,
   triggered: boolean | null = false,
+  score = 80,
 ) => ({
   rs,
   leadership: { breakdown },
   breakout,
   has_setup,
   triggered,
+  score,
 });
 
 const leader = row(0.97);
@@ -62,6 +66,18 @@ const rows = [leader, weakening, midLeader, brokenLeader, brokenMid, laggard, no
 const pick = (f: LeadershipFilter, minRs?: number) => rows.filter((r) => matchesLeadership(r, f, minRs));
 
 describe("matchesLeadership", () => {
+  it("Leaders needs a score strictly above 70 (70.0 out, 70.1 in)", () => {
+    expect(LEADERS_MIN_SCORE).toBe(70);
+    expect(matchesLeadership(row(0.97, "none", null, false, false, 70), "leaders")).toBe(false);
+    expect(matchesLeadership(row(0.97, "none", null, false, false, 70.1), "leaders")).toBe(true);
+    expect(matchesLeadership({ rs: 0.97, is_leader: true, leadership: { breakdown: "none" } }, "leaders")).toBe(false);
+    // The leader flag and the no-setup label do not look at the score.
+    const lowScore = row(0.97, "none", null, false, false, 40);
+    expect(isLeader(lowScore)).toBe(true);
+    expect(hasLeaderScore(lowScore)).toBe(false);
+    expect(noSetupLabel(lowScore)).toBe(NO_SETUP_LEADER);
+  });
+
   it("Leaders defaults to P90 and never lists a broken trend", () => {
     expect(LEADER_RS).toBe(0.9);
     expect(MIN_RS_RANGE).toEqual({ min: 50, max: 99, default: 90 });
@@ -77,8 +93,8 @@ describe("matchesLeadership", () => {
   });
 
   it("Leaders follows the backend is_leader flag", () => {
-    const flagged = { rs: 0.95, is_leader: true, leadership: { breakdown: "none" as const } };
-    const unflagged = { rs: 0.95, is_leader: false, leadership: { breakdown: "none" as const } };
+    const flagged = { rs: 0.95, is_leader: true, score: 80, leadership: { breakdown: "none" as const } };
+    const unflagged = { rs: 0.95, is_leader: false, score: 80, leadership: { breakdown: "none" as const } };
     expect(matchesLeadership(flagged, "leaders")).toBe(true);
     expect(matchesLeadership(unflagged, "leaders")).toBe(false);
     expect(matchesLeadership(unflagged, "leaders", sliderToRs(50))).toBe(false);
@@ -170,11 +186,17 @@ describe("Weekly setups", () => {
     expect(triggered(sliderToRs(50))).not.toContain(setupNoRs);
   });
 
-  it("each setup view is a subset of Leaders at the same slider position", () => {
+  it("each setup view only lists marked leaders at the same slider position", () => {
     for (const v of [50, 80, 90, 99]) {
-      const leaders = all.filter((r) => matchesLeadership(r, "leaders", sliderToRs(v)));
-      for (const r of [...pending(sliderToRs(v)), ...triggered(sliderToRs(v))]) expect(leaders).toContain(r);
+      const marked = all.filter((r) => isLeader(r) && r.rs !== null && r.rs >= sliderToRs(v));
+      for (const r of [...pending(sliderToRs(v)), ...triggered(sliderToRs(v))]) expect(marked).toContain(r);
     }
+  });
+
+  it("the weekly setup views do not apply the Leaders score > 70 cut", () => {
+    const lowScore = row(0.97, "none", null, true, false, 65);
+    expect(matchesLeadership(lowScore, "setups_pending")).toBe(true);
+    expect(matchesLeadership(lowScore, "leaders")).toBe(false);
   });
 
   it("treats a row with no has_setup field as having no setup", () => {
