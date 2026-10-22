@@ -186,17 +186,19 @@ describe("Weekly setups", () => {
     expect(triggered(sliderToRs(50))).not.toContain(setupNoRs);
   });
 
-  it("each setup view only lists marked leaders at the same slider position", () => {
+  it("each setup view is a subset of Leaders at the same slider position", () => {
     for (const v of [50, 80, 90, 99]) {
-      const marked = all.filter((r) => isLeader(r) && r.rs !== null && r.rs >= sliderToRs(v));
-      for (const r of [...pending(sliderToRs(v)), ...triggered(sliderToRs(v))]) expect(marked).toContain(r);
+      const leaders = all.filter((r) => matchesLeadership(r, "leaders", sliderToRs(v)));
+      for (const r of [...pending(sliderToRs(v)), ...triggered(sliderToRs(v))]) expect(leaders).toContain(r);
     }
   });
 
-  it("the weekly setup views do not apply the Leaders score > 70 cut", () => {
-    const lowScore = row(0.97, "none", null, true, false, 65);
-    expect(matchesLeadership(lowScore, "setups_pending")).toBe(true);
-    expect(matchesLeadership(lowScore, "leaders")).toBe(false);
+  it("the weekly setup views apply the Leaders score > 70 cut (70 out, 70.1 in)", () => {
+    for (const view of ["setups_pending", "setups_triggered"] as const) {
+      const triggered = view === "setups_triggered";
+      expect(matchesLeadership(row(0.97, "none", null, true, triggered, 70), view)).toBe(false);
+      expect(matchesLeadership(row(0.97, "none", null, true, triggered, 70.1), view)).toBe(true);
+    }
   });
 
   it("treats a row with no has_setup field as having no setup", () => {

@@ -41,13 +41,13 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "setups_pending",
     label: "Weekly strat awaiting trigger",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side weekly Strat setup on the last completed week (the trigger is that week's high, never the week still in progress) that has not been broken yet, not even by this week's high: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger and distance to it. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; score above 70) with a long-side weekly Strat setup on the last completed week (the trigger is that week's high, never the week still in progress) that has not been broken yet, not even by this week's high: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger and distance to it. Sorted by score.",
   },
   {
     value: "setups_triggered",
     label: "Weekly strat already triggered",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, a hammer that cleared its high, or a pending setup whose trigger (set by the last completed week) the week in progress has traded above (marked “triggered this week”). Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; score above 70) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, a hammer that cleared its high, or a pending setup whose trigger (set by the last completed week) the week in progress has traded above (marked “triggered this week”). Sorted by score.",
   },
   {
     value: "daily_bullish",

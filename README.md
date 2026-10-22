@@ -274,7 +274,7 @@ fewer than 6 sessions behind it) simply leaves the fields empty. The scan row ex
 (`{since, sessions_ago, from_rs}`), all `null` when nothing happened. The prior sessions cost four extra ranking passes per scan
 (`SNAPSHOT_OFFSETS` in `change.py`; the peer distributions are built once per date and reused for every symbol); the backtest skips them.
 
-**Weekly setups (leaders you can act on now).** Marked leaders (no score > 70 cut) that also have a **long-side weekly Strat setup on the last weekly
+**Weekly setups (leaders you can act on now).** *Leaders* (including the score > 70 cut) that also have a **long-side weekly Strat setup on the last weekly
 candle**: marked leader (RS ≥ P90; the Min RS slider can raise the cut), trend not broken (a *weakening* name stays; a *broken* one never
 does) and `has_setup`. The Setups filter splits them into **Weekly strat awaiting trigger** (`triggered` is false) and **Weekly strat already triggered**
 (`triggered` is true; this includes a pending setup whose trigger the week in progress has already traded above, marked
@@ -284,8 +284,7 @@ bar is done and price has not yet broken its high), **2-1-2 / 3-1-2 / 1-2-2 / 2D
 TRIGGERED), and a **weekly hammer** (pending below its own high, or triggered above the prior high). Each row shows the
 **trigger** (the weekly high for longs; the prior high once triggered) and **To trigger**, the distance from price (positive =
 still below the trigger, negative = already through it), and the rows keep the normal score order. It uses the same slider
-as *Leaders* but not its score > 70 cut, so a setup view lists marked leaders at the same Min RS, including ones with a
-score of 70 or less that *Leaders* hides. "Last weekly candle" is the last
+as *Leaders* and its score > 70 cut, so each setup view is always a subset of Leaders at the same Min RS. "Last weekly candle" is the last
 **completed** week: Friday after the close, Saturday, and Sunday include the week that just ended; Monday through Friday
 before the close, and a mid-week `STRAT_AS_OF` cut-off (e.g. Thursday 2026-08-13), use the week before that. Hover the
 option in the dropdown for the same definition. See the *Weekly setups backtest* below for how the combined filter did.
