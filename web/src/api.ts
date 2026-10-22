@@ -9,6 +9,8 @@ export interface Setup {
   trigger: number;
   triggered: boolean;
   detail: string;
+  /** Broken during the week still in progress (the trigger itself is last completed week's). */
+  live?: boolean;
 }
 
 export interface TfState {
@@ -192,6 +194,8 @@ export interface ScanRow {
   trigger_tf: Tf | null;
   setup: string | null;
   triggered: boolean | null;
+  /** True when the in-progress week traded above the trigger (set from the last completed week). */
+  triggered_live?: boolean | null;
   trigger_distance_pct: number | null;
   /** For names with no weekly setup: the closest completed-week high above price. */
   nearest_trigger: number | null;

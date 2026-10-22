@@ -125,3 +125,66 @@ def test_row_carries_a_failed_breakout_and_it_follows_the_cut_off_date():
 def test_etfs_have_no_failed_breakout():
     row = scan_symbol(Member("ETF", "Etf", "Other", "etf", "SP500"), _failed_breakout_history())
     assert row["failed_breakout"] is None
+
+
+def _setup_weeks(live_highs, live_close=104.0):
+    """Filler weeks, a 2U week (Aug 3-7), an inside week (Aug 10-14, high 108), then the week in progress (Aug 17-)."""
+    rows = []
+    for day in pd.bdate_range("2026-06-01", "2026-07-31"):
+        rows.append((day, 100.0, 105.0, 95.0, 100.0))
+    for day in pd.bdate_range("2026-08-03", "2026-08-07"):
+        rows.append((day, 100.0, 110.0, 96.0, 108.0))
+    for day in pd.bdate_range("2026-08-10", "2026-08-14"):
+        rows.append((day, 104.0, 108.0, 100.0, 104.0))
+    for day, high in zip(pd.bdate_range("2026-08-17", periods=len(live_highs)), live_highs):
+        rows.append((day, 104.0, high, 101.0, live_close))
+    idx = pd.DatetimeIndex([r[0] for r in rows])
+    df = pd.DataFrame([r[1:] for r in rows], index=idx, columns=["open", "high", "low", "close"])
+    df["volume"] = 2_000_000.0
+    return df
+
+
+MEMBER = Member("TEST", "Test", "Industrials", "stock", "SP500")
+
+
+def test_weekly_trigger_breaks_during_the_week_in_progress():
+    row = scan_symbol(MEMBER, _setup_weeks([106.0, 107.0, 109.0], live_close=104.0))
+    # The trigger is still the completed inside week's high, never the week in progress.
+    assert row["setup"] == "Weekly 2-1 → 2-1-2 setup"
+    assert row["trigger"] == 108.0
+    # Wednesday's high traded through it, so it is triggered even though the close is back below.
+    assert row["triggered"] is True
+    assert row["triggered_live"] is True
+    assert row["trigger_distance_pct"] > 0
+    primary = next(s for s in row["setups"] if s["kind"] == "2-1-2-pending")
+    assert primary["live"] is True and primary["triggered"] is True
+    assert "this week" in primary["detail"]
+
+
+def test_weekly_trigger_counts_the_live_price_above_it():
+    row = scan_symbol(MEMBER, _setup_weeks([106.0, 112.0], live_close=111.0))
+    assert row["triggered"] is True
+    assert row["trigger"] == 108.0
+    assert row["trigger_distance_pct"] < 0
+
+
+def test_weekly_setup_stays_pending_until_the_week_in_progress_breaks_it():
+    row = scan_symbol(MEMBER, _setup_weeks([106.0, 107.0, 108.0]))
+    # Touching the trigger is not a break.
+    assert row["setup"] == "Weekly 2-1 → 2-1-2 setup"
+    assert row["triggered"] is False
+    assert row["triggered_live"] is False
+    assert all(not s["live"] for s in row["setups"])
+
+
+def test_a_completed_week_has_no_bar_in_progress():
+    """After Friday's close the inside week itself is the last completed bar, so it is the setup (no live break)."""
+    from strat.scanner import in_progress_high
+    from strat.data import resample
+
+    df = _setup_weeks([])
+    assert in_progress_high(df, resample(df, "W"), "W", 104.0) is None
+    live = _setup_weeks([106.0, 109.0])
+    assert in_progress_high(live, resample(live, "W"), "W", 104.0) == 109.0
+    # August is still in progress too: its high so far is the 2U week's 110.
+    assert in_progress_high(live, resample(live, "M"), "M", 104.0) == 110.0

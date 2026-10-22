@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesSetup, type SetupFilter } from "./setupFilter";
+import { matchesSetup, triggerChip, type SetupFilter } from "./setupFilter";
 import { readPersisted, writePersisted } from "./persist";
 
 const W = (inside = false, hammer = false) => ({ inside, hammer }) as never;
@@ -37,5 +37,27 @@ describe("matchesSetup", () => {
     } as Storage;
     writePersisted<SetupFilter>("setup", "triggered", storage);
     expect(readPersisted<SetupFilter>("setup", "any", storage)).toBe("triggered");
+  });
+});
+
+describe("triggerChip", () => {
+  it("is null while the setup is awaiting its trigger", () => {
+    expect(triggerChip({ triggered: false, live: false, trigger: 310.53 })).toBeNull();
+    expect(triggerChip({ triggered: null })).toBeNull();
+  });
+
+  it("says when the week in progress broke the trigger", () => {
+    expect(triggerChip({ triggered: true, live: true, trigger: 310.53 })).toEqual({
+      label: "triggered this week",
+      title: "This week's high traded above the trigger 310.53 (set by last completed week)",
+    });
+    expect(triggerChip({ triggered: true, live: false, trigger: 9 })?.label).toBe("triggered");
+    expect(triggerChip({ triggered: true })?.label).toBe("triggered");
+  });
+
+  it("puts a live break in the already-triggered Setup filter", () => {
+    const row = { trigger: 310.53, triggered: true, tf: { W: null } };
+    expect(matchesSetup(row as never, "triggered")).toBe(true);
+    expect(matchesSetup(row as never, "pending")).toBe(false);
   });
 });

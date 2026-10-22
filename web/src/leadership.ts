@@ -99,7 +99,8 @@ export function weeklyTrendBadge(
  * Whether a scan row passes the Stock Scanner "Setups" filter. `minRs` is the slider as a 0..1 percentile. Broken
  * trends are never listed as leaders. The weekly Strat views are Leaders that also have a long-side weekly Strat setup
  * on the last completed weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger
- * vs already triggered. Daily bullish / bearish trend change is the daily MACD (6,20,9) histogram trigger on the most
+ * vs already triggered. Triggered includes a break by the week in progress (`triggered_live`); the trigger level is
+ * always the last completed week's. Daily bullish / bearish trend change is the daily MACD (6,20,9) histogram trigger on the most
  * recent daily bar with the close above (bullish) or below (bearish) the 50-day SMA (`daily_trend`, gated in the
  * backend; the raw trigger the chart arrow shows is `daily_macd_trigger`); it ignores the slider and the weekly setup. Weekly
  * bullish / bearish trend change is the same trigger on the current (in-progress) weekly bar, gated on the 10-week SMA

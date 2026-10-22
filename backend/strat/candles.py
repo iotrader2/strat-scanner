@@ -92,6 +92,8 @@ class Setup:
     trigger: float
     triggered: bool  # True once price already traded through the trigger
     detail: str = ""
+    # True when the break happened in the week / month still in progress (the trigger itself is from completed bars).
+    live: bool = False
 
 
 @dataclass
@@ -173,3 +175,26 @@ def timeframe_state(tf: str, candles: Sequence[Candle]) -> Optional[TimeframeSta
         hammer=is_hammer(cur),
         setups=find_long_setups(candles, types),
     )
+
+
+PERIOD_WORDS = {"W": "week", "M": "month"}
+
+
+def apply_live_triggers(state: Optional[TimeframeState], live_high: Optional[float]) -> Optional[TimeframeState]:
+    """Mark pending long setups triggered once the bar still in progress has traded above the trigger.
+
+    Setups and their trigger levels come from completed bars only (``find_long_setups`` on the completed weekly or
+    monthly candles); the week or month in progress never sets a trigger. It only decides whether a pending trigger
+    has already been broken: ``live_high`` is the high of the in-progress bar (which includes today's session and the
+    latest price), or None when no bar is in progress (e.g. over the weekend for weeks). Strictly above, like a break.
+    Only long setups exist, so there is no short-side mirror to apply.
+    """
+    if state is None or live_high is None:
+        return state
+    word = PERIOD_WORDS.get(state.tf, "bar")
+    for setup in state.setups:
+        if not setup.triggered and live_high > setup.trigger:
+            setup.triggered = True
+            setup.live = True
+            setup.detail = f"broke {setup.trigger:.2f} this {word} (high {live_high:.2f})"
+    return state

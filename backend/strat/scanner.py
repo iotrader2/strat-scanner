@@ -19,7 +19,7 @@ from .change import (
     snapshot,
     worsened,
 )
-from .candles import Candle, TimeframeState, classify_series, is_hammer, timeframe_state
+from .candles import Candle, TimeframeState, apply_live_triggers, classify_series, is_hammer, timeframe_state
 from .data import resample
 from .periods import completed_week_high_labels
 from . import legacy_scoring, scoring
@@ -42,6 +42,15 @@ from .themes import Theme, ThemeMap, build_theme_index
 from .universe import Member
 
 TIMEFRAMES = ("M", "W", "D")
+LIVE_TRIGGER_TFS = ("W", "M")
+
+
+def in_progress_high(daily: pd.DataFrame, completed: pd.DataFrame, tf: str, price: float) -> Optional[float]:
+    """High of the week / month still in progress (with the latest price), or None when that bar is complete."""
+    live = resample(daily, tf, completed_only=False)
+    if live.empty or len(live) <= len(completed):
+        return None
+    return max(float(live["high"].iloc[-1]), price)
 HIGHER_TFS = ("3M", "6M")  # shown on the index cards, not part of the score
 LEADERS = "leaders"
 LEGACY = "legacy"  # the previous Strat-first score, for the backtest comparison only
@@ -110,10 +119,15 @@ def scan_symbol(
     """
     if daily is None or len(daily) < 30:
         return None
-    candles = {tf: to_candles(resample(daily, tf)) for tf in TIMEFRAMES}
+    frames = {tf: resample(daily, tf) for tf in TIMEFRAMES}
+    candles = {tf: to_candles(frames[tf]) for tf in TIMEFRAMES}
     states = {tf: timeframe_state(tf, candles[tf]) for tf in TIMEFRAMES}
     last = daily.iloc[-1]
     price = float(last.close)
+    # Weekly / monthly triggers stay on the last completed bar; the bar in progress only decides whether one has broken.
+    live_highs = {tf: in_progress_high(daily, frames[tf], tf, price) for tf in LIVE_TRIGGER_TFS}
+    for tf, high in live_highs.items():
+        states[tf] = apply_live_triggers(states[tf], high)
     recent = daily.tail(config.ADV_LOOKBACK_DAYS)
     adv = float((recent.close * recent.volume).mean())
     avg_volume = float(recent.volume.mean())
@@ -174,7 +188,8 @@ def scan_symbol(
         recent, prior = completed_week_high_labels(daily.index[-1].date())
         weekly = candles["W"]
         levels = [(weekly[-1].high, recent)] + ([(weekly[-2].high, prior)] if len(weekly) > 1 else [])
-        near = nearest_trigger(price, levels)
+        # A completed-week high the week in progress already traded above is broken, not a trigger ahead.
+        near = nearest_trigger(max(price, live_highs.get("W") or price), levels)
     return {
         "symbol": member.symbol,
         "name": member.name,
@@ -271,6 +286,8 @@ def scan_symbol(
         "trigger_tf": primary.tf if primary else None,
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,
         "triggered": primary.setup.triggered if primary else None,
+        # True when the break happened in the week still in progress (the trigger is still last completed week's).
+        "triggered_live": primary.setup.live if primary else None,
         "trigger_distance_pct": sc.trigger_distance_pct,
         "nearest_trigger": round(near[0], 2) if near else None,
         "nearest_trigger_label": near[1] if near else None,
