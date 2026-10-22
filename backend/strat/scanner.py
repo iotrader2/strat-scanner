@@ -19,9 +19,9 @@ from .change import (
     snapshot,
     worsened,
 )
-from .candles import Candle, TimeframeState, apply_live_triggers, classify_series, is_hammer, timeframe_state
+from .candles import Candle, TimeframeState, apply_live_triggers, candle_pattern, classify_series, is_hammer, timeframe_state
 from .data import resample
-from .periods import completed_week_high_labels
+from .periods import completed_week_high_labels, daily_bar_complete
 from . import legacy_scoring, scoring
 from .leadership import (
     BENCHMARK,
@@ -43,6 +43,24 @@ from .universe import Member
 
 TIMEFRAMES = ("M", "W", "D")
 LIVE_TRIGGER_TFS = ("W", "M")
+
+
+def candle_patterns(daily: pd.DataFrame, frames: Mapping[str, pd.DataFrame], candles: Mapping[str, list[Candle]]) -> dict:
+    """Inside bar / hammer on the last **completed** weekly and daily bar, with that bar's date.
+
+    The weekly series is already completed-only. The daily series ends with today's session while it is still
+    trading, so that bar is dropped until the close.
+    """
+    out = {}
+    weekly, wframe = candles["W"], frames["W"]
+    out["W"] = {**candle_pattern(weekly), "date": wframe.index[-1].strftime("%Y-%m-%d") if len(wframe) else None}
+    days = candles["D"]
+    if len(daily) and not daily_bar_complete(pd.Timestamp(daily.index[-1]).date()):
+        days, dates = days[:-1], daily.index[:-1]
+    else:
+        dates = daily.index
+    out["D"] = {**candle_pattern(days), "date": dates[-1].strftime("%Y-%m-%d") if len(dates) else None}
+    return out
 
 
 def in_progress_high(daily: pd.DataFrame, completed: pd.DataFrame, tf: str, price: float) -> Optional[float]:
@@ -183,6 +201,7 @@ def scan_symbol(
     rs_prev = rs_then.rs if rs_then else None
     new_breakdown = worsened(trend_break.level, history, as_of)
     new_leader = entered_leaders(rs, trend_break.level, history, as_of)
+    patterns = candle_patterns(daily, frames, candles)
     near = None
     if primary is None and candles["W"]:
         recent, prior = completed_week_high_labels(daily.index[-1].date())
@@ -285,6 +304,8 @@ def scan_symbol(
         "trigger": round(primary.setup.trigger, 2) if primary else None,
         "trigger_tf": primary.tf if primary else None,
         "setup": f"{TF_NAMES[primary.tf]} {primary.setup.label}" if primary else None,
+        # Candle Pattern filter: inside bar / hammer on the last completed weekly and daily bar.
+        "candle_patterns": patterns,
         "triggered": primary.setup.triggered if primary else None,
         # True when the break happened in the week still in progress (the trigger is still last completed week's).
         "triggered_live": primary.setup.live if primary else None,

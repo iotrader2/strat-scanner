@@ -188,3 +188,50 @@ def test_a_completed_week_has_no_bar_in_progress():
     assert in_progress_high(live, resample(live, "W"), "W", 104.0) == 109.0
     # August is still in progress too: its high so far is the 2U week's 110.
     assert in_progress_high(live, resample(live, "M"), "M", 104.0) == 110.0
+
+
+def _pattern_days():
+    """Filler, then Thu 2026-08-13 a hammer (long lower wick, close at the top) and Fri 2026-08-14 an inside day."""
+    rows = [(d, 100.0, 105.0, 95.0, 100.0) for d in pd.bdate_range("2026-06-01", "2026-08-12")]
+    rows.append((pd.Timestamp("2026-08-13"), 99.0, 100.2, 90.0, 100.0))  # hammer: lower wick 9, body 1, upper 0.2
+    rows.append((pd.Timestamp("2026-08-14"), 98.5, 99.0, 95.0, 96.0))  # inside the hammer's 90-100.2 range, not a hammer
+    idx = pd.DatetimeIndex([r[0] for r in rows])
+    df = pd.DataFrame([r[1:] for r in rows], index=idx, columns=["open", "high", "low", "close"])
+    df["volume"] = 2_000_000.0
+    return df
+
+
+def test_candle_patterns_use_the_last_completed_daily_bar(monkeypatch):
+    from datetime import datetime
+
+    import strat.periods as periods
+    from strat.scheduler import ET
+
+    df = _pattern_days()
+    # After Friday's close the inside day is the last completed bar.
+    monkeypatch.setattr(periods, "clock", lambda: datetime(2026, 8, 14, 16, 30, tzinfo=ET))
+    after = scan_symbol(MEMBER, df)["candle_patterns"]["D"]
+    assert after == {"inside": True, "hammer": False, "date": "2026-08-14"}
+    # During Friday's session that bar is still forming, so Thursday's hammer is the last completed one.
+    monkeypatch.setattr(periods, "clock", lambda: datetime(2026, 8, 14, 11, 0, tzinfo=ET))
+    during = scan_symbol(MEMBER, df)["candle_patterns"]["D"]
+    assert during == {"inside": False, "hammer": True, "date": "2026-08-13"}
+
+
+def test_weekly_candle_patterns_come_from_the_completed_week():
+    row = scan_symbol(MEMBER, _setup_weeks([106.0, 107.0]))
+    weekly = row["candle_patterns"]["W"]
+    # The completed week (Aug 10-14) is the inside week; the week in progress does not count.
+    assert weekly["inside"] is True and weekly["date"] == "2026-08-10"
+    assert weekly["inside"] == row["tf"]["W"]["inside"] and weekly["hammer"] == row["tf"]["W"]["hammer"]
+
+
+def test_daily_bar_complete():
+    from datetime import date, datetime
+
+    from strat.periods import daily_bar_complete
+    from strat.scheduler import ET
+
+    assert not daily_bar_complete(date(2026, 8, 14), datetime(2026, 8, 14, 15, 59, tzinfo=ET))
+    assert daily_bar_complete(date(2026, 8, 14), datetime(2026, 8, 14, 16, 0, tzinfo=ET))
+    assert daily_bar_complete(date(2026, 8, 13), datetime(2026, 8, 14, 8, 0, tzinfo=ET))

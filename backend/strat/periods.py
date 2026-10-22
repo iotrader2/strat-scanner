@@ -167,3 +167,9 @@ def completed_week_high_labels(last_bar: date, now: datetime | None = None) -> t
     if later_week or not period_complete("W", last_bar, moment):
         return "last week's high", "prior week's high"
     return "this week's high", "last week's high"
+
+
+def daily_bar_complete(last_bar: date, now: datetime | None = None) -> bool:
+    """False while ``last_bar`` is today's session and the regular close has not passed (the bar is still forming)."""
+    local = _as_et(now)
+    return not (last_bar >= local.date() and local.time() < CLOSE)

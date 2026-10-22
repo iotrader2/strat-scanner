@@ -198,3 +198,11 @@ def apply_live_triggers(state: Optional[TimeframeState], live_high: Optional[flo
             setup.live = True
             setup.detail = f"broke {setup.trigger:.2f} this {word} (high {live_high:.2f})"
     return state
+
+
+def candle_pattern(candles: Sequence[Candle]) -> dict:
+    """Inside bar / hammer on the last candle of ``candles`` (pass completed bars only), same rules as the Strat state."""
+    if not candles:
+        return {"inside": False, "hammer": False}
+    types = classify_series(candles)
+    return {"inside": types[-1] == INSIDE, "hammer": is_hammer(candles[-1])}
