@@ -139,13 +139,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 _write_lock = threading.Lock()
 WAL = os.environ.get("STRAT_SQLITE_WAL", "").strip().lower() in ("1", "true", "yes")
+# Seconds a connection waits on another writer (the fetch child, the API process) before "database is locked".
+BUSY_TIMEOUT = float(os.environ.get("STRAT_SQLITE_BUSY_TIMEOUT", "60"))
 
 
 @contextmanager
 def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     path = Path(db_path or config.CACHE_DB)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT)
+    conn.execute(f"PRAGMA busy_timeout = {int(BUSY_TIMEOUT * 1000)}")
     if WAL:
         # Readers (the API) and the writer (the fetcher, possibly a child process) stop blocking each other.
         conn.execute("PRAGMA journal_mode=WAL")
@@ -566,6 +569,13 @@ def _adjust(frames: dict[str, pd.DataFrame], as_of: str, db_path: Path | None) -
     return out
 
 
+# Retry policy for symbols a download batch came back without (see ``refresh``).
+RETRY_PASSES = 2
+RETRY_BATCH = 10
+RETRY_SLEEP = float(os.environ.get("STRAT_RETRY_SLEEP", "2"))
+BENCHMARK_ATTEMPTS = 3
+REQUIRED_SYMBOLS = ("QQQ", "SPY", "IWM")
+
 # A rescan used to read every symbol into a second dict while the API still held the
 # previous one. Batching keeps the extra allocation to one slice of the universe.
 RELOAD_BATCH = 40
@@ -816,34 +826,78 @@ def refresh(
 
     provider = get_provider()
     saved: dict[str, int] = {}
+    got: set[str] = set()
     done = 0
     total = len(symbols)
+
+    def fetch_batch(batch: list[str], window: str) -> None:
+        fetched = None
+        for attempt in range(3):
+            try:
+                fetched = provider.fetch_history(batch, window)
+                break
+            except Exception as exc:  # network hiccups / rate limits
+                log.warning("download failed (%s), retrying: %s", attempt + 1, exc)
+                time.sleep(RETRY_SLEEP * (attempt + 1))
+        if fetched is None:
+            return
+        for sym, sub in fetched.frames.items():
+            if sub is None or sub.dropna(subset=[c for c in ("Open", "High", "Low", "Close") if c in sub.columns]).empty:
+                continue  # an all-NaN frame is a failed download (yfinance reports it but still returns columns)
+            save_splits(sym, fetched.splits.get(sym, []), db_path)
+            save_spinoffs(sym, getattr(fetched, "spinoffs", {}).get(sym, []), db_path)
+            done_bars, session = _split_partial(sub)
+            n = save_bars(sym, done_bars, db_path)
+            if session is None:
+                clear_session_bar(sym, db_path)
+            else:
+                save_session_bar(sym, session, db_path)
+            got.add(sym)
+            if n or session is not None:
+                saved[sym] = n
+
     for window, syms in groups.items():
         for i in range(0, len(syms), config.DOWNLOAD_BATCH):
             batch = syms[i : i + config.DOWNLOAD_BATCH]
             if progress:
                 progress(done, total, f"Downloading {batch[0]}…{batch[-1]} ({window})")
-            fetched = None
-            for attempt in range(3):
-                try:
-                    fetched = provider.fetch_history(batch, window)
-                    break
-                except Exception as exc:  # network hiccups / rate limits
-                    log.warning("download failed (%s), retrying: %s", attempt + 1, exc)
-                    time.sleep(2 * (attempt + 1))
-            if fetched is not None:
-                for sym, sub in fetched.frames.items():
-                    save_splits(sym, fetched.splits.get(sym, []), db_path)
-                    save_spinoffs(sym, getattr(fetched, "spinoffs", {}).get(sym, []), db_path)
-                    done_bars, session = _split_partial(sub)
-                    n = save_bars(sym, done_bars, db_path)
-                    if session is None:
-                        clear_session_bar(sym, db_path)
-                    else:
-                        save_session_bar(sym, session, db_path)
-                    if n or session is not None:
-                        saved[sym] = n
+            fetch_batch(batch, window)
             done += len(batch)
+
+    # Symbols a batch came back without (a lock or rate-limit miss, a transient error) are retried in small
+    # batches instead of being dropped. Benchmarks get extra single-symbol attempts: without QQQ every
+    # Vs QQQ score would silently be zero.
+    window_of = {s: w for w, syms in groups.items() for s in syms}
+    missing = [s for s in symbols if s not in got]
+    for attempt in range(RETRY_PASSES):
+        if not missing:
+            break
+        log.warning("refresh: retrying %d symbols with no bars (pass %d): %s", len(missing), attempt + 1, missing[:20])
+        time.sleep(RETRY_SLEEP * (attempt + 1))
+        for i in range(0, len(missing), RETRY_BATCH):
+            chunk = missing[i : i + RETRY_BATCH]
+            by_window: dict[str, list[str]] = {}
+            for s in chunk:
+                by_window.setdefault(window_of[s], []).append(s)
+            for window, syms in by_window.items():
+                fetch_batch(syms, window)
+        missing = [s for s in missing if s not in got]
+    required = [s for s in missing if s in REQUIRED_SYMBOLS]
+    for attempt in range(BENCHMARK_ATTEMPTS):
+        if not required:
+            break
+        time.sleep(RETRY_SLEEP * (attempt + 1))
+        for s in required:
+            fetch_batch([s], window_of[s])
+        required = [s for s in required if s not in got]
+    missing = [s for s in missing if s not in got]
+    if missing:
+        log.warning("refresh: %d symbols returned no bars after retries: %s", len(missing), missing)
+    cached = cached_symbols(db_path)
+    lost = [s for s in REQUIRED_SYMBOLS if s in symbols and s not in cached]
+    if lost:
+        # Previous bars (if any) are kept; with none at all, fail loudly instead of scoring Vs QQQ as zero.
+        raise RuntimeError(f"benchmark download failed: {', '.join(lost)} has no bars")
     set_meta("last_refresh", datetime.now(timezone.utc).isoformat(timespec="seconds"), db_path)
     release_download_cache()
     if progress:

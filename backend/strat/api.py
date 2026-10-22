@@ -52,6 +52,24 @@ class State:
     theme_map: Optional[ThemeMap] = None
     version: int = 0
     quoting: bool = False
+    # The one background job allowed at a time ("refresh", "quotes", "earnings"), held from the start of its
+    # download until its rescan has finished. Two jobs never download, write the cache or hold a second copy
+    # of the universe in memory together.
+    job: Optional[str] = None
+
+
+def _claim_job(kind: str) -> bool:
+    """Take the single job slot. False when another download / rescan is still running."""
+    with State.lock:
+        if State.job is not None or State.refreshing or State.quoting:
+            return False
+        State.job = kind
+        return True
+
+
+def _release_job() -> None:
+    with State.lock:
+        State.job = None
 
 
 def _universe() -> list[Member]:
@@ -132,7 +150,27 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
                 _ensure_scan(force=True)
         finally:
             memory.release_heap()
+            _release_job()
             _log_rss("end", full=full, period=period or "", fetch=fetch)
+
+
+def _warm_earnings(wait_seconds: float = 900, poll: float = 5.0) -> None:
+    """Boot-time earnings check, run in the job slot so it never overlaps a price download.
+
+    Waits (up to ``wait_seconds``) for a running job to finish instead of racing it.
+    """
+    deadline = time.monotonic() + wait_seconds
+    while not _claim_job("earnings"):
+        if time.monotonic() >= deadline:
+            log.warning("earnings warm-up skipped: another fetch held the job slot")
+            return
+        time.sleep(poll)
+    try:
+        _refresh_earnings(max_age_hours=earnings.MAX_AGE_HOURS)
+    except Exception:
+        log.exception("earnings warm-up failed")
+    finally:
+        _release_job()
 
 
 def _refresh_earnings(max_age_hours: float, progress=None) -> None:
@@ -173,14 +211,16 @@ def _run_index_quotes() -> None:
         log.exception("index quote refresh failed")
     finally:
         State.quoting = False
+        _release_job()
         memory.release_heap()
         _log_rss("end", fetch="in-process", kind="extended")
 
 
 def start_index_quotes() -> bool:
     with State.lock:
-        if State.refreshing or State.quoting:
+        if State.job is not None or State.refreshing or State.quoting:
             return False
+        State.job = "quotes"
         State.quoting = True
     threading.Thread(target=_run_index_quotes, daemon=True).start()
     return True
@@ -190,8 +230,9 @@ def start_refresh(
     full: bool = False, period: str | None = None, with_earnings: bool = True, intraday: bool = False
 ) -> bool:
     with State.lock:
-        if State.refreshing or State.quoting:
+        if State.job is not None or State.refreshing or State.quoting:
             return False
+        State.job = "refresh"
         State.refreshing = True
         State.error = None
         State.progress = {"done": 0, "total": 0, "message": "Starting"}
@@ -300,7 +341,7 @@ def _boot() -> None:
         log.info("Cache is empty, starting the initial download")
         start_refresh(full=True)
     else:
-        threading.Thread(target=_refresh_earnings, kwargs={"max_age_hours": earnings.MAX_AGE_HOURS}, daemon=True).start()
+        threading.Thread(target=_warm_earnings, daemon=True).start()
         with _scan_lock:
             _ensure_scan(force=True)
     _scheduler_loop()
@@ -311,7 +352,7 @@ def _scheduler_loop() -> None:
     last_extended = None
     while True:
         time.sleep(scheduler_sleep(now_et(), live_bars_enabled()))
-        if config.AS_OF or State.refreshing or State.quoting:
+        if config.AS_OF or State.refreshing or State.quoting or State.job is not None:
             continue
         now = now_et()
         if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():

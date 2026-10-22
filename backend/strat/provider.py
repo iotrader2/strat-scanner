@@ -107,6 +107,11 @@ class YahooProvider:
                 continue
             if sub is None or sub.empty:
                 continue
+            # A failed ticker (e.g. yfinance's own cache answering "database is locked") still comes back as
+            # an all-NaN column block. Leave it out so the caller sees it as missing and retries it.
+            prices = [c for c in ("Open", "High", "Low", "Close") if c in sub.columns]
+            if prices and sub[prices].dropna(how="all").empty:
+                continue
             result.frames[sym] = sub
             found = splits_in(sub)
             if found:
