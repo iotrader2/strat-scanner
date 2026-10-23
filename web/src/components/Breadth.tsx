@@ -1,5 +1,5 @@
 import type { Breadth } from "../api";
-import { nasiRead, universeLabel } from "../market";
+import { adRatio, nasiRead, universeLabel } from "../market";
 import { LineChart } from "./LineChart";
 
 function signed(value: number, digits = 0): string {
@@ -34,6 +34,8 @@ function CountBar({
   redLabel,
   gray = 0,
   grayTitle,
+  label,
+  ratio,
 }: {
   green: number;
   greenLabel: string;
@@ -41,12 +43,18 @@ function CountBar({
   redLabel: string;
   gray?: number;
   grayTitle?: string;
+  /** Row name on the left ("Universe", "Nasdaq") when a card stacks more than one bar. */
+  label?: string;
+  /** Show "(1.3 to 1)" for the leading side, colored like that side. */
+  ratio?: boolean;
 }) {
   const total = green + red + gray;
   const width = (n: number) => (total > 0 ? `${(n / total) * 100}%` : "0%");
+  const lead = ratio ? adRatio(green, red) : null;
   return (
     <div className="ad-row">
-      <div className="ad-head">
+      <div className={`ad-head${label ? " labeled" : ""}`}>
+        {label && <span className="ad-label">{label}</span>}
         <span className="muted">
           <span className="green-text">
             {green.toLocaleString()} {greenLabel}
@@ -55,6 +63,12 @@ function CountBar({
           <span className="red-text">
             {red.toLocaleString()} {redLabel}
           </span>
+          {lead && (
+            <>
+              {" "}
+              <span className={lead.decliners ? "red-text" : "green-text"}>({lead.text})</span>
+            </>
+          )}
         </span>
       </div>
       <div className="ad-track" title={grayTitle}>
@@ -72,8 +86,9 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
   const nasiCall = nasi && nasi.points.length > 0 ? nasiRead(nasi) : null;
   const fear = breadth.fear_greed;
   const issues = breadth.issues;
+  const nasdaq = breadth.nasdaq_issues ?? null;
   const extremes = breadth.highs_lows;
-  if (!nasi && !fear && !issues && !extremes) return null;
+  if (!nasi && !fear && !issues && !nasdaq && !extremes) return null;
 
   return (
     <section className="breadth-grid">
@@ -97,7 +112,7 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
           <LineChart points={nasi.points} color={nasi.value >= 0 ? "#22c55e" : "#f43f5e"} height={220} />
         </div>
       )}
-      {(fear || issues || extremes) && (
+      {(fear || issues || nasdaq || extremes) && (
         <div className="breadth-side">
           {fear && (
             <div className="card breadth-card">
@@ -115,22 +130,38 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
               </div>
             </div>
           )}
-          {issues && (
+          {(issues || nasdaq) && (
             <div className="card breadth-card">
               <div className="breadth-head">
                 <div>
                   <div className="sym">Advancers vs decliners</div>
-                  <div className="sub muted">Today · {universeLabel(issues.names)}</div>
+                  <div className="sub muted">Today{issues ? ` · ${universeLabel(issues.names)}` : ""}</div>
                 </div>
               </div>
-              <CountBar
-                green={issues.advancing}
-                greenLabel="up"
-                red={issues.declining}
-                redLabel="down"
-                gray={issues.unchanged}
-                grayTitle={`${issues.unchanged.toLocaleString()} unchanged`}
-              />
+              {issues && (
+                <CountBar
+                  label={nasdaq ? "Universe" : undefined}
+                  green={issues.advancing}
+                  greenLabel="up"
+                  red={issues.declining}
+                  redLabel="down"
+                  gray={issues.unchanged}
+                  grayTitle={`${issues.unchanged.toLocaleString()} unchanged`}
+                  ratio={Boolean(nasdaq)}
+                />
+              )}
+              {nasdaq && (
+                <CountBar
+                  label="Nasdaq"
+                  green={nasdaq.advancing}
+                  greenLabel="up"
+                  red={nasdaq.declining}
+                  redLabel="down"
+                  gray={nasdaq.unchanged}
+                  grayTitle={`All Nasdaq issues · ${nasdaq.unchanged.toLocaleString()} unchanged · WSJ markets diary, ${nasdaq.as_of}`}
+                  ratio
+                />
+              )}
             </div>
           )}
           {extremes && (

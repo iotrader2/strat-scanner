@@ -324,11 +324,24 @@ export interface HighLowCounts {
   names: number;
 }
 
+/** Exchange-wide Nasdaq issues from the WSJ markets diary, for the same session as the universe counts. */
+export interface NasdaqIssues {
+  advancing: number;
+  declining: number;
+  unchanged: number;
+  /** The diary's own stamp, e.g. "4:15 PM EDT 10/22/26". */
+  as_of: string;
+  /** Session date (YYYY-MM-DD). */
+  session: string;
+}
+
 export interface Breadth {
   nasi: Nasi | null;
   fear_greed: FearGreed | null;
   issues: IssueCounts | null;
   highs_lows: HighLowCounts | null;
+  /** Missing when the diary could not be read for this session: the row is hidden, never estimated. */
+  nasdaq_issues?: NasdaqIssues | null;
 }
 
 export type TrendCall = "on" | "off" | "caution";

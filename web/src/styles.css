@@ -252,6 +252,9 @@ th.num { text-align: right; }
 .fg-history { display: flex; gap: 12px; font-size: 12px; }
 .ad-row { display: flex; flex-direction: column; gap: 6px; }
 .ad-head { display: flex; justify-content: flex-end; gap: 8px; font-size: 12px; font-weight: 600; }
+.ad-head.labeled { justify-content: space-between; }
+.ad-label { color: var(--muted); font-weight: 600; }
+.breadth-card .ad-row + .ad-row { margin-top: 10px; }
 .ad-track { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--border); }
 .ad-adv { background: var(--green); }
 .ad-unch { background: rgba(139, 147, 167, 0.7); }
