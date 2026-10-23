@@ -5,9 +5,8 @@ import { ActionMenu } from "../components/ActionMenu";
 import { SkeletonTable } from "../components/Loading";
 import { ConfirmModal, EntryModal, TrimModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
-import { listIntradayColumns } from "../components/ListIntradayColumns";
-import { ScanTable, type ExtraColumn } from "../components/ScanTable";
-import { crossHighlight } from "../listIntraday";
+import { ListTable } from "../components/ListTable";
+import type { ExtraColumn } from "../components/ScanTable";
 import { fmtPct } from "../api";
 import {
   fmtPnl,
@@ -214,7 +213,6 @@ export default function Positions() {
         return s && `${s.days}d`;
       },
     },
-    ...listIntradayColumns(data?.intraday),
   ];
 
   const moveBack = async (p: Position) => {
@@ -270,15 +268,15 @@ export default function Positions() {
           <Link className="sector-link" to="/watchlist">Watchlist</Link> row once you buy it.
         </div>
       ) : data === null ? (
-        <SkeletonTable rows={4} cols={19} label="Loading positions…" />
+        <SkeletonTable rows={4} cols={16} label="Loading positions…" />
       ) : (
-        <ScanTable
+        <ListTable
           rows={rows}
+          intraday={data?.intraday}
           watchColumn={false}
           priceLabel="Last"
           leadColumns={lead}
           extraColumns={extra}
-          rowHighlight={(r) => crossHighlight(data?.intraday?.[r.symbol])}
           actionsLabel=""
           actions={(r) => {
             const p = bySymbol.get(r.symbol);

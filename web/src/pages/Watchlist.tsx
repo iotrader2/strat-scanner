@@ -4,9 +4,7 @@ import type { ScanRow } from "../api";
 import { SkeletonTable } from "../components/Loading";
 import { EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
-import { listIntradayColumns } from "../components/ListIntradayColumns";
-import { ScanTable } from "../components/ScanTable";
-import { crossHighlight } from "../listIntraday";
+import { ListTable } from "../components/ListTable";
 import { useWatchlist } from "../components/Watch";
 import { normalizeTicker, watchedRows } from "../watchlist";
 
@@ -70,8 +68,6 @@ export default function Watchlist() {
   const rows = useMemo(() => watchedRows(data?.rows ?? [], symbols), [data, symbols]);
   const missing = (data?.missing ?? []).filter((s) => symbols.includes(s));
   const active = rows.filter((r) => r.has_setup).length;
-  const intraday = data?.intraday;
-  const intradayCols = useMemo(() => listIntradayColumns(intraday), [intraday]);
 
   return (
     <div className="page">
@@ -110,12 +106,11 @@ export default function Watchlist() {
           <Link className="sector-link" to="/themes">theme</Link> card to add names.
         </div>
       ) : data === null ? (
-        <SkeletonTable rows={5} cols={16} label="Loading watchlist…" />
+        <SkeletonTable rows={5} cols={13} label="Loading watchlist…" />
       ) : (
-        <ScanTable
+        <ListTable
           rows={rows}
-          extraColumns={intradayCols}
-          rowHighlight={(r) => crossHighlight(intraday?.[r.symbol])}
+          intraday={data?.intraday}
           actionsLabel=""
           actions={(r) => (
             <button type="button" className="btn small move-btn" onClick={() => setMoving(r)} title="Record the entry and track it on the Positions tab">

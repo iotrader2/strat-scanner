@@ -150,6 +150,11 @@ interface Props {
   initialSort?: { key: string; dir: 1 | -1 };
   /** Symbol search text: the row whose ticker equals it is shown first, whatever the sort. */
   pinSymbol?: string;
+  /**
+   * Trading-list layout (Watchlist and Positions, via ListTable): drops the scanning-only columns,
+   * 1M / 3M / 6M returns, D · W · M continuity and Weekly setup.
+   */
+  tradingList?: boolean;
   /** Per-row highlight (extra class on the row, and its tooltip). */
   rowHighlight?: (r: ScanRow) => { className: string; title: string } | null;
 }
@@ -168,7 +173,9 @@ export function ScanTable({
   detailTf,
   pinSymbol = "",
   rowHighlight,
+  tradingList = false,
 }: Props) {
+  const scanning = !tradingList;
   const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>(initialSort);
   const custom = useMemo(() => [...leadColumns, ...extraColumns], [leadColumns, extraColumns]);
@@ -206,9 +213,9 @@ export function ScanTable({
             {header("price", priceLabel, "num")}
             {extraColumns.map((c) => header(c.key, c.label, c.className))}
             {header("change_pct", "Day", "num")}
-            {PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
-            <th>D · W · M</th>
-            <th>Weekly setup</th>
+            {scanning && PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
+            {scanning && <th>D · W · M</th>}
+            {scanning && <th>Weekly setup</th>}
             <th className="num">Trigger</th>
             {header("trigger_distance_pct", "To trigger", "num")}
             {header("avg_dollar_volume", "Avg $vol", "num")}
@@ -271,14 +278,17 @@ export function ScanTable({
                 </td>
               ))}
               <td className={`num ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</td>
-              {PERF_PERIODS.map((p) => (
+              {scanning && PERF_PERIODS.map((p) => (
                 <td key={p.key} className={`num perf-col ${perfClass(r.perf?.[p.key])}`}>
                   {fmtPerf(r.perf?.[p.key])}
                 </td>
               ))}
-              <td>
-                <TfBadges tf={r.tf} />
-              </td>
+              {scanning && (
+                <td>
+                  <TfBadges tf={r.tf} />
+                </td>
+              )}
+              {scanning && (
               <td className="setup-cell">
                 {trend && (
                   <span className={`trend-badge ${trend.tone}`} title={trend.title}>
@@ -329,6 +339,7 @@ export function ScanTable({
                   </>
                 )}
               </td>
+              )}
               <TriggerCells row={r} />
               <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
               <td className="num">{r.atr == null ? "—" : r.atr.toFixed(2)}</td>
