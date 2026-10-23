@@ -90,3 +90,24 @@ describe("score message color", () => {
     }
   });
 });
+
+describe("no emoji or icon glyphs on the market card", () => {
+  // Pictographs, dingbats / misc symbols, variation selectors and regional indicators. Ragnar's images carry the mood.
+  const GLYPH = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{1F1E6}-\u{1F1FF}]/u;
+
+  it("has plain-text score messages", () => {
+    for (const message of MARKET_SCORE_MESSAGES) expect(message).not.toMatch(GLYPH);
+    expect(MARKET_SCORE_MESSAGES[1]).toBe("Barely a pulse. Cash is a position, and today it's the best one.");
+  });
+
+  it("renders no glyphs for any call and score, and keeps Ragnar and the chips", () => {
+    for (const call of ["on", "caution", "off"] as const) {
+      for (let score = 0; score <= 9; score++) {
+        const html = renderToStaticMarkup(<MarketMood trend={trend(call, score)} days={days} issues={{ advancing: 100, declining: 400, unchanged: 0, names: 500 }} />);
+        expect(html).not.toMatch(GLYPH);
+        expect(html).toContain(`src="/ragnar/ragnar-${score}.webp"`);
+        expect(html.match(/class="trend-ma /g)).toHaveLength(9);
+      }
+    }
+  });
+});
