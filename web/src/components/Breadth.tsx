@@ -88,7 +88,8 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
   const issues = breadth.issues;
   const nasdaq = breadth.nasdaq_issues ?? null;
   const extremes = breadth.highs_lows;
-  if (!nasi && !fear && !issues && !nasdaq && !extremes) return null;
+  const nasdaqExtremes = breadth.nasdaq_highs_lows ?? null;
+  if (!nasi && !fear && !issues && !nasdaq && !extremes && !nasdaqExtremes) return null;
 
   return (
     <section className="breadth-grid">
@@ -112,7 +113,7 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
           <LineChart points={nasi.points} color={nasi.value >= 0 ? "#22c55e" : "#f43f5e"} height={220} />
         </div>
       )}
-      {(fear || issues || nasdaq || extremes) && (
+      {(fear || issues || nasdaq || extremes || nasdaqExtremes) && (
         <div className="breadth-side">
           {fear && (
             <div className="card breadth-card">
@@ -164,21 +165,36 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
               )}
             </div>
           )}
-          {extremes && (
+          {(extremes || nasdaqExtremes) && (
             <div className="card breadth-card">
               <div className="breadth-head">
                 <div>
                   <div className="sym">New highs vs new lows</div>
-                  <div className="sub muted">52-week · {universeLabel(extremes.names)}</div>
+                  <div className="sub muted">52-week{extremes ? ` · ${universeLabel(extremes.names)}` : ""}</div>
                 </div>
               </div>
-              <CountBar
-                green={extremes.highs}
-                greenLabel={extremes.highs === 1 ? "high" : "highs"}
-                red={extremes.lows}
-                redLabel={extremes.lows === 1 ? "low" : "lows"}
-                grayTitle="Latest session versus the prior 252 sessions"
-              />
+              {extremes && (
+                <CountBar
+                  label={nasdaqExtremes ? "Universe" : undefined}
+                  green={extremes.highs}
+                  greenLabel={extremes.highs === 1 ? "high" : "highs"}
+                  red={extremes.lows}
+                  redLabel={extremes.lows === 1 ? "low" : "lows"}
+                  grayTitle="Latest session versus the prior 252 sessions"
+                  ratio={Boolean(nasdaqExtremes)}
+                />
+              )}
+              {nasdaqExtremes && (
+                <CountBar
+                  label="Nasdaq"
+                  green={nasdaqExtremes.highs}
+                  greenLabel={nasdaqExtremes.highs === 1 ? "high" : "highs"}
+                  red={nasdaqExtremes.lows}
+                  redLabel={nasdaqExtremes.lows === 1 ? "low" : "lows"}
+                  grayTitle={`All Nasdaq issues at a 52-week high or low · WSJ markets diary, ${nasdaqExtremes.as_of}`}
+                  ratio
+                />
+              )}
             </div>
           )}
         </div>

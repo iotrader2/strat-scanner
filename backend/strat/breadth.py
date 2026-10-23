@@ -7,10 +7,11 @@ keeps the last good reading.
 Advancers versus decliners, and 52-week new highs versus new lows, count the symbols this
 scanner already tracks (the scan rows), using the daily bars the background fetcher has cached.
 
-Nasdaq advancers versus decliners (all Nasdaq-listed issues) come from the WSJ markets diary.
-They are fetched by the background job (``refresh_nasdaq_issues``, on the price-refresh cadence),
+Nasdaq advancers versus decliners, and Nasdaq 52-week new highs versus new lows (all
+Nasdaq-listed issues), come from one WSJ markets diary request. They are fetched by the background job (``refresh_nasdaq_issues``, on the price-refresh cadence),
 never by a page request, and shown only for the same session as the universe counts. A failed
-fetch keeps the last real reading; with none, the line is hidden. Nothing is estimated.
+fetch keeps the last real reading; with none, the line is hidden. Nothing is estimated. The two
+tables are parsed independently, so a diary missing one still shows the other.
 """
 
 from __future__ import annotations
@@ -247,11 +248,10 @@ def diary_session(timestamp: object) -> Optional[str]:
         return None
 
 
-def parse_nasdaq_issues(payload: object) -> Optional[dict]:
-    """WSJ markets diary -> Nasdaq advancing / declining / unchanged issue counts and the diary's session.
+def _diary_nasdaq(payload: object, label: str, rows: tuple[tuple[str, str], ...]) -> Optional[dict]:
+    """One diary table (matched by its header label) -> Nasdaq counts plus the diary's stamp and session.
 
-    Only the "Issues" table is read: the diary repeats the same row names for share volume. Any missing or
-    non-numeric count, or a stamp without a date, rejects the whole reading.
+    Any missing or non-numeric count, or a stamp without a date, rejects the whole reading.
     """
     data = payload.get("data") if isinstance(payload, dict) else None
     sets = data.get("instrumentSets") if isinstance(data, dict) else None
@@ -265,18 +265,15 @@ def parse_nasdaq_issues(payload: object) -> Optional[dict]:
             and isinstance(item.get("headerFields"), list)
             and item["headerFields"]
             and isinstance(item["headerFields"][0], dict)
-            and item["headerFields"][0].get("label") == "Issues"
+            and item["headerFields"][0].get("label") == label
         ),
         None,
     )
     if table is None:
         return None
-    rows = {r.get("name"): r for r in table.get("instruments") or [] if isinstance(r, dict) and r.get("name")}
-    counts = {
-        field: _count((rows.get(name) or {}).get("NASDAQ"))
-        for name, field in (("Advancing", "advancing"), ("Declining", "declining"), ("Unchanged", "unchanged"))
-    }
-    if any(v is None for v in counts.values()) or counts["advancing"] + counts["declining"] == 0:
+    by_name = {r.get("name"): r for r in table.get("instruments") or [] if isinstance(r, dict) and r.get("name")}
+    counts = {field: _count((by_name.get(name) or {}).get("NASDAQ")) for name, field in rows}
+    if any(v is None for v in counts.values()):
         return None
     stamp = data.get("timestamp")
     session = diary_session(stamp)
@@ -285,34 +282,72 @@ def parse_nasdaq_issues(payload: object) -> Optional[dict]:
     return {**counts, "as_of": stamp, "session": session}
 
 
+def parse_nasdaq_issues(payload: object) -> Optional[dict]:
+    """WSJ markets diary -> Nasdaq advancing / declining / unchanged issue counts and the diary's session.
+
+    Only the "Issues" table is read: the diary repeats the same row names for share volume.
+    """
+    got = _diary_nasdaq(
+        payload, "Issues", (("Advancing", "advancing"), ("Declining", "declining"), ("Unchanged", "unchanged"))
+    )
+    if got is None or got["advancing"] + got["declining"] == 0:
+        return None
+    return got
+
+
+def parse_nasdaq_highs_lows(payload: object) -> Optional[dict]:
+    """WSJ markets diary "Issues At" table -> Nasdaq 52-week new highs and new lows and the diary's session.
+
+    Zero is a valid count here (a quiet tape can print no new lows); only missing or non-numeric counts reject it.
+    """
+    return _diary_nasdaq(payload, "Issues At", (("New Highs", "highs"), ("New Lows", "lows")))
+
+
 _nasdaq: dict = {}
 
 
 def refresh_nasdaq_issues(load: Callable[[], str] | None = None) -> Optional[dict]:
     """Fetch the Nasdaq diary into memory. Called from the background job slot, not from requests.
 
-    A failure is logged and leaves the last real reading in place. Returns the reading now held.
+    One request feeds both Nasdaq readings (advancers/decliners and new highs/lows); each is parsed
+    on its own. A failure is logged and leaves the last real reading in place. Returns the
+    advancers/decliners reading now held.
     """
+    issues = highs_lows = None
     try:
-        fresh = parse_nasdaq_issues(json.loads((load or _diary_text)()))
-        if fresh is None:
+        payload = json.loads((load or _diary_text)())
+        issues = parse_nasdaq_issues(payload)
+        highs_lows = parse_nasdaq_highs_lows(payload)
+        if issues is None:
             log.warning("breadth nasdaq_issues: diary had no usable Nasdaq issue counts")
+        if highs_lows is None:
+            log.warning("breadth nasdaq_highs_lows: diary had no usable Nasdaq new highs / new lows")
     except Exception as exc:
-        log.warning("breadth nasdaq_issues failed: %s", exc)
-        fresh = None
+        log.warning("breadth nasdaq diary failed: %s", exc)
     with _lock:
-        if fresh is not None:
-            _nasdaq["reading"] = fresh
+        if issues is not None:
+            _nasdaq["reading"] = issues
+        if highs_lows is not None:
+            _nasdaq["highs_lows"] = highs_lows
         return _nasdaq.get("reading")
 
 
-def nasdaq_issues(session: Optional[str]) -> Optional[dict]:
-    """The held Nasdaq reading when it is for ``session`` (the universe counts' session) or later; else None."""
+def _held(key: str, session: Optional[str]) -> Optional[dict]:
     with _lock:
-        reading = _nasdaq.get("reading")
+        reading = _nasdaq.get(key)
     if reading is None or not session or reading["session"] < session:
         return None
     return dict(reading)
+
+
+def nasdaq_issues(session: Optional[str]) -> Optional[dict]:
+    """The held Nasdaq A/D reading when it is for ``session`` (the universe counts' session) or later; else None."""
+    return _held("reading", session)
+
+
+def nasdaq_highs_lows(session: Optional[str]) -> Optional[dict]:
+    """The held Nasdaq new highs / new lows reading when it is for ``session`` or later; else None."""
+    return _held("highs_lows", session)
 
 
 def clear_cache() -> None:

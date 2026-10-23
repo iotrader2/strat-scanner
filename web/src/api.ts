@@ -335,6 +335,16 @@ export interface NasdaqIssues {
   session: string;
 }
 
+/** Exchange-wide Nasdaq 52-week new highs and new lows, from the same WSJ diary request. */
+export interface NasdaqHighsLows {
+  highs: number;
+  lows: number;
+  /** The diary's own stamp, e.g. "4:15 PM EDT 10/22/26". */
+  as_of: string;
+  /** Session date (YYYY-MM-DD). */
+  session: string;
+}
+
 export interface Breadth {
   nasi: Nasi | null;
   fear_greed: FearGreed | null;
@@ -342,6 +352,8 @@ export interface Breadth {
   highs_lows: HighLowCounts | null;
   /** Missing when the diary could not be read for this session: the row is hidden, never estimated. */
   nasdaq_issues?: NasdaqIssues | null;
+  /** Same rule: hidden when the diary could not be read for this session. */
+  nasdaq_highs_lows?: NasdaqHighsLows | null;
 }
 
 export type TrendCall = "on" | "off" | "caution";
