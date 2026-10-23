@@ -110,7 +110,7 @@ export function BreadthPanel({ breadth }: { breadth: Breadth }) {
             </div>
           </div>
           <p className="nasi-note muted">{nasiCall?.detail}</p>
-          <LineChart points={nasi.points} color={nasi.value >= 0 ? "#22c55e" : "#f43f5e"} height={220} />
+          <LineChart points={nasi.points} color={nasi.value >= 0 ? "#22c55e" : "#f43f5e"} height={220} fill />
         </div>
       )}
       {(fear || issues || nasdaq || extremes || nasdaqExtremes) && (
