@@ -260,14 +260,15 @@ th.num { text-align: right; }
 .ad-unch { background: rgba(139, 147, 167, 0.7); }
 .ad-dec { background: var(--red); }
 .market-score-msg { font-size: 19px; font-weight: 800; margin-top: 10px; letter-spacing: -0.01em; }
-/* One combined State of the Market card: Ragnar + call + message on top, the index chips below. */
-.trend-banner.market-mood { flex-direction: column; align-items: stretch; gap: 16px; padding: 18px 20px; }
-.mood-top { display: flex; align-items: center; gap: 20px; min-width: 0; }
+/* One combined State of the Market card: Ragnar + call + message on the left, the index block vertically centred on
+   the right, so the card hugs its content. On narrower screens the index block wraps under the text. */
+.trend-banner.market-mood { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 28px; padding: 16px 20px; }
+.mood-top { display: flex; align-items: center; gap: 20px; min-width: 0; flex: 1 1 300px; }
 .mood-ragnar { width: 112px; height: 112px; border-width: 3px; }
 .trend-banner.caution .trend-ragnar { border-color: rgba(250, 204, 21, 0.8); }
 /* The index strip keeps the old banner's placement (right side, over the plain end of the card gradient) so the
    translucent 6/20/50 chips look exactly as they did. */
-.market-mood .trend-indexes { justify-content: flex-end; }
+.market-mood .trend-indexes { justify-content: flex-end; flex: none; margin-left: auto; }
 .trend-banner { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; margin-bottom: 14px; }
 .trend-banner.on { border-color: rgba(34, 197, 94, 0.55); background: linear-gradient(90deg, rgba(34, 197, 94, 0.16), var(--card)); }
 .trend-banner.off { border-color: rgba(244, 63, 94, 0.6); background: linear-gradient(90deg, rgba(244, 63, 94, 0.16), var(--card)); }
@@ -338,6 +339,8 @@ th.num { text-align: right; }
   .stat-cards { flex-wrap: wrap; }
   .breadth-grid { grid-template-columns: 1fr; }
   .trend-banner { flex-direction: column; align-items: flex-start; }
+}
+@media (max-width: 640px) {
   .mood-top { flex-direction: column; align-items: flex-start; }
 }
 
