@@ -10,10 +10,11 @@ import time
 from datetime import date
 from typing import Optional
 
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings, fetch_worker, logos, memory, quotes, trims
+from . import config, data, earnings, fetch_worker, logos, memory, quotes, trims, watch5m
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
@@ -57,6 +58,8 @@ class State:
     # download until its rescan has finished. Two jobs never download, write the cache or hold a second copy
     # of the universe in memory together.
     job: Optional[str] = None
+    # The watchlist / positions gained a symbol: seed its 5-minute EMA history on the next free slot.
+    lists_dirty: bool = True
 
 
 def _claim_job(kind: str) -> bool:
@@ -146,6 +149,7 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
         State.error = str(exc)
     finally:
         _refresh_nasdaq_issues()
+        _refresh_watch5m()
         State.refreshing = False
         try:
             with _scan_lock:
@@ -169,6 +173,55 @@ def _refresh_nasdaq_issues() -> None:
         log.exception("nasdaq issues refresh failed")
 
 
+def _list_symbols() -> list[str]:
+    return list(dict.fromkeys(data.watchlist() + [p["symbol"] for p in data.positions()]))
+
+
+def _prev_close(symbol: str, day: date) -> Optional[float]:
+    """Last regular close before ``day`` from the daily cache (the base for premarket % change)."""
+    frame = State.daily.get(symbol)
+    if frame is None or frame.empty:
+        frame = data.load_daily(symbol)
+    if frame is None or frame.empty or "close" not in frame.columns:
+        return None
+    closes = frame.loc[frame.index < pd.Timestamp(day), "close"].dropna()
+    return float(closes.iloc[-1]) if len(closes) else None
+
+
+def _refresh_watch5m() -> None:
+    """Premarket prints and 5-minute EMAs for the watchlist + positions (Alpaca), inside the job slot.
+
+    Two or three small requests per poll for a handful of symbols. Skipped for a cut-off view, when
+    the scheduler is off (tests, CLI) and when Alpaca is not the data source.
+    """
+    if config.AS_OF or not config.scheduler_enabled() or not live_bars_enabled():
+        return
+    State.lists_dirty = False
+    try:
+        symbols = _list_symbols()
+        stats = watch5m.refresh(symbols, _prev_close)
+        log.info("watch5m %s", stats)
+        if symbols:
+            hub.publish({"type": "lists"})
+    except Exception:
+        log.exception("watchlist 5m refresh failed")
+
+
+def _run_watch5m() -> None:
+    try:
+        _refresh_watch5m()
+    finally:
+        _release_job()
+
+
+def start_watch5m() -> bool:
+    """Premarket poll for the two small lists (the universe stays on its own cadence)."""
+    if not _claim_job("lists"):
+        return False
+    threading.Thread(target=_run_watch5m, daemon=True).start()
+    return True
+
+
 def _warm_earnings(wait_seconds: float = 900, poll: float = 5.0) -> None:
     """Boot-time earnings check, run in the job slot so it never overlaps a price download.
 
@@ -187,6 +240,7 @@ def _warm_earnings(wait_seconds: float = 900, poll: float = 5.0) -> None:
     finally:
         # A restart with a warm cache may not refresh prices for hours; read the Nasdaq diary once now.
         _refresh_nasdaq_issues()
+        _refresh_watch5m()
         _release_job()
 
 
@@ -367,6 +421,7 @@ def _boot() -> None:
 def _scheduler_loop() -> None:
     last_poll = None
     last_extended = None
+    last_lists = None
     while True:
         time.sleep(scheduler_sleep(now_et(), live_bars_enabled()))
         if config.AS_OF or State.refreshing or State.quoting or State.job is not None:
@@ -374,10 +429,17 @@ def _scheduler_loop() -> None:
         now = now_et()
         if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():
             _publish_index_quotes()
-        kind = decide(now, data.newest_bar_date(), last_poll, last_extended, aligned=live_bars_enabled())
+        live = live_bars_enabled()
+        kind = decide(now, data.newest_bar_date(), last_poll, last_extended, aligned=live, last_lists=last_lists)
+        if kind is None and live and State.lists_dirty:
+            kind = "lists"
         if kind is None:
             continue
-        if kind == "extended":
+        if kind == "lists":
+            if session_phase(now) == "premarket":
+                last_lists = now
+            start_watch5m()
+        elif kind == "extended":
             last_extended = now
             start_index_quotes()
         elif kind == "intraday":
@@ -591,6 +653,7 @@ def _watchlist_payload() -> dict:
         "symbols": symbols,
         "rows": _with_earnings([by_symbol[s] for s in symbols if s in by_symbol]),
         "missing": [s for s in symbols if s not in by_symbol],
+        "intraday": watch5m.snapshot(symbols),
     }
 
 
@@ -609,6 +672,7 @@ def add_watch(req: WatchRequest):
     if not in_universe and symbol not in data.tracked_symbols():
         _fetch_off_universe(symbol)
     data.add_to_watchlist(symbol)
+    State.lists_dirty = True
     _start_tracking(symbol, in_universe)
     return _watchlist_payload()
 
@@ -631,6 +695,7 @@ def _positions_payload() -> dict:
         "positions": [
             {**trims.annotate(p, by_trim.get(p["symbol"], [])), "row": rows.get(p["symbol"])} for p in held
         ],
+        "intraday": watch5m.snapshot([p["symbol"] for p in held]),
     }
 
 
@@ -670,6 +735,7 @@ def add_position(req: PositionRequest):
         entry_price = row["price"]
     data.save_position(symbol, entry_price, req.shares, entry_date)
     data.remove_from_watchlist(symbol)
+    State.lists_dirty = True
     _start_tracking(symbol, in_universe)
     return _positions_payload()
 

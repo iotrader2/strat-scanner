@@ -82,6 +82,11 @@ function TriggerCells({ row }: { row: ScanRow }) {
   );
 }
 
+/** Day % change cell (the trading lists place it next to Day range via ListTable). */
+function DayCell({ row }: { row: ScanRow }) {
+  return <td className={`num ${row.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(row.change_pct, 2)}</td>;
+}
+
 export type SortKey =
   | "score"
   | "symbol"
@@ -150,6 +155,13 @@ interface Props {
   initialSort?: { key: string; dir: 1 | -1 };
   /** Symbol search text: the row whose ticker equals it is shown first, whatever the sort. */
   pinSymbol?: string;
+  /**
+   * Trading-list layout (Watchlist and Positions, via ListTable): drops the scanning-only columns,
+   * 1M / 3M / 6M returns, D · W · M continuity and Weekly setup. Its Day column comes from ListTable instead.
+   */
+  tradingList?: boolean;
+  /** Per-row highlight (extra class on the row, and its tooltip). */
+  rowHighlight?: (r: ScanRow) => { className: string; title: string } | null;
 }
 
 export function ScanTable({
@@ -165,7 +177,10 @@ export function ScanTable({
   initialSort = { key: "score", dir: -1 },
   detailTf,
   pinSymbol = "",
+  rowHighlight,
+  tradingList = false,
 }: Props) {
+  const scanning = !tradingList;
   const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>(initialSort);
   const custom = useMemo(() => [...leadColumns, ...extraColumns], [leadColumns, extraColumns]);
@@ -202,10 +217,10 @@ export function ScanTable({
             {leadColumns.map((c) => header(c.key, c.label, c.className))}
             {header("price", priceLabel, "num")}
             {extraColumns.map((c) => header(c.key, c.label, c.className))}
-            {header("change_pct", "Day", "num")}
-            {PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
-            <th>D · W · M</th>
-            <th>Weekly setup</th>
+            {scanning && header("change_pct", "Day", "num")}
+            {scanning && PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
+            {scanning && <th>D · W · M</th>}
+            {scanning && <th>Weekly setup</th>}
             <th className="num">Trigger</th>
             {header("trigger_distance_pct", "To trigger", "num")}
             {header("avg_dollar_volume", "Avg $vol", "num")}
@@ -220,8 +235,9 @@ export function ScanTable({
             const trend = dailyTrendBadge(r.daily_trend);
             const weeklyTrend = weeklyTrendBadge(r.weekly_trend);
             const chip = triggerChip({ triggered: r.triggered, live: r.triggered_live, trigger: r.trigger });
+            const mark = rowHighlight?.(r) ?? null;
             return (
-            <tr key={r.symbol} onClick={() => {
+            <tr key={r.symbol} className={mark?.className} title={mark?.title} onClick={() => {
               if (detailTf) writePersisted(DETAIL_TF_KEY, detailTf);
               navigate(`/stock/${r.symbol}`);
             }}>
@@ -266,15 +282,18 @@ export function ScanTable({
                   {c.render(r)}
                 </td>
               ))}
-              <td className={`num ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</td>
-              {PERF_PERIODS.map((p) => (
+              {scanning && <DayCell row={r} />}
+              {scanning && PERF_PERIODS.map((p) => (
                 <td key={p.key} className={`num perf-col ${perfClass(r.perf?.[p.key])}`}>
                   {fmtPerf(r.perf?.[p.key])}
                 </td>
               ))}
-              <td>
-                <TfBadges tf={r.tf} />
-              </td>
+              {scanning && (
+                <td>
+                  <TfBadges tf={r.tf} />
+                </td>
+              )}
+              {scanning && (
               <td className="setup-cell">
                 {trend && (
                   <span className={`trend-badge ${trend.tone}`} title={trend.title}>
@@ -325,6 +344,7 @@ export function ScanTable({
                   </>
                 )}
               </td>
+              )}
               <TriggerCells row={r} />
               <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
               <td className="num">{r.atr == null ? "—" : r.atr.toFixed(2)}</td>

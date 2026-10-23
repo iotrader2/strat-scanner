@@ -122,6 +122,16 @@ def extended_due(now: datetime, last_poll: datetime | None, interval: int | None
     return gap >= (config.POLL_SECONDS if interval is None else interval)
 
 
+def lists_due(now: datetime, last_poll: datetime | None, *, aligned: bool = False) -> bool:
+    """Watchlist / positions premarket poll: once per 5-minute mark, premarket only, Alpaca only.
+
+    In the regular session the same data rides on the intraday poll.
+    """
+    if not aligned or session_phase(now) != "premarket":
+        return False
+    return last_poll is None or now_et(last_poll) < last_mark(now)
+
+
 def fetch_period(now: datetime, newest_bar: date | None, *, full: bool = False) -> str:
     """Short window during the session; the incremental window when the cache is behind."""
     if full or newest_bar is None:
@@ -138,16 +148,20 @@ def decide(
     last_extended: datetime | None = None,
     *,
     aligned: bool = False,
+    last_lists: datetime | None = None,
 ) -> str | None:
     """``intraday`` updates today's bar. ``history`` confirms completed sessions.
 
+    ``lists`` polls the watchlist / positions premarket prints (Alpaca, every 5 minutes).
     ``extended`` refreshes the index quotes during premarket and after hours. ``None`` waits.
-    A history catch-up wins over either poll.
+    A history catch-up wins over every poll.
     """
     if history_due(now, newest_bar):
         return "history"
     if intraday_due(now, last_poll, aligned=aligned):
         return "intraday"
+    if lists_due(now, last_lists, aligned=aligned):
+        return "lists"
     if extended_due(now, last_extended):
         return "extended"
     return None

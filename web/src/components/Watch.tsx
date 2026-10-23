@@ -16,7 +16,16 @@ interface WatchState {
 
 const WatchContext = createContext<WatchState | null>(null);
 
-export function WatchlistProvider({ version, children }: { version: string | null; children: ReactNode }) {
+export function WatchlistProvider({
+  version,
+  epoch = 0,
+  children,
+}: {
+  version: string | null;
+  /** Bumps when the server refreshed the lists' premarket / 5-minute data. */
+  epoch?: number;
+  children: ReactNode;
+}) {
   const [data, setData] = useState<Watchlist | null>(null);
   const [symbols, setSymbols] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +40,7 @@ export function WatchlistProvider({ version, children }: { version: string | nul
     api.watchlist().then(apply).catch((e) => setError(String(e)));
   }, [apply]);
 
-  useEffect(reload, [reload, version]);
+  useEffect(reload, [reload, version, epoch]);
 
   const toggle = useCallback(
     (symbol: string) => {
