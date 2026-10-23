@@ -1,6 +1,6 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import type { Position, ScanRow } from "../api";
+import type { Position, PositionInput, ScanRow } from "../api";
 import { ActionMenu } from "../components/ActionMenu";
 import { SkeletonTable } from "../components/Loading";
 import { ConfirmModal, EntryModal, TrimModal } from "../components/Modal";
@@ -18,65 +18,77 @@ import {
   trimHistoryTitle,
   type EntryForm,
 } from "../positions";
+import { queueSummary, useSymbolQueue } from "../symbolQueue";
 import { normalizeTicker } from "../watchlist";
 
-function AddPosition() {
+/**
+ * Add-position box. Enter (from any field) queues the ticker with the entry fields, clears the form and puts focus back in
+ * the ticker field, so NVDA ⏎ AMD ⏎ works without clicking back. Price / shares / date are optional, as before.
+ */
+export function AddPosition() {
   const { open, isHeld } = usePositions();
   const today = todayIso();
   const blank: EntryForm & { symbol: string } = { symbol: "", price: "", shares: "", date: today };
   const [form, setForm] = useState(blank);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const tickerRef = useRef<HTMLInputElement>(null);
+  const { enqueue, pending, result, isPending } = useSymbolQueue<PositionInput>((symbol, entry) => open(symbol, entry));
+  const summary = queueSummary(result, "Opened");
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: key === "symbol" ? e.target.value.toUpperCase() : e.target.value }));
 
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
     const symbol = normalizeTicker(form.symbol);
-    if (!symbol || busy) return;
-    if (isHeld(symbol)) {
-      setMessage({ ok: true, text: `${symbol} is already in Positions` });
+    if (!symbol) {
+      tickerRef.current?.focus();
+      return;
+    }
+    if (isHeld(symbol) || isPending(symbol)) {
+      setNote({ ok: true, text: isHeld(symbol) ? `${symbol} is already in Positions` : `${symbol} is already being added` });
+      setForm((f) => ({ ...f, symbol: "" }));
+      tickerRef.current?.focus();
       return;
     }
     const parsed = parseEntry(form, today, true);
     if (!parsed.ok) {
-      setMessage({ ok: false, text: parsed.error });
+      // Leave focus where it is so the bad field can be fixed.
+      setNote({ ok: false, text: parsed.error });
       return;
     }
-    setBusy(symbol);
-    setMessage(null);
-    try {
-      await open(symbol, parsed);
-      setForm(blank);
-      setMessage({ ok: true, text: `Opened ${symbol}` });
-    } catch (err) {
-      setMessage({ ok: false, text: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setBusy(null);
-    }
+    // Synchronously, inside the key / click handler: iPad Safari only keeps the keyboard up for a focus() made here.
+    tickerRef.current?.focus();
+    setForm(blank);
+    setNote(null);
+    enqueue(symbol, parsed);
   };
 
   return (
     <form className="card add-symbol add-position" onSubmit={submit}>
       <label htmlFor="add-position-input">Add position</label>
       <input
+        ref={tickerRef}
         id="add-position-input"
         className="input"
         placeholder="Any ticker, e.g. NVDA"
         value={form.symbol}
         onChange={set("symbol")}
         autoComplete="off"
+        autoCapitalize="characters"
         spellCheck={false}
+        enterKeyHint="enter"
         maxLength={16}
-        disabled={busy !== null}
       />
-      <input className="input num-input" inputMode="decimal" placeholder="Entry (last price)" aria-label="Entry price" value={form.price} onChange={set("price")} disabled={busy !== null} />
-      <input className="input num-input" inputMode="decimal" placeholder="Shares (optional)" aria-label="Shares" value={form.shares} onChange={set("shares")} disabled={busy !== null} />
-      <input className="input date-input" type="date" aria-label="Entry date" value={form.date} max={today} onChange={set("date")} disabled={busy !== null} />
-      <button className="btn" type="submit" disabled={busy !== null || !normalizeTicker(form.symbol)}>
-        {busy ? `Adding ${busy}…` : "+ Add"}
+      <input className="input num-input" inputMode="decimal" placeholder="Entry (last price)" aria-label="Entry price" value={form.price} onChange={set("price")} />
+      <input className="input num-input" inputMode="decimal" placeholder="Shares (optional)" aria-label="Shares" value={form.shares} onChange={set("shares")} />
+      <input className="input date-input" type="date" aria-label="Entry date" value={form.date} max={today} onChange={set("date")} />
+      <button className="btn" type="submit" disabled={!normalizeTicker(form.symbol)}>
+        + Add
       </button>
-      {message && <span className={message.ok ? "muted small" : "red-text small"}>{message.text}</span>}
+      {pending.length > 0 && <span className="muted small">Adding {pending.join(", ")}…</span>}
+      {note && <span className={note.ok ? "muted small" : "red-text small"}>{note.text}</span>}
+      {summary.ok && <span className="muted small">{summary.ok}</span>}
+      {summary.error && <span className="red-text small">{summary.error}</span>}
     </form>
   );
 }
