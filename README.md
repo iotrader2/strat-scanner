@@ -412,7 +412,7 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
       it is active. His ring is red / yellow / green with the trend call.
     - The trend call, **GAME ON / CAUTION / DO NOT TRADE** (all above / mixed / all below the 6, 20 and 50 day averages,
       same price), with its detail line and, on a lopsided day, the universe decliners-per-advancer note.
-    - The funny line for the score, from "🚨 Market is screwed. DO NOT TRADE" (0) to "🔥 GAME ON" (9). No number is printed.
+    - The funny line for the score, from "Market is screwed. DO NOT TRADE" (0) to "GAME ON" (9). No number is printed.
     - QQQ, SPY and IWM with today's move and their red / green 6/20/50 chips (which averages each index is above).
   - A summary line counts how many of the three have Monthly + Weekly green continuity (and full M+W+D), with each
     index's score.

@@ -103,16 +103,16 @@ export function universeLabel(names: number): string {
 
 /** Banner copy for the market score (0–9), from worst to best. */
 export const MARKET_SCORE_MESSAGES: readonly string[] = [
-  "🚨 Market is screwed. DO NOT TRADE. Close the laptop and go touch grass.",
-  "💀 Barely a pulse. Cash is a position, and today it's the best one.",
-  "🤡 Clown market. Every breakout is a trap with a bow on it.",
-  "🫠 Choppy slop. The market is a blender and your account is the smoothie.",
-  "🤷 Coin flip market. Half size, A+ setups only, no revenge trades.",
-  "👀 Getting interesting. Leaders are stretching, start loading the watchlist.",
-  "🌤️ Sun's peeking out. Starter positions on the best setups.",
-  "🚀 Almost there. Green light for A+ setups, don't chase.",
-  "💪 One straggler left. Press the leaders, keep your stops tight.",
-  "🔥 GAME ON. All engines firing. Size up on A+ setups and trust your stops.",
+  "Market is screwed. DO NOT TRADE. Close the laptop and go touch grass.",
+  "Barely a pulse. Cash is a position, and today it's the best one.",
+  "Clown market. Every breakout is a trap with a bow on it.",
+  "Choppy slop. The market is a blender and your account is the smoothie.",
+  "Coin flip market. Half size, A+ setups only, no revenge trades.",
+  "Getting interesting. Leaders are stretching, start loading the watchlist.",
+  "Sun's peeking out. Starter positions on the best setups.",
+  "Almost there. Green light for A+ setups, don't chase.",
+  "One straggler left. Press the leaders, keep your stops tight.",
+  "GAME ON. All engines firing. Size up on A+ setups and trust your stops.",
 ];
 
 export const MARKET_SCORE_MAX = MARKET_SCORE_MESSAGES.length - 1;
