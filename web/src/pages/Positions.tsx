@@ -5,7 +5,9 @@ import { ActionMenu } from "../components/ActionMenu";
 import { SkeletonTable } from "../components/Loading";
 import { ConfirmModal, EntryModal, TrimModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
+import { listIntradayColumns } from "../components/ListIntradayColumns";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
+import { crossHighlight } from "../listIntraday";
 import { fmtPct } from "../api";
 import {
   fmtPnl,
@@ -212,6 +214,7 @@ export default function Positions() {
         return s && `${s.days}d`;
       },
     },
+    ...listIntradayColumns(data?.intraday),
   ];
 
   const moveBack = async (p: Position) => {
@@ -275,6 +278,7 @@ export default function Positions() {
           priceLabel="Last"
           leadColumns={lead}
           extraColumns={extra}
+          rowHighlight={(r) => crossHighlight(data?.intraday?.[r.symbol])}
           actionsLabel=""
           actions={(r) => {
             const p = bySymbol.get(r.symbol);

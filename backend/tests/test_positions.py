@@ -9,7 +9,7 @@ def _positions(c):
 
 
 def test_starts_empty(client):
-    assert client.get("/api/positions").json() == {"symbols": [], "positions": []}
+    assert client.get("/api/positions").json() == {"symbols": [], "positions": [], "intraday": {}}
 
 
 def test_move_from_watchlist_defaults_to_last_price_and_today(client, monkeypatch):

@@ -150,6 +150,8 @@ interface Props {
   initialSort?: { key: string; dir: 1 | -1 };
   /** Symbol search text: the row whose ticker equals it is shown first, whatever the sort. */
   pinSymbol?: string;
+  /** Per-row highlight (extra class on the row, and its tooltip). */
+  rowHighlight?: (r: ScanRow) => { className: string; title: string } | null;
 }
 
 export function ScanTable({
@@ -165,6 +167,7 @@ export function ScanTable({
   initialSort = { key: "score", dir: -1 },
   detailTf,
   pinSymbol = "",
+  rowHighlight,
 }: Props) {
   const navigate = useNavigate();
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>(initialSort);
@@ -220,8 +223,9 @@ export function ScanTable({
             const trend = dailyTrendBadge(r.daily_trend);
             const weeklyTrend = weeklyTrendBadge(r.weekly_trend);
             const chip = triggerChip({ triggered: r.triggered, live: r.triggered_live, trigger: r.trigger });
+            const mark = rowHighlight?.(r) ?? null;
             return (
-            <tr key={r.symbol} onClick={() => {
+            <tr key={r.symbol} className={mark?.className} title={mark?.title} onClick={() => {
               if (detailTf) writePersisted(DETAIL_TF_KEY, detailTf);
               navigate(`/stock/${r.symbol}`);
             }}>

@@ -526,15 +526,60 @@ export interface Position {
   row: ScanRow | null;
 }
 
+/** Premarket print for a watchlist / positions symbol (Alpaca). Null outside 04:00-16:00 ET or with no print. */
+export interface PremarketPrint {
+  session: string;
+  price: number;
+  /** UTC ISO time of the print (bar start for a SIP bar). */
+  time: string;
+  source: string;
+  prev_close: number;
+  change_pct: number;
+  /** SIP volume since 04:00 ET; trails the price by about 15 minutes until final. */
+  volume: number | null;
+  volume_through: string | null;
+  /** True once the exact premarket close and full premarket volume are in (about 09:46 ET). */
+  final: boolean;
+}
+
+export type EmaSide = "above" | "below" | "at";
+
+/** Price against the 6 and 20 EMA on the 5-minute chart (regular-session bars). */
+export interface Ema5m {
+  price: number;
+  /** What the price is: the live 5-minute close, the premarket print, or the last regular close. */
+  basis: "live" | "premarket" | "close";
+  time: string;
+  bar_time: string;
+  ema6: number;
+  ema20: number;
+  vs6: EmaSide;
+  vs20: EmaSide;
+  /** EMAs the last completed bar closed back above (crossover); empty once the next bar completes. */
+  highlight: number[];
+  highlight_bar: string | null;
+  highlight_until: string | null;
+}
+
+export interface ListIntraday {
+  premarket: PremarketPrint | null;
+  ema5m: Ema5m | null;
+  /** "6", "20" or "6+20" while a crossover is live, else null. */
+  ema5m_cross: string | null;
+  ema5m_cross_bar: string | null;
+}
+
 export interface Positions {
   symbols: string[];
   positions: Position[];
+  intraday?: Record<string, ListIntraday>;
 }
 
 export interface Watchlist {
   symbols: string[];
   rows: ScanRow[];
   missing: string[];
+  intraday?: Record<string, ListIntraday>;
 }
 
 export function fmtMoney(v: number): string {
