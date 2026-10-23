@@ -6,6 +6,7 @@ import { scanThemeHref } from "../themes";
 import { ScorePill, TfBadges } from "./Badges";
 import { CandleChart } from "./CandleChart";
 import { PerfStrip } from "./PerfStrip";
+import { TickerLogo } from "./TickerLogo";
 
 const VISIBLE_CHIPS = 12;
 /** Recent bars kept in view so each candle is large enough to read on a theme card. */
@@ -19,6 +20,7 @@ function Chip({ chip }: { chip: ThemeChip }) {
       className={`member-chip ${chip.mw_green ? "green" : ""} ${chip.also ? "also" : ""} ${chip.has_setup ? "setup" : ""}`}
       title={`${chip.name}${chip.also ? " (secondary member, not in the index)" : ""} · day ${fmtPct(chip.change_pct, 2)} · 1M ${fmtPerf(m1)} · score ${chip.score.toFixed(0)}${chip.has_setup ? " · weekly setup" : ""}`}
     >
+      <TickerLogo symbol={chip.symbol} size={14} />
       {chip.symbol}
       <span className={`member-day ${chip.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPerf(chip.change_pct)}</span>
     </Link>

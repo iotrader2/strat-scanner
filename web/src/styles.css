@@ -625,3 +625,21 @@ th.num { text-align: right; }
 
 /* The Score column stays in view when the table is wider than its card (narrow windows or long setup names). */
 .scan-table th.score-col, .scan-table td.score-col { position: sticky; right: 0; background: var(--card); padding-right: 12px; box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.5); }
+
+/* Ticker logos (components/TickerLogo.tsx): fixed box, letter avatar underneath, the image on top once loaded. */
+.ticker-logo {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  border-radius: 5px; overflow: hidden; background: var(--card-2); border: 1px solid var(--border-2);
+  color: var(--muted); font-weight: 700; line-height: 1; box-sizing: border-box;
+}
+.ticker-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card-2); }
+.ticker-logo-letter { user-select: none; }
+/* Logo sits in the ticker's own flex line (align-items: center), so it centres on the ticker, not on ticker + name. */
+.sym-with-logo .ticker-logo { margin-right: 3px; }
+.sym-sub { padding-left: 29px; }
+.detail-symbol { display: flex; align-items: center; flex-wrap: wrap; line-height: 1.2; }
+.detail-symbol .ticker-logo { margin-right: 10px; border-radius: 6px; top: -1px; }
+.member-chip { align-items: center; }
+.member-chip .ticker-logo { border-radius: 3px; border: 0; }
+.trend-index .sym { display: inline-flex; align-items: center; gap: 5px; }
+.trend-index .ticker-logo { border-radius: 3px; }

@@ -6,6 +6,7 @@ import { DETAIL_TF_KEY, isTimeframe, usePersisted } from "../persist";
 import { LoadingIndicator } from "../components/Loading";
 import { NO_SETUP_LABEL } from "../watchlist";
 import { AddedChip, ScorePill, TfBadge } from "../components/Badges";
+import { TickerLogo } from "../components/TickerLogo";
 import { fmtPerf, perfClass, PERF_PERIODS } from "../perf";
 import { scanThemeHref } from "../themes";
 import { EarningsIcon } from "../components/EarningsIcon";
@@ -75,6 +76,7 @@ export default function Detail({ version }: { version: string | null }) {
       <section className="detail-head card">
         <div>
           <div className="detail-symbol">
+            <TickerLogo symbol={row.symbol} size={26} />
             {row.symbol}
             <EarningsIcon earnings={row.earnings} />
             <span className="muted detail-name">{row.name}</span>
