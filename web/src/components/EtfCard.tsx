@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { fmtPct, type HigherTf, type MarketEtf, type Tf } from "../api";
 import { sessionBadge } from "../market";
 import { ScorePill, TfBadges } from "./Badges";
+import { TickerLogo } from "./TickerLogo";
 import { CandleChart } from "./CandleChart";
 import { PerfStrip } from "./PerfStrip";
 import { WatchButton } from "./Watch";
@@ -26,6 +27,7 @@ export function EtfCard({
       <div className="sector-head">
         <div>
           <div className="sym-line">
+            <TickerLogo symbol={etf.symbol} size={22} />
             <Link to={`/stock/${etf.symbol}`} className="sym">{etf.symbol}</Link>
             {badge && (
               <span className="session-badge" title={badge.title}>

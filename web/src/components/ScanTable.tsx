@@ -16,6 +16,7 @@ import {
 } from "../leadership";
 import { rsChipView } from "../rsChange";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
+import { TickerLogo } from "./TickerLogo";
 import { pinExactSymbol } from "../symbolSearch";
 import { isIndexEtf } from "../indexEtfs";
 import { EarningsIcon } from "./EarningsIcon";
@@ -231,6 +232,9 @@ export function ScanTable({
               )}
               <td className="rank muted">{i + 1}</td>
               <td>
+                <div className="sym-cell">
+                <TickerLogo symbol={r.symbol} size={20} />
+                <div>
                 <div className="sym">
                   {r.symbol}
                   <EarningsIcon earnings={r.earnings} />
@@ -239,6 +243,8 @@ export function ScanTable({
                   {r.in_universe === false && <AddedChip />}
                 </div>
                 <div className="sub muted">{r.name}</div>
+                </div>
+                </div>
               </td>
               <td className="muted small theme-cell">
                 {r.theme && r.theme_name ? (

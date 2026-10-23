@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings, fetch_worker, memory, quotes, trims
+from . import config, data, earnings, fetch_worker, logos, memory, quotes, trims
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
@@ -425,6 +425,20 @@ async def ws_endpoint(websocket: WebSocket):
 def refresh(full: bool = False):
     """Operator hook. The UI does not call this; the scheduler does."""
     return {"started": start_refresh(full=full)}
+
+
+@app.get("/api/logo/{symbol}")
+def logo(symbol: str):
+    """Company / fund logo for a ticker (see logos.py): disk-cached, long browser cache; 404 means show the letter avatar."""
+    from starlette.responses import FileResponse, Response
+
+    found = logos.get_logo(symbol)
+    if found is None:
+        return Response(status_code=404, headers={"Cache-Control": logos.MISS_CACHE})
+    headers = {"Cache-Control": logos.HIT_CACHE, "X-Content-Type-Options": "nosniff"}
+    if found.media_type == "image/svg+xml":
+        headers["Content-Security-Policy"] = logos.SVG_CSP
+    return FileResponse(found.path, media_type=found.media_type, headers=headers)
 
 
 @app.get("/api/config")
