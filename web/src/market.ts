@@ -168,3 +168,11 @@ export const RAGNAR_MOODS: readonly RagnarMood[] = [
 export function ragnarFor(score: number): RagnarMood {
   return RAGNAR_MOODS[marketScoreRead(score).score];
 }
+
+/** "1.3 to 1" for the side that leads (decliners per advancer, or advancers per decliner), and whether decliners lead. */
+export function adRatio(advancing: number, declining: number): { text: string; decliners: boolean } | null {
+  if (advancing <= 0 || declining <= 0) return null;
+  const decliners = declining > advancing;
+  const ratio = decliners ? declining / advancing : advancing / declining;
+  return { text: `${ratio.toFixed(1)} to 1`, decliners };
+}

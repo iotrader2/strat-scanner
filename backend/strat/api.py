@@ -18,6 +18,7 @@ from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
 from .scheduler import decide, fetch_period, now_et, scheduler_sleep, session_phase
+from . import breadth as breadth_data
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
@@ -144,6 +145,7 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
         log.exception("refresh failed")
         State.error = str(exc)
     finally:
+        _refresh_nasdaq_issues()
         State.refreshing = False
         try:
             with _scan_lock:
@@ -152,6 +154,19 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             memory.release_heap()
             _release_job()
             _log_rss("end", full=full, period=period or "", fetch=fetch)
+
+
+def _refresh_nasdaq_issues() -> None:
+    """Nasdaq advancers / decliners (WSJ diary), inside the refresh's job slot, on the refresh cadence.
+
+    One ~2 KB request. Skipped for a cut-off view and when the background scheduler is off (tests, CLI).
+    """
+    if config.AS_OF or not config.scheduler_enabled():
+        return
+    try:
+        breadth_data.refresh_nasdaq_issues()
+    except Exception:
+        log.exception("nasdaq issues refresh failed")
 
 
 def _warm_earnings(wait_seconds: float = 900, poll: float = 5.0) -> None:
@@ -170,6 +185,8 @@ def _warm_earnings(wait_seconds: float = 900, poll: float = 5.0) -> None:
     except Exception:
         log.exception("earnings warm-up failed")
     finally:
+        # A restart with a warm cache may not refresh prices for hours; read the Nasdaq diary once now.
+        _refresh_nasdaq_issues()
         _release_job()
 
 
@@ -724,6 +741,9 @@ def breadth():
     counts = universe_breadth(State.scan, State.daily)
     payload["issues"] = None if counts is None else counts["issues"]
     payload["highs_lows"] = None if counts is None else counts["highs_lows"]
+    # Exchange-wide Nasdaq issues, fetched by the background job; only for the universe counts' session.
+    session = max((str(r.get("as_of")) for r in State.scan if r.get("as_of")), default=None) if counts else None
+    payload["nasdaq_issues"] = breadth_data.nasdaq_issues(session)
     return payload
 
 
