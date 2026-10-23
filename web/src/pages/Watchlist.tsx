@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import type { ScanRow } from "../api";
 import { SkeletonTable } from "../components/Loading";
@@ -6,53 +6,60 @@ import { EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ListTable } from "../components/ListTable";
 import { useWatchlist } from "../components/Watch";
+import { queueSummary, useSymbolQueue } from "../symbolQueue";
 import { normalizeTicker, watchedRows } from "../watchlist";
 
-function AddSymbol() {
+/** Add-any-ticker box. Enter queues the ticker, clears the field and keeps focus, so SPY ⏎ QQQ ⏎ works without clicking back. */
+export function AddSymbol() {
   const { add, isWatched } = useWatchlist();
   const [value, setValue] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { enqueue, pending, result, isPending } = useSymbolQueue<null>((symbol) => add(symbol));
+  const summary = queueSummary(result, "Added");
 
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
+    // Synchronously, inside the key / click handler: iPad Safari only keeps the keyboard up for a focus() made here.
+    inputRef.current?.focus();
     const symbol = normalizeTicker(value);
-    if (!symbol || busy) return;
+    if (!symbol) return;
+    setValue("");
     if (isWatched(symbol)) {
-      setMessage({ ok: true, text: `${symbol} is already on your watchlist` });
+      setNote(`${symbol} is already on your watchlist`);
       return;
     }
-    setBusy(symbol);
-    setMessage(null);
-    try {
-      await add(symbol);
-      setValue("");
-      setMessage({ ok: true, text: `Added ${symbol}` });
-    } catch (err) {
-      setMessage({ ok: false, text: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setBusy(null);
+    if (isPending(symbol)) {
+      setNote(`${symbol} is already being added`);
+      return;
     }
+    setNote(null);
+    enqueue(symbol, null);
   };
 
   return (
     <form className="card add-symbol" onSubmit={submit}>
       <label htmlFor="add-symbol-input">Add symbol</label>
       <input
+        ref={inputRef}
         id="add-symbol-input"
         className="input"
         placeholder="Any ticker, e.g. MRNA"
         value={value}
         onChange={(e) => setValue(e.target.value.toUpperCase())}
         autoComplete="off"
+        autoCapitalize="characters"
         spellCheck={false}
+        enterKeyHint="enter"
         maxLength={16}
-        disabled={busy !== null}
       />
-      <button className="btn" type="submit" disabled={busy !== null || !normalizeTicker(value)}>
-        {busy ? `Adding ${busy}…` : "+ Add"}
+      <button className="btn" type="submit" disabled={!normalizeTicker(value)}>
+        + Add
       </button>
-      {message && <span className={message.ok ? "muted small" : "red-text small"}>{message.text}</span>}
+      {pending.length > 0 && <span className="muted small">Adding {pending.join(", ")}…</span>}
+      {note && <span className="muted small">{note}</span>}
+      {summary.ok && <span className="muted small">{summary.ok}</span>}
+      {summary.error && <span className="red-text small">{summary.error}</span>}
       <span className="muted small add-hint">
         Any Yahoo Finance ticker works; names outside the S&amp;P 500 / Nasdaq-100 are downloaded, scored and kept
         up to date while they are on the list.
