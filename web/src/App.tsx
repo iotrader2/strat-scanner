@@ -165,7 +165,8 @@ export default function App() {
           <footer className="footer">
             Leadership-first, long-bias · Strat setups as timing · {status?.source === "alpaca"
               ? "prices from Alpaca (IEX live, SIP history), earnings and sectors from Yahoo Finance"
-              : "data from Yahoo Finance via yfinance"}, cached locally · not investment advice
+              : "data from Yahoo Finance via yfinance"}, cached locally · logos by{" "}
+            <a href="https://parqet.com" target="_blank" rel="noopener noreferrer">Parqet</a> · not investment advice
           </footer>
         </div>
       </PositionsProvider>

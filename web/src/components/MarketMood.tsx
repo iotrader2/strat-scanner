@@ -1,4 +1,5 @@
 import { fmtPct, type IssueCounts, type Trend } from "../api";
+import { TickerLogo } from "./TickerLogo";
 import { declinersPerAdvancer, maChip, marketScoreRead, ragnarFor, trendLabel } from "../market";
 
 export interface DayChange {
@@ -39,7 +40,7 @@ export function MarketMood({ trend, days, issues }: { trend: Trend; days: DayCha
           const down = change !== undefined && change < 0;
           return (
             <div key={index.symbol} className="trend-index">
-              <span className="sym">{index.symbol}</span>
+              <span className="sym"><TickerLogo symbol={index.symbol} size={16} />{index.symbol}</span>
               {change !== undefined && (
                 <span className={`trend-day ${down ? "red-text" : "green-text"}`}>{fmtPct(change, 2)}</span>
               )}

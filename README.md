@@ -602,6 +602,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 | `GET /api/scan` | Ranked scan rows, Leaders scan only by default (marked leader and score > 70; `leaders_only=false` for every name, `min_rs=0.8` for a looser cut). Rows without a weekly setup carry `nearest_trigger`; every row carries `rs_prev`, `rs_prev_date`, `rs_change` and `leadership.breakdown_new` / `leader_new` (see *What changed lately*) |
 | `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
 | `GET /api/themes?tf=W` | Theme cards for a timeframe, strongest first: index candles, scan row and member chips |
+| `GET /api/logo/{symbol}` | Company or fund logo for a ticker, proxied from [Parqet](https://parqet.com) (free, no key, attribution required: see the footer). Stored on disk under `STRAT_LOGO_DIR` (default `backend/data/logos`, ephemeral on Heroku) and sent with `Cache-Control: public, max-age=604800`. A miss returns 404 and is remembered for a day; network errors are not cached. The UI (`TickerLogo`) shows a letter avatar on 404 or error |
 | `GET /api/config` | Liquidity defaults, `leader_min_rs` and the theme list (`id`, `name`, `count`) for the Scanner's filter |
 | `GET /api/market?tf=W` | State of the Market cards: QQQ, SPY and IWM, in that order |
 | `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
