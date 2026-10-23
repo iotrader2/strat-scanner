@@ -627,13 +627,15 @@ th.num { text-align: right; }
 .ticker-logo {
   position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
   border-radius: 5px; overflow: hidden; background: var(--card-2); border: 1px solid var(--border-2);
-  color: var(--muted); font-weight: 700; line-height: 1; vertical-align: middle; box-sizing: border-box;
+  color: var(--muted); font-weight: 700; line-height: 1; box-sizing: border-box;
 }
 .ticker-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card-2); }
 .ticker-logo-letter { user-select: none; }
-.sym-cell { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.sym-cell > div { min-width: 0; }
-.detail-symbol .ticker-logo { margin-right: 10px; vertical-align: -3px; border-radius: 6px; }
+/* Logo sits in the ticker's own flex line (align-items: center), so it centres on the ticker, not on ticker + name. */
+.sym-with-logo .ticker-logo { margin-right: 3px; }
+.sym-sub { padding-left: 29px; }
+.detail-symbol { display: flex; align-items: center; flex-wrap: wrap; line-height: 1.2; }
+.detail-symbol .ticker-logo { margin-right: 10px; border-radius: 6px; top: -1px; }
 .member-chip { align-items: center; }
 .member-chip .ticker-logo { border-radius: 3px; border: 0; }
 .trend-index .sym { display: inline-flex; align-items: center; gap: 5px; }
