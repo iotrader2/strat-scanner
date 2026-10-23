@@ -218,7 +218,7 @@ export function ScanTable({
       onClick={() => setSort((s) => ({ key, dir: s.key === key ? ((-s.dir) as 1 | -1) : ascendingFirst(key) ? 1 : -1 }))}
     >
       {label}
-      {sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
+      {sort.key === key ? (sort.dir === 1 ? "\u00a0▲" : "\u00a0▼") : ""}
     </th>
   );
 
@@ -277,14 +277,14 @@ export function ScanTable({
                 </div>
                 <div className="sub muted sym-sub">{r.name}</div>
               </td>
-              <td className="muted small theme-cell">
+              <td className="muted small theme-cell" title={r.theme_name ?? undefined}>
                 {r.theme && r.theme_name ? (
                   onTheme ? (
-                    <span className="sector-link" title={`Scan ${r.theme_name}`} onClick={(e) => { e.stopPropagation(); onTheme(r.theme!); }}>
+                    <span className="sector-link theme-clamp" title={`Scan ${r.theme_name}`} onClick={(e) => { e.stopPropagation(); onTheme(r.theme!); }}>
                       {r.theme_name}
                     </span>
                   ) : (
-                    r.theme_name
+                    <span className="theme-clamp">{r.theme_name}</span>
                   )
                 ) : (
                   "—"
