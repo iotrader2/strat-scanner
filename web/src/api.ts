@@ -561,12 +561,26 @@ export interface Ema5m {
   highlight_until: string | null;
 }
 
+/** Low / high of the day (5-minute bars) with the latest price placed in it. */
+export interface DayRange {
+  low: number;
+  high: number;
+  last: number;
+  /** 0 = at the low, 100 = at the high. */
+  pct: number;
+  /** Today's regular session so far, today's premarket so far, or the last completed session. */
+  basis: "regular" | "premarket" | "last session";
+  session: string;
+}
+
 export interface ListIntraday {
   premarket: PremarketPrint | null;
   ema5m: Ema5m | null;
   /** "6", "20" or "6+20" while a crossover is live, else null. */
   ema5m_cross: string | null;
   ema5m_cross_bar: string | null;
+  /** Null when there is no data or the range is flat: the cell shows a dash. */
+  day_range?: DayRange | null;
 }
 
 export interface Positions {

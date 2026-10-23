@@ -1,4 +1,4 @@
-import type { Ema5m, EmaSide, ListIntraday, PremarketPrint } from "./api";
+import type { DayRange, Ema5m, EmaSide, ListIntraday, PremarketPrint } from "./api";
 import { formatLocal } from "./live";
 
 /** 1234567 -> "1.2M", 135167 -> "135K". */
@@ -48,6 +48,23 @@ export function emaDistance(em: Ema5m | null | undefined, period: 6 | 20): numbe
   if (!em) return null;
   const value = period === 6 ? em.ema6 : em.ema20;
   return value > 0 ? (em.price / value - 1) * 100 : null;
+}
+
+/** Tone for the day-range marker: green in the top 30% of the range, red in the bottom 30%. */
+export function rangeTone(pct: number): "near-high" | "near-low" | "mid" {
+  if (pct >= 70) return "near-high";
+  if (pct <= 30) return "near-low";
+  return "mid";
+}
+
+const RANGE_BASIS: Record<DayRange["basis"], string> = {
+  regular: "Today's range",
+  premarket: "Premarket range so far",
+  "last session": "Last session's range",
+};
+
+export function rangeTitle(r: DayRange): string {
+  return `${RANGE_BASIS[r.basis]} (${r.session}): low ${r.low.toFixed(2)} · high ${r.high.toFixed(2)} · last ${r.last.toFixed(2)} · ${Math.round(r.pct)}% of the range`;
 }
 
 /** Row highlight while the last completed 5-min bar is a close back above the 6 and/or 20 EMA. */

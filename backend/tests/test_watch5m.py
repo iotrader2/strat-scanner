@@ -17,7 +17,7 @@ def iso(ts: datetime) -> str:
 
 
 THU = date(2026, 10, 22)
-EMPTY = {"premarket": None, "ema5m": None, "ema5m_cross": None, "ema5m_cross_bar": None}
+EMPTY = {"premarket": None, "ema5m": None, "ema5m_cross": None, "ema5m_cross_bar": None, "day_range": None}
 WED = date(2026, 10, 21)
 SESSIONS = [date(2026, 10, d) for d in (15, 16, 19, 20, 21)]
 
@@ -217,3 +217,43 @@ def test_refresh_runs_inside_the_job_slot_and_only_for_the_lists(monkeypatch):
     api._run_watch5m()
     assert seen == [("lists", ["TEAM", "NVDA"])]
     assert api.State.job is None
+
+
+def ranged(day, i):
+    return 100.0 + i * 0.1  # rising: each bar's h/l = its close
+
+
+def test_day_range_is_todays_regular_session_with_the_latest_price():
+    today = session_bars(THU, ranged, end=(10, 30))  # 09:30 .. 10:25, closes 100.0 .. 101.1
+    today[3] = {**today[3], "h": 103.0, "l": 99.0}  # 09:45: SIP bar (older than 15 min)
+    sip = {"TEAM": history(flat(100.0)) + today}
+    iex = {"TEAM": today}
+    now = et(THU, 10, 27)
+    watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=now, client=FakeClient({"sip": sip, "iex": iex}))
+    rng = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["day_range"]
+    assert (rng["low"], rng["high"], rng["last"]) == (99.0, 103.0, 101.1)
+    assert rng["pct"] == pytest.approx(52.5)
+    assert rng["basis"] == "regular" and rng["session"] == "2026-10-22"
+
+
+def test_premarket_range_includes_the_latest_print():
+    now = et(THU, 9, 0, 10)
+    sip = {"TEAM": history(flat(100.0)) + session_bars(THU, flat(101.0), start=(4, 0), end=(8, 40))}
+    trades = {"iex": {"TEAM": {"t": iso(et(THU, 8, 59, 30)), "p": 102.0}}}
+    watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=now, client=FakeClient({"sip": sip}, trades))
+    rng = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["day_range"]
+    assert (rng["low"], rng["high"], rng["pct"], rng["basis"]) == (101.0, 102.0, 100.0, "premarket")
+
+
+def test_outside_the_session_the_last_session_range_is_shown():
+    sip = {"TEAM": history(ranged)}
+    now = et(THU, 2, 0)
+    watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=now, client=FakeClient({"sip": sip}))
+    rng = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["day_range"]
+    assert rng["basis"] == "last session" and rng["session"] == "2026-10-21"
+    assert (rng["low"], rng["high"], rng["pct"]) == (100.0, 107.7, 100.0)
+
+
+def test_a_flat_range_is_a_dash():
+    assert watch5m.make_range([{"h": 5.0, "l": 5.0}], 5.0, "regular", "2026-10-22") is None
+    assert watch5m.make_range([], 5.0, "regular", "2026-10-22") is None

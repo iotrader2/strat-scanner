@@ -9,6 +9,9 @@ These lists are a handful of names, so they get finer data than the universe wit
   15 minutes old, so it trails the price. After the open the reading freezes; once the 09:25 SIP bar is
   served (about 09:46 ET) it is replaced by the exact premarket close and full premarket volume. It is
   shown through the regular session and dropped at 16:00 ET.
+* **Day range**: low / high of today's regular-session 5-minute bars with the latest price placed in it
+  (0% at the low, 100% at the high). In premarket it is the premarket range so far (SIP bars plus the
+  latest print); outside both, the last completed session's range.
 * **Crossover highlight**: :func:`highlight_rule` on the last two completed 5-minute bars (a close back
   above the 6 or 20 EMA), shown for one bar, until the next bar completes.
 * **6 and 20 EMA on the 5-minute chart**: regular-session bars only (09:30-16:00 ET), the usual chart
@@ -45,6 +48,7 @@ _lock = threading.Lock()
 _history: dict[str, dict] = {}  # symbol -> {"checked": iso date, "closes": [(ts, close)]}
 _premarket: dict[str, dict] = {}  # symbol -> reading for one session
 _ema: dict[str, dict] = {}  # symbol -> latest EMA comparison
+_range: dict[str, dict] = {}  # symbol -> day range (low / high / last)
 
 
 def _ts(raw: str) -> datetime:
@@ -156,28 +160,61 @@ def refresh_history(symbols: list[str], now: datetime, client: AlpacaClient) -> 
     end = min(_at(through, CLOSE), sip_cutoff(now))
     bars = _bars(client, stale, start, end, "sip")
     for sym in stale:
-        closes = [(_iso(t), float(b["c"])) for b in bars.get(sym, []) if is_regular(t := _ts(b["t"]))]
+        regular = [b for b in bars.get(sym, []) if is_regular(_ts(b["t"]))]
+        closes = [(_iso(_ts(b["t"])), float(b["c"])) for b in regular]
         sessions = sorted({_ts(ts).astimezone(ET).date() for ts, _ in closes})[-HISTORY_SESSIONS:]
         keep = [(ts, c) for ts, c in closes if sessions and _ts(ts).astimezone(ET).date() >= sessions[0]]
+        last_range = None
+        if sessions:
+            last_day = [b for b in regular if _ts(b["t"]).astimezone(ET).date() == sessions[-1]]
+            last_range = make_range(last_day, float(last_day[-1]["c"]), "last session", sessions[-1].isoformat())
         with _lock:
-            _history[sym] = {"checked": through.isoformat(), "closes": keep}
+            _history[sym] = {"checked": through.isoformat(), "closes": keep, "range": last_range}
     return len(stale)
+
+
+def make_range(bars: list[dict], last: float, basis: str, session: str) -> Optional[dict]:
+    """Low / high of ``bars`` (5-minute h/l) with ``last`` placed in it; None when empty or high == low.
+
+    ``pct`` is where ``last`` sits: 0 at the low of the range, 100 at the high.
+    """
+    if not bars:
+        return None
+    low = min(min(float(b["l"]) for b in bars), last)
+    high = max(max(float(b["h"]) for b in bars), last)
+    if not high > low:
+        return None
+    return {
+        "low": round(low, 4),
+        "high": round(high, 4),
+        "last": round(last, 4),
+        "pct": round((last - low) / (high - low) * 100, 1),
+        "basis": basis,
+        "session": session,
+    }
+
+
+def _today_regular_bars(
+    sip: Mapping[str, list[dict]], iex: Mapping[str, list[dict]], symbol: str, cutoff: datetime
+) -> list[dict]:
+    """Today's regular-session bars, oldest first: SIP for bars that started before ``cutoff``, IEX after."""
+    merged: dict[str, dict] = {}
+    for b in iex.get(symbol, []):
+        t = _ts(b["t"])
+        if is_regular(t) and t >= cutoff:
+            merged[_iso(t)] = b
+    for b in sip.get(symbol, []):
+        t = _ts(b["t"])
+        if is_regular(t) and t < cutoff:
+            merged[_iso(t)] = b
+    return [merged[k] for k in sorted(merged)]
 
 
 def _today_regular(
     sip: Mapping[str, list[dict]], iex: Mapping[str, list[dict]], symbol: str, cutoff: datetime
 ) -> list[tuple[str, float]]:
     """Today's regular-session closes: SIP for bars that started before ``cutoff``, IEX after."""
-    merged: dict[str, float] = {}
-    for b in iex.get(symbol, []):
-        t = _ts(b["t"])
-        if is_regular(t) and t >= cutoff:
-            merged[_iso(t)] = float(b["c"])
-    for b in sip.get(symbol, []):
-        t = _ts(b["t"])
-        if is_regular(t) and t < cutoff:
-            merged[_iso(t)] = float(b["c"])
-    return sorted(merged.items())
+    return [(_iso(_ts(b["t"])), float(b["c"])) for b in _today_regular_bars(sip, iex, symbol, cutoff)]
 
 
 def _premarket_print(
@@ -232,6 +269,7 @@ def refresh(
             _history.pop(gone, None)
             _premarket.pop(gone, None)
             _ema.pop(gone, None)
+            _range.pop(gone, None)
     if not syms:
         return {"symbols": 0, "requests": 0}
 
@@ -280,6 +318,27 @@ def refresh(
                     _premarket[sym] = reading
                 elif held and held.get("session") != today_iso:
                     _premarket.pop(sym, None)
+
+        # Day range: today's regular session so far; in premarket the premarket range (with the latest
+        # print); otherwise the last completed session.
+        today_bars = _today_regular_bars(sip, iex, sym, cutoff) if (sip or iex) else []
+        with _lock:
+            pm_now = _premarket.get(sym)
+            last_session_range = (_history.get(sym) or {}).get("range")
+        rng = None
+        if today_bars:
+            rng = make_range(today_bars, float(today_bars[-1]["c"]), "regular", today_iso)
+        elif phase == "premarket":
+            pm_bars = [b for b in sip.get(sym, []) if is_premarket(_ts(b["t"]), day)]
+            if pm_now and pm_now.get("session") == today_iso:
+                rng = make_range(pm_bars or [{"h": pm_now["price"], "l": pm_now["price"]}], pm_now["price"], "premarket", today_iso)
+        else:
+            rng = last_session_range
+        with _lock:
+            if rng:
+                _range[sym] = dict(rng)
+            else:
+                _range.pop(sym, None)
 
         # EMA comparison.
         with _lock:
@@ -342,6 +401,7 @@ def snapshot(symbols: Iterable[str], now: Optional[datetime] = None) -> dict[str
                 # Alert-ready crossover state: "6", "20" or "6+20", and the completed bar it happened on.
                 "ema5m_cross": "+".join(str(n) for n in hits) if hits else None,
                 "ema5m_cross_bar": em["highlight_bar"] if hits else None,
+                "day_range": dict(_range[sym]) if sym in _range else None,
             }
     return out
 
@@ -351,3 +411,4 @@ def clear() -> None:
         _history.clear()
         _premarket.clear()
         _ema.clear()
+        _range.clear()

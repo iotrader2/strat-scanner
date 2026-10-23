@@ -1,6 +1,6 @@
 import type { ListIntraday, ScanRow } from "../api";
 import { fmtPct } from "../api";
-import { emaDistance, emaSide, fmtVolume, premarketTitle } from "../listIntraday";
+import { emaDistance, emaSide, fmtVolume, premarketTitle, rangeTitle, rangeTone } from "../listIntraday";
 import type { ExtraColumn } from "./ScanTable";
 
 type Intraday = Record<string, ListIntraday> | undefined;
@@ -24,7 +24,25 @@ function EmaCell({ info, period }: { info: ListIntraday | undefined; period: 6 |
   );
 }
 
-/** Premarket, 6 EMA (5m) and 20 EMA (5m) columns for the watchlist and positions tables. */
+function DayRangeCell({ info }: { info: ListIntraday | undefined }) {
+  const r = info?.day_range;
+  if (!r) return <Dash title="No day range yet (or high equals low)" />;
+  const pct = Math.min(100, Math.max(0, r.pct));
+  const tone = rangeTone(pct);
+  return (
+    <span className={`day-range ${tone}`} title={rangeTitle(r)}>
+      <span className="dr-track">
+        <span className="dr-marker" style={{ left: `${pct}%` }} />
+      </span>
+      <span className="dr-pct">
+        {r.basis === "premarket" && <span className="pm-tag">PM</span>}
+        {Math.round(pct)}%
+      </span>
+    </span>
+  );
+}
+
+/** Premarket, Day range, 6 EMA (5m) and 20 EMA (5m) columns for the watchlist and positions tables. */
 export function listIntradayColumns(intraday: Intraday): ExtraColumn[] {
   const get = (r: ScanRow) => intraday?.[r.symbol];
   return [
@@ -47,6 +65,13 @@ export function listIntradayColumns(intraday: Intraday): ExtraColumn[] {
           </span>
         );
       },
+    },
+    {
+      key: "day_range",
+      label: "Day range",
+      className: "range-col",
+      sortValue: (r) => get(r)?.day_range?.pct ?? null,
+      render: (r) => <DayRangeCell info={get(r)} />,
     },
     {
       key: "ema6_5m",

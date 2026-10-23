@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ListIntraday, ScanRow } from "../api";
-import { crossHighlight, emaDistance, fmtVolume } from "../listIntraday";
+import { crossHighlight, emaDistance, fmtVolume, rangeTone } from "../listIntraday";
 import { listIntradayColumns } from "./ListIntradayColumns";
 
 const row = { symbol: "TEAM" } as ScanRow;
@@ -39,7 +39,7 @@ const html = (cols: ReturnType<typeof listIntradayColumns>, key: string) =>
 
 describe("watchlist / positions intraday columns", () => {
   it("has compact headers in order: premarket, 6 EMA (5m), 20 EMA (5m)", () => {
-    expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "6 EMA (5m)", "20 EMA (5m)"]);
+    expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "Day range", "6 EMA (5m)", "20 EMA (5m)"]);
   });
 
   it("shows the premarket print, % vs prior close and volume", () => {
@@ -64,7 +64,7 @@ describe("watchlist / positions intraday columns", () => {
 
   it("shows a neutral dash when data is missing", () => {
     const cols = listIntradayColumns(undefined);
-    for (const key of ["premarket", "ema6_5m", "ema20_5m"]) {
+    for (const key of ["premarket", "day_range", "ema6_5m", "ema20_5m"]) {
       expect(html(cols, key)).toMatch(/<span class="muted"[^>]*>—<\/span>/);
     }
   });
@@ -98,5 +98,37 @@ describe("5-minute EMA crossover row highlight", () => {
     expect(crossHighlight({ ...crossed, ema5m: { ...crossed.ema5m, highlight: [6, 20] } })!.title).toContain(
       "6 EMA and 20 EMA",
     );
+  });
+});
+
+describe("Day range column", () => {
+  const withRange = (pct: number, basis: "regular" | "premarket" | "last session" = "regular") => ({
+    TEAM: {
+      ...info,
+      day_range: { low: 220, high: 230, last: 220 + pct / 10, pct, basis, session: "2026-10-22" },
+    },
+  });
+
+  it("places the marker at the last price and colors it by position", () => {
+    const out = html(listIntradayColumns(withRange(85)), "day_range");
+    expect(out).toContain('class="day-range near-high"');
+    expect(out).toContain("left:85%");
+    expect(out).toContain("85%");
+    expect(out).toContain("low 220.00 · high 230.00 · last 228.50");
+    expect(html(listIntradayColumns(withRange(12)), "day_range")).toContain("near-low");
+    expect(html(listIntradayColumns(withRange(50)), "day_range")).toContain('class="day-range mid"');
+  });
+
+  it("tags the premarket range and names the basis in the tooltip", () => {
+    const out = html(listIntradayColumns(withRange(40, "premarket")), "day_range");
+    expect(out).toContain('<span class="pm-tag">PM</span>');
+    expect(out).toContain("Premarket range so far");
+    expect(html(listIntradayColumns(withRange(40, "last session")), "day_range")).toContain("Last session&#x27;s range");
+  });
+
+  it("thresholds", () => {
+    expect(rangeTone(70)).toBe("near-high");
+    expect(rangeTone(30)).toBe("near-low");
+    expect(rangeTone(31)).toBe("mid");
   });
 });

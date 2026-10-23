@@ -87,7 +87,7 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     const html = list({
       extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
     });
-    const order = ["$ P/L", "Premkt", "6 EMA (5m)", "20 EMA (5m)"].map((label) => html.indexOf(`>${label}<`));
+    const order = ["$ P/L", "Premkt", "Day range", "6 EMA (5m)", "20 EMA (5m)"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toMatch(/<tr class="ema-cross" title="Crossed back above the 6 EMA \(5m\)/);
