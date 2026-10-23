@@ -81,13 +81,15 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect(html).not.toContain("Weekly setup");
     expect(html).not.toContain("setup-cell");
     expect(html).toContain("Atlassian Corporation");
+    expect(html.match(/>Day</g)).toHaveLength(1);
+    expect(html).toContain('<span class="red-text">-1.04%</span>');
   });
 
   it("adds the intraday columns after any page columns, and the crossover highlight", () => {
     const html = list({
       extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
     });
-    const order = ["$ P/L", "Premkt", "Day range", "6 EMA (5m)", "20 EMA (5m)"].map((label) => html.indexOf(`>${label}<`));
+    const order = ["$ P/L", "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "Trigger"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toMatch(/<tr class="ema-cross" title="Crossed back above the 6 EMA \(5m\)/);

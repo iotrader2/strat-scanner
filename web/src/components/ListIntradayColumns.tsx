@@ -42,7 +42,7 @@ function DayRangeCell({ info }: { info: ListIntraday | undefined }) {
   );
 }
 
-/** Premarket, Day range, 6 EMA (5m) and 20 EMA (5m) columns for the watchlist and positions tables. */
+/** Premarket, Day, Day range, 6 EMA (5m) and 20 EMA (5m) columns for the watchlist and positions tables. */
 export function listIntradayColumns(intraday: Intraday): ExtraColumn[] {
   const get = (r: ScanRow) => intraday?.[r.symbol];
   return [
@@ -65,6 +65,14 @@ export function listIntradayColumns(intraday: Intraday): ExtraColumn[] {
           </span>
         );
       },
+    },
+    {
+      // Same sort key as the scanner's Day column; rendered here so it sits next to Day range.
+      key: "change_pct",
+      label: "Day",
+      className: "num",
+      sortValue: (r) => r.change_pct,
+      render: (r) => <span className={r.change_pct >= 0 ? "green-text" : "red-text"}>{fmtPct(r.change_pct, 2)}</span>,
     },
     {
       key: "day_range",

@@ -82,6 +82,11 @@ function TriggerCells({ row }: { row: ScanRow }) {
   );
 }
 
+/** Day % change cell (the trading lists place it next to Day range via ListTable). */
+function DayCell({ row }: { row: ScanRow }) {
+  return <td className={`num ${row.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(row.change_pct, 2)}</td>;
+}
+
 export type SortKey =
   | "score"
   | "symbol"
@@ -152,7 +157,7 @@ interface Props {
   pinSymbol?: string;
   /**
    * Trading-list layout (Watchlist and Positions, via ListTable): drops the scanning-only columns,
-   * 1M / 3M / 6M returns, D · W · M continuity and Weekly setup.
+   * 1M / 3M / 6M returns, D · W · M continuity and Weekly setup. Its Day column comes from ListTable instead.
    */
   tradingList?: boolean;
   /** Per-row highlight (extra class on the row, and its tooltip). */
@@ -212,7 +217,7 @@ export function ScanTable({
             {leadColumns.map((c) => header(c.key, c.label, c.className))}
             {header("price", priceLabel, "num")}
             {extraColumns.map((c) => header(c.key, c.label, c.className))}
-            {header("change_pct", "Day", "num")}
+            {scanning && header("change_pct", "Day", "num")}
             {scanning && PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
             {scanning && <th>D · W · M</th>}
             {scanning && <th>Weekly setup</th>}
@@ -277,7 +282,7 @@ export function ScanTable({
                   {c.render(r)}
                 </td>
               ))}
-              <td className={`num ${r.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(r.change_pct, 2)}</td>
+              {scanning && <DayCell row={r} />}
               {scanning && PERF_PERIODS.map((p) => (
                 <td key={p.key} className={`num perf-col ${perfClass(r.perf?.[p.key])}`}>
                   {fmtPerf(r.perf?.[p.key])}
