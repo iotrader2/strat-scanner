@@ -243,6 +243,9 @@ th.num { text-align: right; }
 .breadth-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .breadth-card .sub { max-width: none; }
 .nasi-note { margin: 0; font-size: 12.5px; line-height: 1.4; }
+/* $NASI fills its card when the card is stretched to the side column's height (no blank band under the x-axis).
+   Zero basis + min-height: the canvas never feeds back into the row height, so the card can shrink again. */
+.chart-fill { flex: 1 1 0; height: 0; overflow: hidden; }
 .fg-track { position: relative; height: 10px; border-radius: 999px; background: linear-gradient(90deg, #f43f5e 0%, #fb923c 28%, #facc15 50%, #86efac 72%, #22c55e 100%); }
 .fg-marker { position: absolute; top: -4px; width: 4px; height: 18px; border-radius: 2px; background: #f8fafc; box-shadow: 0 0 0 2px rgba(8, 12, 18, 0.65); transform: translateX(-50%); }
 .fg-scale { display: flex; justify-content: space-between; margin-top: 6px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }

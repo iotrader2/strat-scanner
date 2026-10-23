@@ -2,8 +2,11 @@ import { useEffect, useRef } from "react";
 import { ColorType, CrosshairMode, LineSeries, LineStyle, createChart, type Time } from "lightweight-charts";
 import type { NasiPoint } from "../api";
 
-/** Compact line chart. A dashed zero line is drawn when the series crosses zero. */
-export function LineChart({ points, color, height = 220 }: { points: NasiPoint[]; color: string; height?: number }) {
+/**
+ * Compact line chart. A dashed zero line is drawn when the series crosses zero.
+ * `fill`: grow to the parent's free height (a flex column), with `height` as the minimum. The chart auto-sizes.
+ */
+export function LineChart({ points, color, height = 220, fill = false }: { points: NasiPoint[]; color: string; height?: number; fill?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,5 +57,6 @@ export function LineChart({ points, color, height = 220 }: { points: NasiPoint[]
     return () => chart.remove();
   }, [points, color, height]);
 
+  if (fill) return <div ref={ref} className="chart chart-fill" style={{ minHeight: height }} />;
   return <div ref={ref} className="chart" style={{ height }} />;
 }
