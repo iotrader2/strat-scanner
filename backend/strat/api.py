@@ -157,7 +157,7 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
 
 
 def _refresh_nasdaq_issues() -> None:
-    """Nasdaq advancers / decliners (WSJ diary), inside the refresh's job slot, on the refresh cadence.
+    """Nasdaq advancers / decliners and new highs / lows (WSJ diary), inside the refresh's job slot, on the refresh cadence.
 
     One ~2 KB request. Skipped for a cut-off view and when the background scheduler is off (tests, CLI).
     """
@@ -758,6 +758,7 @@ def breadth():
     # Exchange-wide Nasdaq issues, fetched by the background job; only for the universe counts' session.
     session = max((str(r.get("as_of")) for r in State.scan if r.get("as_of")), default=None) if counts else None
     payload["nasdaq_issues"] = breadth_data.nasdaq_issues(session)
+    payload["nasdaq_highs_lows"] = breadth_data.nasdaq_highs_lows(session)
     return payload
 
 
