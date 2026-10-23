@@ -678,3 +678,7 @@ th.num { text-align: right; }
 @media (max-width: 1100px) {
   .scan-table th.ema-col, .scan-table th.premkt-col, .scan-table th.range-col { white-space: normal; min-width: 52px; line-height: 1.2; }
 }
+
+/* Percent distance from the daily 6 / 20 / 50 SMA: narrow columns, the header wraps to "vs 20 / MA". */
+.scan-table th.ma-dist-col { white-space: normal; width: 52px; max-width: 56px; line-height: 1.2; }
+.scan-table td.ma-dist-col { white-space: nowrap; font-variant-numeric: tabular-nums; }

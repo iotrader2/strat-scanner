@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from typing import Mapping, Optional
@@ -107,6 +109,29 @@ def average_true_range(daily: pd.DataFrame, period: int = ATR_PERIOD) -> tuple[f
     atr = float(window.mean()) if len(window) else 0.0
     price = float(daily.close.iloc[-1])
     return atr, (atr / price * 100) if price else 0.0
+
+
+MA_DISTANCE_PERIODS = (6, 20, 50)  # the simple averages drawn on every chart (see trend.py)
+
+
+def ma_distance_pct(
+    closes: pd.Series, price: float, periods: tuple[int, ...] = MA_DISTANCE_PERIODS
+) -> dict[str, Optional[float]]:
+    """Percent distance of ``price`` from each daily simple average of close: ``(price - SMA) / SMA * 100``.
+
+    0 is on the average, +3.0 is 3% above, -0.2 is 0.2% below. The SMA includes the bar in progress, like the charts,
+    and ``price`` is the row's price (that bar's close). None for a period without enough closes or a non-positive
+    SMA. Rounded to 2 decimals (the UI shows 1). Kept as one helper so variants (e.g. net of ATR %) sit beside it.
+    """
+    values = closes.dropna()
+    out: dict[str, Optional[float]] = {}
+    for period in periods:
+        if len(values) < period or not math.isfinite(price):
+            out[str(period)] = None
+            continue
+        sma = float(values.iloc[-period:].mean())
+        out[str(period)] = round((price - sma) / sma * 100, 2) if math.isfinite(sma) and sma > 0 else None
+    return out
 
 
 def to_candles(df: pd.DataFrame) -> list[Candle]:
@@ -320,6 +345,7 @@ def scan_symbol(
         "avg_volume": avg_volume,
         "atr": round(atr, 2),
         "atr_pct": round(atr_pct, 2),
+        "ma_dist_pct": ma_distance_pct(daily.close, price),
         "as_of": as_of,
         "score": sc.score,
         "score_raw": sc.raw,

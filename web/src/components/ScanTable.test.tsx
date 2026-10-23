@@ -95,3 +95,50 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect(html).toMatch(/<tr class="ema-cross" title="Crossed back above the 6 EMA \(5m\)/);
   });
 });
+
+describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
+  const withMa = { ...row, ma_dist_pct: { "6": 2.42, "20": -0.2, "50": null } } as unknown as ScanRow;
+  const labels = ["vs 6 MA", "vs 20 MA", "vs 50 MA"];
+  const cells = (html: string) => [...html.matchAll(/<td class="num ma-dist-col ([a-z-]+)"[^>]*>([^<]*)<\/td>/g)].map((m) => [m[1], m[2]]);
+
+  it("scanner: three sortable columns right after ATR %, signed percent, colored, em dash when missing", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ScanTable rows={[withMa]} watchColumn={false} />
+      </MemoryRouter>,
+    );
+    const order = ["ATR %", ...labels].map((label) => html.indexOf(`>${label}<`));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain('title="Percent distance of price from the daily 20 SMA; 0% = on the average"');
+    expect(html).toMatch(/class="sortable num ma-dist-col /);
+    expect(cells(html)).toEqual([
+      ["green-text", "+2.4%"],
+      ["red-text", "-0.2%"],
+      ["muted", "—"],
+    ]);
+  });
+
+  it("watchlist / positions: right after 20 EMA (5m), once", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ListTable rows={[withMa]} watchColumn={false} intraday={{}} />
+      </MemoryRouter>,
+    );
+    const order = ["20 EMA (5m)", ...labels, "Trigger"].map((label) => html.indexOf(`>${label}<`));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    for (const label of labels) expect(html.split(`>${label}<`)).toHaveLength(2);
+    expect(html).toContain('<span class="green-text" title="Percent distance of price from the daily 6 SMA; 0% = on the average">+2.4%</span>');
+    expect(html).toContain(">-0.2%</span>");
+  });
+
+  it("sorts by distance with missing values last", async () => {
+    const { sortRows } = await import("./ScanTable");
+    const a = { ...row, symbol: "A", ma_dist_pct: { "6": 2 } } as unknown as ScanRow;
+    const b = { ...row, symbol: "B", ma_dist_pct: { "6": -1 } } as unknown as ScanRow;
+    const c = { ...row, symbol: "C", ma_dist_pct: null } as unknown as ScanRow;
+    expect(sortRows([c, b, a], "ma_dist_6", -1).map((r) => r.symbol)).toEqual(["A", "B", "C"]);
+    expect(sortRows([c, a, b], "ma_dist_6", 1).map((r) => r.symbol)).toEqual(["B", "A", "C"]);
+  });
+});

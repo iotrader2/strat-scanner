@@ -21,6 +21,7 @@ import { pinExactSymbol } from "../symbolSearch";
 import { isIndexEtf } from "../indexEtfs";
 import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
+import { fmtMaDistance, maDistance, maDistanceTone, maLabel, maMissingTitle, maSortKey, maTitle, MA_DISTANCE_PERIODS, type MaPeriod } from "../maDistance";
 
 /** Relative-strength change chip: the change vs a week ago, a flag when the leader is weakening or broken, and a NEW marker for fresh transitions. A name with none of those shows nothing. */
 function RsChip({ row }: { row: ScanRow }) {
@@ -82,6 +83,16 @@ function TriggerCells({ row }: { row: ScanRow }) {
   );
 }
 
+/** Percent distance of price from the daily N SMA (scanner layout; the trading lists render it via ListIntradayColumns). */
+export function MaDistanceCell({ row, period }: { row: ScanRow; period: MaPeriod }) {
+  const v = maDistance(row, period);
+  return (
+    <td className={`num ma-dist-col ${maDistanceTone(v)}`} title={v === null ? maMissingTitle(period) : maTitle(period)}>
+      {fmtMaDistance(v)}
+    </td>
+  );
+}
+
 /** Day % change cell (the trading lists place it next to Day range via ListTable). */
 function DayCell({ row }: { row: ScanRow }) {
   return <td className={`num ${row.change_pct >= 0 ? "green-text" : "red-text"}`}>{fmtPct(row.change_pct, 2)}</td>;
@@ -97,6 +108,7 @@ export type SortKey =
   | "atr"
   | "atr_pct"
   | "theme"
+  | `ma_dist_${MaPeriod}`
   | PerfSort;
 
 export function sortRows(rows: ScanRow[], key: SortKey, dir: 1 | -1): ScanRow[] {
@@ -104,7 +116,10 @@ export function sortRows(rows: ScanRow[], key: SortKey, dir: 1 | -1): ScanRow[] 
   return sortBy(rows, (r) => {
     if (isPerfSort(key)) return perfSortValue(r, key);
     if (key === "theme") return r.theme_name ?? null;
-    return key === "trigger_distance_pct" && r.trigger_distance_pct !== null ? Math.abs(r.trigger_distance_pct) : r[key];
+    const ma = MA_DISTANCE_PERIODS.find((p) => maSortKey(p) === key);
+    if (ma !== undefined) return maDistance(r, ma);
+    const k = key as Exclude<SortKey, `ma_dist_${MaPeriod}` | PerfSort | "theme">;
+    return k === "trigger_distance_pct" && r.trigger_distance_pct !== null ? Math.abs(r.trigger_distance_pct) : r[k];
   }, dir);
 }
 
@@ -128,6 +143,8 @@ export interface ExtraColumn {
   label: string;
   className?: string;
   sortValue: (r: ScanRow) => number | string | null;
+  /** Header tooltip. */
+  title?: string;
   /** Sort ascending on the first click (like Symbol) instead of descending. */
   ascendingFirst?: boolean;
   render: (r: ScanRow) => ReactNode;
@@ -214,9 +231,9 @@ export function ScanTable({
             <th className="rank">#</th>
             {header("symbol", "Symbol")}
             {header("theme", "Theme")}
-            {leadColumns.map((c) => header(c.key, c.label, c.className))}
+            {leadColumns.map((c) => header(c.key, c.label, c.className, c.title))}
             {header("price", priceLabel, "num")}
-            {extraColumns.map((c) => header(c.key, c.label, c.className))}
+            {extraColumns.map((c) => header(c.key, c.label, c.className, c.title))}
             {scanning && header("change_pct", "Day", "num")}
             {scanning && PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
             {scanning && <th>D · W · M</th>}
@@ -226,6 +243,8 @@ export function ScanTable({
             {header("avg_dollar_volume", "Avg $vol", "num")}
             {header("atr", "ATR", "num", "14-day average true range")}
             {header("atr_pct", "ATR %", "num", "14-day ATR as a percent of price")}
+            {/* The trading lists show these after 20 EMA (5m) instead (ListIntradayColumns). */}
+            {scanning && MA_DISTANCE_PERIODS.map((p) => header(maSortKey(p), maLabel(p), "num ma-dist-col", maTitle(p)))}
             {header("score", "Score", actions ? "num" : "num score-col")}
             {actions && <th className="actions-col">{actionsLabel}</th>}
           </tr>
@@ -349,6 +368,7 @@ export function ScanTable({
               <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
               <td className="num">{r.atr == null ? "—" : r.atr.toFixed(2)}</td>
               <td className="num">{r.atr_pct == null ? "—" : `${r.atr_pct.toFixed(2)}%`}</td>
+              {scanning && MA_DISTANCE_PERIODS.map((p) => <MaDistanceCell key={p} row={r} period={p} />)}
               <td className={actions ? "num" : "num score-col"}>
                 <ScorePill score={r.score} row={r} />
               </td>

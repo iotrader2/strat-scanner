@@ -39,7 +39,7 @@ const html = (cols: ReturnType<typeof listIntradayColumns>, key: string) =>
 
 describe("watchlist / positions intraday columns", () => {
   it("has compact headers in order: premarket, 6 EMA (5m), 20 EMA (5m)", () => {
-    expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)"]);
+    expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "vs 20 MA", "vs 50 MA"]);
   });
 
   it("shows the premarket print, % vs prior close and volume", () => {

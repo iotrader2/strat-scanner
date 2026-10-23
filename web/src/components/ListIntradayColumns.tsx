@@ -2,6 +2,7 @@ import type { ListIntraday, ScanRow } from "../api";
 import { fmtPct } from "../api";
 import { emaDistance, emaSide, fmtVolume, premarketTitle, rangeTitle, rangeTone } from "../listIntraday";
 import type { ExtraColumn } from "./ScanTable";
+import { fmtMaDistance, maDistance, maDistanceTone, maLabel, maMissingTitle, maSortKey, maTitle, MA_DISTANCE_PERIODS } from "../maDistance";
 
 type Intraday = Record<string, ListIntraday> | undefined;
 
@@ -95,5 +96,23 @@ export function listIntradayColumns(intraday: Intraday): ExtraColumn[] {
       sortValue: (r) => emaDistance(get(r)?.ema5m, 20),
       render: (r) => <EmaCell info={get(r)} period={20} />,
     },
+    // Percent distance from the daily 6 / 20 / 50 SMA, right after the 5-minute EMAs (the scanner puts them after ATR %).
+    ...MA_DISTANCE_PERIODS.map(
+      (p): ExtraColumn => ({
+        key: maSortKey(p),
+        label: maLabel(p),
+        title: maTitle(p),
+        className: "num ma-dist-col",
+        sortValue: (r) => maDistance(r, p),
+        render: (r) => {
+          const v = maDistance(r, p);
+          return (
+            <span className={maDistanceTone(v)} title={v === null ? maMissingTitle(p) : maTitle(p)}>
+              {fmtMaDistance(v)}
+            </span>
+          );
+        },
+      }),
+    ),
   ];
 }
