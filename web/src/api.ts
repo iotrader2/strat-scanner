@@ -178,6 +178,8 @@ export interface ScanRow {
   atr?: number | null;
   /** ATR as a percent of the last close. */
   atr_pct?: number | null;
+  /** Percent distance of price from the daily 6 / 20 / 50 SMA, (price - SMA) / SMA * 100; null when there are too few bars. */
+  ma_dist_pct?: Partial<Record<"6" | "20" | "50", number | null>> | null;
   as_of: string;
   score: number;
   score_raw: number;
