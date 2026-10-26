@@ -198,15 +198,15 @@ th.num { text-align: right; }
 .detail-name { font-size: 15px; font-weight: 500; margin-left: 6px; }
 .detail-price { display: flex; flex-direction: column; align-items: flex-end; }
 .detail-price .big { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.detail-kpis { margin-left: auto; display: flex; gap: 22px; }
+.detail-kpis { margin-left: auto; display: flex; gap: 22px; flex-wrap: wrap; row-gap: 10px; }
 .detail-kpis > div { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .kpi-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .kpi { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
-.detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; }
-.chart-card { padding: 14px; align-self: start; }
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; min-width: 0; }
+.chart-card { padding: 14px; align-self: start; min-width: 0; max-width: 100%; }
 .chart-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 12px; flex-wrap: wrap; }
-.chart { width: 100%; }
+.chart { width: 100%; min-width: 0; max-width: 100%; }
 .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--border-2); border-radius: 10px; padding: 3px; }
 .seg button { background: none; border: none; color: var(--muted); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; }
 .seg button.active { background: var(--card-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-2); }
@@ -312,10 +312,15 @@ th.num { text-align: right; }
 }
 .sector-right { display: flex; flex-direction: column; align-items: flex-end; font-weight: 600; }
 .sector-badges { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
-.chart-block { display: flex; flex-direction: column; gap: 4px; }
+.chart-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
 .ma-legend { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; font-size: 11px; color: var(--muted); }
-.ma-group { display: inline-flex; align-items: center; gap: 12px; }
+.ma-group { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ma-kind { font-weight: 700; color: var(--text); letter-spacing: 0.06em; }
 .ma-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ma-legend .intraday-note {
+  display: block; flex: 1 1 220px; margin-left: auto; max-width: 52ch;
+  line-height: 1.35; text-align: right; white-space: normal;
+}
 .ma-legend i { width: 14px; height: 2px; border-radius: 1px; }
 .macd-label { margin-left: auto; color: var(--text); font-weight: 600; gap: 6px; }
 .macd-label i { width: 8px; height: 8px; border-radius: 2px; }
@@ -338,7 +343,10 @@ th.num { text-align: right; }
 .sector-foot .chip { margin-left: 0; text-decoration: none; }
 
 @media (max-width: 1100px) {
-  .detail-grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .detail-kpis { margin-left: 0; }
+  .detail-price { align-items: flex-start; }
+  .ma-legend .intraday-note { margin-left: 0; max-width: none; text-align: left; flex-basis: 100%; }
   .stat-cards { flex-wrap: wrap; }
   .breadth-grid { grid-template-columns: 1fr; }
   .trend-banner { flex-direction: column; align-items: flex-start; }

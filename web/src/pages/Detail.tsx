@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
+import { api, ApiError, fmtMoney, fmtPct, type ChartCandle, type IntradayChartData, type ScanRow, type Tf } from "../api";
 import { triggerChip } from "../setupFilter";
-import { DETAIL_TF_KEY, isTimeframe, usePersisted } from "../persist";
+import { DETAIL_CHART_BUTTONS, DETAIL_TF_KEY, isDetailChart, type DetailChart, usePersisted } from "../persist";
 import { LoadingIndicator } from "../components/Loading";
 import { NO_SETUP_LABEL } from "../watchlist";
 import { AddedChip, ScorePill, TfBadge } from "../components/Badges";
@@ -13,28 +13,60 @@ import { EarningsIcon } from "../components/EarningsIcon";
 import { BreakdownTable } from "../components/ScoreBreakdown";
 import { WatchButton } from "../components/Watch";
 import { CandleChart } from "../components/CandleChart";
+import { IntradayChart } from "../components/IntradayChart";
 
-const TF_NAME: Record<Tf, string> = { M: "Monthly", W: "Weekly", D: "Daily" };
+const CHART_HEIGHT = 600;
 
 export default function Detail({ version }: { version: string | null }) {
   const { symbol = "" } = useParams();
   const [data, setData] = useState<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [storedTf, setTf] = usePersisted<Tf | null>(DETAIL_TF_KEY, null);
+  const [intraday, setIntraday] = useState<IntradayChartData | null>(null);
+  const [intradayError, setIntradayError] = useState<string | null>(null);
+  const [storedTf, setTf] = usePersisted<DetailChart | null>(DETAIL_TF_KEY, null);
 
   useEffect(() => {
+    let cancelled = false;
     setData(null);
+    setError(null);
     api
       .symbol(symbol)
       .then((d) => {
+        if (cancelled) return;
         setData(d);
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [symbol, version]);
 
   const row = data?.row;
-  const activeTf: Tf = isTimeframe(storedTf) ? storedTf : (row?.trigger_tf ?? "W");
+  // Saved choice wins. Otherwise the row's trigger timeframe, then Weekly. 5min is never the default.
+  const chart: DetailChart | null = isDetailChart(storedTf) ? storedTf : row ? (row.trigger_tf ?? "W") : null;
+  // Once the row is in, chart is a real selection. The fallback only satisfies the type before that.
+  const view: DetailChart = chart ?? "W";
+
+  useEffect(() => {
+    if (chart !== "5m") return;
+    let cancelled = false;
+    setIntraday(null);
+    setIntradayError(null);
+    api
+      .bars5m(symbol)
+      .then((bars) => {
+        if (!cancelled) setIntraday(bars);
+      })
+      .catch((e) => {
+        if (!cancelled) setIntradayError(e instanceof ApiError ? e.message : "5-minute bars are unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chart, symbol, version]);
 
   if (error) return <div className="page"><div className="banner error">{error}</div></div>;
   if (!data || !row)
@@ -50,6 +82,7 @@ export default function Detail({ version }: { version: string | null }) {
         <div className="detail-grid" aria-hidden="true">
           <section className="card chart-card skeleton-card">
             <div className="skeleton-row">
+              <span className="skeleton-bar pill" />
               <span className="skeleton-bar pill" />
               <span className="skeleton-bar pill" />
               <span className="skeleton-bar pill" />
@@ -127,15 +160,35 @@ export default function Detail({ version }: { version: string | null }) {
         <section className="card chart-card">
           <div className="chart-toolbar">
             <div className="seg">
-              {(["D", "W", "M"] as Tf[]).map((t) => (
-                <button key={t} className={t === activeTf ? "active" : ""} onClick={() => setTf(t)}>
-                  {TF_NAME[t]}
+              {DETAIL_CHART_BUTTONS.map((button) => (
+                <button key={button.id} className={button.id === view ? "active" : ""} onClick={() => setTf(button.id)}>
+                  {button.label}
                 </button>
               ))}
             </div>
-            <span className="muted small">H = hammer · I = inside bar</span>
+            {view !== "5m" && <span className="muted small">H = hammer · I = inside bar</span>}
           </div>
-          <CandleChart candles={data.charts[activeTf]} height={600} visibleBars={activeTf === "M" ? 60 : 70} />
+          {view === "5m" ? (
+            <>
+              {intradayError && <p className="muted small">{intradayError}</p>}
+              {!intraday && !intradayError && (
+                <div aria-busy="true">
+                  <LoadingIndicator label={`Loading 5-minute ${row.symbol}`} />
+                  <div className="skeleton-chart" style={{ height: CHART_HEIGHT }} />
+                </div>
+              )}
+              {intraday && (
+                <IntradayChart
+                  bars={intraday.bars}
+                  height={CHART_HEIGHT}
+                  displaySessions={intraday.display_sessions}
+                  seedSessions={intraday.seed_sessions}
+                />
+              )}
+            </>
+          ) : (
+            <CandleChart candles={data.charts[view]} height={CHART_HEIGHT} visibleBars={view === "M" ? 60 : 70} />
+          )}
         </section>
 
         <aside className="side">
@@ -163,7 +216,7 @@ export default function Detail({ version }: { version: string | null }) {
                 {(["D", "W", "M"] as Tf[]).map((t) => {
                   const st = row.tf[t];
                   return (
-                    <tr key={t} className={t === activeTf ? "active" : ""} onClick={() => setTf(t)}>
+                    <tr key={t} className={t === view ? "active" : ""} onClick={() => setTf(t)}>
                       <td><TfBadge tf={t} state={st} /></td>
                       <td className="muted small">{st?.prev_strat ?? "–"} → {st?.strat ?? "–"}</td>
                       <td className="num">{st?.open.toFixed(2)}</td>
