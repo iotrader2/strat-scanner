@@ -1,4 +1,6 @@
-"""Premarket prints and 5-minute EMA position for the watchlist and positions only (Alpaca).
+"""Premarket prints and 5-minute EMA position for the watchlist and positions (Alpaca).
+
+The alerts table reads the same in-memory EMA comparison (above / below the 6 and 20). It does not fetch.
 
 These lists are a handful of names, so they get finer data than the universe without costing memory:
 
@@ -13,7 +15,8 @@ These lists are a handful of names, so they get finer data than the universe wit
   (0% at the low, 100% at the high). In premarket it is the premarket range so far (SIP bars plus the
   latest print); outside both, the last completed session's range.
 * **Crossover highlight**: :func:`highlight_rule` on the last two completed 5-minute bars (a close back
-  above the 6 or 20 EMA), shown for one bar, until the next bar completes.
+  above the 6 or 20 EMA), shown for one bar, until the next bar completes. The Positions table paints
+  the row; the watchlist does not.
 * **6 and 20 EMA on the 5-minute chart**: regular-session bars only (09:30-16:00 ET), the usual chart
   definition, seeded with the last ``HISTORY_SESSIONS`` sessions so both averages are warmed up. The
   price compared against them is the live 5-minute close in the session, the premarket print in
