@@ -3,9 +3,9 @@
 ``/api/logo/{symbol}`` serves them so the browser never calls the third party directly: one fetch per symbol per
 dyno (the disk cache), long browser cache headers, and the source can be swapped here without touching the UI.
 
-Source: Parqet's free logo API (``assets.parqet.com/logos/symbol/{SYMBOL}``), no key. Free use requires attribution,
-which the UI footer carries ("Logos by Parqet"). PNG is asked for first; a few symbols only exist as SVG, which is
-served with a sandboxing CSP so it can never run script on our origin. Misses are remembered for a day.
+Source: Parqet's free logo API (``assets.parqet.com/logos/symbol/{SYMBOL}``), no key. PNG is asked for first; a few
+symbols only exist as SVG, which is served with a sandboxing CSP so it can never run script on our origin. Misses
+are remembered for a day.
 
 Memory: nothing is held in RAM beyond the one response being written; files are ~0.5-5 KB each (~1 MB for the
 whole universe).
