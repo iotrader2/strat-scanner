@@ -74,3 +74,22 @@ export const DETAIL_TF_KEY = "detailTf";
 export function isTimeframe(v: unknown): v is (typeof TIMEFRAMES)[number] {
   return typeof v === "string" && (TIMEFRAMES as readonly string[]).includes(v);
 }
+
+/**
+ * Charts on the symbol page. ``5m`` is only this page: themes and the market stay on M / W / D,
+ * so it is not part of {@link TIMEFRAMES}.
+ */
+export const DETAIL_CHARTS = ["5m", "D", "W", "M"] as const;
+export type DetailChart = (typeof DETAIL_CHARTS)[number];
+
+/** Segment buttons, left to right. */
+export const DETAIL_CHART_BUTTONS: { id: DetailChart; label: string }[] = [
+  { id: "5m", label: "5min" },
+  { id: "D", label: "Daily" },
+  { id: "W", label: "Weekly" },
+  { id: "M", label: "Monthly" },
+];
+
+export function isDetailChart(v: unknown): v is DetailChart {
+  return typeof v === "string" && (DETAIL_CHARTS as readonly string[]).includes(v);
+}

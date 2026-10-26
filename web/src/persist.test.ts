@@ -3,6 +3,7 @@ import {
   DEFAULT_TAB,
   RETIRED_FILTER_KEYS,
   clearRetiredFilters,
+  isDetailChart,
   isTimeframe,
   pageTitle,
   readPersisted,
@@ -101,6 +102,11 @@ describe("tab restore", () => {
     expect(isTimeframe("W")).toBe(true);
     expect(isTimeframe("Y")).toBe(false);
     expect(isTimeframe(null)).toBe(false);
+    // 5min is a detail-page chart, not a scan / theme timeframe.
+    expect(isTimeframe("5m")).toBe(false);
+    expect(isDetailChart("5m")).toBe(true);
+    expect(isDetailChart("D")).toBe(true);
+    expect(isDetailChart("Y")).toBe(false);
   });
 });
 
