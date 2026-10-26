@@ -541,6 +541,11 @@ export interface TradeAlert {
   r_multiple: number | null;
   details: { variant?: string; volume_ratio?: number | null; rearmed?: number; a_stop_capped?: boolean };
   acknowledged: boolean;
+  /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
+  score: number | null;
+  score_raw?: number | null;
+  score_max_raw?: number | null;
+  score_breakdown?: ScoreComponent[];
 }
 
 export interface AlertsPayload {

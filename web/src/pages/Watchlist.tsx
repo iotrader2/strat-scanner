@@ -1,9 +1,6 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import type { ScanRow } from "../api";
 import { SkeletonTable } from "../components/Loading";
-import { EntryModal } from "../components/Modal";
-import { usePositions } from "../components/Positions";
 import { ListTable } from "../components/ListTable";
 import { useWatchlist } from "../components/Watch";
 import { queueSummary, useSymbolQueue } from "../symbolQueue";
@@ -70,8 +67,6 @@ export function AddSymbol() {
 
 export default function Watchlist() {
   const { symbols, data, error } = useWatchlist();
-  const { open } = usePositions();
-  const [moving, setMoving] = useState<ScanRow | null>(null);
   const rows = useMemo(() => watchedRows(data?.rows ?? [], symbols), [data, symbols]);
   const missing = (data?.missing ?? []).filter((s) => symbols.includes(s));
   const active = rows.filter((r) => r.has_setup).length;
@@ -82,7 +77,7 @@ export default function Watchlist() {
         <div>
           <h1>Watchlist</h1>
           <p className="muted">
-            Stocks you&apos;re watching. They stay until you take them off. When you buy one, move it to Positions.
+            Stocks you&apos;re watching. They stay until you take them off. When you buy one, use Bought on Alerts.
           </p>
         </div>
         <div className="stat-cards">
@@ -115,28 +110,7 @@ export default function Watchlist() {
       ) : data === null ? (
         <SkeletonTable rows={5} cols={13} label="Loading watchlist…" />
       ) : (
-        <ListTable
-          rows={rows}
-          intraday={data?.intraday}
-          actionsLabel=""
-          pinActions={false}
-          actions={(r) => (
-            <button type="button" className="btn small move-btn" onClick={() => setMoving(r)} title="Record the entry and track it on the Positions tab">
-              Bought →
-            </button>
-          )}
-        />
-      )}
-      {moving && (
-        <EntryModal
-          title="Move to Positions"
-          symbol={moving.symbol}
-          initial={{ price: moving.price, shares: null }}
-          lastPrice={moving.price}
-          submitLabel="Move to Positions"
-          onSubmit={(v) => open(moving.symbol, v)}
-          onClose={() => setMoving(null)}
-        />
+        <ListTable rows={rows} intraday={data?.intraday} />
       )}
     </div>
   );

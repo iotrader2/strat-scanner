@@ -878,11 +878,27 @@ def _alerts_session(session: Optional[str]) -> str:
     return now_et().date().isoformat()
 
 
+def _attach_scores(rows: list[dict]) -> list[dict]:
+    """The scanner score for each alert's symbol, the same number the Stock Scanner shows."""
+    by_symbol = {r["symbol"]: r for r in State.scan if r.get("symbol")}
+    attached = []
+    for row in rows:
+        scan = by_symbol.get(row["symbol"])
+        attached.append({
+            **row,
+            "score": None if scan is None else scan.get("score"),
+            "score_raw": None if scan is None else scan.get("score_raw"),
+            "score_max_raw": None if scan is None else scan.get("score_max_raw"),
+            "score_breakdown": [] if scan is None else (scan.get("score_breakdown") or []),
+        })
+    return attached
+
+
 @app.get("/api/alerts")
 def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
     """One session's alerts (default today, Eastern date), newest first, plus the sessions that have any."""
     day = _alerts_session(session)
-    rows = alerts_store.list_alerts(session=day, symbol=symbol)
+    rows = _attach_scores(alerts_store.list_alerts(session=day, symbol=symbol))
     return {
         "session": day,
         "alerts": rows,

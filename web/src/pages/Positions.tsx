@@ -242,7 +242,7 @@ export default function Positions() {
         <div>
           <h1>Positions</h1>
           <p className="muted">
-            Stocks you bought. Move one here from the Watchlist after you buy, or add a ticker below. Use the ⋯ menu to
+            Stocks you bought. Use Bought on an alert, or add a ticker below. Use the ⋯ menu to
             edit it, trim it, send it back, or close it.
           </p>
         </div>
@@ -276,8 +276,8 @@ export default function Positions() {
       )}
       {data !== null && held.length === 0 ? (
         <div className="card empty-state">
-          No open positions. Add a ticker above, or use “Move to Positions” on a{" "}
-          <Link className="sector-link" to="/watchlist">Watchlist</Link> row once you buy it.
+          No open positions. Add a ticker above, or use Bought on an{" "}
+          <Link className="sector-link" to="/alerts">Alerts</Link> row once you buy it.
         </div>
       ) : data === null ? (
         <SkeletonTable rows={4} cols={16} label="Loading positions…" />

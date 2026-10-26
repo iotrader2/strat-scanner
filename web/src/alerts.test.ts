@@ -30,6 +30,7 @@ export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   r_multiple: null,
   details: {},
   acknowledged: false,
+  score: null,
   ...over,
 });
 

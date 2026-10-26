@@ -9,21 +9,37 @@ describe("AlertsTable", () => {
     <MemoryRouter>
       <AlertsTable
         alerts={[
-          sample({ id: 7 }),
+          sample({ id: 7, score: 91 }),
           sample({
             id: 8, symbol: "MU", setup: "D", top: false, acknowledged: true, status: "exited", filled: true, fill_price: 101.01,
             fill_at: "2026-10-23T13:40:00Z", exit_price: 103.25, exit_at: "2026-10-23T15:00:00Z", exit_reason: "close_under_20ema",
-            r_multiple: 2.0, high_reached: 103.9,
+            r_multiple: 2.0, high_reached: 103.9, score: null,
           }),
         ]}
         flashing={new Set([7])}
         onAck={() => undefined}
+        onBought={() => undefined}
       />
     </MemoryRouter>,
   );
 
-  it("has the spec columns", () => {
-    for (const h of ["Fired", "Ticker", "Setup", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
+  it("has the spec columns, with Score after Ticker and Bought before Acknowledge", () => {
+    for (const h of ["Fired", "Ticker", "Score", "Setup", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
+    const head = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
+    const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
+    expect(labels.slice(labels.indexOf("Ticker"), labels.indexOf("Setup") + 1)).toEqual(["Ticker", "Score", "Setup"]);
+    const bought = labels.indexOf("");
+    expect(head).toContain('aria-label="Bought"');
+    expect(labels.indexOf("What happened")).toBeLessThan(bought);
+    expect(html).toContain("Bought →");
+    expect(html).toContain('class="bought-col"');
+    expect(html).not.toMatch(/class="[^"]*bought-col[^"]*actions-col/);
+  });
+
+  it("shows the scanner score pill, or a dash when the name has no score", () => {
+    expect(html).toContain('class="score-pill hi');
+    expect(html).toContain(">91<");
+    expect(html).toContain('<td class="num"><span class="muted">—</span></td>');
   });
 
   it("puts the logo left of the ticker and tags top names", () => {
