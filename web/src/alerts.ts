@@ -70,21 +70,23 @@ export function notificationText(a: TradeAlert, setupName: string): { title: str
   };
 }
 
-/** A short two-tone chime made with Web Audio, so no sound file has to load. */
+/** Three short beeps made with Web Audio, so no sound file has to load. */
 export function playChime(ctx: AudioContext): void {
   const now = ctx.currentTime;
-  for (const [i, freq] of [880, 1318.5].entries()) {
+  const beep = 0.14;
+  const step = 0.28;
+  for (let i = 0; i < 3; i++) {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "sine";
-    osc.frequency.value = freq;
-    const t = now + i * 0.16;
+    osc.frequency.value = 880;
+    const t = now + i * step;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + beep);
     osc.connect(gain).connect(ctx.destination);
     osc.start(t);
-    osc.stop(t + 0.5);
+    osc.stop(t + beep + 0.02);
   }
 }
 
