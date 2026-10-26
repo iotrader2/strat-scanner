@@ -98,7 +98,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["bunched_pct", "Bunched: 6/20/50 EMAs within", "%"],
       ["strong_close_top_pct", "Strong opening bar: closes in the top", "% of range"],
       ["tight_range_pct", "Tight bar: range at most", "% of opening bar"],
-      ["gap_down_pct", "Gap-down / washout: at least", "% under"],
+      ["gap_down_pct", "E: gap under the prior close, or low under the 20 and 50, by at least", "%"],
       ["touch_tol_pct", "D: touch / hold tolerance", "%"],
       ["d_lookback_bars", "D: pullback within the last", "bars"],
       ["f_bunched_minutes", "F: bunched and flat for at least", "minutes"],

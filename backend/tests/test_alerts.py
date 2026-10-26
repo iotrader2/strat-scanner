@@ -226,8 +226,39 @@ def test_e_needs_gap_or_washout():
     rows = [(102.0, 102.2, 101.9, 102.1)] + E_ROWS[1:]
     rows[1] = (102.1, 102.2, 101.7, 101.8)
     rows[2] = (101.8, 102.0, 101.6, 101.9)
-    # Prior close level with the open, and the low never 1% under the open.
+    # Open is level with the prior close, and the low never becomes a higher-low V under the averages.
     assert not by_setup(run(rows, ctx(warm=103.0, prev_close=102.0)), "E")
+
+
+def test_e_washout_far_below_20_and_50_then_reclaims_20():
+    # Flat open (no gap). The low is well under the 20 and the 50, a higher low holds, then the first close back over the 20.
+    rows = [
+        (110.0, 110.4, 107.0, 107.4),
+        (107.4, 107.6, 103.0, 103.4),
+        (103.4, 103.8, 100.0, 101.2),  # session low
+        (101.2, 104.0, 101.0, 103.5),  # bounce
+        (103.5, 103.8, 100.6, 101.4),  # higher low
+        (101.4, 106.0, 101.2, 105.0),
+        (105.0, 108.4, 106.6, 108.2),  # first close back over the 20, stop inside 2%
+    ]
+    found = run(rows, ctx(warm=110.0, prev_close=110.0))
+    e = by_setup(found, "E")
+    assert len(e) == 1 and e[0].setup_index == 6 and e[0].details["variant"] == "washout"
+
+
+def test_e_gap_up_opening_wick_is_not_a_v():
+    # RBRK 2026-10-26, 6:30-7:00 Phoenix. Prior close 128.74, open 132.03 (gap up).
+    # The 6:30 wick to 130 is still above the 20/50. The 7:00 bar is a chop, not a V reclaim.
+    rows = [
+        (132.03, 132.88, 130.00, 132.71),
+        (132.94, 133.26, 131.65, 132.76),
+        (132.79, 133.61, 131.93, 133.53),
+        (133.34, 133.60, 132.56, 132.79),
+        (132.63, 133.30, 132.00, 132.78),
+        (132.61, 133.25, 132.31, 132.31),
+        (132.14, 133.22, 132.00, 132.97),
+    ]
+    assert not by_setup(run(rows, ctx(warm=129.0, prev_close=128.74)), "E")
 
 
 # ------------------------------------------------------------------ F

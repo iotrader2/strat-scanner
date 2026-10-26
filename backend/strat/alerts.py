@@ -59,7 +59,7 @@ class Settings:
     bunched_pct: float = 0.5
     strong_close_top_pct: float = 30.0
     tight_range_pct: float = 50.0
-    gap_down_pct: float = 1.0
+    gap_down_pct: float = 1.0  # E: open this far under the prior close, or the low this far under the 20 and 50
     f_bunched_minutes: int = 120
     f_volume_mult: float = 1.5
     top_names: int = 3
@@ -417,23 +417,44 @@ def _e_pivot(f: Frame, i: int) -> Optional[int]:
     return None
 
 
+def _far_below(price: float, e20: Optional[float], e50: Optional[float], pct: float) -> bool:
+    """True when ``price`` is at least ``pct`` under both the 20 and the 50."""
+    if e20 is None or e50 is None or e20 <= 0 or e50 <= 0:
+        return False
+    band = 1 - pct / 100
+    return price <= e20 * band and price <= e50 * band
+
+
 def match_e(f: Frame, i: int, s: Settings) -> Optional[str]:
-    if not _in(i, s.e_from, s.e_to):
+    """Gap-down, or a washout far below the 20 and 50, then a higher low and the first close back over the 20.
+
+    The open has to be at least ``gap_down_pct`` under the prior close, or the session low has to be at least
+    that far under both the 20 and the 50. A wick under the open is not a washout. The higher low prints while
+    price is still under the 20, and the setup bar is the first close back over it.
+    """
+    if not _in(i, s.e_from, s.e_to) or i < 1:
         return None
     open0 = f.bars[0]["o"]
     pc = f.ctx.prev_close
     gap = pc is not None and open0 <= pc * (1 - s.gap_down_pct / 100)
-    low_so_far = min(f.bars[k]["l"] for k in range(i + 1))
-    washout = low_so_far <= open0 * (1 - s.gap_down_pct / 100)
+    lows = [f.bars[k]["l"] for k in range(i)]
+    m = min(range(i), key=lambda k: (lows[k], k))
+    e20_m = f.e20[m]
+    # The reversal starts under the 20. The setup bar is the reclaim of it.
+    if e20_m is None or not lows[m] < e20_m:
+        return None
+    washout = _far_below(lows[m], e20_m, f.e50[m], s.gap_down_pct)
     if not (gap or washout):
         return None
     j = _e_pivot(f, i)
     b, e20 = f.bars[i], f.e20[i]
-    if j is None or e20 is None or not (is_green(b) and b["c"] > e20):
+    if j is None or e20 is None or f.e20[j] is None or not (is_green(b) and b["c"] > e20):
         return None
-    for k in range(j + 1, i):
-        if f.e20[k] is not None and is_green(f.bars[k]) and f.bars[k]["c"] > f.e20[k]:
-            return None  # not the first close over the 20 after the higher low
+    if lows[j] >= f.e20[j] or b["l"] <= lows[m]:
+        return None  # higher low is already back over the 20, or this bar undercuts the low
+    for k in range(m, i):
+        if f.e20[k] is not None and f.bars[k]["c"] > f.e20[k]:
+            return None  # not the first close back over the 20 since the low
     return "gap" if gap else "washout"
 
 
