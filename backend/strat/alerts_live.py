@@ -19,7 +19,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable, Iterable, Mapping, Optional
 
 from . import alerts_store
-from .alerts import Context, Settings, simulate
+from .alerts import EMA_LONG, Context, Settings, ema_seed, simulate
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT, now_et
@@ -32,11 +32,13 @@ PROFILE_CALENDAR_DAYS = 34  # 20 sessions plus weekends and a holiday or two
 WARM_SESSIONS = 5
 WARM_CALENDAR_DAYS = 10
 PROFILE_BATCH = 5  # symbols per profile request, keeps the transient bar list small
+EMA360_CALENDAR_DAYS = 42  # ~29 sessions (~2,260 regular 5-minute closes) so the EMA 360 has settled
+EMA360_BATCH = 2  # symbols per EMA 360 history request (~12k SIP bars incl. extended hours, freed per batch)
 RUN_UNTIL = time(16, 15)  # one last pass after the close
 PREPARE_FROM = time(8, 0)  # premarket polls from here fetch the per-day inputs ahead of the open
 
 _lock = threading.Lock()
-_profiles: dict[str, dict] = {}  # symbol -> {"day": iso, "avg": {slot: vol}, "sessions": n, "warm": [closes]}
+_profiles: dict[str, dict] = {}  # symbol -> {"day": iso, "avg": {slot: vol}, "sessions": n, "warm": [closes], "e360": float}
 _last_run: dict = {}
 
 
@@ -92,6 +94,12 @@ def warm_closes(bars: Iterable[Mapping], before: date) -> list[float]:
     return [c for t, c in rows if t.astimezone(ET).date() in keep]
 
 
+def regular_closes(bars: Iterable[Mapping], before: date) -> list[float]:
+    """Regular-session (09:30-16:00 ET) closes before ``before``, oldest first. Premarket and after hours are dropped."""
+    rows = sorted((_ts(b["t"]), float(b["c"])) for b in bars)
+    return [c for t, c in rows if slot(t) is not None and t.astimezone(ET).date() < before]
+
+
 def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
     """Fetch the volume profile and EMA seed for symbols not yet prepared for ``day``. Returns how many."""
     with _lock:
@@ -109,6 +117,16 @@ def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
             with _lock:
                 _profiles[sym] = entry
         del iex, sip
+    # The 5-minute EMA 360 (not-extended filter) needs weeks of closes; only the final value is kept.
+    for i in range(0, len(stale), EMA360_BATCH):
+        batch = stale[i : i + EMA360_BATCH]
+        sip, _ = client.bars(batch, "5Min", open_ - timedelta(days=EMA360_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
+        for sym in batch:
+            seed = ema_seed(regular_closes(sip.get(sym, []), day), EMA_LONG)
+            with _lock:
+                if sym in _profiles:
+                    _profiles[sym]["e360"] = seed
+        del sip
     return len(stale)
 
 
@@ -155,6 +173,7 @@ def context_for(sym: str, prev_close: Optional[float], pm_low: Optional[float], 
         vol_avg=p.get("avg") or {},
         vol_sessions=p.get("sessions") or 0,
         session_bars=session_bars,
+        ema360_seed=p.get("e360"),
     )
 
 

@@ -539,7 +539,16 @@ export interface TradeAlert {
   exit_at: string | null;
   exit_reason: string | null;
   r_multiple: number | null;
-  details: { variant?: string; volume_ratio?: number | null; rearmed?: number; a_stop_capped?: boolean };
+  details: {
+    variant?: string;
+    volume_ratio?: number | null;
+    rearmed?: number;
+    a_stop_capped?: boolean;
+    /** 5-minute EMA 360 at the setup bar (about the 1-hour EMA 30) and the distance to it, in percent. */
+    ema360?: number | null;
+    ema360_close_pct?: number | null;
+    ema360_low_pct?: number | null;
+  };
   acknowledged: boolean;
   /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
   score: number | null;

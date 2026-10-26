@@ -450,3 +450,68 @@ def test_metrics_by_setup():
     assert m["B"]["open"] == 1 and m["B"]["win_rate"] is None
     assert m["C"]["win_rate"] == 0.0
     assert m["All"]["count"] == 5
+
+
+# ------------------------------------------------------------------ not extended (5-minute EMA 360)
+
+
+def test_ema_seed_and_continue_match_one_long_series():
+    vals = [100 + (i % 11) * 0.2 + i * 0.01 for i in range(900)]
+    full = alerts.ema_series(vals, 360)
+    seed = alerts.ema_seed(vals[:800], 360)
+    assert seed == pytest.approx(full[799])
+    assert alerts.ema_continue(seed, vals[800:], 360) == pytest.approx(full[800:])
+    assert alerts.ema_seed(vals[:359], 360) is None
+    assert alerts.ema_continue(None, [1.0, 2.0]) == [None, None]
+
+
+def test_ema360_is_thirty_hours_of_five_minute_bars():
+    assert alerts.EMA_LONG * 5 == 30 * 60
+
+
+A_BAR = [(100, 101, 99.9, 100.9)]  # a clean A on its own
+
+
+def test_not_extended_passes_near_the_ema360_and_records_distance():
+    found = run(A_BAR, ctx(ema360_seed=100.0))
+    a = by_setup(found, "A")[0]
+    e = 100.0 + 2 / 361 * (100.9 - 100.0)
+    assert a.details["ema360"] == pytest.approx(e, abs=1e-4)
+    assert a.details["ema360_close_pct"] == pytest.approx((100.9 - e) / e * 100, abs=0.01)
+    assert a.details["ema360_low_pct"] == pytest.approx((99.9 - e) / e * 100, abs=0.01)
+
+
+def test_extended_setup_is_blocked_with_a_reason():
+    skipped = []
+    # EMA 360 ~5% under: the low is far over it.
+    assert not run(A_BAR, ctx(ema360_seed=95.0), skipped=skipped)
+    assert skipped[0]["setup"] == "A" and skipped[0]["reason"].startswith("extended")
+
+
+def test_low_near_but_close_stretched_is_blocked():
+    s = Settings(ext_low_pct=1.0, ext_close_pct=0.5)
+    skipped = []
+    assert not run(A_BAR, ctx(ema360_seed=99.5), settings=s, skipped=skipped)  # low +0.4%, close +1.4%
+    assert "extended" in skipped[0]["reason"]
+    assert by_setup(run(A_BAR, ctx(ema360_seed=99.5), settings=Settings(ext_low_pct=1.0, ext_close_pct=2.0)), "A")
+
+
+def test_pullback_low_in_the_last_hour_counts():
+    # Bar 0 dips to the EMA 360, bar 1 is far over it: the hour's low still qualifies, a 1-bar lookback does not.
+    rows = [(100, 100.5, 99.0, 100.4), (100.4, 101.6, 100.4, 101.5)]
+    c = ctx(warm=102.0, ema360_seed=99.0)
+    assert by_setup(run(rows, c), "C")
+    assert not by_setup(run(rows, c, settings=Settings(ext_lookback_bars=1)), "C")
+
+
+def test_filter_off_or_without_history_does_not_block():
+    assert by_setup(run(A_BAR, ctx(ema360_seed=90.0), settings=Settings(ext_filter=0)), "A")
+    a = by_setup(run(A_BAR, ctx()), "A")[0]  # no EMA 360 seed yet
+    assert a.details["ema360"] is None and a.details["ema360_close_pct"] is None
+
+
+def test_ext_settings_round_trip_and_limits():
+    s = Settings.from_mapping({"ext_filter": "0", "ext_low_pct": "1.5", "ext_lookback_bars": "6"})
+    assert (s.ext_filter, s.ext_low_pct, s.ext_lookback_bars) == (0, 1.5, 6)
+    for k in ("ext_filter", "ext_low_pct", "ext_close_pct", "ext_lookback_bars"):
+        assert k in alerts.SETTING_LIMITS

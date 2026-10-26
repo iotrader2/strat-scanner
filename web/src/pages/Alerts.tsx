@@ -12,6 +12,9 @@ import {
   SETTING_GROUPS,
   STATUS_LABEL,
   alertDayStatus,
+  ema360Text,
+  ema360Title,
+  ema360Tone,
   fmtR,
   phoenixTime,
   rTone,
@@ -131,6 +134,7 @@ export function AlertsTable({
             <th className="num">Stop</th>
             <th className="num">Stop %</th>
             <th className="num">Risk / sh</th>
+            <th className="num" title="Setup bar close vs the 5-minute EMA 360 (about the 1-hour EMA 30)">vs EMA360</th>
             <th>Status</th>
             <th className="num">High</th>
             <th className="num">R</th>
@@ -170,6 +174,9 @@ export function AlertsTable({
               <td className="num">{money(a.stop_price)}</td>
               <td className="num">{stopPct(a).toFixed(2)}%</td>
               <td className="num">{money(riskPerShare(a))}</td>
+              <td className={`num ${ema360Tone(a)}`} title={ema360Title(a)}>
+                {ema360Text(a)}
+              </td>
               <td>
                 <StatusPill a={a} />
               </td>

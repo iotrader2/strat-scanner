@@ -273,6 +273,29 @@ export function playChime(ctx: AudioContext): void {
   }
 }
 
+/** "+0.62%" distance of the setup bar's close from the 5-minute EMA 360; "—" when unknown (older alerts, thin history). */
+export function ema360Text(a: Pick<TradeAlert, "details">): string {
+  const v = a.details?.ema360_close_pct;
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+}
+
+/** Hover text: EMA level and both distances the not-extended filter checks. */
+export function ema360Title(a: Pick<TradeAlert, "details">): string {
+  const d = a.details ?? {};
+  if (d.ema360 == null) return "5-minute EMA 360 not known for this alert";
+  const pct = (v: number | null | undefined) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
+  return `5m EMA 360 (≈ 1h EMA 30) ${d.ema360.toFixed(2)}. Close ${pct(d.ema360_close_pct)}, last hour's low ${pct(d.ema360_low_pct)}`;
+}
+
+/** Tone for the distance cell: near the level is good, stretched is a warning. */
+export function ema360Tone(a: Pick<TradeAlert, "details">, settings?: Record<string, number>): string {
+  const c = a.details?.ema360_close_pct;
+  if (c == null) return "";
+  const max = settings?.ext_close_pct ?? 3;
+  return c > max ? "red-text" : c <= 1 ? "green-text" : "";
+}
+
 /** Human labels and grouping for the settings form. */
 export const SETTING_GROUPS: { title: string; items: [key: string, label: string, unit?: string][] }[] = [
   {
@@ -301,6 +324,15 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["max_attempts", "Triggered attempts per name per day", ""],
       ["breakeven_after_new_highs", "Stop to break-even after", "new-high bars"],
       ["top_names", "Top names per day", ""],
+    ],
+  },
+  {
+    title: "Not extended (5-minute EMA 360 ≈ 1-hour EMA 30)",
+    items: [
+      ["ext_filter", "Only alert near the EMA 360 (1 = on, 0 = off)", ""],
+      ["ext_low_pct", "Last hour's low at most", "% over the EMA 360"],
+      ["ext_close_pct", "Setup bar close at most", "% over the EMA 360"],
+      ["ext_lookback_bars", "Last hour =", "bars (today only)"],
     ],
   },
   {
