@@ -45,6 +45,11 @@ describe("AlertsTable", () => {
     expect(html).toContain("out 103.25 at 8:00 AM (close under 20 EMA)");
   });
 
+  it("shows the trigger rule when hovering the setup", () => {
+    expect(html).toContain('title="Opening bar closes in the top 30% and over the 6 and 20 EMAs."');
+    expect(html).toContain('title="After a pullback to the rising 20 EMA, a green bar closes back over the 6."');
+  });
+
   it("uses no emoji", () => {
     expect(/\p{Extended_Pictographic}/u.test(html)).toBe(false);
   });

@@ -21,6 +21,16 @@ const SETUP_NAMES: Record<string, string> = {
   F: "Midday squeeze",
 };
 
+/** One-line trigger rule, shown on hover over the setup column. */
+const SETUP_RULES: Record<string, string> = {
+  A: "Opening bar closes in the top 30% and over the 6 and 20 EMAs.",
+  B: "After a dip under the open or prior close, the first green close over the bunched 6/20/50.",
+  C: "After a strong open, a bar closes over the opening high, or tight bars hold over the 6 EMA.",
+  D: "After a pullback to the rising 20 EMA, a green bar closes back over the 6.",
+  E: "Gap under the prior close, or a low under the 20 and 50, then a higher low and the first close back over the 20.",
+  F: "After the 6/20/50 stay flat and bunched, a full green bar breaks out on heavy volume.",
+};
+
 const money = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
 
 function AttentionControls() {
@@ -114,8 +124,10 @@ export function AlertsTable({
                 </Link>
               </td>
               <td>
-                <span className="setup-letter" title={SETUP_NAMES[a.setup]}>{a.setup}</span>
-                <span className="muted small setup-name">{SETUP_NAMES[a.setup]}</span>
+                <span className="setup-hover" title={SETUP_RULES[a.setup]}>
+                  <span className="setup-letter">{a.setup}</span>
+                  <span className="muted small setup-name">{SETUP_NAMES[a.setup]}</span>
+                </span>
               </td>
               <td className="num">{money(a.trigger_price)}</td>
               <td className="num">{money(a.stop_price)}</td>
@@ -281,8 +293,10 @@ function MetricsView() {
             {(data?.rows ?? []).map((r) => (
               <tr key={r.setup} className={r.setup === "All" ? "total-row" : ""}>
                 <td>
-                  {r.setup !== "All" && <span className="setup-letter">{r.setup}</span>}
-                  <span className={r.setup === "All" ? "" : "setup-name"}>{r.name}</span>
+                  <span className={SETUP_RULES[r.setup] ? "setup-hover" : undefined} title={SETUP_RULES[r.setup]}>
+                    {r.setup !== "All" && <span className="setup-letter">{r.setup}</span>}
+                    <span className={r.setup === "All" ? "" : "setup-name"}>{r.name}</span>
+                  </span>
                 </td>
                 <td className="num">{r.count}</td>
                 <td className="num">{r.filled}</td>
