@@ -39,10 +39,10 @@ export interface NewMarker {
 
 type NewFields = { leadership?: Pick<ScanRow["leadership"], "breakdown"> & Partial<Pick<ScanRow["leadership"], "breakdown_new" | "leader_new">> };
 
-/** The transition to mark NEW: a breakdown that just worsened comes first, else a leader that just crossed the RS gate. */
+/** The transition to mark NEW: a trend that just broke comes first, else a leader that just crossed the RS gate. A move into the warning level is not shown. */
 export function newMarker(r: NewFields): NewMarker | null {
   const b = r.leadership?.breakdown_new;
-  if (b) return { kind: b.to, label: b.to === "broken" ? "broken" : "weakening", since: b.since };
+  if (b?.to === "broken") return { kind: "broken", label: "broken", since: b.since };
   const l = r.leadership?.leader_new;
   if (l) return { kind: "leader", label: "leader", since: l.since };
   return null;
@@ -63,10 +63,9 @@ export function rsTitle(r: RsChangeFields & NewFields): string {
   }
   const b = r.leadership?.breakdown_new;
   const l = r.leadership?.leader_new;
-  if (b) {
-    const to = b.to === "broken" ? "broken" : "weakening";
-    const from = b.from === "warning" ? "weakening" : "no breakdown flag";
-    lines.push(`NEW ${to}: changed on ${b.since} (${sessionsText(b.sessions_ago)}), from ${from}. Marked new for ${NEW_SESSIONS} sessions.`);
+  if (b?.to === "broken") {
+    const from = b.from === "warning" ? "a trend warning" : "no breakdown flag";
+    lines.push(`NEW broken: changed on ${b.since} (${sessionsText(b.sessions_ago)}), from ${from}. Marked new for ${NEW_SESSIONS} sessions.`);
   }
   if (l) {
     lines.push(
@@ -80,7 +79,7 @@ export interface RsChipView {
   level: "none" | "warning" | "broken";
   delta: RsDelta | null;
   newMarker: NewMarker | null;
-  /** The usual breakdown flag ("weakening" / "broken"), left out when the NEW marker already says it. */
+  /** "broken" when the trend is lost, left out when the NEW marker already says it. A warning is not badged. */
   flag: string;
   kill: string;
   title: string;
@@ -89,9 +88,11 @@ export interface RsChipView {
 /** Everything the chip shows (the change, not the RS value itself, which is in the tooltip); null when the symbol has no RS yet. */
 export function rsChipView(row: ScanRow): RsChipView | null {
   if (row.rs === null || row.rs === undefined) return null;
-  const level = row.leadership?.breakdown ?? "none";
+  const breakdown = row.leadership?.breakdown ?? "none";
+  // A warning is a price-trend note, not an RS decline, so it gets no badge and no yellow chip.
+  const level = breakdown === "broken" ? "broken" : "none";
   const marker = newMarker(row);
-  const flag = level === "broken" ? "broken" : level === "warning" ? "weakening" : "";
+  const flag = breakdown === "broken" ? "broken" : "";
   const kill = row.kill_candle && row.kill_candle.penalty > 0 ? ` · kill candle ${row.kill_candle.date.slice(5)}` : "";
   return {
     level,
