@@ -203,7 +203,7 @@ shows the weight next to each label (`Vs QQQ (30%)  +23.8 / 30`) and the sub-wei
 | Component | Max points | Weight (stock) | Sub-weights | How it is computed |
 | --- | ---: | ---: | --- | --- |
 | **Relative strength** | 15 | 15% | 1M 20% · 3M 40% · 6M 40% | `15 × blended percentile` of the 1M / 3M / 6M price returns within the peer group (stocks vs stocks, ETFs vs ETFs, themes vs themes). |
-| **Vs QQQ** | 30 | 30% | 1M 20% · 3M 40% · 6M 40%; full credit at +45 / +120 / +210 pts | Return minus **QQQ's return** (QQQ only, not SPY) over the same period, credited linearly up to **+45 / +120 / +210 points** (1M / 3M / 6M) and weighted 20/40/40. A name that only keeps up with QQQ earns nothing. This is the magnitude that percentiles hide. It is still the largest single factor, and it used to be 45. |
+| **Vs QQQ** | 30 | 30% | 1M 20% · 3M 40% · 6M 40%; full credit at +20 / +60 / +100 pts | Return minus **QQQ's return** (QQQ only, not SPY) over the same period, credited linearly up to **+20 / +60 / +100 points** (1M / 3M / 6M) and weighted 20/40/40. A name that only keeps up with QQQ earns nothing. This is the magnitude that percentiles hide. It is still the largest single factor, and it used to be 45. The full-credit caps were +45 / +120 / +210 before they were lowered so a strong chart was not stuck on partial credit. |
 | **Theme strength** | 25 | 25% | none | Stocks only. `25 × (N − rank + 1) / N` for the stock's **primary** theme among the N themes on the Themes page (the top theme gets all 25). Themes are ranked by their own leadership score. 0 for a stock in no theme. Raised from 10 so a #1-theme name can reach the top of the list. |
 | **Trend** | 10 | 10% | 10-day 5 pts · 20-day 5 pts; each = price above the average 3 + average rising 2 | Only the **10-day and 20-day** averages score. For each: +3 when the close is above it and +2 when it is rising (above its value 5 bars ago), so a name above a rising 10-day and a rising 20-day gets all 10. The 50-day average and the distance from the highs do not score; they only feed the breakdown rules below. |
 | **Range tightness** | 5 | 5% | last-10 vs 50-day range 60% · last-5 vs 20-day contraction 40% | Calm, contracting daily ranges score high and loose, expanding ones low. See below. |
@@ -258,13 +258,13 @@ halved again; this shows as a negative "Pinned penalty" line.
 **Who counts as a leader.** The scanner **filters** rather than just ranking lower. A name is a *leader* when its blended
 1M/3M/6M relative-strength percentile is at least the **Min RS** slider (default **P90**, top decile of its peer group,
 `LEADER_MIN_RS` in `backend/strat/leadership.py`) **and** its trend is not broken. The Stock Scanner's **Setups**
-filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (only rows marked leader, `is_leader`: RS ≥ P90 and trend not broken, **and a score strictly above 70** (`LEADERS_MIN_SCORE`; 70.0 is out, 70.1 is in), highest score first; the Min RS slider, 50–99 in steps of 1, shown as `≥ P90`, can raise the cut above P90 but never adds non-leaders), *Weekly strat awaiting
+filter (the dropdown formerly labeled Leadership; the saved value is still the `leadership` key) has nine options: *Leaders* (trend not broken, **score strictly above 70** (`LEADERS_MIN_SCORE`; 70.0 is out, 70.1 is in), and either RS at the Min RS slider or an RS line versus QQQ — close divided by QQQ — that made a 52-week high in the last 5 sessions; highest score first. The slider, 50–99 in steps of 1, shown as `≥ P90`, can raise the percentile cut above P90. Lowering it does not add other names below P90, and the RS-line high does not bypass a higher cut. The leader flag `is_leader` stays RS ≥ P90 and trend not broken), *Weekly strat awaiting
 trigger*, *Weekly strat already triggered*, *Daily bullish trend change*, *Daily bearish trend change*, *Recent breakouts*, *Failed breakouts*, *Broken leaders* and *All names*. The hero chips (in order: all names, leaders, broken leaders, weekly bullish, weekly bearish,
 daily bullish, daily bearish, recent breakouts, failed breakouts; the weekly strat views have no tile) are
 full-universe totals for those categories (not the current filters); click a chip or pick a Setups option to dig in. The Min RS slider
 applies to *Leaders* and both weekly Strat views; the daily MACD trend changes, *Recent breakouts*, *Failed breakouts* and *Broken leaders* ignore it. The slider is saved
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
-(default true; RS cut, trend not broken and score > 70) and `min_rs`. The score cut is a list filter only: the leader flag,
+(default true; RS ≥ `min_rs` or an RS-line 52-week high in the last 5 sessions, trend not broken, and score > 70) and `min_rs`. The score cut and the RS-line path are list filters only: the leader flag,
 the leader badge and the score stay RS + trend, since the score is itself built from leader status and the breakdown. The Candle Pattern filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
 **RS chip** (the RS change such as `▼7`, with a *broken* flag, a *kill candle* note and the NEW markers below; the RS percentile itself is in the tooltip, since it already drives the score). A warning breakdown is not shown on the chip.
 
@@ -365,13 +365,13 @@ setup quality and closeness, with a small preference for setups that have not tr
 | Component | Points | Why |
 | --- | ---: | --- |
 | Relative strength | 14.54 / 15 | 1M +15.8% (P86), 3M +102.8% (P100), 6M +320.9% (P100) among 618 stocks: `0.20×0.86 + 0.40×1.00 + 0.40×1.00 = 0.97` |
-| Vs QQQ | 23.76 / 30 | +12.9 / +100.3 / +299.3 points over QQQ (full credit at +45 / +120 / +210): `0.2×0.29 + 0.4×0.84 + 0.4×1.00 = 0.79`, then × 30 |
+| Vs QQQ | 27.87 / 30 | +12.9 / +100.3 / +299.3 points over QQQ (full credit at +20 / +60 / +100): `0.2×0.645 + 0.4×1.00 + 0.4×1.00 = 0.929`, then × 30 |
 | Theme strength | 24.70 / 25 | AI hardware & servers, #2 of 82 themes (`25 × 81 / 82`) |
 | Trend | 10 / 10 | above a rising 10-day (5) and a rising 20-day (5) average |
 | Range tightness | 3.80 / 5 | 10-day range 7.7% of price vs 7.9% over 50 days (0.97×); last 5 days 7.0% vs 8.2% (0.85×) |
 | Continuity | 8 / 10 | Monthly +4, Weekly +4; Daily not green, so no all-three bonus (the Monthly 2U and the missing setup do not score) |
 | Liquidity | 4.29 / 5 | $2.6B/day |
-| **Raw total** | **89.09 / 100** | score 89.1; nearest trigger is the closer completed-week high above price |
+| **Raw total** | **93.20 / 100** | score 93.2; nearest trigger is the closer completed-week high above price |
 
 **The same family after a breakdown (HPE, Oct 16 2026):** RS fell to P83 (1M -2.7%), the close is below the 50-day average
 and 25% under the 6-month high, so the raw 37.0 is multiplied by 0.5 (a −18.5 *Breakdown penalty*) for a score of 18.5, and
@@ -599,7 +599,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/scan` | Ranked scan rows, Leaders scan only by default (marked leader and score > 70; `leaders_only=false` for every name, `min_rs=0.8` for a looser cut). Rows without a weekly setup carry `nearest_trigger`; every row carries `rs_prev`, `rs_prev_date`, `rs_change` and `leadership.breakdown_new` / `leader_new` (see *What changed lately*) |
+| `GET /api/scan` | Ranked scan rows, Leaders scan only by default (RS ≥ `min_rs` or an RS-line 52-week high in the last 5 sessions, trend not broken, and score > 70; `leaders_only=false` for every name, `min_rs=0.8` for a looser percentile cut). Rows carry `rs_line_high`. Rows without a weekly setup carry `nearest_trigger`; every row carries `rs_prev`, `rs_prev_date`, `rs_change` and `leadership.breakdown_new` / `leader_new` (see *What changed lately*) |
 | `GET /api/symbol/{symbol}` | Scan row plus M/W/D chart candles for one symbol |
 | `GET /api/themes?tf=W` | Theme cards for a timeframe, strongest first: index candles, scan row and member chips |
 | `GET /api/logo/{symbol}` | Company or fund logo for a ticker, proxied from [Parqet](https://parqet.com) (free, no key). Stored on disk under `STRAT_LOGO_DIR` (default `backend/data/logos`, ephemeral on Heroku) and sent with `Cache-Control: public, max-age=604800`. A miss returns 404 and is remembered for a day; network errors are not cached. The UI (`TickerLogo`) shows a letter avatar on 404 or error |

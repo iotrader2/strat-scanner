@@ -116,6 +116,18 @@ class TestShippedMap:
         ):
             assert word in text, word
 
+    def test_pltr_and_uri_score_from_a_primary_theme(self, themes):
+        pltr = themes.theme_of("PLTR")
+        uri = themes.theme_of("URI")
+        assert pltr is not None and pltr.name == "AI / Defense Software"
+        assert set(pltr.members) == {"PLTR", "LDOS", "AXON"}
+        assert "PLTR" in themes.by_id("software").also
+        assert uri is not None and uri.name == "Industrial Equipment & Rental"
+        assert set(uri.members) == {"URI", "GWW", "FAST"}
+        # Leidos stays on the Defense card as a secondary; its points come from the new theme.
+        assert themes.theme_of("LDOS").id == "ai-defense-software"
+        assert "LDOS" in themes.by_id("defense").also
+
     def test_every_theme_has_a_description_and_enough_members(self, themes):
         for t in themes.themes:
             assert t.description, t.id

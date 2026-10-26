@@ -27,6 +27,8 @@ type LeaderFields = Pick<ScanRow, "rs"> & {
   score?: number;
   /** The backend's leader flag (RS >= P90 and trend not broken). Rows without it fall back to the same rule. */
   is_leader?: boolean;
+  /** RS line versus QQQ made a 52-week high in the last 5 sessions. Absent on older rows. */
+  rs_line_high?: boolean;
   has_setup?: boolean;
   triggered?: boolean | null;
   daily_trend?: ScanRow["daily_trend"];
@@ -42,11 +44,19 @@ const isBroken = (r: LeaderFields) => r.leadership?.breakdown === "broken";
 export const isLeader = (r: LeaderFields): boolean => r.is_leader ?? (rsAtLeast(r, LEADER_RS) && !isBroken(r));
 /** Marked leader at the Min RS slider: the slider can raise the cut above P90 but never adds non-leaders. */
 const isLeaderAtRs = (r: LeaderFields, minRs: number) => isLeader(r) && rsAtLeast(r, minRs);
+/** RS line versus QQQ at a 52-week high in the last 5 sessions. An alternative to the P90 floor, not to a tighter slider. */
+const rsLineHigh = (r: LeaderFields): boolean => r.rs_line_high === true;
 /** Score strictly above `LEADERS_MIN_SCORE` (70). */
 export const hasLeaderScore = (r: Pick<LeaderFields, "score">): boolean =>
   typeof r.score === "number" && r.score > LEADERS_MIN_SCORE;
-/** Leaders view: marked leader at the slider's RS cut and a score above 70. */
-const isListedLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && hasLeaderScore(r);
+/**
+ * RS side of the Leaders list: marked leader at the slider's cut, or (while the slider is at or below P90) an
+ * RS-line 52-week high. Lowering the slider still does not add other names below P90. A broken trend is out.
+ */
+const qualifiesAsLeader = (r: LeaderFields, minRs: number) =>
+  !isBroken(r) && (isLeaderAtRs(r, minRs) || (rsLineHigh(r) && minRs <= LEADER_RS));
+/** Leaders view: that RS qualification and a score above 70. */
+const isListedLeader = (r: LeaderFields, minRs: number) => qualifiesAsLeader(r, minRs) && hasLeaderScore(r);
 /** Weekly Strat views: marked leaders with a weekly setup. They do not apply the score > 70 cut. */
 const isSetupLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && !!r.has_setup;
 
@@ -220,7 +230,7 @@ export const NO_SETUP_LEADER = "Leader · no setup";
 
 /** Label for the setup cell of a row without a weekly setup: a leader is still listed, it just has no weekly setup. */
 export function noSetupLabel(r: LeaderFields, minRs: number = LEADER_RS): string {
-  return isLeaderAtRs(r, minRs) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
+  return qualifiesAsLeader(r, minRs) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
 }
 
 /** A score line's weight as shown in the breakdown, e.g. 32 -> "32%", 35.6 -> "35.6%". */

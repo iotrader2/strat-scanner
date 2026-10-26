@@ -14,7 +14,7 @@
 #   clustering, flagged members). The report only suggests; the map below always wins.
 #
 # Bump `version` whenever the membership changes.
-version: 5
+version: 6
 
 themes:
   # ---- Technology -------------------------------------------------------------------------------------------------
@@ -77,6 +77,11 @@ themes:
     members: "CRM NOW ADBE INTU WDAY ADSK TEAM HUBS DDOG SNOW MDB PTC VEEV"
     also: "PLTR"
     keep: "DDOG"
+
+  ai-defense-software:
+    name: AI / Defense Software
+    description: "AI and software sold to defense, intelligence and government."
+    members: "PLTR LDOS AXON"
 
   it-services:
     name: IT services & consulting
@@ -225,6 +230,11 @@ themes:
     name: Machinery
     description: "Industrial machinery and components."
     members: "EMR ITW DOV PH AME IR WAB PCAR SNA ROK DE"
+
+  industrial-equipment:
+    name: Industrial Equipment & Rental
+    description: "Equipment rental and the industrial distributors that supply the same job sites."
+    members: "URI GWW FAST"
 
   hvac:
     name: HVAC & building systems

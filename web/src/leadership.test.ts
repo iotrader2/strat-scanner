@@ -84,6 +84,19 @@ describe("matchesLeadership", () => {
     expect(pick("leaders")).toEqual([leader, weakening]);
   });
 
+  it("an RS-line 52-week high lists a name under P90 when the score is above 70", () => {
+    const hot = { ...row(0.85), rs_line_high: true };
+    expect(matchesLeadership(hot, "leaders")).toBe(true);
+    expect(matchesLeadership({ ...hot, score: 70 }, "leaders")).toBe(false);
+    expect(matchesLeadership({ ...hot, leadership: { breakdown: "broken" } }, "leaders")).toBe(false);
+    expect(isLeader(hot)).toBe(false);
+    expect(noSetupLabel(hot)).toBe(NO_SETUP_LEADER);
+    // Lowering the slider still does not add a mid-pack name, and a tighter slider is not bypassed.
+    expect(matchesLeadership(row(0.85), "leaders", sliderToRs(50))).toBe(false);
+    expect(matchesLeadership(hot, "leaders", sliderToRs(50))).toBe(true);
+    expect(matchesLeadership(hot, "leaders", sliderToRs(97))).toBe(false);
+  });
+
   it("the Min RS slider can raise the Leaders cut but never adds non-leaders", () => {
     expect(pick("leaders", sliderToRs(97))).toEqual([leader]);
     // Below P90 the slider no longer pulls in P80 names labelled as leaders: only rows marked leader are listed.

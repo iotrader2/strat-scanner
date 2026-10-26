@@ -138,7 +138,7 @@ def relative_strength_points(momentum: Optional[Momentum]) -> float:
 
 
 def qqq_points(excess: Optional[Mapping[str, Optional[float]]]) -> float:
-    """Weighted credit for beating QQQ: full at +15 / +40 / +70 points over 1M / 3M / 6M."""
+    """Weighted credit for beating QQQ: full at +20 / +60 / +100 points over 1M / 3M / 6M."""
     if not excess:
         return 0.0
     have = {p: excess.get(p) for p in PERIODS if excess.get(p) is not None}

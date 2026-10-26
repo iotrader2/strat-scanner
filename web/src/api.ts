@@ -160,6 +160,8 @@ export interface ScanRow {
   rs_change?: number | null;
   leader_status: LeaderStatus;
   is_leader: boolean;
+  /** Close divided by QQQ made a 52-week high in the last 5 sessions. False when QQQ was not loaded. */
+  rs_line_high?: boolean;
   leadership: Leadership;
   tightness: TightnessInfo | null;
   kill_candle: KillCandleInfo | null;

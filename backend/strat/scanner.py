@@ -42,6 +42,7 @@ from .leadership import (
     leader_status,
     long_term_rs,
     nearest_trigger,
+    rs_line_new_high,
     trend_metrics,
 )
 from .breakout import MIN_RS as MIN_BREAKOUT_RS, find_breakout, find_failed_breakout
@@ -191,6 +192,7 @@ def scan_symbol(
     qqq: Optional[Perf] = None,
     method: str = LEADERS,
     prior: Optional[Mapping[int, PriorRanks]] = None,
+    benchmark_close: Optional[pd.Series] = None,
 ) -> Optional[dict]:
     """Scan one symbol.
 
@@ -199,6 +201,8 @@ def scan_symbol(
     ``method`` is ``"leaders"`` (the leadership-first score) or ``"legacy"`` (the old Strat-first score).
     ``prior`` supplies the peer distributions at earlier sessions (see ``change.prior_ranks``) for the RS change and the
     new breakdown / new leader flags; without it those fields are empty.
+    ``benchmark_close`` is QQQ's close, already in the price cache. The RS-line flag is a bool computed on a
+    252-session window of that series; the ratio is not kept. Missing QQQ (a cold start) leaves the flag false.
     """
     if daily is None or len(daily) < 30:
         return None
@@ -263,6 +267,12 @@ def scan_symbol(
     primary = sc.primary
     rs = momentum.blended if momentum else None
     status = leader_status(rs, trend_break)
+    # QQQ versus itself is a flat line and would always "make a high". Every other name uses the cache's QQQ close.
+    rs_line_high = (
+        member.symbol != BENCHMARK
+        and benchmark_close is not None
+        and rs_line_new_high(daily["close"], benchmark_close)
+    )
     as_of = daily.index[-1].strftime("%Y-%m-%d")
     history = [
         snap
@@ -310,6 +320,7 @@ def scan_symbol(
         "rs_change": rs_change_points(rs, rs_prev),
         "leader_status": status,
         "is_leader": status == "leader",
+        "rs_line_high": rs_line_high,
         "leadership": {
             "rs": None if rs is None else round(rs, 4),
             "status": status,
@@ -437,6 +448,8 @@ def scan_all(
     ranks = MomentumRanks.from_perf(perf_by_group)
     bench_daily = daily_by_symbol.get(BENCHMARK)
     qqq = period_returns(bench_daily.close) if bench_daily is not None and len(bench_daily) >= 30 else {}
+    # The same series the cache already holds. Not a copy, and not retained beyond the bool on each row.
+    bench_close = bench_daily["close"] if bench_daily is not None and len(bench_daily) else None
 
     prior: dict[int, PriorRanks] = {}
     if changes:
@@ -448,7 +461,10 @@ def scan_all(
     theme_rows = {}
     for theme in themes.themes if themes else []:
         if theme.id in theme_daily:
-            row = scan_symbol(theme_member(theme), theme_daily[theme.id], ranks=ranks, qqq=qqq, method=method, prior=prior)
+            row = scan_symbol(
+                theme_member(theme), theme_daily[theme.id], ranks=ranks, qqq=qqq, method=method, prior=prior,
+                benchmark_close=bench_close,
+            )
             if row:
                 theme_rows[theme.id] = row
     strengths = theme_strengths(theme_rows, themes)
@@ -456,7 +472,9 @@ def scan_all(
     rows = []
     for m in members:
         if m.kind != "theme":
-            row = scan_symbol(m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method, prior)
+            row = scan_symbol(
+                m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method, prior, bench_close,
+            )
             if row:
                 rows.append(row)
     rows.sort(key=lambda r: r["score"], reverse=True)
