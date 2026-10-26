@@ -23,7 +23,7 @@ import { EarningsIcon } from "./EarningsIcon";
 import { WatchButton } from "./Watch";
 import { fmtMaDistance, maDistance, maDistanceTone, maLabel, maMissingTitle, maSortKey, maTitle, MA_DISTANCE_PERIODS, type MaPeriod } from "../maDistance";
 
-/** Relative-strength change chip: the change vs a week ago, a flag when the leader is weakening or broken, and a NEW marker for fresh transitions. A name with none of those shows nothing. */
+/** Relative-strength change chip: the change vs a week ago, a flag when the trend is broken, and a NEW marker for a fresh break or a new leader. A name with none of those shows nothing. */
 function RsChip({ row }: { row: ScanRow }) {
   const view = rsChipView(row);
   if (!view) return null;

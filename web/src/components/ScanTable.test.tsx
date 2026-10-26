@@ -49,6 +49,54 @@ const render = (props: Partial<Parameters<typeof ScanTable>[0]> = {}) =>
     </MemoryRouter>,
   );
 
+describe("RS chip", () => {
+  const withRs = (symbol: string, extra: Record<string, unknown>) =>
+    ({ ...row, symbol, rs: 0.95, rs_prev: 0.83, rs_prev_date: "2026-10-09", rs_change: 12, ...extra }) as unknown as ScanRow;
+
+  it("shows a rising RS arrow without a weakening badge, and still badges a broken trend", () => {
+    const rising = renderToStaticMarkup(
+      <MemoryRouter>
+        <ScanTable
+          rows={[
+            withRs("UP", {
+              leadership: {
+                breakdown: "warning",
+                breakdown_reasons: ["below the 20-day average"],
+                breakdown_new: { from: "none", to: "warning", since: "2026-10-16", sessions_ago: 0 },
+                leader_new: null,
+              },
+            }),
+          ]}
+          watchColumn={false}
+        />
+      </MemoryRouter>,
+    );
+    expect(rising).toContain("▲12");
+    expect(rising).toContain('class="rs-chip none"');
+    expect(rising).not.toContain("weakening");
+    expect(rising).not.toContain("rs-chip warning");
+    expect(rising).not.toContain("rs-new warning");
+
+    const broken = renderToStaticMarkup(
+      <MemoryRouter>
+        <ScanTable
+          rows={[
+            withRs("DN", {
+              rs_change: 4,
+              leadership: { breakdown: "broken", breakdown_reasons: [], breakdown_new: null, leader_new: null },
+            }),
+          ]}
+          watchColumn={false}
+        />
+      </MemoryRouter>,
+    );
+    expect(broken).toContain("▲4");
+    expect(broken).toContain("broken");
+    expect(broken).toContain("rs-chip broken");
+    expect(broken).not.toContain("weakening");
+  });
+});
+
 describe("Stock Scanner keeps the scanning columns", () => {
   it("shows 1M / 3M / 6M, D · W · M and Weekly setup", () => {
     const html = render();

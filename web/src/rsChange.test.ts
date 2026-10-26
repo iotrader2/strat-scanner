@@ -35,8 +35,8 @@ describe("rsDelta", () => {
 describe("newMarker", () => {
   const worsened = { from: "none", to: "warning", since: "2026-10-16", sessions_ago: 0 } as const;
 
-  it("marks a breakdown that just worsened, with the word shown on the chip", () => {
-    expect(newMarker(row(0.9, {}, { breakdown: "warning", breakdown_new: worsened }))).toEqual({ kind: "warning", label: "weakening", since: "2026-10-16" });
+  it("marks a trend that just broke, and skips a warning", () => {
+    expect(newMarker(row(0.9, {}, { breakdown: "warning", breakdown_new: worsened }))).toBeNull();
     expect(newMarker(row(0.9, {}, { breakdown: "broken", breakdown_new: { ...worsened, from: "warning", to: "broken" } }))).toEqual({
       kind: "broken",
       label: "broken",
@@ -44,10 +44,11 @@ describe("newMarker", () => {
     });
   });
 
-  it("marks a newly entered leader, after a worsening", () => {
+  it("marks a newly entered leader, including one that only has a warning", () => {
     const entry = { since: "2026-10-15", sessions_ago: 1, from_rs: 0.88 };
     expect(newMarker(row(0.92, {}, { leader_new: entry }))).toEqual({ kind: "leader", label: "leader", since: "2026-10-15" });
-    expect(newMarker(row(0.92, {}, { breakdown: "warning", breakdown_new: worsened, leader_new: entry }))?.kind).toBe("warning");
+    expect(newMarker(row(0.92, {}, { breakdown: "warning", breakdown_new: worsened, leader_new: entry }))?.kind).toBe("leader");
+    expect(newMarker(row(0.92, {}, { breakdown: "broken", breakdown_new: { ...worsened, to: "broken" }, leader_new: entry }))?.kind).toBe("broken");
   });
 
   it("has nothing for a row without transitions or without the fields", () => {
@@ -62,14 +63,21 @@ describe("rsChipView", () => {
     expect(rsChipView(row(null))).toBeNull();
   });
 
-  it("shows the change arrow and the usual flag, not the RS value", () => {
-    const v = rsChipView(row(0.914, { rs_prev: 0.984, rs_prev_date: "2026-10-09", rs_change: -7 }, { breakdown: "warning" }))!;
-    expect(v).not.toHaveProperty("rs");
-    expect(v.title).toContain("Relative strength P91");
-    expect(v.delta?.text).toBe("▼7");
-    expect(v.flag).toBe("weakening");
-    expect(v.level).toBe("warning");
-    expect(v.newMarker).toBeNull();
+  it("shows the change arrow and leaves a warning unbadged, even when RS is rising", () => {
+    const down = rsChipView(row(0.914, { rs_prev: 0.984, rs_prev_date: "2026-10-09", rs_change: -7 }, { breakdown: "warning" }))!;
+    expect(down).not.toHaveProperty("rs");
+    expect(down.title).toContain("Relative strength P91");
+    expect(down.delta?.text).toBe("▼7");
+    expect(down.flag).toBe("");
+    expect(down.level).toBe("none");
+    expect(down.newMarker).toBeNull();
+    expect(down.title).not.toContain("weakening");
+
+    const up = rsChipView(row(0.95, { rs_prev: 0.83, rs_prev_date: "2026-10-09", rs_change: 12 }, { breakdown: "warning" }))!;
+    expect(up.delta).toEqual({ points: 12, dir: "up", text: "▲12" });
+    expect(up.flag).toBe("");
+    expect(up.level).toBe("none");
+    expect(up.title).not.toContain("weakening");
   });
 
   it("has no arrow under 3 points but keeps both readings in the title", () => {
@@ -86,10 +94,12 @@ describe("rsChipView", () => {
     expect(v.flag).toBe("");
   });
 
-  it("keeps a standing weakening flag next to a newly entered leader", () => {
-    const v = rsChipView(row(0.93, {}, { breakdown: "warning", leader_new: { since: "2026-10-16", sessions_ago: 0, from_rs: 0.8 } }))!;
+  it("shows a newly entered leader without a weakening flag", () => {
+    const v = rsChipView(row(0.93, { rs_change: 8 }, { breakdown: "warning", leader_new: { since: "2026-10-16", sessions_ago: 0, from_rs: 0.8 } }))!;
     expect(v.newMarker?.kind).toBe("leader");
-    expect(v.flag).toBe("weakening");
+    expect(v.delta?.text).toBe("▲8");
+    expect(v.flag).toBe("");
+    expect(v.level).toBe("none");
   });
 
   it("appends the kill candle date", () => {
@@ -116,15 +126,17 @@ describe("rsTitle", () => {
     expect(rsTitle(row(0.9, { rs_prev: 0.9, rs_prev_date: "2026-10-09", rs_change: 0 }))).toContain("(unchanged)");
   });
 
-  it("dates a NEW breakdown and a NEW leader", () => {
+  it("dates a NEW break and a NEW leader, and skips a warning", () => {
     const warn = rsTitle(
       row(0.9, {}, { breakdown: "warning", breakdown_new: { from: "none", to: "warning", since: "2026-10-15", sessions_ago: 1 } }),
     );
-    expect(warn).toContain("NEW weakening: changed on 2026-10-15 (1 session ago), from no breakdown flag.");
+    expect(warn).not.toContain("weakening");
+    expect(warn).not.toContain("NEW");
     const broken = rsTitle(
       row(0.9, {}, { breakdown: "broken", breakdown_new: { from: "warning", to: "broken", since: "2026-10-16", sessions_ago: 0 } }),
     );
-    expect(broken).toContain("NEW broken: changed on 2026-10-16 (today), from weakening.");
+    expect(broken).toContain("NEW broken: changed on 2026-10-16 (today), from a trend warning.");
+    expect(broken).not.toContain("weakening");
     const lead = rsTitle(row(0.92, {}, { leader_new: { since: "2026-10-14", sessions_ago: 2, from_rs: 0.886 } }));
     expect(lead).toContain("NEW leader: RS crossed above P90 on 2026-10-14 (2 sessions ago), from P89.");
   });

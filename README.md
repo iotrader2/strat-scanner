@@ -247,7 +247,7 @@ score is multiplied by a factor and the tooltip shows the cut as a negative line
 | Level | Trigger (any) | Effect |
 | --- | --- | --- |
 | **Broken** | close below the 50-day average, or 25%+ below the 6-month high | score × 0.5, and the name is **removed from the leaders list** (it shows under *Broken leaders*) |
-| **Weakening** | close below the 20-day average, or 12%+ below the 6-month high, or the **1M return negative while the 3M/6M percentiles (blended) are still ≥ P75** (strength rolling over) | score × 0.9, listed with an amber *weakening* flag |
+| **Weakening** | close below the 20-day average, or 12%+ below the 6-month high, or the **1M return negative while the 3M/6M percentiles (blended) are still ≥ P75** (strength rolling over) | score × 0.9; the name stays on the leaders list. The chip does not badge it (a rising RS arrow next to a warning was misleading) |
 
 The reasons are in the row's tooltip, in the RS chip next to the symbol and in the Reason text, e.g.
 `below the 50-day average; 25% below the 6-month high; 1M -2.7% while 3M/6M strength is still high with the 10/20-day averages lost`.
@@ -266,7 +266,7 @@ applies to *Leaders* and both weekly Strat views; the daily MACD trend changes, 
 like the other filters; a saved "Broad leaders" choice becomes *Leaders* at Min RS 80. `GET /api/scan` takes `leaders_only`
 (default true; RS cut, trend not broken and score > 70) and `min_rs`. The score cut is a list filter only: the leader flag,
 the leader badge and the score stay RS + trend, since the score is itself built from leader status and the breakdown. The Candle Pattern filter defaults to **Any**, so no weekly setup is needed. Every leader row carries an
-**RS chip** (the RS change such as `▼7`, with *weakening* / *broken* / *kill candle* flags and the NEW markers below; the RS percentile itself is in the tooltip, since it already drives the score).
+**RS chip** (the RS change such as `▼7`, with a *broken* flag, a *kill candle* note and the NEW markers below; the RS percentile itself is in the tooltip, since it already drives the score). A warning breakdown is not shown on the chip.
 
 **What changed lately (RS change and NEW markers).** RS is a point-in-time reading, so the chip shows how it is changing (change detection:
 `backend/strat/change.py`, no stored snapshots). Every earlier session is recomputed the same way as today and as `STRAT_AS_OF`
@@ -277,11 +277,11 @@ weights. The sessions are QQQ's trading calendar, so every symbol is compared on
 | Marker | Definition | Shown as |
 | --- | --- | --- |
 | **RS change** | today's blended RS percentile minus the same measure **5 sessions earlier**, in whole percentile points between the two chip values (`RS 91` vs `RS 98` = −7). Moves smaller than **3 points** are left off the chip | `▼7` in red, `▲12` in green |
-| **NEW weakening / broken** | the breakdown level is worse today than on at least one of the **last 3 sessions**: none → weakening, none → broken or weakening → broken. The date is the first session at the new (or a worse) level, so `since` is today when it happened today. Unchanged or improving levels never count; the marker disappears 3 sessions after the change | `– · NEW · weakening`, `▼9 · NEW · broken` |
+| **NEW broken** | the trend is broken today and was better (none or warning) on at least one of the **last 3 sessions**. The date is the first session at the new level, so `since` is today when it happened today. A move into the warning level is still computed on `breakdown_new` but is not shown. Unchanged or improving levels never count; the marker disappears 3 sessions after the change | `▼9 · NEW · broken` |
 | **NEW leader** (extra) | RS is at or above **P90** (`LEADER_MIN_RS`) with the trend not broken today, and was below P90 on at least one of the last 3 sessions. A new worsening takes the place of this marker. It uses the fixed P90 gate, not the Min RS slider | `▲9 · NEW · leader` |
 
 The tooltip keeps the full reading (`Relative strength P91: …`, the prior value and its date) and adds a line for each marker, e.g. `RS change vs 5 sessions ago: P98 on 2026-10-09 → P91 (▼7)` and
-`NEW weakening: changed on 2026-10-15 (1 session ago), from no breakdown flag.`. A missing history (a new listing, or a cut-off with
+`NEW broken: changed on 2026-10-16 (today), from a trend warning.`. A missing history (a new listing, or a cut-off with
 fewer than 6 sessions behind it) simply leaves the fields empty. The scan row exposes `rs_prev` (0..1), `rs_prev_date`, `rs_change`
 (percentile points), and `leadership.breakdown_new` (`{from, to, since, sessions_ago}`) and `leadership.leader_new`
 (`{since, sessions_ago, from_rs}`), all `null` when nothing happened. The prior sessions cost four extra ranking passes per scan
