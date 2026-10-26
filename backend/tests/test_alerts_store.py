@@ -158,6 +158,46 @@ def test_refresh_end_to_end(db):
 # ------------------------------------------------------------------ API
 
 
+def test_alerts_attach_live_5m_ema_without_fetching(db, monkeypatch):
+    """The alerts payload reads the lists poll's EMA memory. It does not call Alpaca."""
+    from strat import watch5m
+    from strat.api import State, app
+
+    watch5m.clear()
+    State.scan = []
+    alerts_store.save_session(
+        "2026-10-23", _alerts("AAA", A_ROWS) + _alerts("BBB", A_ROWS), now=OPEN + timedelta(minutes=6)
+    )
+    monkeypatch.setattr(watch5m, "refresh", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetched on request")))
+    try:
+        with TestClient(app) as c:
+            with watch5m._lock:
+                watch5m._ema["AAA"] = {
+                    "price": 101.2,
+                    "basis": "live",
+                    "time": "2026-10-23T14:00:00Z",
+                    "bar_time": "2026-10-23T13:55:00Z",
+                    "ema6": 100.0,
+                    "ema20": 102.0,
+                    "vs6": "above",
+                    "vs20": "below",
+                    "highlight": [],
+                    "highlight_bar": None,
+                    "highlight_until": None,
+                }
+            body = c.get("/api/alerts", params={"session": "2026-10-23"}).json()
+        assert set(body["ema5m"]) == {"AAA", "BBB"}
+        assert body["ema5m"]["AAA"]["vs6"] == "above"
+        assert body["ema5m"]["AAA"]["vs20"] == "below"
+        assert body["ema5m"]["AAA"]["ema6"] == 100.0
+        assert body["ema5m"]["AAA"]["price"] == 101.2
+        assert body["ema5m"]["BBB"] is None
+        assert "ema5m" not in body["alerts"][0]
+    finally:
+        watch5m.clear()
+        State.scan = []
+
+
 def test_alerts_api(db):
     from strat.api import State, app
 

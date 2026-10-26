@@ -34,12 +34,21 @@ const BASIS: Record<Ema5m["basis"], string> = {
   close: "last regular close",
 };
 
-/** Pill for one EMA: "Above" / "Below" (green / red), "At" neutral. */
+/** Signed percent, two decimals ("+0.46%", "-0.26%", "0.00%"). */
+function fmtEmaPct(dist: number): string {
+  const shown = Math.round(dist * 100) / 100;
+  if (shown === 0) return "0.00%";
+  return `${shown > 0 ? "+" : ""}${shown.toFixed(2)}%`;
+}
+
+/** Pill for one EMA: "Above" / "Below" (green / red), "At" neutral. The tooltip includes the % distance. */
 export function emaSide(em: Ema5m, period: 6 | 20): { side: EmaSide; label: string; title: string } {
   const side = period === 6 ? em.vs6 : em.vs20;
   const value = period === 6 ? em.ema6 : em.ema20;
   const label = side === "above" ? "Above" : side === "below" ? "Below" : "At";
-  const title = `${BASIS[em.basis]} ${em.price.toFixed(2)} vs ${period} EMA ${value.toFixed(2)} on the 5-minute chart (regular-session bars, through ${formatLocal(em.bar_time)})`;
+  const dist = emaDistance(em, period);
+  const pct = dist === null ? "" : ` (${fmtEmaPct(dist)})`;
+  const title = `${BASIS[em.basis]} ${em.price.toFixed(2)} vs ${period} EMA ${value.toFixed(2)}${pct} on the 5-minute chart (regular-session bars, through ${formatLocal(em.bar_time)})`;
   return { side, label, title };
 }
 

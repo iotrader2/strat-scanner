@@ -6,6 +6,7 @@ import {
   type AlertSettings,
   type AlertSettingsPayload,
   type AlertsPayload,
+  type Ema5m,
   type TradeAlert,
 } from "../api";
 import {
@@ -22,6 +23,7 @@ import {
   type AlertDayStatus,
 } from "../alerts";
 import { useAlerts } from "../components/AlertsCenter";
+import { EmaPill } from "../components/ListIntradayColumns";
 import { EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ScorePill } from "../components/ScoreBreakdown";
@@ -48,6 +50,10 @@ const SETUP_RULES: Record<string, string> = {
 };
 
 const money = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
+
+/** Shown when the lists poll has no 5-minute EMA for this symbol (it is on neither list). */
+const emaMissing = (period: 6 | 20) =>
+  `No live 5-minute ${period} EMA (only names on the watchlist or in positions are polled)`;
 
 function AttentionControls() {
   const { soundReady, muted, setMuted, enableSound, notifyPermission, enableNotifications } = useAlerts();
@@ -112,11 +118,14 @@ export function AlertsTable({
   flashing,
   onAck,
   onBought,
+  ema5m,
 }: {
   alerts: TradeAlert[];
   flashing: Set<number>;
   onAck: (id: number) => void;
   onBought: (alert: TradeAlert) => void;
+  /** Live 5-minute EMA by symbol. Missing or null renders a dash. */
+  ema5m?: Record<string, Ema5m | null>;
 }) {
   return (
     <div className="card table-card">
@@ -127,6 +136,12 @@ export function AlertsTable({
             <th>Ticker</th>
             <th className="num">Score</th>
             <th>Setup</th>
+            <th className="ema-col" title="Live price versus the 6 EMA on the 5-minute chart">
+              6 EMA (5m)
+            </th>
+            <th className="ema-col" title="Live price versus the 20 EMA on the 5-minute chart">
+              20 EMA (5m)
+            </th>
             <th className="num">Trigger</th>
             <th className="num">Stop</th>
             <th className="num">Stop %</th>
@@ -166,6 +181,12 @@ export function AlertsTable({
                   <span className="muted small setup-name">{SETUP_NAMES[a.setup]}</span>
                 </span>
               </td>
+              <td className="ema-col">
+                <EmaPill em={ema5m?.[a.symbol]} period={6} missing={emaMissing(6)} />
+              </td>
+              <td className="ema-col">
+                <EmaPill em={ema5m?.[a.symbol]} period={20} missing={emaMissing(20)} />
+              </td>
               <td className="num">{money(a.trigger_price)}</td>
               <td className="num">{money(a.stop_price)}</td>
               <td className="num">{stopPct(a).toFixed(2)}%</td>
@@ -191,7 +212,8 @@ export function AlertsTable({
               <td className="actions-col">
                 {!a.acknowledged ? (
                   <button type="button" className="btn small" onClick={() => onAck(a.id)}>
-                    Acknowledge
+                    <span className="ack-long">Acknowledge</span>
+                    <span className="ack-short">Ack</span>
                   </button>
                 ) : (
                   <span className="muted small">Read</span>
@@ -301,7 +323,13 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
           )}
         </div>
       ) : (
-        <AlertsTable alerts={view.alerts} flashing={flashing} onAck={(id) => ack([id])} onBought={setMoving} />
+        <AlertsTable
+          alerts={view.alerts}
+          flashing={flashing}
+          ema5m={view.ema5m}
+          onAck={(id) => ack([id])}
+          onBought={setMoving}
+        />
       )}
       {moving && (
         <EntryModal

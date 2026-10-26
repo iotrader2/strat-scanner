@@ -285,6 +285,7 @@ export default function Positions() {
         <ListTable
           rows={rows}
           intraday={data?.intraday}
+          showEma5m
           watchColumn={false}
           priceLabel="Last"
           leadColumns={lead}

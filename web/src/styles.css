@@ -84,7 +84,7 @@ nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 
-main { flex: 1; }
+main { flex: 1; min-width: 0; }
 .page { max-width: 1640px; margin: 0 auto; padding: 24px 28px 40px; }
 .footer { text-align: center; color: var(--muted); font-size: 12px; padding: 18px; border-top: 1px solid var(--border); }
 
@@ -136,7 +136,7 @@ main { flex: 1; }
 .legend .tf-badge { gap: 8px; padding: 10px 16px; }
 .legend-note { margin-left: 6px; }
 
-.table-card { overflow: auto; }
+.table-card { overflow: auto; min-width: 0; max-width: 100%; }
 .scan-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .scan-table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 12px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--card); white-space: nowrap; }
 .scan-table th.sortable { cursor: pointer; user-select: none; }
@@ -702,8 +702,9 @@ th.num { text-align: right; }
    sideways inside a narrow strip. Pages now use the whole viewport (modest side padding); the tables below are
    compacted so the Scanner, Watchlist and Positions fit without sideways scrolling on desktop widths.
    --------------------------------------------------------------------------------------------------------------- */
-.page { max-width: none; padding: 20px 24px 36px; }
+.page { max-width: none; padding: 20px 24px 36px; min-width: 0; }
 @media (max-width: 1600px) { .page { padding-left: 16px; padding-right: 16px; } }
+@media (max-width: 860px) { .page { padding-left: 10px; padding-right: 10px; } }
 
 /* Compact tables: tighter cells, headers wrap onto two lines instead of setting the column width. */
 .scan-table th { padding: 9px 4px; white-space: normal; line-height: 1.2; vertical-align: bottom; }
@@ -799,7 +800,9 @@ th.num { text-align: right; }
 .alert-status.bad { color: #fda4af; border-color: rgba(244, 63, 94, 0.45); background: rgba(244, 63, 94, 0.1); }
 .alert-status.flat { color: var(--muted); border-color: var(--border-2); background: rgba(139, 147, 167, 0.08); }
 .alerts-table .outcome-cell { min-width: 180px; max-width: 360px; line-height: 1.35; }
-/* Bought moved here from the watchlist: a normal column, not frozen on the right (Acknowledge stays pinned). */
+.alerts-table th.ema-col, .alerts-table td.ema-col { text-align: center; width: 1%; }
+.alerts-table .ack-short { display: none; }
+/* Bought is a normal column, not frozen on the right. Acknowledge stays pinned. */
 .alerts-table th.bought-col, .alerts-table td.bought-col {
   width: 1%; white-space: nowrap; text-align: right; background: transparent;
 }
@@ -819,8 +822,32 @@ th.num { text-align: right; }
 /* iPad and narrower: the long names and outcome text give way first so the table still fits. */
 @media (max-width: 1280px) {
   .alerts-table .setup-name { display: none; }
-  .alerts-table .outcome-cell { min-width: 150px; max-width: 220px; }
+  .alerts-table .outcome-cell { min-width: 120px; max-width: 180px; }
 }
-@media (max-width: 900px) {
+/* 1024 and the iPad (820): hide the narrative column and shorten Acknowledge so the 5-minute EMA pills fit. */
+@media (max-width: 1100px) {
+  .alerts-table { font-size: 12px; }
   .alerts-table .outcome-cell { display: none; }
+  .alerts-table .ack-long { display: none; }
+  .alerts-table .ack-short { display: inline; }
+  .alerts-table th, .alerts-table td { padding-top: 6px; padding-bottom: 6px; }
+  .alerts-page .stat-card { min-width: 0; padding: 8px 10px; }
+}
+/* iPad portrait: squeeze the trading tables so the page does not grow a horizontal scrollbar.
+   Alerts should fit outright. Positions keeps an inner scroll for the columns past the 5-minute EMAs. */
+@media (max-width: 860px) {
+  .scan-table { font-size: 12px; }
+  .scan-table th { letter-spacing: 0; padding: 6px 2px; }
+  .scan-table td { padding: 6px 2px; }
+  .scan-table th:first-child, .scan-table td:first-child { padding-left: 6px; }
+  .scan-table th.num, .scan-table td.num { padding-left: 2px; padding-right: 2px; }
+  .scan-table .sub { max-width: 64px; }
+  .scan-table .sym { font-size: 12.5px; gap: 3px; }
+  .scan-table td.theme-cell { min-width: 44px; max-width: 72px; }
+  .scan-table .day-range { width: 36px; }
+  .scan-table th.actions-col, .scan-table td.actions-col { padding-left: 4px; padding-right: 4px; }
+  .scan-table .score-pill { min-width: 32px; padding: 2px 6px; }
+  .alerts-table .sym { flex-wrap: wrap; row-gap: 2px; }
+  .alerts-table .alert-status { padding: 2px 6px; font-size: 11px; }
+  .alerts-table .btn.small { padding: 4px 6px; }
 }

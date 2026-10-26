@@ -14,9 +14,17 @@ function Dash({ title }: { title: string }) {
   );
 }
 
-function EmaCell({ info, period }: { info: ListIntraday | undefined; period: 6 | 20 }) {
-  const em = info?.ema5m;
-  if (!em) return <Dash title={`No 5-minute ${period} EMA yet`} />;
+/** Above / Below pill for the live 5-minute EMA. Shared by Positions and Alerts. */
+export function EmaPill({
+  em,
+  period,
+  missing,
+}: {
+  em: ListIntraday["ema5m"] | null | undefined;
+  period: 6 | 20;
+  missing?: string;
+}) {
+  if (!em) return <Dash title={missing ?? `No 5-minute ${period} EMA yet`} />;
   const view = emaSide(em, period);
   return (
     <span className={`ema-pill ${view.side}`} title={view.title}>
@@ -43,9 +51,24 @@ function DayRangeCell({ info }: { info: ListIntraday | undefined }) {
   );
 }
 
-/** Premarket, Day, Day range, 6 EMA (5m) and 20 EMA (5m) columns for the watchlist and positions tables. */
-export function listIntradayColumns(intraday: Intraday): ExtraColumn[] {
+/**
+ * Premarket, Day, Day range, and the daily vs 6/20/50 MA columns, for both trading lists.
+ * `ema5m` adds the 5-minute 6 and 20 EMA pills. Positions turns that on; the watchlist does not.
+ */
+export function listIntradayColumns(intraday: Intraday, options?: { ema5m?: boolean }): ExtraColumn[] {
   const get = (r: ScanRow) => intraday?.[r.symbol];
+  const ema5m = options?.ema5m ?? false;
+  const emaColumns: ExtraColumn[] = ema5m
+    ? ([6, 20] as const).map(
+        (period): ExtraColumn => ({
+          key: `ema${period}_5m`,
+          label: `${period} EMA (5m)`,
+          className: "ema-col",
+          sortValue: (r) => emaDistance(get(r)?.ema5m, period),
+          render: (r) => <EmaPill em={get(r)?.ema5m} period={period} />,
+        }),
+      )
+    : [];
   return [
     {
       key: "premarket",
@@ -82,21 +105,8 @@ export function listIntradayColumns(intraday: Intraday): ExtraColumn[] {
       sortValue: (r) => get(r)?.day_range?.pct ?? null,
       render: (r) => <DayRangeCell info={get(r)} />,
     },
-    {
-      key: "ema6_5m",
-      label: "6 EMA (5m)",
-      className: "ema-col",
-      sortValue: (r) => emaDistance(get(r)?.ema5m, 6),
-      render: (r) => <EmaCell info={get(r)} period={6} />,
-    },
-    {
-      key: "ema20_5m",
-      label: "20 EMA (5m)",
-      className: "ema-col",
-      sortValue: (r) => emaDistance(get(r)?.ema5m, 20),
-      render: (r) => <EmaCell info={get(r)} period={20} />,
-    },
-    // Percent distance from the daily 6 / 20 / 50 SMA, right after the 5-minute EMAs (the scanner puts them after ATR %).
+    ...emaColumns,
+    // Daily 6 / 20 / 50 SMA distance. On Positions these follow the 5-minute EMAs; on the watchlist, Day range.
     ...MA_DISTANCE_PERIODS.map(
       (p): ExtraColumn => ({
         key: maSortKey(p),

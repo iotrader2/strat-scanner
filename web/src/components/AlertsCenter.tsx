@@ -42,6 +42,7 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
   const [notifyPermission, setNotifyPermission] = useState(notificationSupport);
   const audio = useRef<AudioContext | null>(null);
   const seen = useRef<Set<number> | null>(null);
+  const request = useRef(0);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
 
@@ -74,16 +75,23 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
   }, []);
 
   const reload = useCallback(() => {
+    // A lists-poll refetch and an alerts push can be in flight together. Only the latest response is applied,
+    // so an older payload cannot wipe a newer alert or a newer EMA reading.
+    const id = ++request.current;
     api
       .alerts()
       .then((payload) => {
+        if (id !== request.current) return;
         const fresh = freshAlerts(payload.alerts, seen.current);
         seen.current = new Set([...(seen.current ?? []), ...payload.alerts.map((a) => a.id)]);
         setToday(payload);
         setError(null);
         announce(fresh, payload);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (id !== request.current) return;
+        setError(String(e));
+      });
   }, [announce]);
 
   useEffect(reload, [reload, epoch]);

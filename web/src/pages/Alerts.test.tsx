@@ -1,9 +1,25 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
+import type { Ema5m } from "../api";
 import { alertDayStatus } from "../alerts";
 import { sample } from "../alerts.test";
 import { AlertDayBanner, AlertsTable } from "./Alerts";
+
+const liveEma = (over: Partial<Ema5m> = {}): Ema5m => ({
+  price: 226.9,
+  basis: "live",
+  time: "2026-10-23T14:00:00Z",
+  bar_time: "2026-10-23T13:55:00Z",
+  ema6: 225.8697,
+  ema20: 227.5,
+  vs6: "above",
+  vs20: "below",
+  highlight: [],
+  highlight_bar: null,
+  highlight_until: null,
+  ...over,
+});
 
 describe("AlertsTable", () => {
   const html = renderToStaticMarkup(
@@ -20,6 +36,7 @@ describe("AlertsTable", () => {
         flashing={new Set([7])}
         onAck={() => undefined}
         onBought={() => undefined}
+        ema5m={{ AAPL: liveEma(), MU: null }}
       />
     </MemoryRouter>,
   );
@@ -28,7 +45,9 @@ describe("AlertsTable", () => {
     for (const h of ["Fired", "Ticker", "Score", "Setup", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
     const head = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
     const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
-    expect(labels.slice(labels.indexOf("Ticker"), labels.indexOf("Setup") + 1)).toEqual(["Ticker", "Score", "Setup"]);
+    expect(labels.slice(labels.indexOf("Ticker"), labels.indexOf("Trigger") + 1)).toEqual([
+      "Ticker", "Score", "Setup", "6 EMA (5m)", "20 EMA (5m)", "Trigger",
+    ]);
     const bought = labels.indexOf("");
     expect(head).toContain('aria-label="Bought"');
     expect(labels.indexOf("What happened")).toBeLessThan(bought);
@@ -49,7 +68,8 @@ describe("AlertsTable", () => {
 
   it("flashes new unread rows and offers acknowledge", () => {
     expect(html).toContain('class="alert-row unread flash"');
-    expect(html).toContain(">Acknowledge</button>");
+    expect(html).toContain(">Acknowledge</span>");
+    expect(html).toContain(">Ack</span>");
     expect(html).toContain('class="alert-row read "');
   });
 
@@ -60,6 +80,18 @@ describe("AlertsTable", () => {
     expect(html).toContain(">Pending<");
     expect(html).toContain("+2.00R");
     expect(html).toContain("out 103.25 at 8:00 AM (close under 20 EMA)");
+  });
+
+  it("shows the live 5-minute EMA side, with the percent distance on the tooltip", () => {
+    expect(html).toContain('class="ema-pill above"');
+    expect(html).toContain(">Above<");
+    expect(html).toContain('class="ema-pill below"');
+    expect(html).toContain("(+0.46%)");
+    expect(html).toContain("(-0.26%)");
+    expect(html).toContain("last 5-min close 226.90 vs 6 EMA 225.87");
+    // MU has no live reading: a dash, not a pill copied from the setup bar.
+    expect(html).toContain("No live 5-minute 6 EMA");
+    expect(html).toContain("No live 5-minute 20 EMA");
   });
 
   it("shows the trigger rule when hovering the setup", () => {

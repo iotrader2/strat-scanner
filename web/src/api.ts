@@ -583,6 +583,11 @@ export interface AlertsPayload {
   last_run: { at?: string; alerts?: number; symbols?: number };
   watchlist: string[];
   setups: Record<AlertSetup, string>;
+  /**
+   * Current live 5-minute 6/20 EMA for each alert symbol, from the lists poll already in memory.
+   * Null when that name is not on the watchlist or in positions. Keyed by symbol, not by alert.
+   */
+  ema5m: Record<string, Ema5m | null>;
 }
 
 export interface AlertMetricRow {

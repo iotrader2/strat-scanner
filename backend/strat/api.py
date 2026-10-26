@@ -906,6 +906,18 @@ def _alerts_session(session: Optional[str]) -> str:
     return now_et().date().isoformat()
 
 
+def _alert_ema5m(symbols: list[str]) -> dict[str, dict | None]:
+    """Current 5-minute 6/20 EMA for these symbols, already computed by the lists poll.
+
+    ``watch5m.snapshot`` only reads memory. It does not call Alpaca. A name that is on neither
+    the watchlist nor in positions has no reading (the alerts table shows a dash).
+    """
+    if not symbols:
+        return {}
+    snap = watch5m.snapshot(symbols)
+    return {sym: snap[sym]["ema5m"] for sym in symbols}
+
+
 def _attach_scores(rows: list[dict]) -> list[dict]:
     """The scanner score for each alert's symbol, the same number the Stock Scanner shows."""
     by_symbol = {r["symbol"]: r for r in State.scan if r.get("symbol")}
@@ -927,6 +939,7 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
     """One session's alerts (default today, Eastern date), newest first, plus the sessions that have any."""
     day = _alerts_session(session)
     rows = _attach_scores(alerts_store.list_alerts(session=day, symbol=symbol))
+    symbols = list(dict.fromkeys(row["symbol"] for row in rows))
     return {
         "session": day,
         "alerts": rows,
@@ -935,6 +948,8 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
         "last_run": alerts_live.last_run(),
         "watchlist": data.watchlist(),
         "setups": alert_rules.SETUP_NAMES,
+        # One small reading per symbol, not a copy on every alert row.
+        "ema5m": _alert_ema5m(symbols),
     }
 
 

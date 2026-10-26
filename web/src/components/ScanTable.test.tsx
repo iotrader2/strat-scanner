@@ -150,13 +150,30 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect(html).toContain('<span class="red-text">-1.04%</span>');
   });
 
-  it("adds the intraday columns after any page columns, and the crossover highlight", () => {
+  it("watchlist: intraday columns after page columns, without the 5-minute EMAs or the crossover highlight", () => {
     const html = list({
       extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
     });
-    const order = ["$ P/L", "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "Trigger"].map((label) => html.indexOf(`>${label}<`));
+    const order = ["$ P/L", "Premkt", "Day", "Day range", "vs 6 MA", "Trigger"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).not.toContain("6 EMA (5m)");
+    expect(html).not.toContain("20 EMA (5m)");
+    expect(html).not.toContain("ema-pill");
+    expect(html).not.toContain("ema-cross");
+  });
+
+  it("positions: keeps the 5-minute EMA columns and the crossover highlight", () => {
+    const html = list({
+      showEma5m: true,
+      extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
+    });
+    const order = ["$ P/L", "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "Trigger"].map((label) =>
+      html.indexOf(`>${label}<`),
+    );
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain('class="ema-pill above"');
     expect(html).toMatch(/<tr class="ema-cross" title="Crossed back above the 6 EMA \(5m\)/);
   });
 
@@ -171,6 +188,7 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect(watch).not.toContain("score-col");
 
     const positions = list({
+      showEma5m: true,
       priceLabel: "Last",
       leadColumns: [{ key: "entry_price", label: "Buy price", sortValue: () => 100, render: () => "100.00" }],
       extraColumns: [
@@ -192,6 +210,8 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect(posHeads.filter((h) => h === "Score")).toHaveLength(1);
     expect(positions.match(/score-pill/g)).toHaveLength(1);
     expect(positions).not.toContain("score-col");
+    expect(posHeads.indexOf("Last") + 1).toBe(posHeads.indexOf("Score"));
+    expect(posHeads).toContain("6 EMA (5m)");
   });
 });
 
@@ -227,18 +247,31 @@ describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
     expect(html).toContain("score-col");
   });
 
-  it("watchlist / positions: right after 20 EMA (5m), once", () => {
+  it("watchlist: daily MA columns right after Day range, once, and they are not the 5-minute EMAs", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <ListTable rows={[withMa]} watchColumn={false} intraday={{}} />
+      </MemoryRouter>,
+    );
+    const order = ["Day range", ...labels, "Trigger"].map((label) => html.indexOf(`>${label}<`));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    for (const label of labels) expect(html.split(`>${label}<`)).toHaveLength(2);
+    expect(html).not.toContain("EMA (5m)");
+    expect(html).toContain('<span class="green-text" title="Percent distance of price from the daily 6 SMA; 0% = on the average">+2.4%</span>');
+    expect(html).toContain(">-0.2%</span>");
+  });
+
+  it("positions: daily MA columns right after 20 EMA (5m), once", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ListTable rows={[withMa]} watchColumn={false} intraday={{}} showEma5m />
       </MemoryRouter>,
     );
     const order = ["20 EMA (5m)", ...labels, "Trigger"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const label of labels) expect(html.split(`>${label}<`)).toHaveLength(2);
-    expect(html).toContain('<span class="green-text" title="Percent distance of price from the daily 6 SMA; 0% = on the average">+2.4%</span>');
-    expect(html).toContain(">-0.2%</span>");
   });
 
   it("sorts by distance with missing values last", async () => {

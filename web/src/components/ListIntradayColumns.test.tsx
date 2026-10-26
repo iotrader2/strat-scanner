@@ -38,8 +38,11 @@ const html = (cols: ReturnType<typeof listIntradayColumns>, key: string) =>
   renderToStaticMarkup(<>{cols.find((c) => c.key === key)!.render(row)}</>);
 
 describe("watchlist / positions intraday columns", () => {
-  it("has compact headers in order: premarket, 6 EMA (5m), 20 EMA (5m)", () => {
-    expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "vs 20 MA", "vs 50 MA"]);
+  it("watchlist headers omit the 5-minute EMAs; positions keeps them before the daily MAs", () => {
+    expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "Day", "Day range", "vs 6 MA", "vs 20 MA", "vs 50 MA"]);
+    expect(listIntradayColumns({}, { ema5m: true }).map((c) => c.label)).toEqual([
+      "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "vs 20 MA", "vs 50 MA",
+    ]);
   });
 
   it("shows the premarket print, % vs prior close and volume", () => {
@@ -55,17 +58,23 @@ describe("watchlist / positions intraday columns", () => {
     expect(html(listIntradayColumns({ TEAM: final }), "premarket")).toContain('<span class="pm-tag">PM</span>');
   });
 
-  it("renders green / red EMA pills", () => {
-    const cols = listIntradayColumns({ TEAM: info });
+  it("renders green / red EMA pills with the percent distance in the tooltip", () => {
+    const cols = listIntradayColumns({ TEAM: info }, { ema5m: true });
     expect(html(cols, "ema6_5m")).toContain('class="ema-pill above"');
     expect(html(cols, "ema6_5m")).toContain(">Above<");
+    expect(html(cols, "ema6_5m")).toContain("(+0.46%)");
     expect(html(cols, "ema20_5m")).toContain('class="ema-pill below"');
+    expect(html(cols, "ema20_5m")).toContain("(-0.26%)");
   });
 
   it("shows a neutral dash when data is missing", () => {
     const cols = listIntradayColumns(undefined);
-    for (const key of ["premarket", "day_range", "ema6_5m", "ema20_5m"]) {
+    for (const key of ["premarket", "day_range"]) {
       expect(html(cols, key)).toMatch(/<span class="muted"[^>]*>—<\/span>/);
+    }
+    const withEma = listIntradayColumns(undefined, { ema5m: true });
+    for (const key of ["ema6_5m", "ema20_5m"]) {
+      expect(html(withEma, key)).toMatch(/<span class="muted"[^>]*>—<\/span>/);
     }
   });
 

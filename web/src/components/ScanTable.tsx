@@ -251,7 +251,7 @@ export function ScanTable({
             {header("avg_dollar_volume", "Avg $vol", "num")}
             {header("atr", "ATR", "num", "14-day average true range")}
             {header("atr_pct", "ATR %", "num", "14-day ATR as a percent of price")}
-            {/* The trading lists show these after 20 EMA (5m) instead (ListIntradayColumns). */}
+            {/* Trading lists render these in ListIntradayColumns (after Day range; after the 5-minute EMAs on Positions). */}
             {scanning && MA_DISTANCE_PERIODS.map((p) => header(maSortKey(p), maLabel(p), "num ma-dist-col", maTitle(p)))}
             {scanning && header("score", "Score", actions ? "num" : "num score-col")}
             {actions && <th className={pinActions ? "actions-col" : "actions-col actions-flow"}>{actionsLabel}</th>}
