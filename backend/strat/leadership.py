@@ -20,15 +20,22 @@ HIGH_6M_BARS = 126
 MIN_HIGH_BARS = 60  # fewer bars than this and the "near highs" measures are skipped
 
 # Relative strength versus QQQ: the outperformance (percentage points over QQQ's return) that earns full credit,
-# per period.
-FULL_EXCESS_PCT = {"1m": 45.0, "3m": 120.0, "6m": 210.0}
+# per period. Lowered from +45 / +120 / +210 so a strong but not extreme chart is not stuck on partial credit.
+FULL_EXCESS_PCT = {"1m": 20.0, "3m": 60.0, "6m": 100.0}
 BENCHMARK = "QQQ"
+# RS line = close / QQQ. A new 52-week high in the last few sessions is an alternative to the P90 percentile
+# gate. The window is the same 252 sessions as the other 52-week reads. The ratio is computed on that window
+# only and never stored: a second copy of the price cache does not fit a 512 MB dyno.
+RS_LINE_RECENT = 5
+RS_LINE_HIGH_FRACTION = 0.999  # at the high, or within 0.1% (float noise and a print that just tagged it)
 
 # A leader needs at least this blended 1M/3M/6M return percentile among its peers (stocks vs stocks, ETFs vs ETFs):
 # the top decile. The backtest favours this over P80 (see README).
 LEADER_MIN_RS = 0.90
 # The Leaders scan (and /api/scan?leaders_only=true) also needs a top score, strictly above this. It is a list filter
 # only: leader_status / is_leader stay RS + trend, because the score itself is built from leader status and breakdown.
+# The list also admits a name under P90 when its RS line versus QQQ made a 52-week high in the last 5 sessions
+# (see rs_line_new_high), still with the trend intact and the score above this line.
 LEADERS_MIN_SCORE = 70.0
 # Breakdown thresholds (percent below the 6-month high).
 WARN_DRAWDOWN_PCT = 12.0
@@ -169,10 +176,56 @@ def is_leader(rs: Optional[float], breakdown_level: str, min_rs: float = LEADER_
     return leader_status(rs, Breakdown(breakdown_level), min_rs) == LEADER
 
 
-def in_leaders_scan(
-    rs: Optional[float], breakdown_level: str, score: Optional[float], min_rs: float = LEADER_MIN_RS,
-    min_score: float = LEADERS_MIN_SCORE,
+def rs_line_new_high(
+    close: Optional[pd.Series],
+    benchmark: Optional[pd.Series],
+    *,
+    recent: int = RS_LINE_RECENT,
+    bars: int = HIGH_52W_BARS,
+    fraction: float = RS_LINE_HIGH_FRACTION,
 ) -> bool:
-    """Listed by the Leaders scan: marked leader (RS at or above ``min_rs``, trend not broken) and score strictly above
-    ``min_score`` (70)."""
-    return is_leader(rs, breakdown_level, min_rs) and score is not None and score > min_score
+    """True when ``close / benchmark`` made a 52-week high during the last ``recent`` sessions.
+
+    Uses one 252-session window of the two close series already in memory and returns a bool. It does not
+    build a frame or keep the ratio. ``False`` when the benchmark is missing or either side is shorter than
+    a 52-week window, so a cold start (QQQ not loaded yet) still scans and simply does not open this gate.
+    """
+    if close is None or benchmark is None or len(close) < bars or len(benchmark) < bars:
+        return False
+    window = close.iloc[-bars:]
+    aligned = benchmark.reindex(window.index)
+    # One small array. Drop it when the function returns; do not attach it to a scan row.
+    num = window.to_numpy(dtype="float64", copy=False)
+    den = aligned.to_numpy(dtype="float64", copy=False)
+    ratio = num / den
+    finite = (ratio == ratio) & (ratio != float("inf")) & (ratio != float("-inf")) & (den > 0)
+    valid = ratio[finite]
+    # A handful of missing sessions (a holiday on one feed) still counts. Much less than a year does not.
+    if len(valid) < bars - recent:
+        return False
+    recent_vals = valid[-recent:]
+    peak = float(valid.max())
+    if peak <= 0:
+        return False
+    return bool(float(recent_vals.max()) >= peak * fraction)
+
+
+def in_leaders_scan(
+    rs: Optional[float],
+    breakdown_level: str,
+    score: Optional[float],
+    min_rs: float = LEADER_MIN_RS,
+    min_score: float = LEADERS_MIN_SCORE,
+    rs_line_high: bool = False,
+) -> bool:
+    """Listed by the Leaders scan.
+
+    Trend not broken, score strictly above ``min_score`` (70.0 is out), and either relative strength at or
+    above ``min_rs`` or — when ``min_rs`` has not been raised above the default P90 — an RS line versus QQQ
+    that made a 52-week high in the last 5 sessions. ``is_leader`` stays RS + trend; this is only the list.
+    """
+    if score is None or score <= min_score or breakdown_level == BROKEN:
+        return False
+    if rs is not None and rs >= min_rs:
+        return True
+    return bool(rs_line_high) and min_rs <= LEADER_MIN_RS

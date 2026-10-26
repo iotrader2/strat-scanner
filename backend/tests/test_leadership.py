@@ -137,6 +137,14 @@ class TestLeaderStatus:
         assert not in_leaders_scan(0.92, "none", None)
         # The leader flag itself does not look at the score.
         assert is_leader(0.92, "none")
+        # An RS-line 52-week high admits a name under P90. The score cut and a broken trend still apply.
+        assert in_leaders_scan(0.5, "none", 80.0, rs_line_high=True)
+        assert in_leaders_scan(None, "warning", 70.1, rs_line_high=True)
+        assert not in_leaders_scan(0.5, "none", 70.0, rs_line_high=True)
+        assert not in_leaders_scan(0.5, "broken", 95.0, rs_line_high=True)
+        # Raising the cut above P90 is not bypassed by the RS line. Lowering it still uses the percentile.
+        assert not in_leaders_scan(0.85, "none", 90.0, min_rs=0.97, rs_line_high=True)
+        assert in_leaders_scan(0.85, "none", 90.0, min_rs=0.8)
 
 
 def test_long_term_rs_blends_3m_and_6m_only():
@@ -154,3 +162,54 @@ class TestNearestTrigger:
 
     def test_none_when_price_is_above_both(self):
         assert nearest_trigger(100.0, [(99.0, "a"), (98.0, "b")]) is None
+
+
+class TestRsLineNewHigh:
+    def _series(self, values, start="2024-01-02"):
+        return pd.Series(values, index=pd.bdate_range(start, periods=len(values)), dtype=float)
+
+    def test_a_high_in_the_last_five_sessions_counts_and_one_just_older_does_not(self):
+        from strat.leadership import HIGH_52W_BARS, rs_line_new_high
+
+        n = HIGH_52W_BARS
+        bench = self._series([100.0] * n)
+        peaked_six_ago = self._series([100.0] * (n - 6) + [130.0] + [110.0] * 5)
+        assert rs_line_new_high(peaked_six_ago, bench) is False
+        peaked_today = self._series([100.0] * (n - 1) + [130.0])
+        assert rs_line_new_high(peaked_today, bench) is True
+
+    def test_missing_benchmark_or_a_short_history_is_false(self):
+        from strat.leadership import rs_line_new_high
+
+        close = self._series([float(i) for i in range(300)])
+        assert rs_line_new_high(close, None) is False
+        assert rs_line_new_high(None, close) is False
+        assert rs_line_new_high(close, self._series([1.0] * 40)) is False
+
+    def test_within_a_tenth_of_a_percent_of_the_high_still_counts(self):
+        from strat.leadership import HIGH_52W_BARS, rs_line_new_high
+
+        n = HIGH_52W_BARS
+        bench = self._series([100.0] * n)
+        near = self._series([80.0] * (n - 10) + [100.0] + [90.0] * 8 + [99.95])
+        far = self._series([80.0] * (n - 10) + [100.0] + [90.0] * 8 + [99.8])
+        assert rs_line_new_high(near, bench) is True
+        assert rs_line_new_high(far, bench) is False
+
+    def test_repeated_calls_do_not_keep_the_ratio(self):
+        import tracemalloc
+
+        from strat.leadership import rs_line_new_high
+
+        n = 800
+        idx = pd.bdate_range("2023-01-02", periods=n)
+        close = pd.Series(range(n), index=idx, dtype=float)
+        bench = pd.Series([100.0] * n, index=idx)
+        tracemalloc.start()
+        rs_line_new_high(close, bench)
+        tracemalloc.clear_traces()
+        assert all(rs_line_new_high(close, bench) for _ in range(40))
+        current, _peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        # A retained copy of the 800-bar inputs, forty times over, would be far past this.
+        assert current < 500_000

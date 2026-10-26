@@ -25,7 +25,7 @@ from . import breadth as breadth_data
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
-from .leadership import LEADER_MIN_RS, LEADERS_MIN_SCORE, in_leaders_scan
+from .leadership import BENCHMARK, LEADER_MIN_RS, LEADERS_MIN_SCORE, in_leaders_scan
 from .perf import MomentumRanks, Perf
 from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol, theme_cards
 from .themes import ThemeError, ThemeMap, load_themes
@@ -98,7 +98,12 @@ def _load_theme_map() -> Optional[ThemeMap]:
 
 def _scan_one(member: Member, daily) -> Optional[dict]:
     """Scan one symbol against the current theme ranking and momentum distributions."""
-    return scan_symbol(member, daily, State.strengths, State.ranks, State.theme_map, State.qqq, prior=State.prior)
+    qqq_daily = State.daily.get(BENCHMARK)
+    bench_close = None if qqq_daily is None or qqq_daily.empty else qqq_daily["close"]
+    return scan_symbol(
+        member, daily, State.strengths, State.ranks, State.theme_map, State.qqq, prior=State.prior,
+        benchmark_close=bench_close,
+    )
 
 
 def _rescan_symbol(member: Member) -> None:
@@ -565,7 +570,9 @@ def scan(
     min_rs: float = Query(None, ge=0, le=1),
 ):
     """Ranked scan rows. By default only the Leaders scan: relative strength at or above ``min_rs`` (a 0..1 percentile,
-    default P90) with the trend intact, and a score strictly above ``LEADERS_MIN_SCORE`` (70). A weekly setup is not required; names without one are labelled in the row."""
+    default P90), or an RS line versus QQQ that made a 52-week high in the last 5 sessions, with the trend intact,
+    and a score strictly above ``LEADERS_MIN_SCORE`` (70). Raising ``min_rs`` above P90 tightens the percentile cut.
+    A weekly setup is not required; names without one are labelled in the row."""
     min_price = config.MIN_PRICE if min_price is None else min_price
     min_dollar_volume = config.MIN_DOLLAR_VOLUME if min_dollar_volume is None else min_dollar_volume
     cut = LEADER_MIN_RS if min_rs is None else min_rs
@@ -575,7 +582,9 @@ def scan(
         if r["price"] >= min_price
         and r["avg_dollar_volume"] >= min_dollar_volume
         and (include_etfs or r["kind"] == "stock")
-        and (not leaders_only or in_leaders_scan(r["rs"], r["leadership"]["breakdown"], r["score"], cut))
+        and (not leaders_only or in_leaders_scan(
+            r["rs"], r["leadership"]["breakdown"], r["score"], cut, rs_line_high=bool(r.get("rs_line_high")),
+        ))
     ])
     return {"as_of": State.scan_key, "count": len(rows), "rows": rows}
 

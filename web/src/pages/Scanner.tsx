@@ -43,7 +43,7 @@ const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Kind = "all" | "stock" | "etf";
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
-  { value: "leaders", label: "Leaders", hint: "Only names marked leader (relative strength P90 or better, trend not broken) with a top score, above 70, highest score first. The Min RS slider can raise the cut above P90; it never adds non-leaders." },
+  { value: "leaders", label: "Leaders", hint: "Relative strength at the Min RS cut (default P90) or an RS line versus QQQ that made a 52-week high in the last 5 sessions, trend not broken, score above 70, highest score first. The slider can raise the cut above P90; lowering it does not add other names, and an RS-line high does not bypass a higher cut." },
   {
     value: "setups_pending",
     label: "Weekly strat awaiting trigger",

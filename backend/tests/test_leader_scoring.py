@@ -137,7 +137,7 @@ class TestWeights:
         by = {c.key: c for c in _score(NO_SETUP, LEADER_PERF).breakdown}
         assert by["rs"].sub_weights == ["1M 20%", "3M 40%", "6M 40%"]
         assert by["qqq"].sub_weights == [
-            "1M 20% (full at +45 pts)", "3M 40% (full at +120 pts)", "6M 40% (full at +210 pts)",
+            "1M 20% (full at +20 pts)", "3M 40% (full at +60 pts)", "6M 40% (full at +100 pts)",
         ]
         assert by["trend"].sub_weights[0] == "10-day 5 pts · 20-day 5 pts"
         assert "above 3" in by["trend"].sub_weights[1] and "rising 2" in by["trend"].sub_weights[1]
@@ -206,14 +206,17 @@ class TestComponents:
         assert trend_points(far_below_highs) == 10
 
     def test_qqq_points_scale_with_outperformance(self):
-        full = {"1m": 45.0, "3m": 120.0, "6m": 210.0}
+        from strat.leadership import FULL_EXCESS_PCT
+
+        assert FULL_EXCESS_PCT == {"1m": 20.0, "3m": 60.0, "6m": 100.0}
+        full = dict(FULL_EXCESS_PCT)
         half = {p: v / 2 for p, v in full.items()}
         assert qqq_points(full) == pytest.approx(QQQ_POINTS)
         assert qqq_points(half) == pytest.approx(QQQ_POINTS / 2)
         assert qqq_points({"1m": -5.0, "3m": -5.0, "6m": -5.0}) == 0
         assert qqq_points({"1m": None, "3m": None, "6m": None}) == 0
         assert qqq_points(None) == 0
-        only_6m = {"1m": None, "3m": None, "6m": 210.0}
+        only_6m = {"1m": None, "3m": None, "6m": FULL_EXCESS_PCT["6m"]}
         assert qqq_points(only_6m) == pytest.approx(QQQ_POINTS)  # weights are renormalised
 
     def test_tooltip_details_name_the_inputs(self):
@@ -305,6 +308,17 @@ class TestScan:
         assert not top["has_setup"] and top["setup"] is None
         assert top["leadership"]["above_ma"] == {"10": True, "20": True, "50": True}
         assert top["leadership"]["breakdown"] == "none"
+
+    def test_rs_line_high_is_a_bool_and_a_cold_start_without_qqq_still_scans(self):
+        members, hist = _universe()
+        rows = {r["symbol"]: r for r in scan_all(members, hist, MAP).rows}
+        assert rows["S29"]["rs_line_high"] is True  # rising faster than QQQ, high is the last bar
+        assert rows["S00"]["rs_line_high"] is False
+        assert rows["QQQ"]["rs_line_high"] is False  # the benchmark is not compared with itself
+        assert all(isinstance(r["rs_line_high"], bool) for r in rows.values())
+        hist.pop("QQQ")
+        cold = scan_all(members, hist, MAP).rows
+        assert cold and all(r["rs_line_high"] is False for r in cold)
 
     def test_a_leader_with_no_setup_shows_its_nearest_trigger(self):
         members, hist = _universe()

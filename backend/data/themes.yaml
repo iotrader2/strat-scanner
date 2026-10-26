@@ -14,7 +14,7 @@
 #   clustering, flagged members). The report only suggests; the map below always wins.
 #
 # Bump `version` whenever the membership changes.
-version: 5
+version: 7
 
 themes:
   # ---- Technology -------------------------------------------------------------------------------------------------
@@ -27,14 +27,13 @@ themes:
   cybersecurity:
     name: Cybersecurity
     description: "Security software and platforms."
-    members: "CRWD PANW ZS FTNT NET S OKTA TENB"
-    also: "CHKP DDOG"
+    members: "CRWD PANW ZS FTNT NET S OKTA TENB CHKP FFIV"
+    also: "DDOG"
 
   ai-hardware:
     name: AI hardware & servers
     description: "AI servers, networking switches and data-center power and cooling."
-    members: "DELL HPE SMCI ANET VRT"
-    also: "NTAP"
+    members: "DELL HPE SMCI ANET VRT NTAP"
     keep: "SMCI ANET VRT"
 
   memory:
@@ -74,9 +73,14 @@ themes:
   software:
     name: Software & SaaS
     description: "Application and infrastructure software."
-    members: "CRM NOW ADBE INTU WDAY ADSK TEAM HUBS DDOG SNOW MDB PTC VEEV"
+    members: "CRM NOW ADBE INTU WDAY ADSK TEAM HUBS DDOG SNOW MDB PTC VEEV GDDY TWLO"
     also: "PLTR"
     keep: "DDOG"
+
+  ai-defense-software:
+    name: AI / Defense Software
+    description: "AI and software sold to defense, intelligence and government."
+    members: "PLTR LDOS AXON"
 
   it-services:
     name: IT services & consulting
@@ -181,7 +185,7 @@ themes:
   medtech:
     name: Medtech
     description: "Medical devices."
-    members: "ABT BSX MDT SYK ISRG EW ZBH BDX BAX DXCM PODD GEHC STE RMD IDXX"
+    members: "ABT BSX MDT SYK ISRG EW ZBH BDX BAX DXCM PODD GEHC STE RMD IDXX WST"
 
   life-science-tools:
     name: Life-science tools
@@ -224,7 +228,12 @@ themes:
   machinery:
     name: Machinery
     description: "Industrial machinery and components."
-    members: "EMR ITW DOV PH AME IR WAB PCAR SNA ROK DE"
+    members: "EMR ITW DOV PH AME IR WAB PCAR SNA ROK DE ZBRA"
+
+  industrial-equipment:
+    name: Industrial Equipment & Rental
+    description: "Equipment rental and the industrial distributors that supply the same job sites."
+    members: "URI GWW FAST"
 
   hvac:
     name: HVAC & building systems
@@ -371,7 +380,7 @@ themes:
   staples-household:
     name: Household & personal care
     description: "Household and personal-care products."
-    members: "PG CL KMB CLX CHD KVUE"
+    members: "PG CL KMB CLX CHD KVUE EL"
     also: "MO PM"
 
   streaming-media:
