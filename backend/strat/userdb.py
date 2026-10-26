@@ -237,6 +237,35 @@ def connect(db_path: Optional[Path] = None) -> Iterator[Any]:
         yield conn
 
 
+# Read cache (Postgres only). Every write in this process bumps the generation, so cached reads are never stale
+# (one web process owns the data). It keeps an open browser tab, which polls alerts every minute, from waking
+# the Neon compute around the clock and using up the free plan's compute hours.
+_cache_lock = threading.Lock()
+_cache: dict = {}
+_generation = 0
+
+
+def bump() -> None:
+    global _generation
+    with _cache_lock:
+        _generation += 1
+        _cache.clear()
+
+
+def cached(key, fn, db_path: Optional[Path] = None):
+    if db_path is not None or backend() != "postgres":
+        return fn()
+    with _cache_lock:
+        gen = _generation
+        if key in _cache:
+            return _cache[key]
+    value = fn()
+    with _cache_lock:
+        if gen == _generation:
+            _cache[key] = value
+    return value
+
+
 def insert_returning_id(conn, sql: str, params: Sequence[Any]) -> int:
     """Run an INSERT and return the new row id on either backend (both support RETURNING)."""
     row = conn.execute(sql + " RETURNING id", params).fetchone()
@@ -252,6 +281,7 @@ def describe() -> dict:
 
 def close() -> None:
     global _pg_conn
+    bump()
     with _pg_lock:
         if _pg_conn is not None:
             try:

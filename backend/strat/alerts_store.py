@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
@@ -12,6 +13,14 @@ from . import userdb
 from .alerts import SETTING_LIMITS, Alert, Settings, mark_top
 
 _lock = threading.Lock()
+
+
+@contextmanager
+def _writing():
+    try:
+        yield
+    finally:
+        userdb.bump()
 
 COLUMNS = (
     "id", "key", "symbol", "session", "setup", "setup_bar", "fired_at", "detected_at", "late", "top",
@@ -76,23 +85,33 @@ def list_alerts(
         clauses.append("symbol = ?")
         params.append(symbol.upper())
     sql, p = _select(" AND ".join(clauses), tuple(params), limit=limit)
-    with userdb.connect(db_path) as conn:
-        return [_row(r) for r in conn.execute(sql, p).fetchall()]
+
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute(sql, p).fetchall()
+
+    return [_row(r) for r in userdb.cached(("alerts", sql, p), read, db_path)]
 
 
 def sessions(db_path: Optional[Path] = None) -> list[str]:
-    with userdb.connect(db_path) as conn:
-        return [r[0] for r in conn.execute("SELECT DISTINCT session FROM alerts ORDER BY session DESC").fetchall()]
+    def read() -> list[str]:
+        with userdb.connect(db_path) as conn:
+            return [r[0] for r in conn.execute("SELECT DISTINCT session FROM alerts ORDER BY session DESC").fetchall()]
+
+    return list(userdb.cached("alert_sessions", read, db_path))
 
 
 def unread_count(db_path: Optional[Path] = None) -> int:
-    with userdb.connect(db_path) as conn:
-        return int(conn.execute("SELECT COUNT(*) FROM alerts WHERE acknowledged = 0").fetchone()[0])
+    def read() -> int:
+        with userdb.connect(db_path) as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM alerts WHERE acknowledged = 0").fetchone()[0])
+
+    return userdb.cached("alert_unread", read, db_path)
 
 
 def acknowledge(ids: Optional[Iterable[int]] = None, db_path: Optional[Path] = None) -> int:
     """Mark alerts read. ``ids=None`` acknowledges every unread alert."""
-    with _lock, userdb.connect(db_path) as conn:
+    with _lock, _writing(), userdb.connect(db_path) as conn:
         if ids is None:
             return conn.execute("UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0").rowcount
         n = 0
@@ -115,7 +134,7 @@ def save_session(
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     stamp = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
     inserted, updated = [], 0
-    with _lock, userdb.connect(db_path) as conn:
+    with _lock, _writing(), userdb.connect(db_path) as conn:
         known = {
             r[0]: r[1:]
             for r in conn.execute(
@@ -156,9 +175,11 @@ def save_session(
 
 
 def load_settings(db_path: Optional[Path] = None) -> Settings:
-    with userdb.connect(db_path) as conn:
-        raw = {k: json.loads(v) for k, v in conn.execute("SELECT key, value FROM alert_settings").fetchall()}
-    return Settings.from_mapping(raw)
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute("SELECT key, value FROM alert_settings").fetchall()
+
+    return Settings.from_mapping({k: json.loads(v) for k, v in userdb.cached("alert_settings", read, db_path)})
 
 
 class SettingsError(ValueError):
@@ -184,7 +205,7 @@ def save_settings(changes: dict, db_path: Optional[Path] = None) -> Settings:
     for a, b in (("b_from", "b_to"), ("c_from", "c_to"), ("d_from", "d_to"), ("e_from", "e_to"), ("f_from", "f_to")):
         if merged[a] > merged[b]:
             raise SettingsError(f"{a} must not be after {b}")
-    with _lock, userdb.connect(db_path) as conn:
+    with _lock, _writing(), userdb.connect(db_path) as conn:
         for k, v in clean.items():
             conn.execute(
                 "INSERT INTO alert_settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -194,6 +215,6 @@ def save_settings(changes: dict, db_path: Optional[Path] = None) -> Settings:
 
 
 def reset_settings(db_path: Optional[Path] = None) -> Settings:
-    with _lock, userdb.connect(db_path) as conn:
+    with _lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute("DELETE FROM alert_settings")
     return Settings()

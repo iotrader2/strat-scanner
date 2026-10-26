@@ -172,29 +172,45 @@ def set_meta(key: str, value: str, db_path: Path | None = None) -> None:
         conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, value))
 
 
+@contextmanager
+def _writing() -> Iterator[None]:
+    """Clear the user-data read cache after a write (whether or not it succeeded)."""
+    try:
+        yield
+    finally:
+        userdb.bump()
+
+
 def watchlist(db_path: Path | None = None) -> list[str]:
     """Watched symbols, oldest addition first."""
-    with userdb.connect(db_path) as conn:
-        return [r[0] for r in conn.execute("SELECT symbol FROM watchlist ORDER BY added_at, symbol").fetchall()]
+
+    def read() -> list[str]:
+        with userdb.connect(db_path) as conn:
+            return [r[0] for r in conn.execute("SELECT symbol FROM watchlist ORDER BY added_at, symbol").fetchall()]
+
+    return list(userdb.cached("watchlist", read, db_path))
 
 
 def add_to_watchlist(symbol: str, db_path: Path | None = None) -> None:
     added = datetime.now(timezone.utc).isoformat(timespec="microseconds")
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute("INSERT INTO watchlist(symbol, added_at) VALUES (?, ?) ON CONFLICT(symbol) DO NOTHING", (symbol, added))
 
 
 def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
 
 
 def positions(db_path: Path | None = None) -> list[dict]:
     """Open positions, oldest first: symbol, entry_price, shares (None when not given), entry_date."""
-    with userdb.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT symbol, entry_price, shares, entry_date FROM positions ORDER BY added_at, symbol"
-        ).fetchall()
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute(
+                "SELECT symbol, entry_price, shares, entry_date FROM positions ORDER BY added_at, symbol"
+            ).fetchall()
+
+    rows = userdb.cached("positions", read, db_path)
     return [dict(zip(("symbol", "entry_price", "shares", "entry_date"), r)) for r in rows]
 
 
@@ -203,7 +219,7 @@ def save_position(
 ) -> None:
     """Insert or update a position, keeping its original place in the list."""
     added = datetime.now(timezone.utc).isoformat(timespec="microseconds")
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO positions(symbol, entry_price, shares, entry_date, added_at) VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(symbol) DO UPDATE SET entry_price = excluded.entry_price, shares = excluded.shares, "
@@ -226,10 +242,13 @@ def _fmt_shares(n: float) -> str:
 
 def trims_by_symbol(db_path: Path | None = None) -> dict[str, list[dict]]:
     """symbol -> trims, oldest first. Each trim is id, shares, price, trimmed_at."""
-    with userdb.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT id, symbol, shares, price, trimmed_at FROM position_trims ORDER BY trimmed_at, id"
-        ).fetchall()
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute(
+                "SELECT id, symbol, shares, price, trimmed_at FROM position_trims ORDER BY trimmed_at, id"
+            ).fetchall()
+
+    rows = userdb.cached("trims", read, db_path)
     grouped: dict[str, list[dict]] = {}
     for trim_id, symbol, shares, price, trimmed_at in rows:
         grouped.setdefault(symbol, []).append(
@@ -250,7 +269,7 @@ def add_trim(symbol: str, shares: float, price: float, db_path: Path | None = No
     Rejects a trim that would sell every share still held — that is a close, not a trim.
     """
     when = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         row = conn.execute("SELECT shares FROM positions WHERE symbol = ?", (symbol,)).fetchone()
         if row is None:
             raise PositionMissing(symbol)
@@ -275,7 +294,7 @@ def add_trim(symbol: str, shares: float, price: float, db_path: Path | None = No
 
 def delete_trim(symbol: str, trim_id: int, db_path: Path | None = None) -> None:
     """Remove one trim. Raises PositionMissing when that trim is not on this position."""
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         held = conn.execute("SELECT 1 FROM positions WHERE symbol = ?", (symbol,)).fetchone()
         if held is None:
             raise PositionMissing(symbol)
@@ -285,7 +304,7 @@ def delete_trim(symbol: str, trim_id: int, db_path: Path | None = None) -> None:
 
 
 def remove_position(symbol: str, db_path: Path | None = None) -> None:
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute("DELETE FROM position_trims WHERE symbol = ?", (symbol,))
         conn.execute("DELETE FROM positions WHERE symbol = ?", (symbol,))
 
@@ -297,15 +316,18 @@ def tracked_symbols(db_path: Path | None = None) -> set[str]:
 
 def extra_symbols(db_path: Path | None = None) -> list[dict]:
     """Symbols outside the scan universe that were added from the watchlist, with their metadata."""
-    with userdb.connect(db_path) as conn:
-        rows = conn.execute("SELECT symbol, name, sector, kind, industry FROM extra_symbols ORDER BY symbol").fetchall()
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute("SELECT symbol, name, sector, kind, industry FROM extra_symbols ORDER BY symbol").fetchall()
+
+    rows = userdb.cached("extra_symbols", read, db_path)
     return [dict(zip(("symbol", "name", "sector", "kind", "industry"), r)) for r in rows]
 
 
 def save_extra_symbol(
     symbol: str, name: str, sector: str, kind: str, industry: str = "", db_path: Path | None = None
 ) -> None:
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO extra_symbols(symbol, name, sector, kind, industry) VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(symbol) DO UPDATE SET name = excluded.name, sector = excluded.sector, "
@@ -315,7 +337,7 @@ def save_extra_symbol(
 
 
 def set_extra_industry(symbol: str, industry: str, db_path: Path | None = None) -> None:
-    with _write_lock, userdb.connect(db_path) as conn:
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute("UPDATE extra_symbols SET industry = ? WHERE symbol = ?", (industry, symbol))
 
 

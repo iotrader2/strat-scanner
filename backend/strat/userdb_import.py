@@ -90,7 +90,8 @@ def write(rows: dict[str, list[tuple]], replace: bool) -> dict[str, int]:
             for v in values:
                 conn.execute(f"INSERT INTO {table}({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", tuple(v))
             written[table] = len(values)
-        return written
+    userdb.bump()
+    return written
 
 
 def summary() -> dict:

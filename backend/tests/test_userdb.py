@@ -87,9 +87,14 @@ def test_postgres_path(monkeypatch, tmp_path):
         assert alerts_store.list_alerts()[0]["top"] is True
         alerts_store.save_settings({"top_names": 5})
         assert alerts_store.load_settings().top_names == 5
-        # A dropped connection is reopened on the next call.
-        userdb._pg_conn.close()
+        # Repeat reads come from the in-process cache: no query, so an idle Neon compute can suspend.
         assert data.watchlist() == ["AAPL"]
+        userdb._pg_conn.close()
+        assert data.watchlist() == ["AAPL"] and userdb._pg_conn.closed
+        # The next write reopens the dropped connection and clears the cache.
+        data.add_to_watchlist("SPY")
+        assert not userdb._pg_conn.closed
+        assert data.watchlist() == ["AAPL", "SPY"]
         assert not (tmp_path / "cache.sqlite3").exists()  # nothing went to SQLite
     finally:
         with userdb.connect() as conn:
