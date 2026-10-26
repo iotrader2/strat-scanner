@@ -8,3 +8,7 @@ import os
 
 os.environ["STRAT_SCHEDULER"] = "0"
 os.environ.setdefault("STRAT_DATA_PROVIDER", "yahoo")
+
+# User data goes to SQLite in tests; the Postgres path is exercised only by test_userdb_postgres.py when
+# TEST_DATABASE_URL is set.
+os.environ.pop("DATABASE_URL", None)

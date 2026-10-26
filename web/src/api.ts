@@ -490,7 +490,97 @@ export const api = {
     send<Positions>(`/api/positions/${encodeURIComponent(symbol)}/trims`, "POST", req),
   undoTrim: (symbol: string, trimId: number) =>
     get<Positions>(`/api/positions/${encodeURIComponent(symbol)}/trims/${trimId}`, { method: "DELETE" }),
+  /** One session's setup alerts (default today), newest first. */
+  alerts: (session?: string) => get<AlertsPayload>(`/api/alerts${session ? `?session=${encodeURIComponent(session)}` : ""}`),
+  /** Acknowledge alerts; no ids acknowledges every unread one. */
+  ackAlerts: (ids?: number[]) => send<{ acknowledged: number; unread: number }>("/api/alerts/ack", "POST", { ids: ids ?? null }),
+  alertMetrics: (q: { start?: string; end?: string; symbol?: string }) => {
+    const params = new URLSearchParams();
+    if (q.start) params.set("start", q.start);
+    if (q.end) params.set("end", q.end);
+    if (q.symbol) params.set("symbol", q.symbol);
+    const qs = params.toString();
+    return get<AlertMetricsPayload>(`/api/alerts/metrics${qs ? `?${qs}` : ""}`);
+  },
+  alertSettings: () => get<AlertSettingsPayload>("/api/alerts/settings"),
+  saveAlertSettings: (changes: Partial<AlertSettings>) => send<AlertSettingsPayload>("/api/alerts/settings", "PUT", changes),
+  resetAlertSettings: () => get<AlertSettingsPayload>("/api/alerts/settings", { method: "DELETE" }),
 };
+
+export type AlertSetup = "A" | "B" | "C" | "D" | "E" | "F";
+export type AlertStatus = "pending" | "triggered" | "stopped" | "breakeven" | "exited" | "expired" | "cancelled";
+
+/** One setup alert and what happened after it. Times are UTC ISO; the UI shows them in Phoenix time. */
+export interface TradeAlert {
+  id: number;
+  symbol: string;
+  session: string;
+  setup: AlertSetup;
+  /** Start of the setup bar; the alert fires when that bar closes (fired_at). */
+  setup_bar: string;
+  fired_at: string;
+  detected_at: string;
+  /** Found after the fact (restart or a missed poll): shown, but no chime. */
+  late: boolean;
+  top: boolean;
+  trigger_price: number;
+  stop_price: number;
+  setup_low: number;
+  setup_high: number;
+  ref_price: number;
+  status: AlertStatus;
+  filled: boolean;
+  fill_price: number | null;
+  fill_at: string | null;
+  high_reached: number | null;
+  stop_hit: boolean;
+  breakeven_at: string | null;
+  exit_price: number | null;
+  exit_at: string | null;
+  exit_reason: string | null;
+  r_multiple: number | null;
+  details: { variant?: string; volume_ratio?: number | null; rearmed?: number; a_stop_capped?: boolean };
+  acknowledged: boolean;
+}
+
+export interface AlertsPayload {
+  session: string;
+  alerts: TradeAlert[];
+  sessions: string[];
+  unread: number;
+  last_run: { at?: string; alerts?: number; symbols?: number };
+  watchlist: string[];
+  setups: Record<AlertSetup, string>;
+}
+
+export interface AlertMetricRow {
+  setup: AlertSetup | "All";
+  name: string;
+  count: number;
+  filled: number;
+  closed: number;
+  open: number;
+  fill_rate: number | null;
+  win_rate: number | null;
+  avg_r: number | null;
+  total_r: number | null;
+}
+
+export interface AlertMetricsPayload {
+  start: string | null;
+  end: string | null;
+  symbol: string | null;
+  rows: AlertMetricRow[];
+  symbols: string[];
+}
+
+export type AlertSettings = Record<string, number>;
+
+export interface AlertSettingsPayload {
+  settings: AlertSettings;
+  defaults: AlertSettings;
+  limits: Record<string, [number, number]>;
+}
 
 function send<T>(url: string, method: string, body: unknown): Promise<T> {
   return get<T>(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

@@ -729,3 +729,62 @@ th.num { text-align: right; }
   .scan-table .rs-chip { max-width: none; white-space: nowrap; }
   .scan-table .breakout-badge { max-width: 260px; }
 }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Alerts tab
+   --------------------------------------------------------------------------------------------------------------- */
+.count-badge.alert-badge { background: var(--yellow); color: #1a1405; }
+.alerts-tabs { margin: 0 0 12px; }
+.alerts-toolbar, .metrics-filters { align-items: center; }
+.alerts-toolbar-left, .alerts-toolbar-right, .alert-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.input.select, .input.date { padding: 6px 8px; min-height: 34px; }
+.alerts-table td { vertical-align: middle; }
+.alerts-table .sym { display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.alerts-table .sym .ticker-logo { flex: 0 0 auto; }
+.alert-row.unread td:first-child { box-shadow: inset 3px 0 0 var(--yellow); }
+.alert-row.unread { background: rgba(250, 204, 21, 0.035); }
+.alert-row.read { opacity: 0.88; }
+.alert-row.flash { animation: alert-flash 1.2s ease-in-out 0s 6; }
+@keyframes alert-flash {
+  0%, 100% { background: rgba(250, 204, 21, 0.04); }
+  50% { background: rgba(250, 204, 21, 0.24); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alert-row.flash { animation: none; background: rgba(250, 204, 21, 0.2); }
+}
+.setup-letter {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-right: 7px;
+  border-radius: 6px; font-weight: 800; font-size: 12px; color: var(--accent);
+  background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); vertical-align: middle;
+}
+.setup-name { vertical-align: middle; }
+.top-chip { font-size: 9.5px; font-weight: 800; letter-spacing: 0.04em; color: #1a1405; background: var(--yellow); border-radius: 5px; padding: 1px 5px; }
+.late-chip { margin-left: 6px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border-2); border-radius: 5px; padding: 0 4px; }
+.alert-status { display: inline-block; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 700; white-space: nowrap; border: 1px solid transparent; }
+.alert-status.wait { color: var(--yellow); border-color: rgba(250, 204, 21, 0.4); background: rgba(250, 204, 21, 0.08); }
+.alert-status.live { color: var(--accent); border-color: rgba(56, 189, 248, 0.45); background: rgba(56, 189, 248, 0.1); }
+.alert-status.good { color: #4ade80; border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.1); }
+.alert-status.bad { color: #fda4af; border-color: rgba(244, 63, 94, 0.45); background: rgba(244, 63, 94, 0.1); }
+.alert-status.flat { color: var(--muted); border-color: var(--border-2); background: rgba(139, 147, 167, 0.08); }
+.alerts-table .outcome-cell { min-width: 180px; max-width: 360px; line-height: 1.35; }
+.metrics-table .total-row td { font-weight: 700; border-top: 1px solid var(--border-2); }
+.settings-card { margin-top: 16px; }
+.settings-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: none; border: 0; color: var(--text); font: inherit; font-weight: 700; padding: 14px 16px; cursor: pointer; text-align: left; }
+.settings-body { padding: 0 16px 16px; }
+.settings-group { border: 1px solid var(--border); border-radius: 10px; margin: 0 0 12px; padding: 10px 12px 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 18px; }
+.settings-group legend { padding: 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.setting { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 10px; padding: 6px 0; }
+.setting-label { font-size: 13px; }
+.setting-input { display: inline-flex; align-items: center; gap: 6px; }
+.setting-input .input { width: 84px; padding: 6px 8px; text-align: right; }
+.setting-default { grid-column: 1 / -1; }
+.setting.changed .input { border-color: var(--yellow); }
+.settings-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+/* iPad and narrower: the long names and outcome text give way first so the table still fits. */
+@media (max-width: 1280px) {
+  .alerts-table .setup-name { display: none; }
+  .alerts-table .outcome-cell { min-width: 150px; max-width: 220px; }
+}
+@media (max-width: 900px) {
+  .alerts-table .outcome-cell { display: none; }
+}

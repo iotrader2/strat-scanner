@@ -8,6 +8,8 @@ import Themes from "./pages/Themes";
 import Market from "./pages/Market";
 import Watchlist from "./pages/Watchlist";
 import Positions from "./pages/Positions";
+import Alerts from "./pages/Alerts";
+import { AlertsProvider, useAlerts } from "./components/AlertsCenter";
 import { WatchlistProvider, useWatchlist } from "./components/Watch";
 import { PositionsProvider, usePositions } from "./components/Positions";
 import { liveStatus, type SocketPhase } from "./live";
@@ -56,6 +58,18 @@ function PositionsTab() {
   );
 }
 
+function AlertsTab() {
+  const { unread } = useAlerts();
+  return (
+    <NavLink to="/alerts">
+      Alerts
+      <span className={`count-badge ${unread ? "alert-badge" : "zero"}`} aria-label={`${unread} unread alerts`}>
+        {unread}
+      </span>
+    </NavLink>
+  );
+}
+
 export default function App() {
   useStickyTab();
   const [status, setStatus] = useState<Status | null>(null);
@@ -63,6 +77,7 @@ export default function App() {
   const [dataVersion, setDataVersion] = useState<string | null>(null);
   const [positionsEpoch, setPositionsEpoch] = useState(0);
   const [listsEpoch, setListsEpoch] = useState(0);
+  const [alertsEpoch, setAlertsEpoch] = useState(0);
 
   const poll = useCallback(async () => {
     try {
@@ -95,6 +110,7 @@ export default function App() {
         if (msg.type === "ping") return;
         if (msg.type === "positions") setPositionsEpoch((n) => n + 1);
         if (msg.type === "lists") setListsEpoch((n) => n + 1);
+        if (msg.type === "alerts") setAlertsEpoch((n) => n + 1);
         if (msg.status) setStatus(msg.status);
         if ((msg.type === "snapshot" || msg.type === "delta") && msg.version != null) {
           setDataVersion(String(msg.version));
@@ -128,6 +144,7 @@ export default function App() {
   return (
     <WatchlistProvider version={dataVersion} epoch={listsEpoch}>
       <PositionsProvider version={dataVersion} epoch={positionsEpoch + listsEpoch}>
+        <AlertsProvider epoch={alertsEpoch}>
         <div className="app">
           <div className="topbar-wrap">
             <header className="topbar">
@@ -145,6 +162,7 @@ export default function App() {
                 </NavLink>
                 <WatchlistTab />
                 <PositionsTab />
+                <AlertsTab />
               </nav>
               <div className="status" role="status" aria-live="polite">
                 <span className={`live-dot ${live.tone}`} aria-hidden="true" />
@@ -162,6 +180,7 @@ export default function App() {
               <Route path="/sectors" element={<Navigate to="/themes" replace />} />
               <Route path="/watchlist" element={<Watchlist />} />
               <Route path="/positions" element={<Positions />} />
+              <Route path="/alerts" element={<Alerts />} />
             </Routes>
           </main>
           <footer className="footer">
@@ -171,6 +190,7 @@ export default function App() {
             <a href="https://parqet.com" target="_blank" rel="noopener noreferrer">Parqet</a> · not investment advice
           </footer>
         </div>
+        </AlertsProvider>
       </PositionsProvider>
     </WatchlistProvider>
   );
