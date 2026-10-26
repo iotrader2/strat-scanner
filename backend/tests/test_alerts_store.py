@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from strat import alerts_live, alerts_store, config
+from strat import alerts, alerts_live, alerts_store, config
 from strat.alerts import Context, Settings, simulate
 
 OPEN = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)
@@ -228,3 +228,24 @@ def test_alerts_api(db):
     assert c.delete("/api/alerts/settings").json()["settings"]["bunched_pct"] == 0.5
     assert c.get("/api/alerts", params={"session": "bad"}).status_code == 422
     assert c.get("/api/status").json()["storage"] == {"backend": "sqlite"}
+
+
+def test_regular_closes_drop_premarket_and_after_hours():
+    day = OPEN.date()
+    prev = OPEN - timedelta(days=1)
+    rows = [_raw(prev - timedelta(minutes=30), 1, 1, 1, 1, 1), _raw(prev, 2, 2, 2, 2, 1),
+            _raw(prev + timedelta(hours=6, minutes=25), 3, 3, 3, 3, 1), _raw(prev + timedelta(hours=6, minutes=30), 4, 4, 4, 4, 1),
+            _raw(OPEN, 5, 5, 5, 5, 1)]
+    assert alerts_live.regular_closes(rows, day) == [2.0, 3.0]
+
+
+def test_ensure_profiles_keeps_only_the_ema360_value(db):
+    alerts_live.clear()
+    sip = {"AAA": [_raw(OPEN - timedelta(days=d) + timedelta(minutes=5 * k), 100 + d, 100 + d, 100 + d, 100 + d, 1) for d in range(1, 8) for k in range(78)]}
+    client = FakeClient(sip, {"AAA": []})
+    alerts_live.ensure_profiles(client, ["AAA"], OPEN.date())
+    p = alerts_live._profiles["AAA"]
+    closes = alerts_live.regular_closes(sip["AAA"], OPEN.date())
+    assert len(closes) >= 360
+    assert p["e360"] == pytest.approx(alerts.ema_seed(closes, 360))
+    assert alerts_live.context_for("AAA", 100.0, None, 78).ema360_seed == p["e360"]

@@ -23,7 +23,12 @@ Rules common to every setup:
 * each bar gets at most one tag, checked C, A, B, D, E, F;
 * no second alert of the same setup on a name while the first is still pending or in a trade (a C
   tight run moves its pending entry to the newest tight bar instead), and no new alert at all once
-  ``max_attempts`` of the name's alerts have triggered that day.
+  ``max_attempts`` of the name's alerts have triggered that day;
+* not extended (``ext_filter``): at the setup bar the lowest low of today's last ``ext_lookback_bars``
+  bars is at most ``ext_low_pct`` above the 5-minute EMA 360 (the trader's stand-in for the 1-hour
+  EMA 30; at or under it is fine), and the setup bar closes at most ``ext_close_pct`` above it. The
+  EMA 360 runs over regular-session closes only (no premarket), seeded from prior sessions. When there
+  is not enough history for it the filter does not block.
 """
 
 from __future__ import annotations
@@ -74,6 +79,11 @@ class Settings:
     touch_tol_pct: float = 0.1
     d_lookback_bars: int = 6
     f_full_body_pct: float = 50.0
+    # Not extended: price near the 5-minute EMA 360 (about the 1-hour EMA 30). 1 = on, 0 = off.
+    ext_filter: int = 1
+    ext_low_pct: float = 1.0  # last hour's low at most this far over the EMA 360
+    ext_close_pct: float = 3.0  # setup bar close at most this far over the EMA 360
+    ext_lookback_bars: int = 12  # "last hour" in 5-minute bars (today's bars only)
     # Windows, minutes after the open (setup bar start). 5-25 = 6:35-6:55 Phoenix in daylight time.
     b_from: int = 5
     b_to: int = 25
@@ -106,6 +116,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "max_attempts": (1, 20),
     "breakeven_after_new_highs": (1, 50), "vol_min_sessions": (1, 20), "touch_tol_pct": (0, 5),
     "d_lookback_bars": (1, 30), "f_full_body_pct": (0, 100),
+    "ext_filter": (0, 1), "ext_low_pct": (0, 50), "ext_close_pct": (0, 50), "ext_lookback_bars": (1, 78),
     "b_from": (0, 390), "b_to": (0, 390), "c_from": (0, 390), "c_to": (0, 390), "d_from": (0, 390),
     "d_to": (0, 390), "e_from": (0, 390), "e_to": (0, 390), "f_from": (0, 390), "f_to": (0, 390),
 }
@@ -121,6 +132,7 @@ class Context:
     vol_avg: Mapping[int, float] = field(default_factory=dict)  # bar index -> average IEX volume
     vol_sessions: int = 0  # sessions behind vol_avg
     session_bars: int = 78  # bars in a full session (fewer on a half day)
+    ema360_seed: Optional[float] = None  # 5-minute EMA 360 after the prior session's last regular bar
 
 
 @dataclass
@@ -226,6 +238,32 @@ def ema_series(values: Sequence[float], period: int) -> list[Optional[float]]:
     return out
 
 
+EMA_LONG = 360  # 5-minute bars: 360 x 5 min = 30 hours = 30 one-hour bars of the regular session (6.5 h/day)
+
+
+def ema_seed(closes: Sequence[float], period: int = EMA_LONG) -> Optional[float]:
+    """Last value of the SMA-seeded EMA over ``closes`` (None with fewer than ``period`` closes)."""
+    if period <= 0 or len(closes) < period:
+        return None
+    k = 2.0 / (period + 1)
+    value = sum(closes[:period]) / period
+    for c in closes[period:]:
+        value += k * (c - value)
+    return value
+
+
+def ema_continue(seed: Optional[float], values: Sequence[float], period: int = EMA_LONG) -> list[Optional[float]]:
+    """EMA after each value, continuing from ``seed`` (all None without a seed)."""
+    if seed is None:
+        return [None] * len(values)
+    k = 2.0 / (period + 1)
+    out, value = [], seed
+    for v in values:
+        value += k * (v - value)
+        out.append(value)
+    return out
+
+
 def vwap_series(bars: Sequence[Mapping]) -> list[Optional[float]]:
     """Regular-session VWAP after each bar, typical price weighted by (IEX) volume."""
     out: list[Optional[float]] = []
@@ -253,6 +291,7 @@ class Frame:
         full20 = ema_series(closes, 20)
         self.e20_before = full20[n - 1] if n >= 1 else None
         self.vwap = vwap_series(self.bars)
+        self.e360 = ema_continue(ctx.ema360_seed, [float(b["c"]) for b in self.bars])
         self.ctx = ctx
 
     def emas(self, i: int) -> Optional[tuple[float, float, float]]:
@@ -503,6 +542,23 @@ def volume_check(f: Frame, i: int, s: Settings) -> tuple[bool, Optional[float]]:
     return ratio >= s.vol_mult, ratio
 
 
+def extension(f: Frame, i: int, s: Settings) -> Optional[dict]:
+    """Distance of the last hour's low and the setup bar's close from the 5-minute EMA 360, in percent."""
+    e = f.e360[i]
+    if e is None or e <= 0:
+        return None
+    lo = min(float(f.bars[k]["l"]) for k in range(max(0, i - max(1, s.ext_lookback_bars) + 1), i + 1))
+    return {"ema360": e, "low_pct": (lo - e) / e * 100, "close_pct": (float(f.bars[i]["c"]) - e) / e * 100}
+
+
+def not_extended(f: Frame, i: int, s: Settings) -> tuple[bool, Optional[dict]]:
+    """(passes, distances). Passes when the filter is off or the EMA 360 is not known yet."""
+    x = extension(f, i, s)
+    if not s.ext_filter or x is None:
+        return True, x
+    return x["low_pct"] <= s.ext_low_pct and x["close_pct"] <= s.ext_close_pct, x
+
+
 def levels(f: Frame, i: int, setup: str, s: Settings) -> tuple[float, float, bool]:
     """(trigger, stop, too_wide). A wide A bar gets a 2% stop instead of being skipped."""
     b = f.bars[i]
@@ -626,7 +682,7 @@ def simulate(
             a = same[-1]
             if (
                 tag[1] == "tight" and a.status == "pending" and a.details.get("variant") == "tight"
-                and setup_bar_ok(bar, s) and volume_check(f, i, s)[0]
+                and setup_bar_ok(bar, s) and volume_check(f, i, s)[0] and not_extended(f, i, s)[0]
             ):
                 trigger, stop, wide = levels(f, i, "C", s)
                 if not wide:
@@ -641,10 +697,14 @@ def simulate(
         setup, variant = tag
         reason = None
         ok_vol, ratio = volume_check(f, i, s)
+        ok_ext, ext = not_extended(f, i, s)
         if not setup_bar_ok(bar, s):
             reason = "setup bar not green / doji"
         elif not ok_vol:
             reason = "volume under %.1fx" % s.vol_mult
+        elif not ok_ext:
+            reason = "extended: hour low %+.2f%%, close %+.2f%% vs 5m EMA 360 (max %.1f%% / %.1f%%)" % (
+                ext["low_pct"], ext["close_pct"], s.ext_low_pct, s.ext_close_pct)
         trigger, stop, wide = levels(f, i, setup, s)
         if reason is None and wide:
             reason = "stop over %.1f%%" % s.max_stop_pct
@@ -666,6 +726,9 @@ def simulate(
                     "ema50": None if em is None else round(em[2], 4),
                     "vwap": None if f.vwap[i] is None else round(f.vwap[i], 4),
                     "a_stop_capped": setup == "A" and round(bar["l"] - TICK, 2) != stop,
+                    "ema360": None if ext is None else round(ext["ema360"], 4),
+                    "ema360_close_pct": None if ext is None else round(ext["close_pct"], 2),
+                    "ema360_low_pct": None if ext is None else round(ext["low_pct"], 2),
                 },
             )
         )

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TradeAlert } from "./api";
-import { alertDayStatus, fmtR, freshAlerts, notificationText, phoenixTime, playChime, riskPerShare, statusTone, stopPct, todayEmptyLead } from "./alerts";
+import { SETTING_GROUPS, alertDayStatus, ema360Text, ema360Title, ema360Tone, fmtR, freshAlerts, notificationText, phoenixTime, playChime, riskPerShare, statusTone, stopPct, todayEmptyLead } from "./alerts";
 
 export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   id: 1,
@@ -172,5 +172,28 @@ describe("alerts helpers", () => {
     expect(body).toContain("Buy stop 101.01, stop 99.89");
     expect(body).toContain("6:35 AM Phoenix");
     expect(/\p{Extended_Pictographic}/u.test(title + body)).toBe(false);
+  });
+});
+
+describe("EMA 360 distance", () => {
+  const mk = (d: Record<string, number | null>) => ({ details: d });
+  it("formats the close distance with a sign", () => {
+    expect(ema360Text(mk({ ema360: 100, ema360_close_pct: 0.62, ema360_low_pct: 0.1 }))).toBe("+0.62%");
+    expect(ema360Text(mk({ ema360: 100, ema360_close_pct: -0.4 }))).toBe("-0.40%");
+    expect(ema360Text(mk({}))).toBe("—");
+  });
+  it("tones near as good and stretched as a warning", () => {
+    expect(ema360Tone(mk({ ema360_close_pct: 0.5 }))).toBe("green-text");
+    expect(ema360Tone(mk({ ema360_close_pct: 2 }))).toBe("");
+    expect(ema360Tone(mk({ ema360_close_pct: 9.4 }))).toBe("red-text");
+    expect(ema360Tone(mk({ ema360_close_pct: 2 }), { ext_close_pct: 1.5 })).toBe("red-text");
+  });
+  it("explains both distances on hover", () => {
+    expect(ema360Title(mk({ ema360: 121.7, ema360_close_pct: 9.43, ema360_low_pct: 6.82 }))).toContain("low +6.82%");
+    expect(ema360Title(mk({}))).toContain("not known");
+  });
+  it("has a settings group for the filter", () => {
+    const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
+    expect(keys).toEqual(expect.arrayContaining(["ext_filter", "ext_low_pct", "ext_close_pct", "ext_lookback_bars"]));
   });
 });
