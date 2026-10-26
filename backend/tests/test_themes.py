@@ -127,6 +127,17 @@ class TestShippedMap:
         # Leidos stays on the Defense card as a secondary; its points come from the new theme.
         assert themes.theme_of("LDOS").id == "ai-defense-software"
         assert "LDOS" in themes.by_id("defense").also
+        # Promoted from secondary, or assigned, as primary. HAS, HPQ, CDW and P stay unthemed.
+        assert themes.theme_of("EL").name == "Household & personal care"
+        assert themes.theme_of("NTAP").id == "ai-hardware" and "NTAP" not in themes.by_id("ai-hardware").also
+        assert themes.theme_of("CHKP").id == "cybersecurity" and "CHKP" not in themes.by_id("cybersecurity").also
+        assert themes.theme_of("FFIV").id == "cybersecurity"
+        assert themes.theme_of("GDDY").id == "software"
+        assert themes.theme_of("TWLO").id == "software"
+        assert themes.theme_of("WST").id == "medtech"
+        assert themes.theme_of("ZBRA").id == "machinery"
+        for symbol in ("HAS", "HPQ", "CDW", "P"):
+            assert themes.theme_of(symbol) is None
 
     def test_every_theme_has_a_description_and_enough_members(self, themes):
         for t in themes.themes:
