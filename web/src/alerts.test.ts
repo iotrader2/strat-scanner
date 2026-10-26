@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TradeAlert } from "./api";
-import { fmtR, freshAlerts, notificationText, phoenixTime, riskPerShare, statusTone, stopPct } from "./alerts";
+import { fmtR, freshAlerts, notificationText, phoenixTime, playChime, riskPerShare, statusTone, stopPct } from "./alerts";
 
 export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   id: 1,
@@ -68,6 +68,37 @@ describe("alerts helpers", () => {
     const read = sample({ id: 4, acknowledged: true });
     expect(freshAlerts([a, b], null)).toEqual([]);
     expect(freshAlerts([a, b, late, read], new Set([1]))).toEqual([b]);
+  });
+
+  it("plays three separate beeps", () => {
+    const starts: number[] = [];
+    const stops: number[] = [];
+    const ctx = {
+      currentTime: 10,
+      destination: {},
+      createGain: () => ({
+        gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+        connect() {
+          return this;
+        },
+      }),
+      createOscillator: () => ({
+        frequency: { value: 0 },
+        connect() {
+          return this;
+        },
+        start(t: number) {
+          starts.push(t);
+        },
+        stop(t: number) {
+          stops.push(t);
+        },
+      }),
+    } as unknown as AudioContext;
+    playChime(ctx);
+    expect(starts).toEqual([10, 10.28, 10.56]);
+    expect(stops[0]).toBeLessThanOrEqual(starts[1]);
+    expect(stops[1]).toBeLessThanOrEqual(starts[2]);
   });
 
   it("notification text has the levels and no emoji", () => {
