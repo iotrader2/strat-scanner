@@ -619,6 +619,22 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 
 Not investment advice. Yahoo Finance data is unofficial and can be delayed or incomplete.
 
+## Alerts tab
+
+Setups A to F on the 5-minute chart for the **watchlist** (not positions), regular session only
+(09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time). Rules: `backend/strat/alerts.py` (pure, shared
+by the live poll and the replay); live inputs: `alerts_live.py`, run from the existing 5-minute poll;
+storage: `alerts_store.py`. Every alert is kept with its outcome (filled, fill price, high reached,
+stop hit, break-even time, exit price / time, R with 1R = entry minus the original stop). The
+metrics view groups them by setup over a date range and ticker. Every rule threshold is editable
+from the tab (Rule settings) and stored in `alert_settings`.
+
+Replay the rules over real past sessions (nothing is stored):
+`cd backend && python -m strat.alerts_replay --symbols AAPL,MU,SNDK,QQQ,SPY,CRWD --days 5`
+
+Browsers only play sound after a click, so the tab has an Enable sound button. Background
+notifications need permission (and on iPad, TiltKiller added to the Home Screen).
+
 ## Heroku staging
 
 A password-protected staging copy runs as one Heroku web dyno (`Procfile`). The Node buildpack
@@ -642,7 +658,14 @@ background fetcher in the same process.
   each process its own yfinance cache; `WEB_CONCURRENCY=1` keeps a single process (one fetcher).
 - While a fetch or scan is running, API routes answer immediately with the rows already computed
   (empty right after a restart) instead of waiting, so nothing hits Heroku's 30 s router timeout.
-- The SQLite cache (including watchlist and positions) is ephemeral on Heroku: every dyno restart
-  (at least daily) starts empty and re-downloads history.
+- The SQLite market-data cache is ephemeral on Heroku: every dyno restart (at least daily) starts
+  empty and re-downloads history.
+- User data (watchlist, positions, trims, off-universe symbols, alerts, alert settings) lives in
+  Postgres when `DATABASE_URL` is set (Neon free tier), so deploys and restarts keep it
+  (`backend/strat/userdb.py`). Without `DATABASE_URL` it stays in the SQLite cache, as before.
+  `STRAT_PG_SCHEMA` (default `public`) puts the tables in another schema for dev / test copies.
+  One-time load from the API backups:
+  `cd backend && python -m strat.userdb_import --positions positions.json --watchlist watchlist.json`
+  (`--from-sqlite PATH` copies a cache file instead; `--dry-run`, `--replace`).
 
 Redeploy: `git push heroku heroku-staging:main` (or merge to that branch and push again).

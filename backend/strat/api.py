@@ -14,7 +14,8 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from . import config, data, earnings, fetch_worker, logos, memory, quotes, trims, watch5m
+from . import alerts as alert_rules
+from . import alerts_live, alerts_store, config, data, earnings, fetch_worker, logos, memory, quotes, trims, userdb, watch5m
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
@@ -205,6 +206,25 @@ def _refresh_watch5m() -> None:
             hub.publish({"type": "lists"})
     except Exception:
         log.exception("watchlist 5m refresh failed")
+    _refresh_alerts()
+
+
+def _refresh_alerts() -> None:
+    """Setup alerts for the watchlist (not positions), on the same poll. No-op outside the regular session."""
+    try:
+        stats = alerts_live.refresh(data.watchlist(), _prev_close)
+        if stats.get("skipped"):
+            if stats.get("prepared"):
+                log.info("alerts prepared volume averages for %s symbols", stats["prepared"])
+            return
+        log.info(
+            "alerts symbols=%s alerts=%s new=%s updated=%s requests=%s",
+            stats["symbols"], stats["alerts"], len(stats["inserted"]), stats["updated"], stats["requests"],
+        )
+        if stats["inserted"] or stats["updated"]:
+            hub.publish({"type": "alerts", "new": [a["id"] for a in stats["inserted"] if not a["late"]]})
+    except Exception:
+        log.exception("alerts refresh failed")
 
 
 def _run_watch5m() -> None:
@@ -477,6 +497,7 @@ def _status_body() -> dict:
         # Alpaca: prices from real-time IEX 5-minute bars (volume trails ~15 min on SIP). Yahoo: ~15-minute delay.
         "delay": "5m" if live_bars_enabled() else "15m",
         "source": "alpaca" if live_bars_enabled() else "yahoo",
+        "storage": userdb.describe(),
     }
 
 
@@ -841,4 +862,84 @@ def market(tf: str = Query("W", pattern="^(M|W|D|3M|6M)$"), bars: int = Query(60
 
 
 # Last, so every /api route above wins over the UI catch-all. No-op without a built web/dist.
+# ------------------------------------------------------------------------------------------------ alerts
+
+
+class AckRequest(BaseModel):
+    ids: Optional[list[int]] = None  # None: every unread alert
+
+
+def _alerts_session(session: Optional[str]) -> str:
+    if session and session != "today":
+        try:
+            return date.fromisoformat(session).isoformat()
+        except ValueError:
+            raise HTTPException(422, "session must be YYYY-MM-DD") from None
+    return now_et().date().isoformat()
+
+
+@app.get("/api/alerts")
+def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
+    """One session's alerts (default today, Eastern date), newest first, plus the sessions that have any."""
+    day = _alerts_session(session)
+    rows = alerts_store.list_alerts(session=day, symbol=symbol)
+    return {
+        "session": day,
+        "alerts": rows,
+        "sessions": alerts_store.sessions(),
+        "unread": alerts_store.unread_count(),
+        "last_run": alerts_live.last_run(),
+        "watchlist": data.watchlist(),
+        "setups": alert_rules.SETUP_NAMES,
+    }
+
+
+@app.post("/api/alerts/ack")
+def ack_alerts(req: AckRequest):
+    n = alerts_store.acknowledge(req.ids)
+    hub.publish({"type": "alerts", "new": []})
+    return {"acknowledged": n, "unread": alerts_store.unread_count()}
+
+
+@app.get("/api/alerts/metrics")
+def alert_metrics(start: Optional[str] = None, end: Optional[str] = None, symbol: Optional[str] = None):
+    """Per setup type: count, fill rate, win rate, average R, total R (closed filled trades), over a date range."""
+    for v in (start, end):
+        if v:
+            try:
+                date.fromisoformat(v)
+            except ValueError:
+                raise HTTPException(422, "start / end must be YYYY-MM-DD") from None
+    rows = alerts_store.list_alerts(start=start, end=end, symbol=symbol or None, limit=None)
+    return {
+        "start": start,
+        "end": end,
+        "symbol": (symbol or "").upper() or None,
+        "rows": alert_rules.metrics(rows),
+        "symbols": sorted({r["symbol"] for r in alerts_store.list_alerts(limit=None)}),
+    }
+
+
+@app.get("/api/alerts/settings")
+def get_alert_settings():
+    return {"settings": alerts_store.load_settings().to_dict(), "defaults": alert_rules.Settings().to_dict(),
+            "limits": {k: list(v) for k, v in alert_rules.SETTING_LIMITS.items()}}
+
+
+@app.put("/api/alerts/settings")
+def put_alert_settings(changes: dict):
+    try:
+        alerts_store.save_settings(changes)
+    except alerts_store.SettingsError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return get_alert_settings()
+
+
+@app.delete("/api/alerts/settings")
+def reset_alert_settings():
+    alerts_store.reset_settings()
+    return get_alert_settings()
+
+
 mount_ui(app)
+

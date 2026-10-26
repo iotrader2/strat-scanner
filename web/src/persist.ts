@@ -34,7 +34,7 @@ export function usePersisted<T>(key: string, initial: T) {
 }
 
 export const LAST_TAB_KEY = "lastTab";
-const TABS = ["/", "/market", "/themes", "/watchlist", "/positions"];
+const TABS = ["/", "/market", "/themes", "/watchlist", "/positions", "/alerts"];
 
 /** Saved locations from before Sectors became Themes. */
 const LEGACY_TABS: Record<string, string> = { "/sectors": "/themes" };
@@ -58,7 +58,7 @@ export function restoreTarget(pathname: string, search: string, lastTab: string 
   return saved === "/" ? null : saved;
 }
 
-const TITLES: Record<string, string> = { "/": "Stock Scanner", "/market": "State of the Market", "/themes": "Themes", "/watchlist": "Watchlist", "/positions": "Positions" };
+const TITLES: Record<string, string> = { "/": "Stock Scanner", "/market": "State of the Market", "/themes": "Themes", "/watchlist": "Watchlist", "/positions": "Positions", "/alerts": "Alerts" };
 
 /** Browser tab title for a route. */
 export function pageTitle(pathname: string): string {
