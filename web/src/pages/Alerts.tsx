@@ -22,6 +22,9 @@ import {
   type AlertDayStatus,
 } from "../alerts";
 import { useAlerts } from "../components/AlertsCenter";
+import { EntryModal } from "../components/Modal";
+import { usePositions } from "../components/Positions";
+import { ScorePill } from "../components/ScoreBreakdown";
 import { TickerLogo } from "../components/TickerLogo";
 import { usePersisted } from "../persist";
 
@@ -77,6 +80,20 @@ function StatusPill({ a }: { a: TradeAlert }) {
   return <span className={`alert-status ${statusTone(a)}`}>{STATUS_LABEL[a.status]}</span>;
 }
 
+/** Last price to offer as the buy: the fill when the stop already triggered, otherwise the buy stop. */
+function entryPrice(a: TradeAlert): number {
+  return a.fill_price ?? a.trigger_price;
+}
+
+function AlertScore({ a }: { a: TradeAlert }) {
+  if (a.score == null) return <span className="muted">—</span>;
+  const row =
+    a.score_raw != null && a.score_max_raw != null
+      ? { score: a.score, score_raw: a.score_raw, score_max_raw: a.score_max_raw, score_breakdown: a.score_breakdown ?? [] }
+      : undefined;
+  return <ScorePill score={a.score} row={row} />;
+}
+
 function outcomeText(a: TradeAlert): string {
   if (a.status === "pending") return "Waiting for the buy stop";
   if (a.status === "expired") return a.exit_reason === "max_attempts" ? "Expired: 2 attempts already" : "Not triggered in time";
@@ -94,10 +111,12 @@ export function AlertsTable({
   alerts,
   flashing,
   onAck,
+  onBought,
 }: {
   alerts: TradeAlert[];
   flashing: Set<number>;
   onAck: (id: number) => void;
+  onBought: (alert: TradeAlert) => void;
 }) {
   return (
     <div className="card table-card">
@@ -106,6 +125,7 @@ export function AlertsTable({
           <tr>
             <th>Fired</th>
             <th>Ticker</th>
+            <th className="num">Score</th>
             <th>Setup</th>
             <th className="num">Trigger</th>
             <th className="num">Stop</th>
@@ -115,6 +135,7 @@ export function AlertsTable({
             <th className="num">High</th>
             <th className="num">R</th>
             <th className="outcome-cell">What happened</th>
+            <th className="bought-col" aria-label="Bought" />
             <th className="actions-col" aria-label="Acknowledge" />
           </tr>
         </thead>
@@ -136,6 +157,9 @@ export function AlertsTable({
                   {a.top && <span className="top-chip">TOP</span>}
                 </Link>
               </td>
+              <td className="num">
+                <AlertScore a={a} />
+              </td>
               <td>
                 <span className="setup-hover" title={SETUP_RULES[a.setup]}>
                   <span className="setup-letter">{a.setup}</span>
@@ -154,6 +178,16 @@ export function AlertsTable({
                 {fmtR(a.r_multiple)}
               </td>
               <td className="muted small outcome-cell">{outcomeText(a)}</td>
+              <td className="bought-col">
+                <button
+                  type="button"
+                  className="btn small move-btn"
+                  onClick={() => onBought(a)}
+                  title="Record the entry and track it on the Positions tab"
+                >
+                  Bought →
+                </button>
+              </td>
               <td className="actions-col">
                 {!a.acknowledged ? (
                   <button type="button" className="btn small" onClick={() => onAck(a.id)}>
@@ -192,6 +226,8 @@ export function AlertDayBanner({ status }: { status: AlertDayStatus }) {
 
 function AlertsView({ day }: { day: AlertDayStatus }) {
   const { today, flashing, acknowledge, error: liveError, reload } = useAlerts();
+  const { open } = usePositions();
+  const [moving, setMoving] = useState<TradeAlert | null>(null);
   const [session, setSession] = useState<string>("today");
   const [other, setOther] = useState<AlertsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -265,7 +301,18 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
           )}
         </div>
       ) : (
-        <AlertsTable alerts={view.alerts} flashing={flashing} onAck={(id) => ack([id])} />
+        <AlertsTable alerts={view.alerts} flashing={flashing} onAck={(id) => ack([id])} onBought={setMoving} />
+      )}
+      {moving && (
+        <EntryModal
+          title="Move to Positions"
+          symbol={moving.symbol}
+          initial={{ price: entryPrice(moving), shares: null }}
+          lastPrice={entryPrice(moving)}
+          submitLabel="Move to Positions"
+          onSubmit={(v) => open(moving.symbol, v)}
+          onClose={() => setMoving(null)}
+        />
       )}
     </>
   );

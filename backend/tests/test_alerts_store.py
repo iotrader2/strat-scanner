@@ -159,12 +159,24 @@ def test_refresh_end_to_end(db):
 
 
 def test_alerts_api(db):
-    from strat.api import app
+    from strat.api import State, app
 
     alerts_store.save_session("2026-10-23", _alerts("AAA", A_ROWS), now=OPEN + timedelta(minutes=6))
     c = TestClient(app)
-    body = c.get("/api/alerts", params={"session": "2026-10-23"}).json()
+    State.scan = []
+    missing = c.get("/api/alerts", params={"session": "2026-10-23"}).json()["alerts"][0]
+    assert missing["score"] is None and missing["score_breakdown"] == []
+    State.scan = [{
+        "symbol": "AAA", "score": 88.4, "score_raw": 60.0, "score_max_raw": 72,
+        "score_breakdown": [{"key": "rs", "label": "Relative strength", "points": 18, "max_points": 24, "weight_pct": 33, "detail": "Top decile", "sub_weights": []}],
+    }]
+    try:
+        body = c.get("/api/alerts", params={"session": "2026-10-23"}).json()
+    finally:
+        State.scan = []
     assert body["session"] == "2026-10-23" and len(body["alerts"]) == 1 and body["unread"] == 1
+    assert body["alerts"][0]["score"] == 88.4
+    assert body["alerts"][0]["score_breakdown"][0]["key"] == "rs"
     assert body["sessions"] == ["2026-10-23"]
     assert c.post("/api/alerts/ack", json={"ids": None}).json()["unread"] == 0
     m = c.get("/api/alerts/metrics", params={"start": "2026-10-01", "end": "2026-10-31"}).json()
