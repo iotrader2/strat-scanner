@@ -161,8 +161,8 @@ export default function App() {
                   Stock Scanner
                 </NavLink>
                 <WatchlistTab />
-                <PositionsTab />
                 <AlertsTab />
+                <PositionsTab />
               </nav>
               <div className="status" role="status" aria-live="polite">
                 <span className={`live-dot ${live.tone}`} aria-hidden="true" />
