@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TradeAlert } from "./api";
-import { fmtR, freshAlerts, notificationText, phoenixTime, playChime, riskPerShare, statusTone, stopPct } from "./alerts";
+import { alertDayStatus, fmtR, freshAlerts, notificationText, phoenixTime, playChime, riskPerShare, statusTone, stopPct, todayEmptyLead } from "./alerts";
 
 export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   id: 1,
@@ -31,6 +31,70 @@ export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   details: {},
   acknowledged: false,
   ...over,
+});
+
+describe("alert windows", () => {
+  const at = (iso: string, settings?: Record<string, number>) => alertDayStatus(new Date(iso), settings);
+  const chip = (iso: string, setup: string) => at(iso).windows.find((w) => w.setup === setup)!;
+
+  it("uses Phoenix clock times, and shifts them when New York leaves daylight time", () => {
+    const summer = at("2026-10-23T13:00:00Z");
+    expect(summer.phase).toBe("before");
+    expect(summer.headline).toBe("Alerts start at 6:35 AM Phoenix.");
+    expect(summer.detail).toBe("Window 6:35 AM – 1:00 PM Phoenix.");
+    expect(chip("2026-10-23T13:00:00Z", "A").label).toBe("6:35 AM");
+    expect(chip("2026-10-23T13:00:00Z", "B").label).toBe("6:40–7:00 AM");
+    expect(chip("2026-10-23T13:00:00Z", "C").label).toBe("6:40–7:00 AM");
+    expect(chip("2026-10-23T13:00:00Z", "D").label).toBe("7:00–7:35 AM");
+    expect(chip("2026-10-23T13:00:00Z", "E").label).toBe("6:45–7:55 AM");
+    expect(chip("2026-10-23T13:00:00Z", "F").label).toBe("8:35 AM – 1:00 PM");
+
+    const winter = at("2026-11-02T14:00:00Z");
+    expect(winter.phase).toBe("before");
+    expect(winter.headline).toBe("Alerts start at 7:35 AM Phoenix.");
+    expect(winter.detail).toBe("Window 7:35 AM – 2:00 PM Phoenix.");
+    expect(winter.windows.find((w) => w.setup === "F")?.label).toBe("9:35 AM – 2:00 PM");
+  });
+
+  it("says which setups can still fire, including the gap before the midday window", () => {
+    const mid = at("2026-10-23T13:50:00Z");
+    expect(mid.phase).toBe("open");
+    expect(mid.headline).toBe("Alerts can still fire until 1:00 PM Phoenix.");
+    expect(chip("2026-10-23T13:50:00Z", "A").state).toBe("done");
+    expect(chip("2026-10-23T13:50:00Z", "B").state).toBe("open");
+    expect(chip("2026-10-23T13:50:00Z", "E").state).toBe("open");
+    expect(chip("2026-10-23T13:50:00Z", "F").state).toBe("later");
+
+    const gap = at("2026-10-23T15:10:00Z");
+    expect(gap.phase).toBe("open");
+    expect(gap.headline).toBe("F can fire 8:35 AM – 1:00 PM Phoenix.");
+    expect(gap.detail).toBe("Alerts finish at 1:00 PM Phoenix.");
+    expect(gap.windows.filter((w) => w.setup !== "F").every((w) => w.state === "done")).toBe(true);
+    expect(gap.windows.find((w) => w.setup === "F")?.state).toBe("later");
+  });
+
+  it("says alerts are done for the day after the last window", () => {
+    const done = at("2026-10-23T20:01:00Z");
+    expect(done.phase).toBe("done");
+    expect(done.headline).toBe("Alerts are done for the day.");
+    expect(done.detail).toBe("The window was 6:35 AM – 1:00 PM Phoenix.");
+    expect(done.windows.every((w) => w.state === "done")).toBe(true);
+    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The window was 6:35 AM – 1:00 PM Phoenix.");
+    expect(todayEmptyLead(at("2026-10-23T15:10:00Z"))).toBeNull();
+  });
+
+  it("names the next session on a weekend", () => {
+    const sat = at("2026-10-24T15:00:00Z");
+    expect(sat.phase).toBe("closed");
+    expect(sat.headline).toBe("Market is closed.");
+    expect(sat.detail).toBe("Next window is Monday, 6:35 AM – 1:00 PM Phoenix.");
+    expect(sat.windows.every((w) => w.state === "later")).toBe(true);
+  });
+
+  it("follows a saved window instead of the default", () => {
+    const day = at("2026-10-23T13:00:00Z", { e_from: 10, e_to: 200 });
+    expect(day.windows.find((w) => w.setup === "E")?.label).toBe("6:45–9:55 AM");
+  });
 });
 
 describe("alerts helpers", () => {

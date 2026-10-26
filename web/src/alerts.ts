@@ -12,6 +12,189 @@ export function phoenixTime(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : timeFmt.format(d);
 }
 
+/**
+ * Setup windows are minutes after the 9:30 America/New_York open, on the setup bar's start
+ * (`lo <= barIndex * 5 <= hi`). The alert is created when that bar closes, five minutes later.
+ * A is only the opening bar. These defaults match `Settings` in backend/strat/alerts.py.
+ */
+const WINDOW_DEFAULTS: Record<string, number> = {
+  b_from: 5,
+  b_to: 25,
+  c_from: 5,
+  c_to: 25,
+  d_from: 25,
+  d_to: 60,
+  e_from: 10,
+  e_to: 80,
+  f_from: 120,
+  f_to: 385,
+};
+
+const SETUPS = ["A", "B", "C", "D", "E", "F"] as const;
+const ET = "America/New_York";
+
+export type AlertDayPhase = "before" | "open" | "done" | "closed";
+export type SetupWindowState = "later" | "open" | "done";
+
+export interface SetupWindowView {
+  setup: string;
+  /** Clock range in Phoenix, or "off" when the saved minutes contain no 5-minute bar. */
+  label: string;
+  state: SetupWindowState;
+}
+
+export interface AlertDayStatus {
+  phase: AlertDayPhase;
+  headline: string;
+  detail: string;
+  windows: SetupWindowView[];
+}
+
+interface Clock {
+  hm: string;
+  period: string;
+  full: string;
+}
+
+function zonedParts(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number; minute: number; weekday: string } {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+  });
+  const bag: Record<string, string> = {};
+  for (const p of fmt.formatToParts(date)) if (p.type !== "literal") bag[p.type] = p.value;
+  let hour = Number(bag.hour);
+  if (hour === 24) hour = 0;
+  return { year: Number(bag.year), month: Number(bag.month), day: Number(bag.day), hour, minute: Number(bag.minute), weekday: bag.weekday };
+}
+
+/** A wall-clock time in `timeZone` as an absolute instant. 9:30 New York is never a DST gap. */
+function zonedDateTime(timeZone: string, year: number, month: number, day: number, hour: number, minute: number): Date {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute);
+  const parts = zonedParts(new Date(utcGuess), timeZone);
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
+  return new Date(utcGuess - (asUtc - utcGuess));
+}
+
+function shiftDate(year: number, month: number, day: number, days: number): { year: number; month: number; day: number } {
+  const t = new Date(Date.UTC(year, month - 1, day + days));
+  return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
+}
+
+function windowMinutes(settings: Record<string, number> | undefined, key: string): number {
+  const v = settings?.[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : WINDOW_DEFAULTS[key];
+}
+
+/** Minutes after the open when the alert can print (bar close), or null when no bar falls in the window. */
+function fireMinutes(setup: string, settings: Record<string, number> | undefined): { first: number; last: number } | null {
+  const from = setup === "A" ? 0 : windowMinutes(settings, `${setup.toLowerCase()}_from`);
+  const to = setup === "A" ? 0 : windowMinutes(settings, `${setup.toLowerCase()}_to`);
+  if (to < from) return null;
+  const firstStart = Math.ceil(from / 5) * 5;
+  const lastStart = Math.floor(to / 5) * 5;
+  if (firstStart > lastStart) return null;
+  return { first: firstStart + 5, last: lastStart + 5 };
+}
+
+function phoenixClock(date: Date): Clock {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: ALERT_TZ, hour: "numeric", minute: "2-digit" }).formatToParts(date);
+  const hour = parts.find((p) => p.type === "hour")?.value ?? "";
+  const minute = parts.find((p) => p.type === "minute")?.value ?? "";
+  const period = parts.find((p) => p.type === "dayPeriod")?.value ?? "";
+  return { hm: `${hour}:${minute}`, period, full: `${hour}:${minute} ${period}` };
+}
+
+function rangeLabel(start: Date, end: Date): string {
+  const a = phoenixClock(start);
+  const b = phoenixClock(end);
+  if (a.full === b.full) return a.full;
+  if (a.period === b.period) return `${a.hm}–${b.hm} ${a.period}`;
+  return `${a.full} – ${b.full}`;
+}
+
+function joinSetups(setups: string[]): string {
+  if (setups.length <= 1) return setups[0] ?? "";
+  if (setups.length === 2) return `${setups[0]} and ${setups[1]}`;
+  return `${setups.slice(0, -1).join(", ")} and ${setups[setups.length - 1]}`;
+}
+
+interface BuiltWindow extends SetupWindowView {
+  first: number;
+  last: number;
+}
+
+/**
+ * Whether new alerts can still fire, and each setup's window in Phoenix time.
+ * `now` defaults to the current instant. Weekends use the next session's clock times.
+ */
+export function alertDayStatus(now: Date = new Date(), settings?: Record<string, number>): AlertDayStatus {
+  const here = zonedParts(now, ET);
+  const weekend = here.weekday === "Sat" || here.weekday === "Sun";
+  const session = weekend ? shiftDate(here.year, here.month, here.day, here.weekday === "Sat" ? 2 : 1) : { year: here.year, month: here.month, day: here.day };
+  const open = zonedDateTime(ET, session.year, session.month, session.day, 9, 30);
+  const at = (minutes: number) => new Date(open.getTime() + minutes * 60_000);
+
+  const built: BuiltWindow[] = SETUPS.map((setup) => {
+    const span = fireMinutes(setup, settings);
+    if (!span) return { setup, label: "off", state: "done" as const, first: Number.POSITIVE_INFINITY, last: Number.NEGATIVE_INFINITY };
+    const firstAt = at(span.first);
+    const lastAt = at(span.last);
+    const state: SetupWindowState = now < firstAt ? "later" : now <= lastAt ? "open" : "done";
+    return { setup, label: rangeLabel(firstAt, lastAt), state, first: firstAt.getTime(), last: lastAt.getTime() };
+  });
+
+  const active = built.filter((w) => w.label !== "off");
+  const first = active.reduce((min, w) => Math.min(min, w.first), Number.POSITIVE_INFINITY);
+  const last = active.reduce((max, w) => Math.max(max, w.last), Number.NEGATIVE_INFINITY);
+  const span = active.length ? rangeLabel(new Date(first), new Date(last)) : "";
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: ET, weekday: "long" }).format(open);
+
+  const windows: SetupWindowView[] = built.map(({ setup, label, state }) => ({ setup, label, state: weekend ? "later" : state }));
+
+  if (!active.length) {
+    return { phase: "done", headline: "Alerts are off.", detail: "No setup has a window.", windows };
+  }
+  if (weekend) {
+    return {
+      phase: "closed",
+      headline: "Market is closed.",
+      detail: `Next window is ${weekday}, ${span} Phoenix.`,
+      windows,
+    };
+  }
+  const clock = now.getTime();
+  if (clock < first) {
+    return { phase: "before", headline: `Alerts start at ${phoenixClock(new Date(first)).full} Phoenix.`, detail: `Window ${span} Phoenix.`, windows };
+  }
+  if (clock > last) {
+    return { phase: "done", headline: "Alerts are done for the day.", detail: `The window was ${span} Phoenix.`, windows };
+  }
+  const inside = built.filter((w) => w.state === "open");
+  if (inside.length) {
+    return { phase: "open", headline: `Alerts can still fire until ${phoenixClock(new Date(last)).full} Phoenix.`, detail: `Window ${span} Phoenix.`, windows };
+  }
+  const upcoming = built.filter((w) => w.state === "later");
+  const nextAt = Math.min(...upcoming.map((w) => w.first));
+  const next = upcoming.filter((w) => w.first === nextAt);
+  const sameLabel = next.every((w) => w.label === next[0].label);
+  const who = joinSetups(next.map((w) => w.setup));
+  const headline = sameLabel ? `${who} can fire ${next[0].label} Phoenix.` : `${who} can still fire.`;
+  return { phase: "open", headline, detail: `Alerts finish at ${phoenixClock(new Date(last)).full} Phoenix.`, windows };
+}
+
+/** Lead sentence for an empty Today list. Null keeps the "no alerts yet" copy. */
+export function todayEmptyLead(day: AlertDayStatus): string | null {
+  if (day.phase === "done" || day.phase === "closed") return `${day.headline} ${day.detail}`;
+  return null;
+}
+
 export const STATUS_LABEL: Record<AlertStatus, string> = {
   pending: "Pending",
   triggered: "Triggered",
