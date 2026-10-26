@@ -1,9 +1,26 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { ScanRow } from "../api";
 import { ListTable } from "./ListTable";
 import { ScanTable } from "./ScanTable";
+
+const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
+
+/** Visible header labels, in order, without the sort arrow. */
+function headerLabels(html: string): string[] {
+  const head = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
+  return [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) =>
+    m[1]
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;|&#xA0;|\u00a0/g, " ")
+      .replace(/[▲▼]/g, "")
+      .trim(),
+  );
+}
 
 const row = {
   symbol: "TEAM",
@@ -94,6 +111,40 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toMatch(/<tr class="ema-cross" title="Crossed back above the 6 EMA \(5m\)/);
   });
+
+  it("puts Score immediately right of Price on both trading lists, once", () => {
+    const watch = list();
+    const watchHeads = headerLabels(watch).filter(Boolean);
+    const price = watchHeads.indexOf("Price");
+    expect(watchHeads[price + 1]).toBe("Score");
+    expect(watchHeads[price + 2]).toBe("Premkt");
+    expect(watchHeads.filter((h) => h === "Score")).toHaveLength(1);
+    expect(watch.match(/score-pill/g)).toHaveLength(1);
+    expect(watch).not.toContain("score-col");
+
+    const positions = list({
+      priceLabel: "Last",
+      leadColumns: [{ key: "entry_price", label: "Buy price", sortValue: () => 100, render: () => "100.00" }],
+      extraColumns: [
+        { key: "gain_pct", label: "% G/L", sortValue: () => 1, render: () => "+1%" },
+        { key: "pnl", label: "$ P/L", sortValue: () => 1, render: () => "x" },
+        { key: "days_held", label: "Days held", sortValue: () => 3, render: () => "3d" },
+      ],
+    });
+    const posHeads = headerLabels(positions).filter(Boolean);
+    expect(posHeads.slice(posHeads.indexOf("Buy price"), posHeads.indexOf("Premkt") + 1)).toEqual([
+      "Buy price",
+      "Last",
+      "Score",
+      "% G/L",
+      "$ P/L",
+      "Days held",
+      "Premkt",
+    ]);
+    expect(posHeads.filter((h) => h === "Score")).toHaveLength(1);
+    expect(positions.match(/score-pill/g)).toHaveLength(1);
+    expect(positions).not.toContain("score-col");
+  });
 });
 
 describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
@@ -119,6 +170,15 @@ describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
     ]);
   });
 
+  it("keeps Score at the end of the scanner, once", () => {
+    const html = render();
+    const heads = headerLabels(html).filter(Boolean);
+    expect(heads[heads.indexOf("Price") + 1]).not.toBe("Score");
+    expect(heads.at(-1)).toBe("Score");
+    expect(heads.filter((h) => h === "Score")).toHaveLength(1);
+    expect(html).toContain("score-col");
+  });
+
   it("watchlist / positions: right after 20 EMA (5m), once", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
@@ -140,5 +200,40 @@ describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
     const c = { ...row, symbol: "C", ma_dist_pct: null } as unknown as ScanRow;
     expect(sortRows([c, b, a], "ma_dist_6", -1).map((r) => r.symbol)).toEqual(["A", "B", "C"]);
     expect(sortRows([c, a, b], "ma_dist_6", 1).map((r) => r.symbol)).toEqual(["B", "A", "C"]);
+  });
+});
+
+describe("Bought column is not anchored", () => {
+  it("the watchlist Bought cell scrolls with the row", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ListTable
+          rows={[row]}
+          watchColumn={false}
+          intraday={{}}
+          actionsLabel=""
+          pinActions={false}
+          actions={() => "Bought →"}
+        />
+      </MemoryRouter>,
+    );
+    expect(html).toContain("Bought →");
+    expect(html).toContain('class="actions-col actions-flow"');
+    expect(html).not.toMatch(/class="actions-col"/);
+    const flow = css.slice(css.indexOf("td.actions-col.actions-flow"));
+    expect(flow).toMatch(/td\.actions-col\.actions-flow \{ position: static;/);
+    expect(css).not.toMatch(/actions-flow[^}]*position:\s*sticky/);
+  });
+
+  it("positions has no Bought column; its row menu stays pinned", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ListTable rows={[row]} watchColumn={false} intraday={{}} actionsLabel="" actions={() => "⋯"} />
+      </MemoryRouter>,
+    );
+    expect(html).not.toContain("Bought");
+    expect(html).toContain('class="actions-col"');
+    expect(html).not.toContain("actions-flow");
+    expect(css).toMatch(/\.scan-table th\.actions-col, \.scan-table td\.actions-col \{\s*position: sticky; right: 0;/);
   });
 });

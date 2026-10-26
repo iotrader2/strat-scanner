@@ -119,6 +119,7 @@ export default function Watchlist() {
           rows={rows}
           intraday={data?.intraday}
           actionsLabel=""
+          pinActions={false}
           actions={(r) => (
             <button type="button" className="btn small move-btn" onClick={() => setMoving(r)} title="Record the entry and track it on the Positions tab">
               Bought →

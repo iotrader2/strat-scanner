@@ -159,11 +159,16 @@ interface Props {
   priceLabel?: string;
   /** Columns before the price column. */
   leadColumns?: ExtraColumn[];
-  /** Columns right after the price column. */
+  /** Columns right after the price column (after Score on the trading lists). */
   extraColumns?: ExtraColumn[];
   /** Trailing per-row action cell. */
   actions?: (r: ScanRow) => ReactNode;
   actionsLabel?: string;
+  /**
+   * Freeze the actions column on the right edge. Watchlist turns this off: its Bought
+   * button is a normal column and scrolls with the row.
+   */
+  pinActions?: boolean;
   /** Chart timeframe to switch the detail page to when a row is clicked; omitted keeps its sticky choice. */
   detailTf?: Tf | null;
   /** The Min RS slider as a 0..1 percentile, used to label leaders that have no weekly setup. */
@@ -174,7 +179,8 @@ interface Props {
   pinSymbol?: string;
   /**
    * Trading-list layout (Watchlist and Positions, via ListTable): drops the scanning-only columns,
-   * 1M / 3M / 6M returns, D · W · M continuity and Weekly setup. Its Day column comes from ListTable instead.
+   * 1M / 3M / 6M returns, D · W · M continuity and Weekly setup. Score moves to sit immediately
+   * right of Price (the scanner keeps Score at the end). Day comes from ListTable instead.
    */
   tradingList?: boolean;
   /** Per-row highlight (extra class on the row, and its tooltip). */
@@ -190,6 +196,7 @@ export function ScanTable({
   extraColumns = [],
   actions,
   actionsLabel = "Actions",
+  pinActions = true,
   minRs = LEADER_RS,
   initialSort = { key: "score", dir: -1 },
   detailTf,
@@ -233,6 +240,7 @@ export function ScanTable({
             {header("theme", "Theme")}
             {leadColumns.map((c) => header(c.key, c.label, c.className, c.title))}
             {header("price", priceLabel, "num")}
+            {tradingList && header("score", "Score", "num")}
             {extraColumns.map((c) => header(c.key, c.label, c.className, c.title))}
             {scanning && header("change_pct", "Day", "num")}
             {scanning && PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
@@ -245,8 +253,8 @@ export function ScanTable({
             {header("atr_pct", "ATR %", "num", "14-day ATR as a percent of price")}
             {/* The trading lists show these after 20 EMA (5m) instead (ListIntradayColumns). */}
             {scanning && MA_DISTANCE_PERIODS.map((p) => header(maSortKey(p), maLabel(p), "num ma-dist-col", maTitle(p)))}
-            {header("score", "Score", actions ? "num" : "num score-col")}
-            {actions && <th className="actions-col">{actionsLabel}</th>}
+            {scanning && header("score", "Score", actions ? "num" : "num score-col")}
+            {actions && <th className={pinActions ? "actions-col" : "actions-col actions-flow"}>{actionsLabel}</th>}
           </tr>
         </thead>
         <tbody>
@@ -296,6 +304,11 @@ export function ScanTable({
                 </td>
               ))}
               <td className="num">{r.price.toFixed(2)}</td>
+              {tradingList && (
+                <td className="num">
+                  <ScorePill score={r.score} row={r} />
+                </td>
+              )}
               {extraColumns.map((c) => (
                 <td key={c.key} className={c.className}>
                   {c.render(r)}
@@ -369,11 +382,13 @@ export function ScanTable({
               <td className="num">{r.atr == null ? "—" : r.atr.toFixed(2)}</td>
               <td className="num">{r.atr_pct == null ? "—" : `${r.atr_pct.toFixed(2)}%`}</td>
               {scanning && MA_DISTANCE_PERIODS.map((p) => <MaDistanceCell key={p} row={r} period={p} />)}
-              <td className={actions ? "num" : "num score-col"}>
-                <ScorePill score={r.score} row={r} />
-              </td>
+              {scanning && (
+                <td className={actions ? "num" : "num score-col"}>
+                  <ScorePill score={r.score} row={r} />
+                </td>
+              )}
               {actions && (
-                <td className="actions-col" onClick={(e) => e.stopPropagation()}>
+                <td className={pinActions ? "actions-col" : "actions-col actions-flow"} onClick={(e) => e.stopPropagation()}>
                   {actions(r)}
                 </td>
               )}

@@ -8,9 +8,9 @@ type ScanTableProps = ComponentProps<typeof ScanTable>;
 
 /**
  * The one table layout shared by Watchlist and Positions, so a column added or removed here applies to both:
- * the trading-list column set (no 1M / 3M / 6M, no D · W · M, no Weekly setup), the premarket and 5-minute EMA columns, and
- * the 5-minute EMA crossover row highlight. Positions passes its own position columns (entry, P/L, days held)
- * ahead of the shared intraday ones.
+ * the trading-list column set (no 1M / 3M / 6M, no D · W · M, no Weekly setup), Score immediately right of Price,
+ * the premarket and 5-minute EMA columns, and the 5-minute EMA crossover row highlight. Positions passes its own
+ * position columns (entry, P/L, days held) ahead of the shared intraday ones.
  */
 export function ListTable({
   intraday,
