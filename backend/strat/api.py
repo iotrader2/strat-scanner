@@ -14,8 +14,9 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from .alpaca import AlpacaError
 from . import alerts as alert_rules
-from . import alerts_live, alerts_store, config, data, earnings, fetch_worker, logos, memory, quotes, trims, userdb, watch5m
+from . import alerts_live, alerts_store, chart5m, config, data, earnings, fetch_worker, logos, memory, quotes, trims, userdb, watch5m
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
@@ -594,6 +595,33 @@ def symbol_detail(symbol: str):
         "row": _with_earnings([row])[0],
         "charts": {tf: chart_payload(daily, tf, CHART_LIMITS[tf]) for tf in CHART_LIMITS},
     }
+
+
+def _daily_ready(symbol: str) -> bool:
+    frame = State.daily.get(symbol)
+    return frame is not None and not frame.empty
+
+
+@app.get("/api/symbol/{symbol}/bars5m")
+def symbol_bars5m(symbol: str):
+    """5-minute regular-session candles and 5/20/50/360 EMAs for one symbol.
+
+    Fetched on demand and cached for that ticker only. A cold process loads the daily
+    cache first (the same scan the chart page already needs); a warm process does not
+    scan, and an unknown ticker never reaches Alpaca.
+    """
+    symbol = symbol.upper()
+    if not _daily_ready(symbol) and not State.daily:
+        _ensure_charts()
+    if not _daily_ready(symbol):
+        raise HTTPException(404, f"{symbol} is not in the cache")
+    if not live_bars_enabled():
+        raise HTTPException(503, "5-minute bars need the Alpaca feed")
+    try:
+        return chart5m.chart(symbol)
+    except AlpacaError:
+        log.warning("5-minute bars failed for %s", symbol, exc_info=True)
+        raise HTTPException(502, "5-minute bars are unavailable") from None
 
 
 class WatchRequest(BaseModel):

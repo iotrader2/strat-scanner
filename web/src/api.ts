@@ -251,6 +251,31 @@ export interface ChartCandle {
   hammer: boolean;
 }
 
+/** One regular-session 5-minute bar. ``time`` is unix seconds (UTC). EMAs are null until that period has a full seed. */
+export interface IntradayBar {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  ema: Partial<Record<"5" | "20" | "50" | "360", number | null>>;
+}
+
+/** 5-minute chart for one symbol. Bars are the last few sessions; the 360 EMA was seeded on ``seed_sessions``. */
+export interface IntradayChartData {
+  symbol: string;
+  /** Always the regular session. Premarket bars are not included. */
+  session: "regular";
+  bar_minutes: number;
+  time_zone: string;
+  display_sessions: number;
+  seed_sessions: number;
+  /** How many of those sessions are actually in ``bars`` (shorter when history is thin). */
+  sessions: number;
+  bars: IntradayBar[];
+}
+
 export interface Status {
   last_refresh: string | null;
   /** Set when the server runs on history cut off at a past date (STRAT_AS_OF). */
@@ -464,6 +489,8 @@ export const api = {
     get<{ as_of: string | null; count: number; rows: ScanRow[] }>("/api/scan?min_price=0&min_dollar_volume=0&leaders_only=false"),
   symbol: (symbol: string) =>
     get<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> }>(`/api/symbol/${encodeURIComponent(symbol)}`),
+  /** Regular-session 5-minute candles and 5/20/50/360 EMAs. One ticker, fetched when its chart opens. */
+  bars5m: (symbol: string) => get<IntradayChartData>(`/api/symbol/${encodeURIComponent(symbol)}/bars5m`),
   /** Theme cards, strongest first. */
   themes: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; themes: ThemeCard[] }>(`/api/themes?tf=${tf}&bars=${bars}`),
   /** QQQ, SPY and IWM for the State of the Market tab. */

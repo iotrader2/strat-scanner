@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, fmtMoney, fmtPct, type ChartCandle, type ScanRow, type Tf } from "../api";
+import { api, ApiError, fmtMoney, fmtPct, type ChartCandle, type IntradayChartData, type ScanRow, type Tf } from "../api";
 import { triggerChip } from "../setupFilter";
 import { DETAIL_TF_KEY, isTimeframe, usePersisted } from "../persist";
 import { LoadingIndicator } from "../components/Loading";
@@ -13,6 +13,8 @@ import { EarningsIcon } from "../components/EarningsIcon";
 import { BreakdownTable } from "../components/ScoreBreakdown";
 import { WatchButton } from "../components/Watch";
 import { CandleChart } from "../components/CandleChart";
+import { IntradayChart } from "../components/IntradayChart";
+import { INTRADAY_HEIGHT } from "../intradayChart";
 
 const TF_NAME: Record<Tf, string> = { M: "Monthly", W: "Weekly", D: "Daily" };
 
@@ -20,17 +22,37 @@ export default function Detail({ version }: { version: string | null }) {
   const { symbol = "" } = useParams();
   const [data, setData] = useState<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [intraday, setIntraday] = useState<IntradayChartData | null>(null);
+  const [intradayError, setIntradayError] = useState<string | null>(null);
   const [storedTf, setTf] = usePersisted<Tf | null>(DETAIL_TF_KEY, null);
 
   useEffect(() => {
+    let cancelled = false;
     setData(null);
+    setIntraday(null);
+    setIntradayError(null);
     api
       .symbol(symbol)
       .then((d) => {
+        if (cancelled) return;
         setData(d);
         setError(null);
+        // After the daily chart is available, so a missing ticker never asks Alpaca for 5-minute bars.
+        api
+          .bars5m(symbol)
+          .then((bars) => {
+            if (!cancelled) setIntraday(bars);
+          })
+          .catch((e) => {
+            if (!cancelled) setIntradayError(e instanceof ApiError ? e.message : "5-minute bars are unavailable");
+          });
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [symbol, version]);
 
   const row = data?.row;
@@ -124,19 +146,42 @@ export default function Detail({ version }: { version: string | null }) {
       </section>
 
       <div className="detail-grid">
-        <section className="card chart-card">
-          <div className="chart-toolbar">
-            <div className="seg">
-              {(["D", "W", "M"] as Tf[]).map((t) => (
-                <button key={t} className={t === activeTf ? "active" : ""} onClick={() => setTf(t)}>
-                  {TF_NAME[t]}
-                </button>
-              ))}
+        <div className="chart-stack">
+          <section className="card chart-card">
+            <div className="chart-toolbar">
+              <div className="seg">
+                {(["D", "W", "M"] as Tf[]).map((t) => (
+                  <button key={t} className={t === activeTf ? "active" : ""} onClick={() => setTf(t)}>
+                    {TF_NAME[t]}
+                  </button>
+                ))}
+              </div>
+              <span className="muted small">H = hammer · I = inside bar</span>
             </div>
-            <span className="muted small">H = hammer · I = inside bar</span>
-          </div>
-          <CandleChart candles={data.charts[activeTf]} height={600} visibleBars={activeTf === "M" ? 60 : 70} />
-        </section>
+            <CandleChart candles={data.charts[activeTf]} height={600} visibleBars={activeTf === "M" ? 60 : 70} />
+          </section>
+
+          <section className="card chart-card" aria-label="5-minute chart">
+            <div className="chart-toolbar">
+              <span className="chart-title">5-minute</span>
+            </div>
+            {intradayError && <p className="muted small">{intradayError}</p>}
+            {!intraday && !intradayError && (
+              <div aria-busy="true">
+                <LoadingIndicator label={`Loading 5-minute ${row.symbol}`} />
+                <div className="skeleton-chart" style={{ height: INTRADAY_HEIGHT }} />
+              </div>
+            )}
+            {intraday && (
+              <IntradayChart
+                bars={intraday.bars}
+                height={INTRADAY_HEIGHT}
+                displaySessions={intraday.display_sessions}
+                seedSessions={intraday.seed_sessions}
+              />
+            )}
+          </section>
+        </div>
 
         <aside className="side">
           <div className="card">
