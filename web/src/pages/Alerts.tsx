@@ -3,11 +3,24 @@ import { Link } from "react-router-dom";
 import {
   api,
   type AlertMetricsPayload,
+  type AlertSettings,
   type AlertSettingsPayload,
   type AlertsPayload,
   type TradeAlert,
 } from "../api";
-import { SETTING_GROUPS, STATUS_LABEL, fmtR, rTone, phoenixTime, riskPerShare, statusTone, stopPct } from "../alerts";
+import {
+  SETTING_GROUPS,
+  STATUS_LABEL,
+  alertDayStatus,
+  fmtR,
+  phoenixTime,
+  rTone,
+  riskPerShare,
+  statusTone,
+  stopPct,
+  todayEmptyLead,
+  type AlertDayStatus,
+} from "../alerts";
 import { useAlerts } from "../components/AlertsCenter";
 import { TickerLogo } from "../components/TickerLogo";
 import { usePersisted } from "../persist";
@@ -158,7 +171,26 @@ export function AlertsTable({
   );
 }
 
-function AlertsView() {
+export function AlertDayBanner({ status }: { status: AlertDayStatus }) {
+  return (
+    <div className={`alert-day ${status.phase}`} role="status">
+      <div className="alert-day-headline">{status.headline}</div>
+      <p className="muted small alert-day-detail">{status.detail}</p>
+      <ul className="alert-day-windows">
+        {status.windows.map((w) => (
+          <li key={w.setup} className={`alert-window-chip ${w.state}`}>
+            <span className="setup-letter">{w.setup}</span>
+            <span>{w.label}</span>
+            {status.phase === "open" && w.state === "done" && <span className="alert-window-state">done</span>}
+            {w.state === "open" && <span className="alert-window-state">open</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AlertsView({ day }: { day: AlertDayStatus }) {
   const { today, flashing, acknowledge, error: liveError, reload } = useAlerts();
   const [session, setSession] = useState<string>("today");
   const [other, setOther] = useState<AlertsPayload | null>(null);
@@ -181,6 +213,7 @@ function AlertsView() {
   );
   const unreadHere = (view?.alerts ?? []).filter((a) => !a.acknowledged).length;
   const filled = (view?.alerts ?? []).filter((a) => a.filled).length;
+  const emptyLead = session === "today" ? todayEmptyLead(day) : null;
 
   return (
     <>
@@ -220,10 +253,16 @@ function AlertsView() {
         <div className="card empty-state">Loading alerts…</div>
       ) : view.alerts.length === 0 ? (
         <div className="card empty-state">
-          No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover the{" "}
-          <Link className="sector-link" to="/watchlist">Watchlist</Link> ({view.watchlist.length} names) during the regular session and
-          show up about a minute after each 5-minute bar closes.
-          {today?.last_run?.at && <> Last check {phoenixTime(today.last_run.at)} Phoenix.</>}
+          {emptyLead ? (
+            <>No alerts today. {emptyLead}</>
+          ) : (
+            <>
+              No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover the{" "}
+              <Link className="sector-link" to="/watchlist">Watchlist</Link> ({view.watchlist.length} names) during the regular session and
+              show up about a minute after each 5-minute bar closes.
+              {today?.last_run?.at && <> Last check {phoenixTime(today.last_run.at)} Phoenix.</>}
+            </>
+          )}
         </div>
       ) : (
         <AlertsTable alerts={view.alerts} flashing={flashing} onAck={(id) => ack([id])} />
@@ -315,7 +354,7 @@ function MetricsView() {
   );
 }
 
-function SettingsPanel() {
+function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) => void }) {
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<AlertSettingsPayload | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -325,6 +364,7 @@ function SettingsPanel() {
   const apply = (p: AlertSettingsPayload) => {
     setPayload(p);
     setDraft(Object.fromEntries(Object.entries(p.settings).map(([k, v]) => [k, String(v)])));
+    onSettings(p.settings);
   };
   useEffect(() => {
     if (open && !payload) api.alertSettings().then(apply).catch((e) => setError(String(e)));
@@ -407,8 +447,19 @@ function SettingsPanel() {
 export default function Alerts() {
   const [view, setView] = usePersisted<"alerts" | "metrics">("alertsView", "alerts");
   const { today, unread } = useAlerts();
+  const [now, setNow] = useState(() => new Date());
+  const [windowSettings, setWindowSettings] = useState<AlertSettings | undefined>(undefined);
   const fired = today?.alerts.length ?? 0;
   const top = new Set((today?.alerts ?? []).filter((a) => a.top).map((a) => a.symbol)).size;
+  const day = useMemo(() => alertDayStatus(now, windowSettings), [now, windowSettings]);
+
+  useEffect(() => {
+    api.alertSettings().then((p) => setWindowSettings(p.settings)).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   return (
     <div className="page alerts-page">
@@ -419,6 +470,7 @@ export default function Alerts() {
             Setups A to F on the 5-minute chart for your watchlist, regular session only. Each one is a buy stop 1c over the setup
             bar with a stop 1c under it, tracked until it fills, stops, exits or expires. Times are Phoenix.
           </p>
+          <AlertDayBanner status={day} />
         </div>
         <div className="stat-cards">
           <div className="stat-card">
@@ -445,8 +497,8 @@ export default function Alerts() {
           </button>
         </div>
       </div>
-      {view === "alerts" ? <AlertsView /> : <MetricsView />}
-      <SettingsPanel />
+      {view === "alerts" ? <AlertsView day={day} /> : <MetricsView />}
+      <SettingsPanel onSettings={setWindowSettings} />
     </div>
   );
 }

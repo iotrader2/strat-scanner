@@ -1,8 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
+import { alertDayStatus } from "../alerts";
 import { sample } from "../alerts.test";
-import { AlertsTable } from "./Alerts";
+import { AlertDayBanner, AlertsTable } from "./Alerts";
 
 describe("AlertsTable", () => {
   const html = renderToStaticMarkup(
@@ -52,5 +53,27 @@ describe("AlertsTable", () => {
 
   it("uses no emoji", () => {
     expect(/\p{Extended_Pictographic}/u.test(html)).toBe(false);
+  });
+});
+
+describe("Alert day window", () => {
+  it("shows the midday window still open and the morning setups finished", () => {
+    const html = renderToStaticMarkup(<AlertDayBanner status={alertDayStatus(new Date("2026-10-23T15:10:00Z"))} />);
+    expect(html).toContain('role="status"');
+    expect(html).toContain("F can fire 8:35 AM – 1:00 PM Phoenix.");
+    expect(html).toContain("Alerts finish at 1:00 PM Phoenix.");
+    expect(html).toContain('class="alert-window-chip done"');
+    expect(html).toContain(">done<");
+    expect(html).toContain('class="alert-window-chip later"');
+    expect(html).not.toContain("weakening");
+    expect(/\p{Extended_Pictographic}/u.test(html)).toBe(false);
+  });
+
+  it("says the day is finished after the last window", () => {
+    const html = renderToStaticMarkup(<AlertDayBanner status={alertDayStatus(new Date("2026-10-23T20:01:00Z"))} />);
+    expect(html).toContain('class="alert-day done"');
+    expect(html).toContain("Alerts are done for the day.");
+    expect(html).toContain("The window was 6:35 AM – 1:00 PM Phoenix.");
+    expect(html).not.toContain(">done<");
   });
 });
