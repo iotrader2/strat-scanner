@@ -83,6 +83,7 @@ class Settings:
     vol_mult: float = 0.8
     max_stop_pct: float = 2.0
     entry_valid_bars: int = 3
+    cancel_stop_before_trigger: int = 1  # pending entry cancelled once a bar trades at/under the stop
     max_attempts: int = 2
     breakeven_after_new_highs: int = 3
     # Working definitions for the looser words in the spec (all adjustable).
@@ -133,7 +134,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "doji_body_pct": (0, 50), "doji_close_top_pct": (0, 100), "bunched_pct": (0.01, 5),
     "strong_close_top_pct": (1, 100), "tight_range_pct": (1, 100), "gap_down_pct": (0.1, 20),
     "f_bunched_minutes": (15, 360), "f_volume_mult": (0.1, 20), "f_soft_body_pct": (0, 100), "f_soft_volume_mult": (0, 20), "top_names": (0, 50),
-    "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "max_attempts": (1, 20),
+    "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "cancel_stop_before_trigger": (0, 1), "max_attempts": (1, 20),
     "breakeven_after_new_highs": (1, 50), "vol_min_sessions": (1, 20), "touch_tol_pct": (0, 5),
     "d_lookback_bars": (1, 30), "f_full_body_pct": (0, 100),
     "d_hold20": (0, 1), "d_hold20_extend_pct": (0, 5), "d_hold20_daily_filter": (0, 1),
@@ -665,6 +666,12 @@ def step(a: Alert, bar: Mapping, e20: Optional[float], s: Settings) -> None:
     end = bar["t"] + BAR
     if a.status == "pending":
         a.bars_waited += 1
+        if s.cancel_stop_before_trigger and bar["l"] <= a.stop:
+            # Stop traded before a fill. Same bar as the trigger counts as stop first (no fill, no R).
+            a.status = "cancelled"
+            a.exit_reason = "stop_before_trigger"
+            a.exit_at = end
+            return
         if bar["h"] >= a.trigger:
             a.filled = True
             a.fill_price = max(a.trigger, float(bar["o"]))

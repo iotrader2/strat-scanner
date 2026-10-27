@@ -530,9 +530,9 @@ def test_fill_at_trigger_or_at_open_on_a_gap():
     assert g.fill_price == 101.4
 
 
-def test_stop_in_the_fill_bar_counts_first():
+def test_stop_in_the_fill_bar_counts_first_when_cancel_rule_off():
     a = alert()
-    step(a, bar(1, 100.5, 101.5, 98.9, 101.2), 100.0, S)
+    step(a, bar(1, 100.5, 101.5, 98.9, 101.2), 100.0, Settings(cancel_stop_before_trigger=0))
     assert a.status == "stopped" and a.stop_hit and a.exit_price == 99.0
     assert a.r_multiple == pytest.approx(-1.0)
 
@@ -758,3 +758,45 @@ def test_ext_settings_round_trip_and_limits():
     assert (s.ext_filter, s.ext_low_pct, s.ext_lookback_bars) == (0, 1.5, 6)
     for k in ("ext_filter", "ext_low_pct", "ext_close_pct", "ext_lookback_bars"):
         assert k in alerts.SETTING_LIMITS
+
+
+# ------------------------------------------------------------------ cancel stop before trigger
+
+
+def test_pending_cancelled_when_stop_trades_before_trigger():
+    a = alert()
+    step(a, bar(1, 100.0, 100.5, 98.9, 99.5), 100.0, S)
+    assert a.status == "cancelled" and a.exit_reason == "stop_before_trigger"
+    assert not a.filled and a.r_multiple is None
+
+
+def test_same_bar_stop_and_trigger_is_cancel_not_fill():
+    a = alert()
+    step(a, bar(1, 100.5, 101.5, 98.9, 101.2), 100.0, S)
+    assert a.status == "cancelled" and not a.filled and a.r_multiple is None
+
+
+def test_cancel_stop_rule_can_be_turned_off():
+    a = alert()
+    step(a, bar(1, 100.5, 101.5, 98.9, 101.2), 100.0, Settings(cancel_stop_before_trigger=0))
+    assert a.status == "stopped" and a.r_multiple == pytest.approx(-1.0)
+
+
+def test_metrics_exclude_cancelled_from_r():
+    rows = [
+        {"setup": "A", "filled": False, "r_multiple": None, "status": "cancelled"},
+        {"setup": "A", "filled": True, "r_multiple": 1.0, "status": "exited"},
+    ]
+    m = next(r for r in alerts.metrics(rows) if r["setup"] == "A")
+    assert m["closed"] == 1 and m["total_r"] == 1.0
+
+
+def test_advance_stored_cancels_on_stop_before_trigger():
+    from strat.alerts import advance_stored
+
+    rows = [(100, 100.5, 99.9, 100.4)] * 3 + [(100.4, 100.8, 100.3, 100.7), (100.6, 100.7, 100.1, 100.3)]
+    bs = bars(rows)
+    a = advance_stored(symbol="X", session="2026-10-23", setup="E", origin_bar=bs[3]["t"], setup_bar=bs[3]["t"],
+                       trigger=100.81, stop=100.2, setup_low=100.3, setup_high=100.8, ref_price=100.7,
+                       bars=bs, ctx=ctx(warm=99.0))
+    assert a.status == "cancelled" and a.exit_reason == "stop_before_trigger"
