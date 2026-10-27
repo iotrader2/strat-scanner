@@ -336,6 +336,12 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     ],
   },
   {
+    title: "Earnings warning",
+    items: [
+      ["earnings_window_days", "Show the warning when earnings are within", "calendar days, including today"],
+    ],
+  },
+  {
     title: "Windows (minutes after the open; 0 = the opening bar)",
     items: [
       ["b_from", "B from", "min"],

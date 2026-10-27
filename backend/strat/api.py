@@ -274,14 +274,42 @@ def _refresh_earnings(max_age_hours: float, progress=None) -> None:
     refresh_earnings(_universe(), max_age_hours, progress)
 
 
+def _earnings_window() -> int:
+    """Calendar days, today included. One saved setting for every earnings warning."""
+    return alerts_store.load_settings().earnings_window_days
+
+
 def _with_earnings(rows: list[dict]) -> list[dict]:
-    """Attach the upcoming-earnings warning (next 10 calendar days, as of today) to each row."""
+    """Attach the upcoming-earnings warning to each stock row inside the user's window."""
     cached = data.load_earnings()
     today = date.fromisoformat(config.AS_OF) if config.AS_OF else earnings.today_et()
+    window = _earnings_window()
     return [
-        {**r, "earnings": earnings.upcoming(cached.get(r["symbol"]), today) if r.get("kind") == "stock" else None}
+        {**r, "earnings": earnings.upcoming(cached.get(r["symbol"]), today, window) if r.get("kind") == "stock" else None}
         for r in rows
     ]
+
+
+def _kinds_for(symbols: list[str]) -> dict[str, Optional[str]]:
+    """Kind for symbols that are not already on a scan row. Unknown names stay unset (no warning)."""
+    need = set(symbols)
+    found: dict[str, Optional[str]] = {r["symbol"]: r.get("kind") for r in State.scan if r.get("symbol") in need}
+    missing = [s for s in need if s not in found]
+    if not missing:
+        return found
+    base = load_universe()
+    by = {m.symbol: m.kind for m in base + extra_members(only_tracked=False, base=base)}
+    for symbol in missing:
+        if symbol in by:
+            found[symbol] = by[symbol]
+    return found
+
+
+def _earnings_for_symbols(symbols: list[str]) -> dict[str, Optional[dict]]:
+    """Same warning as the scan rows, for symbols that do not carry their own kind (alert rows)."""
+    kinds = _kinds_for(symbols)
+    rows = _with_earnings([{"symbol": s, "kind": kinds.get(s)} for s in dict.fromkeys(symbols)])
+    return {r["symbol"]: r["earnings"] for r in rows}
 
 
 def _publish_status() -> None:
@@ -949,6 +977,8 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
     day = _alerts_session(session)
     rows = _attach_scores(alerts_store.list_alerts(session=day, symbol=symbol))
     symbols = list(dict.fromkeys(row["symbol"] for row in rows))
+    flags = _earnings_for_symbols(symbols)
+    rows = [{**row, "earnings": flags.get(row["symbol"])} for row in rows]
     return {
         "session": day,
         "alerts": rows,

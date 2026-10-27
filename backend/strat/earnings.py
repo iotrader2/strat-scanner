@@ -20,7 +20,12 @@ from . import data
 log = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
-WINDOW_DAYS = 10
+# Warning window, in calendar days including today. A report this many days away still warns; the next day does not.
+# The saved user setting (earnings_window_days) overrides this default. Not trading days: weekends count.
+DEFAULT_WARNING_WINDOW_DAYS = 3
+# How far ahead fetch_earnings looks up BMO/AMC. This is the old warning window (10) plus its 5-day buffer,
+# and it stays fixed so a shorter warning does not change what gets fetched.
+TIMING_LOOKAHEAD_DAYS = 15
 MAX_AGE_HOURS = 12
 MARKET_OPEN = time(9, 30)
 MARKET_CLOSE = time(16, 0)
@@ -67,8 +72,12 @@ def today_et() -> date:
     return datetime.now(ET).date()
 
 
-def upcoming(entry: Optional[dict], today: date, window: int = WINDOW_DAYS) -> Optional[dict]:
-    """The cached earnings entry if it falls within the next ``window`` calendar days (today included)."""
+def upcoming(entry: Optional[dict], today: date, window: int = DEFAULT_WARNING_WINDOW_DAYS) -> Optional[dict]:
+    """The cached earnings entry if its first date is within the next ``window`` calendar days (today included).
+
+    Calendar days, not trading days. ``window`` of 3 means today through three days out. An estimated range
+    that has already started stays visible until its last date is before today.
+    """
     if not entry or not entry.get("date"):
         return None
     first = date.fromisoformat(entry["date"])
@@ -94,7 +103,7 @@ def fetch_earnings(symbol: str) -> dict:
         log.debug("calendar failed for %s: %s", symbol, exc)
         first, last = None, None
     timing = None
-    if first is not None and (first - date.today()).days <= WINDOW_DAYS + 5:
+    if first is not None and (first - date.today()).days <= TIMING_LOOKAHEAD_DAYS:
         try:
             timing = timing_for(ticker.get_earnings_dates(limit=8), first) if first == last else None
         except Exception as exc:

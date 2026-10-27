@@ -30,6 +30,7 @@ import { EmaPill } from "../components/ListIntradayColumns";
 import { EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ScorePill } from "../components/ScoreBreakdown";
+import { EarningsIcon } from "../components/EarningsIcon";
 import { TickerLogo } from "../components/TickerLogo";
 import { usePersisted } from "../persist";
 
@@ -173,6 +174,7 @@ export function AlertsTable({
                 <Link className="sym sym-with-logo" to={`/stock/${encodeURIComponent(a.symbol)}`}>
                   <TickerLogo symbol={a.symbol} size={20} />
                   {a.symbol}
+                  <EarningsIcon earnings={a.earnings} />
                   {a.top && <span className="top-chip">TOP</span>}
                 </Link>
               </td>
@@ -465,7 +467,15 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
   const save = async () => {
     try {
       apply(await api.saveAlertSettings(changed));
-      setNote("Saved. New values apply from the next 5-minute check.");
+      const rules = Object.keys(changed).some((k) => k !== "earnings_window_days");
+      const warning = "earnings_window_days" in changed;
+      setNote(
+        rules && warning
+          ? "Saved. Setup rules apply from the next 5-minute check. The earnings warning updates the next time each page loads."
+          : warning
+            ? "Saved. The earnings warning updates the next time each page loads."
+            : "Saved. New values apply from the next 5-minute check.",
+      );
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -480,7 +490,7 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
     <section className="card settings-card">
       <button type="button" className="settings-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span>Rule settings</span>
-        <span className="muted small">{open ? "Hide" : "Adjust the definitions behind the setups"}</span>
+        <span className="muted small">{open ? "Hide" : "Adjust the setup rules and the earnings warning"}</span>
       </button>
       {open && payload && (
         <div className="settings-body">

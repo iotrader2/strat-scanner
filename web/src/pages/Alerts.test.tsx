@@ -66,6 +66,23 @@ describe("AlertsTable", () => {
     expect(html).toMatch(/class="sym sym-with-logo"[^>]*><span class="ticker-logo[^"]*"[\s\S]*?<\/span>AAPL<span class="top-chip">TOP<\/span>/);
   });
 
+  it("shows the earnings warning only when the row carries one", () => {
+    expect(html).not.toContain("earnings-icon");
+    const warned = renderToStaticMarkup(
+      <MemoryRouter>
+        <AlertsTable
+          alerts={[sample({ earnings: { date: "2026-10-29", date_end: null, timing: "AMC", days_until: 3 } })]}
+          flashing={new Set()}
+          onAck={() => undefined}
+          onBought={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+    expect(warned).toContain('class="earnings-icon"');
+    expect(warned).toContain("Earnings Thu, Oct 29");
+    expect(warned).toContain("in 3 days");
+  });
+
   it("flashes new unread rows and offers acknowledge", () => {
     expect(html).toContain('class="alert-row unread flash"');
     expect(html).toContain(">Acknowledge</span>");
