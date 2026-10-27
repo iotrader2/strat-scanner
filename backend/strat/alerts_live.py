@@ -38,7 +38,7 @@ RUN_UNTIL = time(16, 15)  # one last pass after the close
 PREPARE_FROM = time(8, 0)  # premarket polls from here fetch the per-day inputs ahead of the open
 
 _lock = threading.Lock()
-_profiles: dict[str, dict] = {}  # symbol -> {"day": iso, "avg": {slot: vol}, "sessions": n, "warm": [closes], "e360": float}
+_profiles: dict[str, dict] = {}  # symbol -> {"day": iso, "avg": {slot: vol}, "sessions": n, "warm": [closes], "e360": float, "d4": float}
 _last_run: dict = {}
 
 
@@ -85,6 +85,21 @@ def volume_profile(bars: Iterable[Mapping], before: date) -> tuple[dict[int, flo
     return {k: sum(by_day[d].get(k, 0.0) for d in days) / len(days) for k in sorted(slots)}, len(days)
 
 
+
+def session_end_closes(bars: Iterable[Mapping], before: date) -> list[float]:
+    """Last regular-session close of each of the last ``WARM_SESSIONS`` sessions before ``before``."""
+    by_day: dict[date, float] = {}
+    for b in bars:
+        t = _ts(b["t"])
+        d = t.astimezone(ET).date()
+        k = slot(t)
+        if k is None or d >= before:
+            continue
+        by_day[d] = float(b["c"])  # bars oldest→newest; last write is the session close
+    days = sorted(by_day)[-WARM_SESSIONS:]
+    return [by_day[d] for d in days]
+
+
 def warm_closes(bars: Iterable[Mapping], before: date) -> list[float]:
     """Regular-session closes of the last ``WARM_SESSIONS`` sessions before ``before`` (EMA seed)."""
     rows = sorted((_ts(b["t"]), float(b["c"])) for b in bars)
@@ -113,7 +128,15 @@ def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
         sip, _ = client.bars(batch, "5Min", open_ - timedelta(days=WARM_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
         for sym in batch:
             avg, n = volume_profile(iex.get(sym, []), day)
-            entry = {"day": day.isoformat(), "avg": avg, "sessions": n, "warm": warm_closes(sip.get(sym, []), day)}
+            sip_bars = sip.get(sym, [])
+            ends = session_end_closes(sip_bars, day)
+            entry = {
+                "day": day.isoformat(),
+                "avg": avg,
+                "sessions": n,
+                "warm": warm_closes(sip_bars, day),
+                "d4": ema_seed(ends, 4),
+            }
             with _lock:
                 _profiles[sym] = entry
         del iex, sip
@@ -174,6 +197,7 @@ def context_for(sym: str, prev_close: Optional[float], pm_low: Optional[float], 
         vol_sessions=p.get("sessions") or 0,
         session_bars=session_bars,
         ema360_seed=p.get("e360"),
+        daily_4_ema=p.get("d4"),
     )
 
 

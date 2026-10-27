@@ -46,7 +46,7 @@ describe("alert windows", () => {
     expect(chip("2026-10-23T13:00:00Z", "A").label).toBe("6:35 AM");
     expect(chip("2026-10-23T13:00:00Z", "B").label).toBe("6:40–7:00 AM");
     expect(chip("2026-10-23T13:00:00Z", "C").label).toBe("6:40–7:00 AM");
-    expect(chip("2026-10-23T13:00:00Z", "D").label).toBe("7:00–7:35 AM");
+    expect(chip("2026-10-23T13:00:00Z", "D").label).toBe("7:00–8:05 AM");
     expect(chip("2026-10-23T13:00:00Z", "E").label).toBe("6:45–7:55 AM");
     expect(chip("2026-10-23T13:00:00Z", "F").label).toBe("8:35 AM – 1:00 PM");
 
@@ -195,6 +195,12 @@ describe("EMA 360 distance", () => {
   it("has a settings group for the filter", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
     expect(keys).toEqual(expect.arrayContaining(["ext_filter", "ext_low_pct", "ext_close_pct", "ext_lookback_bars"]));
+  });
+  it("exposes D hold20 and the daily-4-EMA gate in settings", () => {
+    const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
+    expect(keys).toEqual(
+      expect.arrayContaining(["d_hold20", "d_hold20_extend_pct", "d_hold20_daily_filter", "d_hold20_daily_pct"]),
+    );
   });
   it("has one earnings-warning setting, in calendar days", () => {
     const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "earnings_window_days");
