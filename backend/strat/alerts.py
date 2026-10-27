@@ -75,6 +75,9 @@ class Settings:
     gap_down_pct: float = 1.0  # E: open this far under the prior close, or the low this far under the 20 and 50
     f_bunched_minutes: int = 120
     f_volume_mult: float = 1.5
+    # Strong marubozu breakout: allow a slightly lower IEX volume floor (IEX is thin vs SIP).
+    f_soft_body_pct: float = 80.0  # body at least this % of range to use the soft volume floor
+    f_soft_volume_mult: float = 1.2  # soft volume floor; 0 disables the exception
     top_names: int = 3
     # From the spec.
     vol_mult: float = 0.8
@@ -129,7 +132,7 @@ class Settings:
 SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "doji_body_pct": (0, 50), "doji_close_top_pct": (0, 100), "bunched_pct": (0.01, 5),
     "strong_close_top_pct": (1, 100), "tight_range_pct": (1, 100), "gap_down_pct": (0.1, 20),
-    "f_bunched_minutes": (15, 360), "f_volume_mult": (0.1, 20), "top_names": (0, 50),
+    "f_bunched_minutes": (15, 360), "f_volume_mult": (0.1, 20), "f_soft_body_pct": (0, 100), "f_soft_volume_mult": (0, 20), "top_names": (0, 50),
     "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "max_attempts": (1, 20),
     "breakeven_after_new_highs": (1, 50), "vol_min_sessions": (1, 20), "touch_tol_pct": (0, 5),
     "d_lookback_bars": (1, 30), "f_full_body_pct": (0, 100),
@@ -583,9 +586,17 @@ def match_f(f: Frame, i: int, s: Settings) -> Optional[str]:
     if not (b["c"] > max(f.bars[k]["h"] for k in window) and b["c"] > max(em)):
         return None
     avg = f.ctx.vol_avg.get(i)
-    if not avg or f.ctx.vol_sessions < s.vol_min_sessions or float(b.get("v") or 0) < s.f_volume_mult * avg:
-        return None  # heavy volume has to be shown
-    return "squeeze"
+    if not avg or f.ctx.vol_sessions < s.vol_min_sessions:
+        return None
+    v = float(b.get("v") or 0)
+    if v >= s.f_volume_mult * avg:
+        return "squeeze"
+    # IEX volume is often thin on the first breakout bar; a near-marubozu at a slightly
+    # lower multiple is still the squeeze resolution (see PLTR 2026-10-27 08:40 Phx).
+    body_pct = (b["c"] - b["o"]) / r * 100
+    if s.f_soft_volume_mult > 0 and body_pct >= s.f_soft_body_pct and v >= s.f_soft_volume_mult * avg:
+        return "squeeze"
+    return None
 
 
 MATCHERS = {"A": match_a, "B": match_b, "C": match_c, "D": match_d, "E": match_e, "F": match_f}

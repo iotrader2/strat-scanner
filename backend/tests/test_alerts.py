@@ -313,6 +313,69 @@ E_ROWS = [
 ]
 
 
+
+def test_f_soft_volume_defaults():
+    from strat.alerts import Settings
+
+    s = Settings()
+    assert s.f_volume_mult == 1.5
+    assert s.f_soft_body_pct == 80.0
+    assert s.f_soft_volume_mult == 1.2
+
+
+def test_f_soft_volume_gate_logic():
+    """Near-marubozu under 1.5x but over soft floor qualifies; thin body does not."""
+    from strat.alerts import Settings
+
+    s = Settings()
+    avg = 1000.0
+    # soft path
+    body_pct, v = 90.0, 1.3 * avg
+    assert v < s.f_volume_mult * avg
+    assert body_pct >= s.f_soft_body_pct and v >= s.f_soft_volume_mult * avg
+    # thin body blocked
+    body_pct2, v2 = 55.0, 1.3 * avg
+    assert not (body_pct2 >= s.f_soft_body_pct and v2 >= s.f_soft_volume_mult * avg)
+    # soft disabled
+    s_off = Settings(f_soft_volume_mult=0)
+    assert not (s_off.f_soft_volume_mult > 0)
+
+
+def test_f_soft_volume_pltr_08_40():
+    """With IEX volume, PLTR 08:40 Phx is the first F (soft path); 1.5-only would wait for 08:45."""
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path as P
+    from zoneinfo import ZoneInfo
+    from strat.alerts import Context, Settings, simulate, ema_seed
+
+    raw_path = P("/tmp/pltr_today.json")
+    if not raw_path.exists():
+        return
+    # Prefer full IEX+SIP merge if cached
+    full = P("/tmp/pltr_iex_sip_bars.json")
+    if not full.exists():
+        return
+    bars = json.loads(full.read_text())
+    for b in bars:
+        b["t"] = datetime.fromisoformat(b["t"].replace("Z", "+00:00") if isinstance(b["t"], str) and b["t"].endswith("Z") else str(b["t"]).replace(" ", "T"))
+    raw = json.loads(raw_path.read_text())
+    closes = [x["c"] for x in raw["daily"] if not str(x["t"]).startswith("2026-10-27")]
+    ctx = Context(
+        warm_closes=raw["warm"], prev_close=raw["pc"], premarket_low=raw.get("pm_low"),
+        vol_avg={int(k): float(v) for k, v in raw["avg"].items()}, vol_sessions=raw["sessions"],
+        ema360_seed=raw["ema360_seed"], daily_4_ema=ema_seed(closes, 4),
+    )
+    found = simulate("PLTR", "2026-10-27", bars, ctx, Settings())
+    fs = [a for a in found if a.setup == "F"]
+    assert fs, "expected F on PLTR"
+    a = fs[0]
+    PHX = ZoneInfo("America/Phoenix")
+    assert bars[a.setup_index]["t"].astimezone(PHX).strftime("%H:%M") == "08:40"
+    assert a.trigger == 200.46
+    assert a.stop == 199.7
+
+
 def test_e_gap_down_higher_low_then_close_over_20():
     found = run(E_ROWS, ctx(warm=103.0, prev_close=105.0))
     e = by_setup(found, "E")
@@ -373,10 +436,24 @@ def test_f_midday_squeeze_breakout_on_heavy_volume():
 def test_f_needs_heavy_volume_and_two_hours_of_bunching():
     flat = [(100.0, 100.05, 99.95, 100.0)] * 30
     avg = {i: 1000.0 for i in range(78)}
-    assert not by_setup(run(flat + [(100.0, 100.7, 99.98, 100.65, 1200)], ctx(vol_avg=avg, vol_sessions=20)), "F")
+    # Under the soft floor (1.2x) even a marubozu stays quiet.
+    assert not by_setup(run(flat + [(100.0, 100.7, 99.98, 100.65, 1100)], ctx(vol_avg=avg, vol_sessions=20)), "F")
     assert not by_setup(run(flat + [(100.0, 100.7, 99.98, 100.65, 3000)], ctx()), "F")  # no volume history
     short = [(100.0, 100.05, 99.95, 100.0)] * 20
     assert not by_setup(run(short + [(100.0, 100.7, 99.98, 100.65, 3000)], ctx(vol_avg=avg, vol_sessions=20)), "F")
+
+
+def test_f_soft_volume_allows_near_marubozu_at_1_3x():
+    """IEX-thin first breakout: body >= soft_body_pct and vol >= soft floor → F."""
+    flat = [(100.0, 100.05, 99.95, 100.0)] * 30
+    avg = {i: 1000.0 for i in range(78)}
+    # 1.3x with ~90% body: soft path (would fail the hard 1.5x floor alone).
+    found = run(flat + [(100.0, 100.7, 99.98, 100.65, 1300)], ctx(vol_avg=avg, vol_sessions=20))
+    f = by_setup(found, "F")
+    assert len(f) == 1 and f[0].setup_index == 30
+    # Same 1.3x but thin body (~55%) stays blocked.
+    thin = run(flat + [(100.0, 100.7, 99.98, 100.40, 1300)], ctx(vol_avg=avg, vol_sessions=20))
+    assert not by_setup(thin, "F")
 
 
 # ------------------------------------------------------------------ stop width, attempts, duplicates

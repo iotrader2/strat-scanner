@@ -322,6 +322,8 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     items: [
       ["vol_mult", "Setup bar volume at least", "x 20-session avg"],
       ["f_volume_mult", "F: breakout volume at least", "x avg"],
+      ["f_soft_body_pct", "F: soft-volume body at least", "% of range"],
+      ["f_soft_volume_mult", "F: soft-volume floor", "x avg (0=off)"],
       ["vol_min_sessions", "Volume filter needs", "sessions of history"],
       ["max_stop_pct", "Skip when the stop is over", "% (A: cap)"],
       ["entry_valid_bars", "Buy stop good for", "bars"],
