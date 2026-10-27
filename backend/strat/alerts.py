@@ -29,6 +29,12 @@ Rules common to every setup:
   EMA 30; at or under it is fine), and the setup bar closes at most ``ext_close_pct`` above it. The
   EMA 360 runs over regular-session closes only (no premarket), seeded from prior sessions. When there
   is not enough history for it the filter does not block.
+
+D has two paths. Classic (variant ``pullback``): stacked 6>20>50, rising 20, reclaim of the 6 after a
+touch/hold of the 20 EMA or VWAP. Hold20 (variant ``hold20``, when ``d_hold20`` is on): a green bar whose
+low is within ``touch_tol_pct`` of a rising 20 EMA, closing above it, and not already more than
+``d_hold20_extend_pct`` above the 20 on the prior bar. Hold20 can also require the trigger within
+``d_hold20_daily_pct`` of the daily 4 EMA (``d_hold20_daily_filter``; skipped when that EMA is unknown).
 """
 
 from __future__ import annotations
@@ -92,7 +98,12 @@ class Settings:
     c_from: int = 5
     c_to: int = 25
     d_from: int = 25
-    d_to: int = 60
+    d_to: int = 90
+    # D hold20 path (additive to classic pullback). 1 = on, 0 = off.
+    d_hold20: int = 1
+    d_hold20_extend_pct: float = 0.5  # skip hold20 when the prior bar was already this far over the 20
+    d_hold20_daily_filter: int = 1  # hold20 only near the daily 4 EMA (1 = on, 0 = off)
+    d_hold20_daily_pct: float = 2.0  # trigger at most this far from the daily 4 EMA (%)
     e_from: int = 10
     e_to: int = 80
     f_from: int = 120
@@ -122,6 +133,8 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "max_attempts": (1, 20),
     "breakeven_after_new_highs": (1, 50), "vol_min_sessions": (1, 20), "touch_tol_pct": (0, 5),
     "d_lookback_bars": (1, 30), "f_full_body_pct": (0, 100),
+    "d_hold20": (0, 1), "d_hold20_extend_pct": (0, 5), "d_hold20_daily_filter": (0, 1),
+    "d_hold20_daily_pct": (0, 20),
     "ext_filter": (0, 1), "ext_low_pct": (0, 50), "ext_close_pct": (0, 50), "ext_lookback_bars": (1, 78),
     "b_from": (0, 390), "b_to": (0, 390), "c_from": (0, 390), "c_to": (0, 390), "d_from": (0, 390),
     "d_to": (0, 390), "e_from": (0, 390), "e_to": (0, 390), "f_from": (0, 390), "f_to": (0, 390),
@@ -141,6 +154,7 @@ class Context:
     vol_sessions: int = 0  # sessions behind vol_avg
     session_bars: int = 78  # bars in a full session (fewer on a half day)
     ema360_seed: Optional[float] = None  # 5-minute EMA 360 after the prior session's last regular bar
+    daily_4_ema: Optional[float] = None  # daily EMA 4 as of the prior session close (hold20 quality gate)
 
 
 @dataclass
@@ -420,7 +434,8 @@ def match_b(f: Frame, i: int, s: Settings) -> Optional[str]:
     return "reclaim"
 
 
-def match_d(f: Frame, i: int, s: Settings) -> Optional[str]:
+def match_d_classic(f: Frame, i: int, s: Settings) -> Optional[str]:
+    """Stacked 6>20>50, rising 20, reclaim of the 6 after a touch/hold of the 20 EMA or VWAP."""
     if not _in(i, s.d_from, s.d_to) or i < 1:
         return None
     # The trend is judged on the bar before the setup bar, so the setup bar cannot create it alone:
@@ -449,6 +464,48 @@ def match_d(f: Frame, i: int, s: Settings) -> Optional[str]:
         if not lvl or f.bars[k]["c"] < min(lvl) * (1 - tol):
             return None  # it did not hold
     return "pullback"
+
+
+def match_d_hold20(f: Frame, i: int, s: Settings) -> Optional[str]:
+    """Green hold of a rising 20 EMA (no stack / reclaim-6 required).
+
+    Low within ``touch_tol_pct`` of the 20, close above it, and the prior bar not already more than
+    ``d_hold20_extend_pct`` above the 20. Optional daily-4-EMA proximity gate uses the trigger.
+    """
+    if not s.d_hold20 or not _in(i, s.d_from, s.d_to) or i < 1:
+        return None
+    em, prev_em, e20pp = f.emas(i), f.emas(i - 1), f.e20_prev(i - 1)
+    if em is None or e20pp is None or f.e20[i] is None:
+        return None
+    _e6, e20, _e50 = em
+    if not (prev_em and prev_em[1] > e20pp):
+        return None  # 20 must be rising into the setup bar
+    b = f.bars[i]
+    if not (is_green(b) and b["c"] > e20):
+        return None
+    tol = s.touch_tol_pct / 100
+    if b["l"] > e20 * (1 + tol):
+        return None  # this bar itself must touch the 20
+    start = max(0, i - s.d_lookback_bars)
+    if not any(
+        f.e20[k] is not None and f.bars[k]["l"] <= f.e20[k] * (1 + tol)
+        for k in range(i, start - 1, -1)
+    ):
+        return None
+    prev, pe = f.bars[i - 1], f.e20[i - 1]
+    if pe and prev["c"] > pe * (1 + s.d_hold20_extend_pct / 100) and prev["l"] > pe * (1 + tol):
+        return None  # already extended above the 20 on the prior bar
+    if s.d_hold20_daily_filter and f.ctx.daily_4_ema is not None and f.ctx.daily_4_ema > 0:
+        trigger = round(float(b["h"]) + TICK, 2)
+        dist = abs(trigger - f.ctx.daily_4_ema) / f.ctx.daily_4_ema * 100
+        if dist > s.d_hold20_daily_pct:
+            return None
+    return "hold20"
+
+
+def match_d(f: Frame, i: int, s: Settings) -> Optional[str]:
+    """Classic pullback first; else hold20 when enabled."""
+    return match_d_classic(f, i, s) or match_d_hold20(f, i, s)
 
 
 def _e_pivot(f: Frame, i: int) -> Optional[int]:

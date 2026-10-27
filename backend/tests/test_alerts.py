@@ -202,6 +202,103 @@ def test_d_needs_stacked_emas():
     assert not by_setup(run(rows, c), "D")
 
 
+def _hold20_frame(daily_4_ema=100.0):
+    """Shared synthetic: rising 20, red tag, green hold. Classic stack/reclaim not required."""
+    warm = [100.0] * 60
+    rows = []
+    px = 100.0
+    for _ in range(10):
+        rows.append((px, px + 0.10, px - 0.03, px + 0.06))
+        px = rows[-1][3]
+    f0 = Frame(bars(rows + [(px, px, px, px)]), ctx(warm=warm))
+    e20 = f0.e20[-1]
+    rows.append((px, px + 0.02, e20 - 0.10, e20 - 0.03))
+    px = rows[-1][3]
+    f1 = Frame(bars(rows + [(px, px, px, px)]), ctx(warm=warm))
+    e20 = f1.e20[-1]
+    rows.append((px, e20 + 0.40, e20 - 0.02, e20 + 0.30))
+    return Frame(bars(rows), ctx(warm=warm, daily_4_ema=daily_4_ema)), len(rows) - 1
+
+
+def test_d_hold20_matcher_on_rising_20_without_stack_or_reclaim():
+    """Hold20 tags a green touch of a rising 20; classic prefers pullback when both match."""
+    from strat.alerts import match_d_classic, match_d_hold20, match_d
+
+    f, i = _hold20_frame()
+    s = Settings(d_to=90, d_hold20=1, d_hold20_daily_filter=0)
+    assert match_d_hold20(f, i, s) == "hold20"
+    # Classic wins when both qualify.
+    if match_d_classic(f, i, s):
+        assert match_d(f, i, s) == "pullback"
+    else:
+        assert match_d(f, i, s) == "hold20"
+
+
+def test_d_hold20_daily_4_ema_gate():
+    from strat.alerts import match_d_hold20
+
+    s_on = Settings(d_to=90, d_hold20_daily_filter=1, d_hold20_daily_pct=2.0)
+    s_off = Settings(d_to=90, d_hold20_daily_filter=0)
+    f_far, i = _hold20_frame(daily_4_ema=80.0)
+    assert match_d_hold20(f_far, i, s_on) is None
+    assert match_d_hold20(f_far, i, s_off) == "hold20"
+    f_near, i = _hold20_frame(daily_4_ema=100.5)
+    assert match_d_hold20(f_near, i, s_on) == "hold20"
+
+
+def test_d_default_window_runs_to_90():
+    assert Settings().d_to == 90
+    assert Settings().d_hold20 == 1
+    assert Settings().d_hold20_daily_filter == 1
+    assert Settings().d_hold20_daily_pct == 2.0
+
+
+def test_d_hold20_off_disables_path():
+    from strat.alerts import match_d_hold20
+
+    f, i = _hold20_frame()
+    assert match_d_hold20(f, i, Settings(d_hold20=0, d_hold20_daily_filter=0)) is None
+    assert match_d_hold20(f, i, Settings(d_hold20=1, d_hold20_daily_filter=0)) == "hold20"
+
+
+def test_d_hold20_pltr_like_levels():
+    """PLTR-shaped morning: hold20 fires 198.92 / 198.34 at the 07:45 bar (index 15)."""
+    import json
+    from datetime import datetime
+    from pathlib import Path as P
+
+    raw_path = P("/tmp/pltr_today.json")
+    if not raw_path.exists():
+        return  # optional fixture
+    raw = json.loads(raw_path.read_text())
+    bars_in = []
+    for b in raw["bars"]:
+        t = datetime.fromisoformat(b["t"].replace(" ", "T"))
+        bars_in.append({**b, "t": t})
+    # Daily 4 EMA from prior daily closes (same seed as the morning diagnosis).
+    closes = [x["c"] for x in raw["daily"] if not str(x["t"]).startswith("2026-10-27")]
+    from strat.alerts import ema_seed
+
+    d4 = ema_seed(closes, 4)
+    c = Context(
+        warm_closes=raw["warm"],
+        prev_close=raw["pc"],
+        vol_avg={int(k): float(v) for k, v in raw["avg"].items()},
+        vol_sessions=raw["sessions"],
+        ema360_seed=raw["ema360_seed"],
+        daily_4_ema=d4,
+    )
+    found = simulate("PLTR", "2026-10-27", bars_in, c, Settings(d_to=90, touch_tol_pct=0.1))
+    d = by_setup(found, "D")
+    assert d, "expected a D alert on PLTR today"
+    a = d[0]
+    assert a.details["variant"] == "hold20"
+    assert a.trigger == 198.92
+    assert a.stop == 198.34
+    assert a.setup_index == 15
+
+
+# ------------------------------------------------------------------ E
 # ------------------------------------------------------------------ E
 
 
