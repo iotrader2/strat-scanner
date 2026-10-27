@@ -128,7 +128,15 @@ class TestShippedMap:
         assert themes.theme_of("LDOS").id == "ai-defense-software"
         assert "LDOS" in themes.by_id("defense").also
         # Promoted from secondary, or assigned, as primary. HAS, HPQ, CDW and P stay unthemed.
-        assert themes.theme_of("EL").name == "Household & personal care"
+        assert themes.theme_of("EL").name == "Beauty & Cosmetics"
+        assert themes.theme_of("ELF").id == "beauty-cosmetics"
+        assert themes.theme_of("ULTA").id == "beauty-cosmetics"
+        assert themes.theme_of("EL").id == "beauty-cosmetics"
+        assert "EL" not in themes.by_id("staples-household").members
+        assert "ULTA" not in themes.by_id("discount-retail").members
+        assert set(themes.by_id("beauty-cosmetics").members) == {"ELF", "EL", "ULTA"}
+        assert len(themes.by_id("staples-household").members) >= 3
+        assert len(themes.by_id("discount-retail").members) >= 3
         assert themes.theme_of("NTAP").id == "ai-hardware" and "NTAP" not in themes.by_id("ai-hardware").also
         assert themes.theme_of("CHKP").id == "cybersecurity" and "CHKP" not in themes.by_id("cybersecurity").also
         assert themes.theme_of("FFIV").id == "cybersecurity"

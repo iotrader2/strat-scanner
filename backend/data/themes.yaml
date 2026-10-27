@@ -14,7 +14,7 @@
 #   clustering, flagged members). The report only suggests; the map below always wins.
 #
 # Bump `version` whenever the membership changes.
-version: 7
+version: 8
 
 themes:
   # ---- Technology -------------------------------------------------------------------------------------------------
@@ -328,7 +328,7 @@ themes:
   discount-retail:
     name: Discount & general retail
     description: "Dollar stores and general merchandise."
-    members: "DG DLTR TGT BBY ULTA"
+    members: "DG DLTR TGT BBY"
 
   auto-parts-retail:
     name: Auto parts retail
@@ -380,8 +380,14 @@ themes:
   staples-household:
     name: Household & personal care
     description: "Household and personal-care products."
-    members: "PG CL KMB CLX CHD KVUE EL"
+    members: "PG CL KMB CLX CHD KVUE"
     also: "MO PM"
+
+  beauty-cosmetics:
+    name: Beauty & Cosmetics
+    description: "Beauty and cosmetics brands and specialty retailers."
+    members: "ELF EL ULTA"
+    keep: "ELF EL ULTA"
 
   streaming-media:
     name: Streaming & live entertainment
