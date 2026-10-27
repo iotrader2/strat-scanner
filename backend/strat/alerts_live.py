@@ -19,7 +19,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable, Iterable, Mapping, Optional
 
 from . import alerts_store
-from .alerts import EMA_LONG, Context, Settings, ema_seed, simulate
+from .alerts import ACTIVE, EMA_LONG, Alert, Context, Settings, advance_stored, ema_seed, simulate
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT, now_et
@@ -211,6 +211,69 @@ def due(now: datetime) -> bool:
     return local.weekday() < 5 and time(9, 35) <= local.time() <= RUN_UNTIL
 
 
+def _parse_ts(raw) -> datetime:
+    if isinstance(raw, datetime):
+        return raw.astimezone(timezone.utc)
+    return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _advance_orphans(
+    session: str,
+    found: list,
+    bars_by: Mapping[str, list],
+    ctx_by: Mapping[str, Context],
+    settings: Settings,
+    session_over: bool = False,
+) -> list:
+    """ACTIVE DB alerts for this session that simulate no longer emits — re-walk outcomes only."""
+    known = {a.key for a in found}
+    out = []
+    for row in alerts_store.list_alerts(session=session):
+        if row["status"] not in ACTIVE or row["key"] in known:
+            continue
+        sym = row["symbol"]
+        bars = bars_by.get(sym)
+        ctx = ctx_by.get(sym)
+        if not bars or ctx is None:
+            continue
+        parts = str(row["key"]).split("|")
+        origin = _parse_ts(parts[3]) if len(parts) >= 4 else _parse_ts(row["setup_bar"])
+        setup_bar = _parse_ts(row["setup_bar"])
+        ctx2 = ctx
+        if session_over:
+            ctx2 = Context(
+                warm_closes=ctx.warm_closes,
+                prev_close=ctx.prev_close,
+                premarket_low=ctx.premarket_low,
+                vol_avg=ctx.vol_avg,
+                vol_sessions=ctx.vol_sessions,
+                session_bars=len(bars),
+                ema360_seed=ctx.ema360_seed,
+                daily_4_ema=ctx.daily_4_ema,
+            )
+        a = advance_stored(
+            symbol=sym,
+            session=session,
+            setup=row["setup"],
+            origin_bar=origin,
+            setup_bar=setup_bar,
+            trigger=float(row["trigger_price"]),
+            stop=float(row["stop_price"]),
+            setup_low=float(row["setup_low"]),
+            setup_high=float(row["setup_high"]),
+            ref_price=float(row["ref_price"]),
+            details=row.get("details") if isinstance(row.get("details"), dict) else {},
+            bars=bars,
+            ctx=ctx2,
+            settings=settings,
+        )
+        if a is not None:
+            out.append(a)
+            log.info("alerts orphan advanced %s -> %s", a.key, a.status)
+    return out
+
+
+
 def refresh(
     symbols: Iterable[str],
     prev_close: Callable[[str, date], Optional[float]],
@@ -237,13 +300,19 @@ def refresh(
     sip, _ = client.bars(syms, "5Min", _at(day, PREMARKET_AT), end=min(cutoff, close_) - timedelta(seconds=1), feed="sip", adjustment="raw")
     iex, _ = client.bars(syms, "5Min", open_, end=min(clock, close_), feed="iex", adjustment="raw")
     session_over = clock >= close_ + BAR
-    found = []
+    found: list[Alert] = []
+    bars_by: dict[str, list] = {}
+    ctx_by: dict[str, Context] = {}
     for sym in syms:
         bars, pm_low = merge_day(sip.get(sym, []), iex.get(sym, []), day, cutoff, clock)
         if not bars:
             continue
         ctx = context_for(sym, prev_close(sym, day), pm_low, len(bars) if session_over else 78)
+        bars_by[sym] = bars
+        ctx_by[sym] = ctx
         found.extend(simulate(sym, day.isoformat(), bars, ctx, settings))
+    # SIP backfill can make match_* stop reproducing an alert that already fired; still advance outcomes.
+    found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, session_over=session_over))
     saved = alerts_store.save_session(day.isoformat(), found, now=clock, top_names=settings.top_names)
     stats = {
         "symbols": len(syms),
