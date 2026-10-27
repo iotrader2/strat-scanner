@@ -39,6 +39,7 @@ def test_an_empty_cache_starts_a_full_download_then_the_scheduler(monkeypatch):
     monkeypatch.setattr(api, "start_refresh", start_refresh)
     monkeypatch.setattr(api, "start_index_quotes", lambda: calls.append("quotes") or True)
     monkeypatch.setattr(api, "_ensure_scan", lambda force=False: calls.append(("scan", force)) or [])
+    monkeypatch.setattr(api, "_catch_up_alert_archive", lambda done, now: None)
     monkeypatch.setattr(api, "_scheduler_loop", lambda: calls.append(("scheduler", api.State.refreshing)))
     try:
         api._boot()
@@ -55,6 +56,7 @@ def test_a_warm_cache_scans_then_starts_the_scheduler(monkeypatch):
     monkeypatch.setattr(api, "start_index_quotes", lambda: calls.append("quotes") or True)
     monkeypatch.setattr(api, "_refresh_earnings", lambda **_kwargs: calls.append("earnings"))
     monkeypatch.setattr(api, "_ensure_scan", lambda force=False: calls.append(("scan", force)) or [])
+    monkeypatch.setattr(api, "_catch_up_alert_archive", lambda done, now: None)
     monkeypatch.setattr(api, "_scheduler_loop", lambda: calls.append("scheduler"))
     monkeypatch.setattr(api.threading, "Thread", _InlineThread)
     api._boot()
@@ -97,6 +99,7 @@ def _drive(monkeypatch, *, now, newest, ticks, refreshing_until):
         return True
 
     monkeypatch.setattr(api.time, "sleep", sleep)
+    monkeypatch.setattr(api, "_catch_up_alert_archive", lambda done, now: done)
     monkeypatch.setattr(config, "AS_OF", None)
     monkeypatch.setattr(api, "now_et", lambda: now)
     monkeypatch.setattr(api.data, "newest_bar_date", lambda: newest)
@@ -147,6 +150,31 @@ def test_the_tick_after_the_initial_download_does_not_start_another_full_refresh
     )
     assert behind == [{"full": False, "period": config.INCREMENTAL_PERIOD, "with_earnings": True}]
     assert behind_quotes == []
+
+
+def test_alert_archive_runs_while_a_download_holds_the_job_slot(monkeypatch):
+    """Catch-up does not wait out the price download. The slot is for fetches, not this one transaction."""
+    seen = []
+
+    def sleep(_seconds):
+        if seen:
+            raise _Stop
+
+    def catch(done, now):
+        seen.append(api.State.job)
+        return date(2026, 10, 23)
+
+    monkeypatch.setattr(api.time, "sleep", sleep)
+    monkeypatch.setattr(api, "_catch_up_alert_archive", catch)
+    monkeypatch.setattr(api, "decide", lambda *a, **k: (_ for _ in ()).throw(AssertionError("decided while busy")))
+    api.State.job = "refresh"
+    try:
+        api._scheduler_loop()
+    except _Stop:
+        pass
+    finally:
+        api.State.job = None
+    assert seen == ["refresh"]
 
 
 def test_index_quotes_start_once_after_the_initial_download(monkeypatch):

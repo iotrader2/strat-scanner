@@ -201,4 +201,9 @@ describe("EMA 360 distance", () => {
     expect(item?.[1]).toMatch(/within/);
     expect(item?.[2]).toMatch(/calendar days/);
   });
+  it("archives after the close unless the setting is turned off", () => {
+    const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "auto_archive");
+    expect(item?.[1]).toMatch(/History/);
+    expect(item?.[1]).toMatch(/4:05 PM/);
+  });
 });

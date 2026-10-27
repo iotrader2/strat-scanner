@@ -119,6 +119,26 @@ describe("AlertsTable", () => {
   it("uses no emoji", () => {
     expect(/\p{Extended_Pictographic}/u.test(html)).toBe(false);
   });
+
+  it("keeps the same columns in history and drops the write actions", () => {
+    const archived = renderToStaticMarkup(
+      <MemoryRouter>
+        <AlertsTable
+          alerts={[sample({ id: 7 })]}
+          flashing={new Set()}
+          onAck={() => undefined}
+          onBought={() => undefined}
+          readOnly
+        />
+      </MemoryRouter>,
+    );
+    for (const h of ["Fired", "Ticker", "Score", "Setup", "Trigger", "Stop", "Status", "What happened"]) {
+      expect(archived).toContain(`>${h}</th>`);
+    }
+    expect(archived).toContain('aria-label="Bought"');
+    expect(archived).not.toContain("Bought →");
+    expect(archived).not.toContain(">Acknowledge</span>");
+  });
 });
 
 describe("Alert day window", () => {

@@ -1,11 +1,15 @@
-"""Alerts and alert settings in the user database (Postgres on stage, SQLite locally). Rows are never deleted."""
+"""Alerts and alert settings in the user database (Postgres on stage, SQLite locally).
+
+Live rows stay on ``alerts`` through the session. After the close they move, in one transaction,
+to ``alerts_history`` with the same id. Nothing is dropped.
+"""
 
 from __future__ import annotations
 
 import json
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -36,6 +40,8 @@ OUTCOME = (
 )
 # A backfilled alert (found after a restart or a missed poll) is marked late and does not chime.
 LATE_AFTER_SECONDS = 8 * 60
+# Written once, when the row leaves the live table.
+HISTORY_EXTRA = ("trading_date", "archived_at")
 
 
 def _now() -> str:
@@ -218,3 +224,120 @@ def reset_settings(db_path: Optional[Path] = None) -> Settings:
     with _lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute("DELETE FROM alert_settings")
     return Settings()
+
+
+def _history_row(r) -> dict:
+    d = _row(r[: len(COLUMNS)])
+    d.update(zip(HISTORY_EXTRA, r[len(COLUMNS) :]))
+    return d
+
+
+def list_history(
+    trading_date: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    symbol: Optional[str] = None,
+    limit: Optional[int] = 500,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Archived alerts, newest fire first. ``trading_date`` is one session; start/end bound a range."""
+    clauses, params = [], []
+    if trading_date:
+        clauses.append("trading_date = ?")
+        params.append(trading_date)
+    if start:
+        clauses.append("trading_date >= ?")
+        params.append(start)
+    if end:
+        clauses.append("trading_date <= ?")
+        params.append(end)
+    if symbol:
+        clauses.append("symbol = ?")
+        params.append(symbol.upper())
+    cols = ", ".join((*COLUMNS, *HISTORY_EXTRA))
+    sql = f"SELECT {cols} FROM alerts_history"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY fired_at DESC, id DESC"
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    bound = tuple(params)
+
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute(sql, bound).fetchall()
+
+    return [_history_row(r) for r in userdb.cached(("alert_history", sql, bound), read, db_path)]
+
+
+def history_dates(db_path: Optional[Path] = None) -> list[str]:
+    """Trading dates that have archived alerts, newest first."""
+
+    def read() -> list[str]:
+        with userdb.connect(db_path) as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT DISTINCT trading_date FROM alerts_history ORDER BY trading_date DESC"
+            ).fetchall()]
+
+    return list(userdb.cached("alert_history_dates", read, db_path))
+
+
+def list_for_metrics(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    symbol: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Live and archived alerts for the metrics view. A row is in only one table."""
+    return list_alerts(start=start, end=end, symbol=symbol, limit=None, db_path=db_path) + list_history(
+        start=start, end=end, symbol=symbol, limit=None, db_path=db_path
+    )
+
+
+def metric_symbols(db_path: Optional[Path] = None) -> list[str]:
+    def read() -> list[str]:
+        with userdb.connect(db_path) as conn:
+            live = [r[0] for r in conn.execute("SELECT DISTINCT symbol FROM alerts").fetchall()]
+            archived = [r[0] for r in conn.execute("SELECT DISTINCT symbol FROM alerts_history").fetchall()]
+        return sorted(set(live) | set(archived))
+
+    return list(userdb.cached("alert_metric_symbols", read, db_path))
+
+
+def archive_alerts(through: date, now: Optional[datetime] = None, db_path: Optional[Path] = None) -> dict:
+    """Move live alerts with ``session <= through`` into history. One transaction, idempotent.
+
+    The history row keeps the live id. A second call moves nothing. If this process dies before
+    the transaction commits, both tables are unchanged and the next call tries again.
+    """
+    clock = now or datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    stamp = clock.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    day = through.isoformat()
+    live_cols = ", ".join(COLUMNS)
+    hist_cols = ", ".join((*COLUMNS, *HISTORY_EXTRA))
+    insert_sql = (
+        f"INSERT INTO alerts_history ({hist_cols}) "
+        f"SELECT {live_cols}, session, ? FROM alerts WHERE session <= ? "
+        "ON CONFLICT (id) DO NOTHING"
+    )
+    delete_sql = "DELETE FROM alerts WHERE session <= ? AND id IN (SELECT id FROM alerts_history)"
+    with _lock, _writing(), userdb.connect(db_path) as conn:
+        before = int(conn.execute("SELECT COUNT(*) FROM alerts WHERE session <= ?", (day,)).fetchone()[0])
+        conn.execute(insert_sql, (stamp, day))
+        conn.execute(delete_sql, (day,))
+        after = int(conn.execute("SELECT COUNT(*) FROM alerts WHERE session <= ?", (day,)).fetchone()[0])
+    return {"moved": before - after, "through": day, "skipped": False}
+
+
+def archive_if_due(now: Optional[datetime] = None, db_path: Optional[Path] = None) -> dict:
+    """Archive every session the clock says is already closed, unless the setting is off."""
+    from .scheduler import archive_through, now_et
+
+    clock = now_et(now)
+    if not load_settings(db_path).auto_archive:
+        return {"moved": 0, "skipped": True, "through": None}
+    result = archive_alerts(archive_through(clock), now=clock, db_path=db_path)
+    result["skipped"] = False
+    return result

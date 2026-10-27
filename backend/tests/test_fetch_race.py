@@ -118,6 +118,7 @@ def test_scheduler_skips_a_tick_while_a_job_holds_the_slot(monkeypatch, clean_st
             raise SystemExit
 
     monkeypatch.setattr(api.time, "sleep", sleep)
+    monkeypatch.setattr(api, "_catch_up_alert_archive", lambda done, now: done)
     monkeypatch.setattr(api, "decide", lambda *a, **k: (_ for _ in ()).throw(AssertionError("decided while busy")))
     api.State.job = "earnings"
     with pytest.raises(SystemExit):

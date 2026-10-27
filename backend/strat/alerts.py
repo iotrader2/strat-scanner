@@ -99,6 +99,8 @@ class Settings:
     f_to: int = 385
     # Earnings ⚠ on the scanner, watchlist, alerts, positions and the chart. Calendar days, today included.
     earnings_window_days: int = DEFAULT_WARNING_WINDOW_DAYS
+    # 1 = move that day's alerts into history after the 16:05 ET close. 0 = leave them on the live table.
+    auto_archive: int = 1
 
     @classmethod
     def from_mapping(cls, raw: Optional[Mapping[str, Any]]) -> "Settings":
@@ -124,6 +126,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "b_from": (0, 390), "b_to": (0, 390), "c_from": (0, 390), "c_to": (0, 390), "d_from": (0, 390),
     "d_to": (0, 390), "e_from": (0, 390), "e_to": (0, 390), "f_from": (0, 390), "f_to": (0, 390),
     "earnings_window_days": (0, 30),
+    "auto_archive": (0, 1),
 }
 
 

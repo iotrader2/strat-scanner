@@ -1,4 +1,4 @@
-"""Durable user data: watchlist, positions, trims, off-universe symbols, alerts and alert settings.
+"""Durable user data: watchlist, positions, trims, off-universe symbols, alerts, alert history and settings.
 
 Postgres when ``DATABASE_URL`` is set (Neon free tier on stage), so a deploy no longer wipes these
 tables. Without it (local runs, tests) they live in the SQLite cache file, exactly as before.
@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS extra_symbols (
     kind     TEXT NOT NULL,
     industry TEXT NOT NULL DEFAULT ''
 );
--- One row per alert, kept forever. key = symbol|session|setup|first setup bar (stable across polls).
+-- One row per open session. After the close the row moves to alerts_history with the same id.
+-- key = symbol|session|setup|first setup bar (stable across polls).
 CREATE TABLE IF NOT EXISTS alerts (
     id            {SERIAL},
     key           TEXT NOT NULL UNIQUE,
@@ -96,8 +97,52 @@ CREATE TABLE IF NOT EXISTS alert_settings (
 );
 """
 
-SQLITE_SCHEMA = _COMMON.format(REAL="REAL", SERIAL="INTEGER PRIMARY KEY AUTOINCREMENT")
-PG_SCHEMA = _COMMON.format(REAL="DOUBLE PRECISION", SERIAL="BIGSERIAL PRIMARY KEY")
+# Closed sessions, moved here from ``alerts`` after the close. ``id`` is the original alert id
+# (not a new sequence) so a live id and a history id never refer to two different alerts.
+_HISTORY = """
+CREATE TABLE IF NOT EXISTS alerts_history (
+    id            {PKID},
+    key           TEXT NOT NULL UNIQUE,
+    symbol        TEXT NOT NULL,
+    session       TEXT NOT NULL,
+    setup         TEXT NOT NULL,
+    setup_bar     TEXT NOT NULL,
+    fired_at      TEXT NOT NULL,
+    detected_at   TEXT NOT NULL,
+    late          INTEGER NOT NULL DEFAULT 0,
+    top           INTEGER NOT NULL DEFAULT 0,
+    trigger_price {REAL} NOT NULL,
+    stop_price    {REAL} NOT NULL,
+    setup_low     {REAL} NOT NULL,
+    setup_high    {REAL} NOT NULL,
+    ref_price     {REAL} NOT NULL,
+    status        TEXT NOT NULL,
+    filled        INTEGER NOT NULL DEFAULT 0,
+    fill_price    {REAL},
+    fill_at       TEXT,
+    high_reached  {REAL},
+    stop_hit      INTEGER NOT NULL DEFAULT 0,
+    breakeven_at  TEXT,
+    exit_price    {REAL},
+    exit_at       TEXT,
+    exit_reason   TEXT,
+    r_multiple    {REAL},
+    details       TEXT NOT NULL DEFAULT '{{}}',
+    acknowledged  INTEGER NOT NULL DEFAULT 0,
+    updated_at    TEXT NOT NULL,
+    trading_date  TEXT NOT NULL,
+    archived_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS alerts_history_trading_date ON alerts_history(trading_date);
+CREATE INDEX IF NOT EXISTS alerts_history_symbol ON alerts_history(symbol);
+"""
+
+SQLITE_SCHEMA = _COMMON.format(REAL="REAL", SERIAL="INTEGER PRIMARY KEY AUTOINCREMENT") + _HISTORY.format(
+    REAL="REAL", PKID="INTEGER PRIMARY KEY"
+)
+PG_SCHEMA = _COMMON.format(REAL="DOUBLE PRECISION", SERIAL="BIGSERIAL PRIMARY KEY") + _HISTORY.format(
+    REAL="DOUBLE PRECISION", PKID="BIGINT PRIMARY KEY"
+)
 
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,40}$")
 

@@ -521,6 +521,9 @@ export const api = {
     get<Positions>(`/api/positions/${encodeURIComponent(symbol)}/trims/${trimId}`, { method: "DELETE" }),
   /** One session's setup alerts (default today), newest first. */
   alerts: (session?: string) => get<AlertsPayload>(`/api/alerts${session ? `?session=${encodeURIComponent(session)}` : ""}`),
+  /** One archived session. No date uses the latest archived day, or the previous weekday. */
+  alertHistory: (date?: string) =>
+    get<AlertHistoryPayload>(`/api/alerts/history${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   /** Acknowledge alerts; no ids acknowledges every unread one. */
   ackAlerts: (ids?: number[]) => send<{ acknowledged: number; unread: number }>("/api/alerts/ack", "POST", { ids: ids ?? null }),
   alertMetrics: (q: { start?: string; end?: string; symbol?: string }) => {
@@ -586,6 +589,15 @@ export interface TradeAlert {
   score_breakdown?: ScoreComponent[];
   /** Present when this stock reports inside the earnings warning window. Same object as a scan row. */
   earnings?: Earnings | null;
+}
+
+export interface AlertHistoryPayload {
+  date: string;
+  alerts: TradeAlert[];
+  /** Archived trading dates, newest first. */
+  dates: string[];
+  setups: Record<AlertSetup, string>;
+  ema5m: Record<string, Ema5m | null>;
 }
 
 export interface AlertsPayload {
