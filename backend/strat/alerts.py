@@ -723,6 +723,64 @@ def finish_session(a: Alert, last_bar: Mapping) -> None:
 # --------------------------------------------------------------------------------------------- driver
 
 
+def advance_stored(
+    *,
+    symbol: str,
+    session: str,
+    setup: str,
+    origin_bar: datetime,
+    setup_bar: datetime,
+    trigger: float,
+    stop: float,
+    setup_low: float,
+    setup_high: float,
+    ref_price: float,
+    details: Optional[dict] = None,
+    bars: Sequence[Mapping],
+    ctx: Context,
+    settings: Optional[Settings] = None,
+) -> Optional["Alert"]:
+    """Re-walk outcomes for an alert that already fired, without re-matching the setup.
+
+    Live polls re-run ``simulate`` from scratch. When SIP later replaces IEX prices on bars
+    before the setup, ``match_*`` can stop reproducing the alert; ``save_session`` would then
+    leave the stored row stuck (e.g. forever ``pending``). Call this for ACTIVE rows missing
+    from the new simulate run so fills / expiry / stops still update from the frozen levels.
+    """
+    s = settings or Settings()
+    if not bars:
+        return None
+    setup_i = None
+    for i, b in enumerate(bars):
+        if b["t"] == setup_bar or _iso(b["t"]) == _iso(setup_bar):
+            setup_i = i
+            break
+    if setup_i is None:
+        return None
+    a = Alert(
+        symbol=symbol,
+        session=session,
+        setup=setup,
+        origin_bar=origin_bar,
+        setup_bar=setup_bar,
+        setup_index=setup_i,
+        trigger=trigger,
+        stop=stop,
+        setup_low=setup_low,
+        setup_high=setup_high,
+        ref_price=ref_price,
+        details=dict(details or {}),
+    )
+    f = Frame(bars, ctx)
+    for i in range(setup_i + 1, len(bars)):
+        if a.status not in ACTIVE:
+            break
+        step(a, bars[i], f.e20[i], s)
+    if a.status in ACTIVE and ctx.session_bars and len(bars) >= ctx.session_bars:
+        finish_session(a, bars[-1])
+    return a
+
+
 def simulate(
     symbol: str,
     session: str,

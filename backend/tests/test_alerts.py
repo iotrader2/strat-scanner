@@ -596,6 +596,75 @@ def test_r_multiple_win():
     assert a.r_multiple == pytest.approx(2.0)
 
 
+
+
+# ------------------------------------------------------------------ advance_stored (orphan outcomes)
+
+
+def test_advance_stored_expires_when_match_no_longer_reproduces():
+    """TEAM-like: levels frozen at fire time; trigger never prints in the next 3 bars → expired."""
+    from strat.alerts import advance_stored
+
+    setup_t = OPEN + timedelta(minutes=5 * 7)  # ~07:05 Phoenix / 14:05 UTC on a DST day
+    # Build a short day where bar index 7 is the setup; next three highs stay under trigger.
+    rows = [(100, 100.5, 99.9, 100.4)] * 7
+    rows.append((219.5, 220.5, 219.0, 220.0))  # setup bar (index 7)
+    rows += [
+        (220.0, 220.5, 219.8, 220.2),  # wait 1 — under 220.94
+        (220.2, 220.7, 220.0, 220.4),  # wait 2
+        (220.4, 220.8, 220.1, 220.5),  # wait 3 → expire
+        (220.5, 221.5, 220.4, 221.2),  # later print above trigger — must not fill after expiry
+    ]
+    bs = bars(rows)
+    # Shift so index 0 is OPEN; setup is at OPEN+35m
+    a = advance_stored(
+        symbol="TEAM",
+        session="2026-10-23",
+        setup="E",
+        origin_bar=bs[7]["t"],
+        setup_bar=bs[7]["t"],
+        trigger=220.94,
+        stop=218.95,
+        setup_low=219.0,
+        setup_high=220.5,
+        ref_price=220.0,
+        details={"gap_pct": 1.0},
+        bars=bs,
+        ctx=ctx(warm=218.0),
+        settings=Settings(entry_valid_bars=3),
+    )
+    assert a is not None
+    assert a.status == "expired" and a.exit_reason == "not_triggered"
+    assert not a.filled
+
+
+def test_advance_stored_fills_from_frozen_trigger_without_rematch():
+    from strat.alerts import advance_stored
+
+    rows = [(100, 100.5, 99.9, 100.4)] * 3
+    rows.append((100.4, 100.8, 100.3, 100.7))  # setup
+    rows += [
+        (100.7, 100.9, 100.6, 100.85),  # wait 1 under trigger 100.81
+        (100.85, 101.2, 100.8, 101.0),  # wait 2 hits
+    ]
+    bs = bars(rows)
+    a = advance_stored(
+        symbol="X",
+        session="2026-10-23",
+        setup="E",
+        origin_bar=bs[3]["t"],
+        setup_bar=bs[3]["t"],
+        trigger=100.81,
+        stop=100.2,
+        setup_low=100.3,
+        setup_high=100.8,
+        ref_price=100.7,
+        bars=bs,
+        ctx=ctx(warm=99.0),
+    )
+    assert a is not None
+    assert a.status == "triggered" and a.filled and a.fill_price == 100.81
+
 # ------------------------------------------------------------------ top names and metrics
 
 
