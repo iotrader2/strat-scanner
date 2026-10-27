@@ -196,4 +196,9 @@ describe("EMA 360 distance", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
     expect(keys).toEqual(expect.arrayContaining(["ext_filter", "ext_low_pct", "ext_close_pct", "ext_lookback_bars"]));
   });
+  it("has one earnings-warning setting, in calendar days", () => {
+    const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "earnings_window_days");
+    expect(item?.[1]).toMatch(/within/);
+    expect(item?.[2]).toMatch(/calendar days/);
+  });
 });

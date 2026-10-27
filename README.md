@@ -491,8 +491,10 @@ Scanner** (drill into weekly setups, optionally filtered to a theme), **Watchlis
     (blank means the last price), shares and entry date.
   - Stored in the `positions` table of the local SQLite cache. Off-universe names keep refreshing while they are
     watched or held. There are no stops.
-- **Earnings caution**: a ⚠ icon next to the symbol (Stock Scanner, Watchlist, Positions and detail header) marks a stock with
-  earnings in the next 10 calendar days, counting today.
+- **Earnings caution**: a ⚠ icon next to the symbol (Stock Scanner, Watchlist, Alerts, Positions and detail header) marks a stock with
+  earnings inside the warning window. That window is calendar days, counting today (a weekend day counts). The default is 3,
+  so a report today through three days out still warns and one four days out does not. Change it under Alerts → Rule settings →
+  Earnings warning (`earnings_window_days`, 0–30). Every page reads that one saved value.
   - Hover or focus it to see the date and timing: **BMO** (before open), **AMC** (after close) or **time TBD**.
     When Yahoo only gives an estimated date range, the range is shown.
   - Dates come from yfinance (`Ticker.calendar` for the date; `get_earnings_dates` for the scheduled time).

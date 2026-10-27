@@ -584,6 +584,8 @@ export interface TradeAlert {
   score_raw?: number | null;
   score_max_raw?: number | null;
   score_breakdown?: ScoreComponent[];
+  /** Present when this stock reports inside the earnings warning window. Same object as a scan row. */
+  earnings?: Earnings | null;
 }
 
 export interface AlertsPayload {

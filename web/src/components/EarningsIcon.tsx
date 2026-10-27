@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { Earnings } from "../api";
 import { earningsLines } from "../earnings";
 
-/** ⚠ shown when the stock reports within the next 10 calendar days. */
+/** ⚠ shown when the server flags earnings inside the user's warning window (calendar days, today included). */
 export function EarningsIcon({ earnings }: { earnings: Earnings | null | undefined }) {
   const [pos, setPos] = useState<{ x: number; y: number; above: boolean } | null>(null);
   if (!earnings) return null;

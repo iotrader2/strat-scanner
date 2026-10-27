@@ -38,6 +38,8 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional, Sequence
 
+from .earnings import DEFAULT_WARNING_WINDOW_DAYS
+
 TICK = 0.01
 BAR = timedelta(minutes=5)
 SETUPS = ("A", "B", "C", "D", "E", "F")
@@ -95,6 +97,8 @@ class Settings:
     e_to: int = 80
     f_from: int = 120
     f_to: int = 385
+    # Earnings ⚠ on the scanner, watchlist, alerts, positions and the chart. Calendar days, today included.
+    earnings_window_days: int = DEFAULT_WARNING_WINDOW_DAYS
 
     @classmethod
     def from_mapping(cls, raw: Optional[Mapping[str, Any]]) -> "Settings":
@@ -119,6 +123,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "ext_filter": (0, 1), "ext_low_pct": (0, 50), "ext_close_pct": (0, 50), "ext_lookback_bars": (1, 78),
     "b_from": (0, 390), "b_to": (0, 390), "c_from": (0, 390), "c_to": (0, 390), "d_from": (0, 390),
     "d_to": (0, 390), "e_from": (0, 390), "e_to": (0, 390), "f_from": (0, 390), "f_to": (0, 390),
+    "earnings_window_days": (0, 30),
 }
 
 
