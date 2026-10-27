@@ -144,8 +144,6 @@ export default function Detail({ version }: { version: string | null }) {
         </div>
         <div className="detail-kpis">
           <div><span className="kpi-label">Score</span><ScorePill score={row.score} row={row} /></div>
-          <div><span className="kpi-label">Trigger</span><span className="accent-text kpi">{row.trigger?.toFixed(2) ?? "—"}</span></div>
-          <div><span className="kpi-label">To trigger</span><span className="kpi">{fmtPct(row.trigger_distance_pct)}</span></div>
           <div><span className="kpi-label">Avg $vol</span><span className="kpi">{fmtMoney(row.avg_dollar_volume)}</span></div>
           {PERF_PERIODS.map((p) => (
             <div key={p.key}>
