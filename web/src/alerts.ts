@@ -310,6 +310,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["touch_tol_pct", "D: touch / hold tolerance", "%"],
       ["d_lookback_bars", "D: pullback within the last", "bars"],
       ["d_hold20", "D: hold20 path (1 = on, 0 = off)", ""],
+      ["cancel_stop_before_trigger", "Cancel pending entry if the stop trades before the trigger (1 = on, 0 = off)", ""],
       ["d_hold20_extend_pct", "D hold20: prior bar at most", "% over the 20 EMA"],
       ["d_hold20_daily_filter", "D hold20: only near the daily 4 EMA (1 = on, 0 = off)", ""],
       ["d_hold20_daily_pct", "D hold20: trigger within", "% of the daily 4 EMA"],
