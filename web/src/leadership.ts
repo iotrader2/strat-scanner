@@ -202,30 +202,6 @@ export function fmtRs(rs: number | null | undefined): string {
   return rs === null || rs === undefined ? "—" : `P${Math.round(rs * 100)}`;
 }
 
-export interface TriggerHint {
-  price: number;
-  distancePct: number;
-  label: string;
-}
-
-/** The trigger to show for a row: its weekly setup's, or for a name with no setup the nearest weekly high above price. */
-export function triggerHint(
-  r: Pick<ScanRow, "trigger" | "trigger_distance_pct" | "nearest_trigger" | "nearest_trigger_distance_pct" | "nearest_trigger_label">,
-): (TriggerHint & { nearest: boolean }) | null {
-  if (r.trigger !== null && r.trigger !== undefined) {
-    return { price: r.trigger, distancePct: r.trigger_distance_pct ?? 0, label: "setup trigger", nearest: false };
-  }
-  if (r.nearest_trigger !== null && r.nearest_trigger !== undefined) {
-    return {
-      price: r.nearest_trigger,
-      distancePct: r.nearest_trigger_distance_pct ?? 0,
-      label: r.nearest_trigger_label ?? "nearest weekly high",
-      nearest: true,
-    };
-  }
-  return null;
-}
-
 export const NO_SETUP_LEADER = "Leader · no setup";
 
 /** Label for the setup cell of a row without a weekly setup: a leader is still listed, it just has no weekly setup. */

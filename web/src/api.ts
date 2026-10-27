@@ -214,9 +214,6 @@ export interface ScanRow {
   triggered_live?: boolean | null;
   trigger_distance_pct: number | null;
   /** For names with no weekly setup: the closest completed-week high above price. */
-  nearest_trigger: number | null;
-  nearest_trigger_label: string | null;
-  nearest_trigger_distance_pct: number | null;
   reason: string;
   tf: Record<Tf, TfState | null> & Partial<Record<HigherTf, TfState | null>>;
   earnings?: Earnings | null;

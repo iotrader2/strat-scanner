@@ -7,7 +7,7 @@ closes/highs and the 1M/3M/6M returns, so it works on a history cut off at any d
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Optional
 
 import pandas as pd
 
@@ -160,16 +160,6 @@ def leader_status(rs: Optional[float], breakdown: Breakdown, min_rs: float = LEA
     if rs is None or rs < min_rs:
         return LAGGARD
     return BROKEN if breakdown.level == BROKEN else LEADER
-
-
-def nearest_trigger(price: float, weekly: Sequence[tuple[float, str]]) -> Optional[tuple[float, str]]:
-    """Closest completed-week high above price for a name with no setup.
-
-    ``weekly`` is ``(high, label)`` pairs, most recent completed week first.
-    None when price is already above both (at highs).
-    """
-    above = [(h, label) for h, label in weekly if h > price]
-    return min(above, key=lambda t: t[0]) if above else None
 
 
 def is_leader(rs: Optional[float], breakdown_level: str, min_rs: float = LEADER_MIN_RS) -> bool:

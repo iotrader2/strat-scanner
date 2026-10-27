@@ -20,7 +20,6 @@ import {
   migrateLeadership,
   noSetupLabel,
   sliderToRs,
-  triggerHint,
   type LeadershipFilter,
 } from "./leadership";
 import { sortBy } from "./components/ScanTable";
@@ -434,29 +433,6 @@ describe("noSetupLabel", () => {
     expect(noSetupLabel(midLeader)).toBe("no active setup");
     expect(noSetupLabel(midLeader, 0.8)).toBe("no active setup"); // P85 is not a leader at any slider position
     expect(noSetupLabel(leader, 0.98)).toBe("no active setup"); // below a raised cut it is not listed as a leader
-  });
-});
-
-describe("triggerHint", () => {
-  const base = { trigger: null, trigger_distance_pct: null, nearest_trigger: null, nearest_trigger_distance_pct: null, nearest_trigger_label: null };
-
-  it("uses the weekly setup's trigger when there is one", () => {
-    expect(triggerHint({ ...base, trigger: 106, trigger_distance_pct: 1.9, nearest_trigger: 110 })).toEqual({
-      price: 106,
-      distancePct: 1.9,
-      label: "setup trigger",
-      nearest: false,
-    });
-  });
-
-  it("falls back to the nearest weekly high for a name with no setup", () => {
-    expect(
-      triggerHint({ ...base, nearest_trigger: 101.5, nearest_trigger_distance_pct: 0.8, nearest_trigger_label: "last week's high" }),
-    ).toEqual({ price: 101.5, distancePct: 0.8, label: "last week's high", nearest: true });
-  });
-
-  it("has nothing to show for a name at its highs with no setup", () => {
-    expect(triggerHint(base)).toBeNull();
   });
 });
 
