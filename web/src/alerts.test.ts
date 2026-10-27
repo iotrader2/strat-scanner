@@ -199,7 +199,7 @@ describe("EMA 360 distance", () => {
   it("exposes D hold20 and the daily-4-EMA gate in settings", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
     expect(keys).toEqual(
-      expect.arrayContaining(["d_hold20", "d_hold20_extend_pct", "d_hold20_daily_filter", "d_hold20_daily_pct"]),
+      expect.arrayContaining(["d_hold20", "d_hold20_extend_pct", "d_hold20_daily_filter", "d_hold20_daily_pct", "f_soft_body_pct", "f_soft_volume_mult"]),
     );
   });
   it("has one earnings-warning setting, in calendar days", () => {
