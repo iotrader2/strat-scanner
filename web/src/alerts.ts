@@ -342,6 +342,12 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     ],
   },
   {
+    title: "After the close",
+    items: [
+      ["auto_archive", "Move the day's alerts to History after 4:05 PM New York (1 = on, 0 = off)", ""],
+    ],
+  },
+  {
     title: "Windows (minutes after the open; 0 = the opening bar)",
     items: [
       ["b_from", "B from", "min"],

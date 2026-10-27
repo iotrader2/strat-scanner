@@ -20,7 +20,7 @@ from . import alerts_live, alerts_store, chart5m, config, data, earnings, fetch_
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
-from .scheduler import decide, fetch_period, now_et, scheduler_sleep, session_phase
+from .scheduler import archive_through, decide, fetch_period, now_et, previous_weekday, scheduler_sleep, session_phase
 from . import breadth as breadth_data
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
@@ -457,11 +457,35 @@ def _hydrate() -> None:
     State.version = snap["version"]
 
 
+def _catch_up_alert_archive(done: date | None, now) -> date | None:
+    """Move closed sessions into alerts history. Once per cutoff, including while a download holds the job slot.
+
+    A dyno that wakes after 16:05 should not wait on the history fetch. The move is one short transaction.
+    A failure leaves ``done`` unchanged so the next tick tries again. The auto-archive setting off also
+    leaves it unchanged, so turning the setting on later still archives.
+    """
+    through = archive_through(now)
+    if done is not None and through <= done:
+        return done
+    try:
+        result = alerts_store.archive_if_due(now)
+    except Exception:
+        log.exception("alert archive failed")
+        return done
+    if result["skipped"]:
+        return done
+    if result["moved"]:
+        log.info("archived %s alerts through %s", result["moved"], result["through"])
+        hub.publish({"type": "alerts", "new": []})
+    return through
+
+
 def _boot() -> None:
     if config.AS_OF:
         with _scan_lock:
             _ensure_scan(force=True)
         return
+    _catch_up_alert_archive(None, now_et())
     if not data.cached_symbols():
         log.info("Cache is empty, starting the initial download")
         start_refresh(full=True)
@@ -476,11 +500,13 @@ def _scheduler_loop() -> None:
     last_poll = None
     last_extended = None
     last_lists = None
+    archived_through: date | None = None
     while True:
         time.sleep(scheduler_sleep(now_et(), live_bars_enabled()))
+        now = now_et()
+        archived_through = _catch_up_alert_archive(archived_through, now)
         if config.AS_OF or State.refreshing or State.quoting or State.job is not None:
             continue
-        now = now_et()
         if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():
             _publish_index_quotes()
         live = live_bars_enabled()
@@ -955,6 +981,14 @@ def _alert_ema5m(symbols: list[str]) -> dict[str, dict | None]:
     return {sym: snap[sym]["ema5m"] for sym in symbols}
 
 
+def _decorate_alerts(rows: list[dict]) -> tuple[list[dict], list[str]]:
+    """Scanner score and the earnings warning, the same fields the live alerts route adds."""
+    rows = _attach_scores(rows)
+    symbols = list(dict.fromkeys(row["symbol"] for row in rows))
+    flags = _earnings_for_symbols(symbols)
+    return [{**row, "earnings": flags.get(row["symbol"])} for row in rows], symbols
+
+
 def _attach_scores(rows: list[dict]) -> list[dict]:
     """The scanner score for each alert's symbol, the same number the Stock Scanner shows."""
     by_symbol = {r["symbol"]: r for r in State.scan if r.get("symbol")}
@@ -975,10 +1009,7 @@ def _attach_scores(rows: list[dict]) -> list[dict]:
 def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
     """One session's alerts (default today, Eastern date), newest first, plus the sessions that have any."""
     day = _alerts_session(session)
-    rows = _attach_scores(alerts_store.list_alerts(session=day, symbol=symbol))
-    symbols = list(dict.fromkeys(row["symbol"] for row in rows))
-    flags = _earnings_for_symbols(symbols)
-    rows = [{**row, "earnings": flags.get(row["symbol"])} for row in rows]
+    rows, symbols = _decorate_alerts(alerts_store.list_alerts(session=day, symbol=symbol))
     return {
         "session": day,
         "alerts": rows,
@@ -988,6 +1019,27 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
         "watchlist": data.watchlist(),
         "setups": alert_rules.SETUP_NAMES,
         # One small reading per symbol, not a copy on every alert row.
+        "ema5m": _alert_ema5m(symbols),
+    }
+
+
+@app.get("/api/alerts/history")
+def get_alert_history(day: Optional[str] = Query(None, alias="date")):
+    """One archived session, newest fire first. No date picks the latest archived day, or the previous weekday."""
+    dates = alerts_store.history_dates()
+    if day:
+        try:
+            chosen = date.fromisoformat(day).isoformat()
+        except ValueError:
+            raise HTTPException(422, "date must be YYYY-MM-DD") from None
+    else:
+        chosen = dates[0] if dates else previous_weekday(now_et()).isoformat()
+    rows, symbols = _decorate_alerts(alerts_store.list_history(chosen))
+    return {
+        "date": chosen,
+        "alerts": rows,
+        "dates": dates,
+        "setups": alert_rules.SETUP_NAMES,
         "ema5m": _alert_ema5m(symbols),
     }
 
@@ -1008,13 +1060,13 @@ def alert_metrics(start: Optional[str] = None, end: Optional[str] = None, symbol
                 date.fromisoformat(v)
             except ValueError:
                 raise HTTPException(422, "start / end must be YYYY-MM-DD") from None
-    rows = alerts_store.list_alerts(start=start, end=end, symbol=symbol or None, limit=None)
+    rows = alerts_store.list_for_metrics(start=start, end=end, symbol=symbol or None)
     return {
         "start": start,
         "end": end,
         "symbol": (symbol or "").upper() or None,
         "rows": alert_rules.metrics(rows),
-        "symbols": sorted({r["symbol"] for r in alerts_store.list_alerts(limit=None)}),
+        "symbols": alerts_store.metric_symbols(),
     }
 
 

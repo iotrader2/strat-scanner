@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   api,
+  type AlertHistoryPayload,
   type AlertMetricsPayload,
   type AlertSettings,
   type AlertSettingsPayload,
@@ -123,6 +124,7 @@ export function AlertsTable({
   onAck,
   onBought,
   ema5m,
+  readOnly = false,
 }: {
   alerts: TradeAlert[];
   flashing: Set<number>;
@@ -130,6 +132,8 @@ export function AlertsTable({
   onBought: (alert: TradeAlert) => void;
   /** Live 5-minute EMA by symbol. Missing or null renders a dash. */
   ema5m?: Record<string, Ema5m | null>;
+  /** History rows keep the same columns and do not acknowledge or record a buy. */
+  readOnly?: boolean;
 }) {
   return (
     <div className="card table-card">
@@ -209,17 +213,23 @@ export function AlertsTable({
               </td>
               <td className="muted small outcome-cell">{outcomeText(a)}</td>
               <td className="bought-col">
-                <button
-                  type="button"
-                  className="btn small move-btn"
-                  onClick={() => onBought(a)}
-                  title="Record the entry and track it on the Positions tab"
-                >
-                  Bought →
-                </button>
+                {readOnly ? (
+                  <span className="muted small">—</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn small move-btn"
+                    onClick={() => onBought(a)}
+                    title="Record the entry and track it on the Positions tab"
+                  >
+                    Bought →
+                  </button>
+                )}
               </td>
               <td className="actions-col">
-                {!a.acknowledged ? (
+                {readOnly ? (
+                  <span className="muted small">{a.acknowledged ? "Read" : "—"}</span>
+                ) : !a.acknowledged ? (
                   <button type="button" className="btn small" onClick={() => onAck(a.id)}>
                     <span className="ack-long">Acknowledge</span>
                     <span className="ack-short">Ack</span>
@@ -355,6 +365,71 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
   );
 }
 
+function HistoryView() {
+  const [date, setDate] = useState("");
+  const [data, setData] = useState<AlertHistoryPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .alertHistory(date || undefined)
+      .then((d) => {
+        if (cancelled) return;
+        setData(d);
+        setError(null);
+        if (!date && d.date) setDate(d.date);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
+
+  const alerts = data?.alerts ?? [];
+  return (
+    <>
+      <div className="table-meta alerts-toolbar">
+        <div className="alerts-toolbar-left">
+          <label className="muted small" htmlFor="alert-history-date">
+            Trading day
+          </label>
+          <input
+            id="alert-history-date"
+            className="input date"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          {data && (
+            <span className="muted small">
+              {alerts.length} archived{data.dates.length > 1 ? ` · ${data.dates.length} days kept` : ""}
+            </span>
+          )}
+        </div>
+        <span className="muted small">Archived after the close. Read only.</span>
+      </div>
+      {error && <div className="banner error">{error}</div>}
+      {data === null ? (
+        <div className="card empty-state">Loading history…</div>
+      ) : alerts.length === 0 ? (
+        <div className="card empty-state">No archived alerts{data.date ? ` on ${data.date}` : ""}.</div>
+      ) : (
+        <AlertsTable
+          alerts={alerts}
+          flashing={new Set()}
+          ema5m={data.ema5m}
+          onAck={() => undefined}
+          onBought={() => undefined}
+          readOnly
+        />
+      )}
+    </>
+  );
+}
+
 function MetricsView() {
   const [start, setStart] = usePersisted<string>("alertsMetricsStart", "");
   const [end, setEnd] = usePersisted<string>("alertsMetricsEnd", "");
@@ -467,14 +542,17 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
   const save = async () => {
     try {
       apply(await api.saveAlertSettings(changed));
-      const rules = Object.keys(changed).some((k) => k !== "earnings_window_days");
+      const rules = Object.keys(changed).some((k) => k !== "earnings_window_days" && k !== "auto_archive");
       const warning = "earnings_window_days" in changed;
+      const archiveOnly = Object.keys(changed).length === 1 && "auto_archive" in changed;
       setNote(
-        rules && warning
-          ? "Saved. Setup rules apply from the next 5-minute check. The earnings warning updates the next time each page loads."
-          : warning
-            ? "Saved. The earnings warning updates the next time each page loads."
-            : "Saved. New values apply from the next 5-minute check.",
+        archiveOnly
+          ? "Saved. Today's alerts move to History after 4:05 PM New York when this is on."
+          : rules && warning
+            ? "Saved. Setup rules apply from the next 5-minute check. The earnings warning updates the next time each page loads."
+            : warning
+              ? "Saved. The earnings warning updates the next time each page loads."
+              : "Saved. New values apply from the next 5-minute check.",
       );
       setError(null);
     } catch (e) {
@@ -537,7 +615,7 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
 }
 
 export default function Alerts() {
-  const [view, setView] = usePersisted<"alerts" | "metrics">("alertsView", "alerts");
+  const [view, setView] = usePersisted<"alerts" | "history" | "metrics">("alertsView", "alerts");
   const { today, unread } = useAlerts();
   const [now, setNow] = useState(() => new Date());
   const [windowSettings, setWindowSettings] = useState<AlertSettings | undefined>(undefined);
@@ -584,12 +662,15 @@ export default function Alerts() {
           <button type="button" role="tab" aria-selected={view === "alerts"} className={view === "alerts" ? "active" : ""} onClick={() => setView("alerts")}>
             Alerts
           </button>
+          <button type="button" role="tab" aria-selected={view === "history"} className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
+            History
+          </button>
           <button type="button" role="tab" aria-selected={view === "metrics"} className={view === "metrics" ? "active" : ""} onClick={() => setView("metrics")}>
             Metrics by setup
           </button>
         </div>
       </div>
-      {view === "alerts" ? <AlertsView day={day} /> : <MetricsView />}
+      {view === "history" ? <HistoryView /> : view === "alerts" ? <AlertsView day={day} /> : <MetricsView />}
       <SettingsPanel onSettings={setWindowSettings} />
     </div>
   );

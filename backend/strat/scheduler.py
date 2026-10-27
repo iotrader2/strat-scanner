@@ -21,6 +21,8 @@ CLOSE = time(16, 0)
 AFTER_HOURS_END = time(20, 0)
 EOD_AT = time(16, 20)
 CLOSING_POLL_END = time(16, 1)  # the 16:00:10 poll picks up the 15:55 bar
+# A few minutes after the 16:00 bell, once the closing poll (through 16:01) has finished.
+ARCHIVE_AT = time(16, 5)
 
 
 def now_et(clock: datetime | None = None) -> datetime:
@@ -50,6 +52,27 @@ def session_phase(now: datetime) -> str:
     if CLOSE <= t < AFTER_HOURS_END:
         return "after_hours"
     return "closed"
+
+
+def archive_through(now: datetime) -> date:
+    """Last session date, inclusive, that belongs in alerts history.
+
+    On a weekday at or after 16:05 America/New_York that date is today. Before then, and on
+    weekends, it is yesterday, so a process that starts after the close still archives the
+    session it missed. Weekends have no session rows; ISO dates compare in calendar order.
+    """
+    local = now_et(now)
+    if local.weekday() < 5 and local.time() >= ARCHIVE_AT:
+        return local.date()
+    return local.date() - timedelta(days=1)
+
+
+def previous_weekday(now: datetime) -> date:
+    """The weekday before ``now``'s Eastern date. Monday goes back to Friday."""
+    day = now_et(now).date() - timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
 
 
 def last_completed_session(now: datetime) -> date:

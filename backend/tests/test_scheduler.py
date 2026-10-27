@@ -79,6 +79,28 @@ def test_extended_hours_poll_the_indexes_and_history_still_wins():
     assert scheduler.decide(datetime(2026, 10, 20, 20, 0, tzinfo=ET), date(2026, 10, 20), None, None) is None
 
 
+def test_alert_archive_waits_until_1605_eastern_and_follows_daylight_saving():
+    # 16:04 local stays live; 16:05 local is the first minute that archives today. The same UTC
+    # instant is 16:05 in July (EDT) and 15:05 in January (EST).
+    july_early = datetime(2026, 7, 15, 20, 4, tzinfo=timezone.utc)  # 16:04 EDT, Wednesday
+    july_due = datetime(2026, 7, 15, 20, 5, tzinfo=timezone.utc)  # 16:05 EDT
+    jan_not_yet = datetime(2026, 1, 15, 20, 5, tzinfo=timezone.utc)  # 15:05 EST, Thursday
+    jan_early = datetime(2026, 1, 15, 21, 4, tzinfo=timezone.utc)  # 16:04 EST
+    jan_due = datetime(2026, 1, 15, 21, 5, tzinfo=timezone.utc)  # 16:05 EST
+    assert scheduler.archive_through(july_early) == date(2026, 7, 14)
+    assert scheduler.archive_through(july_due) == date(2026, 7, 15)
+    assert scheduler.archive_through(jan_not_yet) == date(2026, 1, 14)
+    assert scheduler.archive_through(jan_early) == date(2026, 1, 14)
+    assert scheduler.archive_through(jan_due) == date(2026, 1, 15)
+    # A weekend start catches the Friday session. Monday morning still has not closed Monday.
+    saturday = datetime(2026, 10, 24, 10, 0, tzinfo=ET)
+    monday_open = datetime(2026, 10, 26, 9, 30, tzinfo=ET)
+    assert scheduler.archive_through(saturday) == date(2026, 10, 23)
+    assert scheduler.archive_through(monday_open) == date(2026, 10, 25)
+    assert scheduler.previous_weekday(monday_open) == date(2026, 10, 23)
+    assert scheduler.previous_weekday(saturday) == date(2026, 10, 23)
+
+
 def test_fetch_window_stays_short_when_the_cache_is_current():
     now = datetime(2026, 10, 19, 11, 0, tzinfo=ET)
     assert scheduler.fetch_period(now, date(2026, 10, 16)) == "5d"
