@@ -48,7 +48,7 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "setups_pending",
     label: "Weekly strat awaiting trigger",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side weekly Strat setup on the last completed week (the trigger is that week's high, never the week still in progress) that has not been broken yet, not even by this week's high: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Shows the trigger and distance to it. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side weekly Strat setup on the last completed week (the trigger is that week's high, never the week still in progress) that has not been broken yet, not even by this week's high: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Sorted by score.",
   },
   {
     value: "setups_triggered",

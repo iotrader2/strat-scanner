@@ -33,7 +33,7 @@ from .candles import (
     timeframe_state,
 )
 from .data import resample
-from .periods import completed_week_high_labels, daily_bar_complete
+from .periods import daily_bar_complete
 from . import legacy_scoring, scoring
 from .leadership import (
     BENCHMARK,
@@ -41,7 +41,6 @@ from .leadership import (
     qqq_excess,
     leader_status,
     long_term_rs,
-    nearest_trigger,
     rs_line_new_high,
     trend_metrics,
 )
@@ -50,7 +49,7 @@ from .macd import daily_trend_setup, latest_daily_trend, latest_weekly_trend, we
 from .perf import MomentumRanks, Perf, period_returns
 from .pricebehavior import find_kill_candle, range_stats, tightness_fraction
 from .quotes import IndexQuote, percent_change
-from .scoring import TF_NAMES, ThemeStrength, trigger_distance_pct
+from .scoring import TF_NAMES, ThemeStrength
 from .themes import Theme, ThemeMap, build_theme_index
 from .universe import Member
 
@@ -284,13 +283,6 @@ def scan_symbol(
     new_breakdown = worsened(trend_break.level, history, as_of)
     new_leader = entered_leaders(rs, trend_break.level, history, as_of)
     patterns = candle_patterns(daily, frames, candles)
-    near = None
-    if primary is None and candles["W"]:
-        recent, prior = completed_week_high_labels(daily.index[-1].date())
-        weekly = candles["W"]
-        levels = [(weekly[-1].high, recent)] + ([(weekly[-2].high, prior)] if len(weekly) > 1 else [])
-        # A completed-week high the week in progress already traded above is broken, not a trigger ahead.
-        near = nearest_trigger(max(price, live_highs.get("W") or price), levels)
     return {
         "symbol": member.symbol,
         "name": member.name,
@@ -394,9 +386,6 @@ def scan_symbol(
         # True when the break happened in the week still in progress (the trigger is still last completed week's).
         "triggered_live": primary.setup.live if primary else None,
         "trigger_distance_pct": sc.trigger_distance_pct,
-        "nearest_trigger": round(near[0], 2) if near else None,
-        "nearest_trigger_label": near[1] if near else None,
-        "nearest_trigger_distance_pct": round(trigger_distance_pct(price, near[0]), 2) if near else None,
         "reason": " · ".join(sc.reasons),
         "setups": [
             {"tf": s.tf, "points": s.points, **asdict(s.setup)}

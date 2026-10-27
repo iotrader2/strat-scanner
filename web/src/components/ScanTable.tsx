@@ -12,7 +12,6 @@ import {
   LEADER_RS,
   NO_SETUP_LEADER,
   noSetupLabel,
-  triggerHint,
 } from "../leadership";
 import { rsChipView } from "../rsChange";
 import { AddedChip, ScorePill, TfBadges } from "./Badges";
@@ -52,37 +51,6 @@ function RsChip({ row }: { row: ScanRow }) {
   );
 }
 
-/** Trigger and distance cells: the weekly setup's trigger, or (muted) the nearest weekly high for a name with no setup. */
-function TriggerCells({ row }: { row: ScanRow }) {
-  const hint = triggerHint(row);
-  if (!hint) {
-    return (
-      <>
-        <td className="num">—</td>
-        <td className="num">—</td>
-      </>
-    );
-  }
-  if (hint.nearest) {
-    return (
-      <>
-        <td className="num muted" title={`Nearest trigger: ${hint.label}`}>
-          {hint.price.toFixed(2)}
-        </td>
-        <td className="num muted" title={`Nearest trigger: ${hint.label}`}>
-          {fmtPct(hint.distancePct)}
-        </td>
-      </>
-    );
-  }
-  return (
-    <>
-      <td className="num accent-text">{hint.price.toFixed(2)}</td>
-      <td className="num">{fmtPct(row.trigger_distance_pct)}</td>
-    </>
-  );
-}
-
 /** Percent distance of price from the daily N SMA (scanner layout; the trading lists render it via ListIntradayColumns). */
 export function MaDistanceCell({ row, period }: { row: ScanRow; period: MaPeriod }) {
   const v = maDistance(row, period);
@@ -103,7 +71,6 @@ export type SortKey =
   | "symbol"
   | "price"
   | "change_pct"
-  | "trigger_distance_pct"
   | "avg_dollar_volume"
   | "atr"
   | "atr_pct"
@@ -112,14 +79,13 @@ export type SortKey =
   | PerfSort;
 
 export function sortRows(rows: ScanRow[], key: SortKey, dir: 1 | -1): ScanRow[] {
-  // Distance sorts by closeness to the trigger, whichever side of it price is on.
   return sortBy(rows, (r) => {
     if (isPerfSort(key)) return perfSortValue(r, key);
     if (key === "theme") return r.theme_name ?? null;
     const ma = MA_DISTANCE_PERIODS.find((p) => maSortKey(p) === key);
     if (ma !== undefined) return maDistance(r, ma);
     const k = key as Exclude<SortKey, `ma_dist_${MaPeriod}` | PerfSort | "theme">;
-    return k === "trigger_distance_pct" && r.trigger_distance_pct !== null ? Math.abs(r.trigger_distance_pct) : r[k];
+    return r[k];
   }, dir);
 }
 
@@ -135,7 +101,7 @@ export function sortBy<T>(rows: T[], value: (r: T) => unknown, dir: 1 | -1): T[]
   });
 }
 
-const ASCENDING_FIRST: SortKey[] = ["symbol", "theme", "trigger_distance_pct"];
+const ASCENDING_FIRST: SortKey[] = ["symbol", "theme"];
 
 /** Extra sortable column (e.g. a position's entry price or P/L). */
 export interface ExtraColumn {
@@ -246,8 +212,6 @@ export function ScanTable({
             {scanning && PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
             {scanning && <th>D · W · M</th>}
             {scanning && <th>Weekly setup</th>}
-            <th className="num">Trigger</th>
-            {header("trigger_distance_pct", "To trigger", "num")}
             {header("avg_dollar_volume", "Avg $vol", "num")}
             {header("atr", "ATR", "num", "14-day average true range")}
             {header("atr_pct", "ATR %", "num", "14-day ATR as a percent of price")}
@@ -377,7 +341,6 @@ export function ScanTable({
                 )}
               </td>
               )}
-              <TriggerCells row={r} />
               <td className="num muted">{fmtMoney(r.avg_dollar_volume)}</td>
               <td className="num">{r.atr == null ? "—" : r.atr.toFixed(2)}</td>
               <td className="num">{r.atr_pct == null ? "—" : `${r.atr_pct.toFixed(2)}%`}</td>

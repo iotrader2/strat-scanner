@@ -13,7 +13,6 @@ from strat.leadership import (
     is_leader,
     leader_status,
     long_term_rs,
-    nearest_trigger,
     trend_metrics,
 )
 
@@ -151,17 +150,6 @@ def test_long_term_rs_blends_3m_and_6m_only():
     assert long_term_rs({"1m": 0.0, "3m": 0.8, "6m": 1.0}) == pytest.approx(0.9)
     assert long_term_rs({"1m": 0.5, "3m": None, "6m": 0.7}) == pytest.approx(0.7)
     assert long_term_rs({"1m": 0.5, "3m": None, "6m": None}) is None
-
-
-class TestNearestTrigger:
-    def test_picks_the_closest_weekly_high_above_price(self):
-        assert nearest_trigger(100.0, [(103.0, "this week's high"), (101.5, "last week's high")]) == (101.5, "last week's high")
-
-    def test_ignores_levels_already_taken_out(self):
-        assert nearest_trigger(100.0, [(99.0, "this week's high"), (104.0, "last week's high")]) == (104.0, "last week's high")
-
-    def test_none_when_price_is_above_both(self):
-        assert nearest_trigger(100.0, [(99.0, "a"), (98.0, "b")]) is None
 
 
 class TestRsLineNewHigh:

@@ -198,16 +198,13 @@ class TestCtvaTrigger:
         daily = chart_payload(df, "D", 3)
         assert daily[-1]["time"] == "2026-10-19" and daily[-1]["high"] == 13.01
 
-    def test_a_name_with_no_setup_does_not_use_the_open_weeks_high_as_the_nearest_trigger(self):
+    def test_a_name_with_no_setup_keeps_the_completed_week_as_weekly_state(self):
         rows = _fill("2026-07-01", "2026-10-02", (10, 11, 9, 10))
         rows += _fill("2026-10-05", "2026-10-09", (10, 12, 9, 11))
         rows += _fill("2026-10-12", "2026-10-16", (11, 14, 10.5, 13))  # 2U, not an inside bar or a hammer
         rows.append(("2026-10-19", 12.4, 13.01, 10.0, 12.8))  # 2D, high 13.01 sits closer to price than 14
         row = scan_symbol(Member("CTVA", "Corteva", "Materials", "stock", "SP500"), _frame(rows))
         assert row["trigger"] is None and row["has_setup"] is False
-        assert row["nearest_trigger"] == 14
-        assert row["nearest_trigger_label"] == "last week's high"
-        assert row["nearest_trigger"] != 13.01
         state = timeframe_state("W", to_candles(resample(_frame(rows), "W")))
         assert state.high == 14 and state.strat == "2U"
 

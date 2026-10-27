@@ -154,9 +154,11 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     const html = list({
       extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
     });
-    const order = ["$ P/L", "Premkt", "Day", "Day range", "vs 6 MA", "Trigger"].map((label) => html.indexOf(`>${label}<`));
+    const order = ["$ P/L", "Premkt", "Day", "Day range", "vs 6 MA", "Avg $vol"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).not.toContain(">Trigger<");
+    expect(html).not.toContain(">To trigger<");
     expect(html).not.toContain("6 EMA (5m)");
     expect(html).not.toContain("20 EMA (5m)");
     expect(html).not.toContain("ema-pill");
@@ -168,7 +170,7 @@ describe("ListTable (Watchlist and Positions share it)", () => {
       showEma5m: true,
       extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
     });
-    const order = ["$ P/L", "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "Trigger"].map((label) =>
+    const order = ["$ P/L", "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "Avg $vol"].map((label) =>
       html.indexOf(`>${label}<`),
     );
     expect(order.every((i) => i > -1)).toBe(true);
@@ -253,7 +255,7 @@ describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
         <ListTable rows={[withMa]} watchColumn={false} intraday={{}} />
       </MemoryRouter>,
     );
-    const order = ["Day range", ...labels, "Trigger"].map((label) => html.indexOf(`>${label}<`));
+    const order = ["Day range", ...labels, "Avg $vol"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const label of labels) expect(html.split(`>${label}<`)).toHaveLength(2);
@@ -268,7 +270,7 @@ describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
         <ListTable rows={[withMa]} watchColumn={false} intraday={{}} showEma5m />
       </MemoryRouter>,
     );
-    const order = ["20 EMA (5m)", ...labels, "Trigger"].map((label) => html.indexOf(`>${label}<`));
+    const order = ["20 EMA (5m)", ...labels, "Avg $vol"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const label of labels) expect(html.split(`>${label}<`)).toHaveLength(2);
