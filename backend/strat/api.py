@@ -224,10 +224,11 @@ def _refresh_alerts() -> None:
                 log.info("alerts prepared volume averages for %s symbols", stats["prepared"])
             return
         log.info(
-            "alerts symbols=%s alerts=%s new=%s updated=%s requests=%s",
-            stats["symbols"], stats["alerts"], len(stats["inserted"]), stats["updated"], stats["requests"],
+            "alerts symbols=%s alerts=%s new=%s updated=%s removed=%s requests=%s",
+            stats["symbols"], stats["alerts"], len(stats["inserted"]), stats["updated"],
+            stats.get("removed", 0), stats["requests"],
         )
-        if stats["inserted"] or stats["updated"]:
+        if stats["inserted"] or stats["updated"] or stats.get("removed"):
             hub.publish({"type": "alerts", "new": [a["id"] for a in stats["inserted"] if not a["late"]]})
     except Exception:
         log.exception("alerts refresh failed")
@@ -457,25 +458,60 @@ def _hydrate() -> None:
     State.version = snap["version"]
 
 
+# A standing archive error used to be logged and retried on every scheduler tick (about 20s).
+_ARCHIVE_RETRY_MIN = 60.0
+_ARCHIVE_RETRY_MAX = 600.0
+_archive_failures = 0
+_archive_retry_not_before = 0.0
+_archive_failure_key = ""
+
+
+def _reset_archive_retry() -> None:
+    global _archive_failures, _archive_retry_not_before, _archive_failure_key
+    _archive_failures = 0
+    _archive_retry_not_before = 0.0
+    _archive_failure_key = ""
+
+
+def _remember_archive_failure(exc: BaseException) -> None:
+    """Log a new failure once, then wait progressively longer before trying again."""
+    global _archive_failures, _archive_retry_not_before, _archive_failure_key
+    _archive_failures += 1
+    delay = min(_ARCHIVE_RETRY_MAX, _ARCHIVE_RETRY_MIN * (2 ** (_archive_failures - 1)))
+    _archive_retry_not_before = time.monotonic() + delay
+    key = f"{type(exc).__name__}: {exc}"
+    if key != _archive_failure_key:
+        _archive_failure_key = key
+        log.exception("alert archive failed; next try in %ds", int(delay))
+
+
 def _catch_up_alert_archive(done: date | None, now) -> date | None:
     """Move closed sessions into alerts history. Once per cutoff, including while a download holds the job slot.
 
     A dyno that wakes after 16:05 should not wait on the history fetch. The move is one short transaction.
-    A failure leaves ``done`` unchanged so the next tick tries again. The auto-archive setting off also
-    leaves it unchanged, so turning the setting on later still archives.
+    A failure leaves ``done`` unchanged. The same error is logged once, and the next try waits, doubling
+    from one minute up to ten, instead of repeating on every 20s tick. The auto-archive setting off also
+    leaves ``done`` unchanged, so turning the setting on later still archives.
     """
     through = archive_through(now)
     if done is not None and through <= done:
         return done
+    if time.monotonic() < _archive_retry_not_before:
+        return done
     try:
         result = alerts_store.archive_if_due(now)
-    except Exception:
-        log.exception("alert archive failed")
+    except Exception as exc:
+        _remember_archive_failure(exc)
         return done
+    if _archive_failures:
+        log.info("alert archive recovered after %s failed attempt(s)", _archive_failures)
+        _reset_archive_retry()
     if result["skipped"]:
         return done
-    if result["moved"]:
-        log.info("archived %s alerts through %s", result["moved"], result["through"])
+    dropped = result.get("dropped") or 0
+    if result["moved"] or dropped:
+        suffix = f" and removed {dropped} live duplicates" if dropped else ""
+        log.info("archived %s alerts through %s%s", result["moved"], result["through"], suffix)
         hub.publish({"type": "alerts", "new": []})
     return through
 

@@ -1,7 +1,8 @@
 """Alerts and alert settings in the user database (Postgres on stage, SQLite locally).
 
 Live rows stay on ``alerts`` through the session. After the close they move, in one transaction,
-to ``alerts_history`` with the same id. Nothing is dropped.
+to ``alerts_history`` with the same id. A live row whose key is already in history is a
+re-creation (new id, same alert): it is not copied again, and it is removed from the live table.
 """
 
 from __future__ import annotations
@@ -135,12 +136,33 @@ def save_session(
 ) -> dict:
     """Insert new alerts and update the outcome of known ones (by key) for one session, then mark "top".
 
-    Alerts stored earlier but missing from this run are left as they were.
+    A key already in ``alerts_history`` has already fired. It is not inserted again — the local
+    order app uses the alert id as ``clientOrderId``, so a new id would be a second order — and a
+    live duplicate of that key is removed. Alerts stored earlier but missing from this run are
+    left as they were.
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     stamp = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
-    inserted, updated = [], 0
+    inserted, updated, removed = [], 0, 0
     with _lock, _writing(), userdb.connect(db_path) as conn:
+        archived = {
+            r[0]
+            for r in conn.execute("SELECT key FROM alerts_history WHERE session = ?", (session,)).fetchall()
+        }
+        if archived:
+            removed = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM alerts WHERE session = ? AND key IN "
+                    "(SELECT key FROM alerts_history WHERE session = ?)",
+                    (session, session),
+                ).fetchone()[0]
+            )
+            if removed:
+                conn.execute(
+                    "DELETE FROM alerts WHERE session = ? AND key IN "
+                    "(SELECT key FROM alerts_history WHERE session = ?)",
+                    (session, session),
+                )
         known = {
             r[0]: r[1:]
             for r in conn.execute(
@@ -149,6 +171,8 @@ def save_session(
         }
         for a in alerts:
             rec = a.record()
+            if rec["key"] in archived:
+                continue
             if rec["key"] in known:
                 if tuple(known[rec["key"]]) != tuple(rec[c] for c in OUTCOME):
                     conn.execute(
@@ -177,7 +201,7 @@ def save_session(
             # New alerts for names that are already top get the tag too.
             for sym in sorted(already):
                 conn.execute("UPDATE alerts SET top = 1 WHERE session = ? AND symbol = ? AND top = 0", (session, sym))
-    return {"inserted": inserted, "updated": updated}
+    return {"inserted": inserted, "updated": updated, "removed": removed}
 
 
 def load_settings(db_path: Optional[Path] = None) -> Settings:
@@ -309,6 +333,10 @@ def archive_alerts(through: date, now: Optional[datetime] = None, db_path: Optio
 
     The history row keeps the live id. A second call moves nothing. If this process dies before
     the transaction commits, both tables are unchanged and the next call tries again.
+
+    A live row whose key is already in history is skipped (``alerts_history.key`` is unique, and
+    ``ON CONFLICT (id)`` does not cover it) and then deleted. That duplicate must not roll the
+    clean alerts in the same run back. The same SQL runs on Postgres and SQLite.
     """
     clock = now or datetime.now(timezone.utc)
     if clock.tzinfo is None:
@@ -317,18 +345,30 @@ def archive_alerts(through: date, now: Optional[datetime] = None, db_path: Optio
     day = through.isoformat()
     live_cols = ", ".join(COLUMNS)
     hist_cols = ", ".join((*COLUMNS, *HISTORY_EXTRA))
+    # Skip keys already archived. Inserting them raises UniqueViolation on alerts_history.key
+    # and aborts the whole transaction, including alerts that should move.
     insert_sql = (
         f"INSERT INTO alerts_history ({hist_cols}) "
         f"SELECT {live_cols}, session, ? FROM alerts WHERE session <= ? "
+        "AND key NOT IN (SELECT key FROM alerts_history) "
         "ON CONFLICT (id) DO NOTHING"
     )
-    delete_sql = "DELETE FROM alerts WHERE session <= ? AND id IN (SELECT id FROM alerts_history)"
+    delete_sql = (
+        "DELETE FROM alerts WHERE session <= ? AND ("
+        "id IN (SELECT id FROM alerts_history) OR key IN (SELECT key FROM alerts_history))"
+    )
     with _lock, _writing(), userdb.connect(db_path) as conn:
         before = int(conn.execute("SELECT COUNT(*) FROM alerts WHERE session <= ?", (day,)).fetchone()[0])
+        dropped = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM alerts WHERE session <= ? AND key IN (SELECT key FROM alerts_history)",
+                (day,),
+            ).fetchone()[0]
+        )
         conn.execute(insert_sql, (stamp, day))
         conn.execute(delete_sql, (day,))
         after = int(conn.execute("SELECT COUNT(*) FROM alerts WHERE session <= ?", (day,)).fetchone()[0])
-    return {"moved": before - after, "through": day, "skipped": False}
+    return {"moved": before - dropped - after, "dropped": dropped, "through": day, "skipped": False}
 
 
 def archive_if_due(now: Optional[datetime] = None, db_path: Optional[Path] = None) -> dict:
@@ -337,7 +377,7 @@ def archive_if_due(now: Optional[datetime] = None, db_path: Optional[Path] = Non
 
     clock = now_et(now)
     if not load_settings(db_path).auto_archive:
-        return {"moved": 0, "skipped": True, "through": None}
+        return {"moved": 0, "dropped": 0, "skipped": True, "through": None}
     result = archive_alerts(archive_through(clock), now=clock, db_path=db_path)
     result["skipped"] = False
     return result
