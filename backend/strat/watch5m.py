@@ -1,4 +1,6 @@
-"""Premarket prints and 5-minute EMA position for the watchlist and positions (Alpaca).
+"""Premarket prints and 15-minute EMA position for the watchlist and positions (Alpaca).
+
+(The module and the ``ema5m`` payload keys keep their original names; the bars are 15-minute.)
 
 The alerts table reads the same in-memory EMA comparison (above / below the 6 and 20). It does not fetch.
 
@@ -7,19 +9,19 @@ These lists are a handful of names, so they get finer data than the universe wit
 * **Premarket** (04:00-09:30 ET): last price, % change against the prior regular close, and volume.
   The price is the newest premarket print from either Alpaca free feed: IEX latest trade (real time,
   but IEX trades few names before ~08:00 ET) or the 15-minute delayed SIP latest trade (all exchanges,
-  ``feed=delayed_sip``). Volume is the sum of SIP 5-minute bars, which are only served once they are
-  15 minutes old, so it trails the price. After the open the reading freezes; once the 09:25 SIP bar is
+  ``feed=delayed_sip``). Volume is the sum of SIP 15-minute bars, which are only served once they are
+  15 minutes old, so it trails the price. After the open the reading freezes; once the 09:15 SIP bar is
   served (about 09:46 ET) it is replaced by the exact premarket close and full premarket volume. It is
   shown through the regular session and dropped at 16:00 ET.
-* **Day range**: low / high of today's regular-session 5-minute bars with the latest price placed in it
+* **Day range**: low / high of today's regular-session 15-minute bars with the latest price placed in it
   (0% at the low, 100% at the high). In premarket it is the premarket range so far (SIP bars plus the
   latest print); outside both, the last completed session's range.
-* **Crossover highlight**: :func:`highlight_rule` on the last two completed 5-minute bars (a close back
+* **Crossover highlight**: :func:`highlight_rule` on the last two completed 15-minute bars (a close back
   above the 6 or 20 EMA), shown for one bar, until the next bar completes. The Positions table paints
   the row; the watchlist does not.
-* **6 and 20 EMA on the 5-minute chart**: regular-session bars only (09:30-16:00 ET), the usual chart
+* **6 and 20 EMA on the 15-minute chart**: regular-session bars only (09:30-16:00 ET), the usual chart
   definition, seeded with the last ``HISTORY_SESSIONS`` sessions so both averages are warmed up. The
-  price compared against them is the live 5-minute close in the session, the premarket print in
+  price compared against them is the live 15-minute close in the session, the premarket print in
   premarket, and the last regular close otherwise.
 
 Prior sessions are SIP bars fetched once per session (and when a symbol is new). Today's bars are SIP
@@ -44,8 +46,9 @@ log = logging.getLogger(__name__)
 EMA_PERIODS = (6, 20)
 HISTORY_SESSIONS = 5
 HISTORY_CALENDAR_DAYS = 10  # enough calendar days to cover 5 sessions across a weekend and a holiday
+BAR_MINUTES = 15
 MAX_SYMBOLS = 200  # one Alpaca batch
-BAR = timedelta(minutes=5)
+BAR = timedelta(minutes=BAR_MINUTES)
 
 _lock = threading.Lock()
 _history: dict[str, dict] = {}  # symbol -> {"checked": iso date, "closes": [(ts, close)]}
@@ -102,7 +105,7 @@ def ema_series(values: list[float], period: int) -> list[Optional[float]]:
 
 
 def highlight_rule(prev_close: float, prev_ema: float, last_close: float, last_ema: float) -> bool:
-    """Crossover on the last two *completed* 5-minute bars: the last one closed above the EMA and the one
+    """Crossover on the last two *completed* 15-minute bars: the last one closed above the EMA and the one
     before it closed at or below it. A name that simply stays above the EMA is not flagged."""
     return last_close > last_ema and prev_close <= prev_ema
 
@@ -110,7 +113,7 @@ def highlight_rule(prev_close: float, prev_ema: float, last_close: float, last_e
 def reclaims(bars: list[tuple[str, float]], now: datetime) -> tuple[list[int], Optional[str], Optional[str]]:
     """(EMA periods that :func:`highlight_rule` flags, last completed bar start, when the next bar completes).
 
-    ``bars`` are (start, close) oldest first. A bar is completed once its 5 minutes are over. The highlight
+    ``bars`` are (start, close) oldest first. A bar is completed once its 15 minutes are over. The highlight
     is only meant to last until the next bar completes; :func:`snapshot` drops it after ``until``.
     """
     done = [(ts, c) for ts, c in bars if _ts(ts) + BAR <= now]
@@ -131,7 +134,7 @@ def reclaims(bars: list[tuple[str, float]], now: datetime) -> tuple[list[int], O
 def _bars(client: AlpacaClient, symbols: list[str], start: datetime, end: datetime, feed: str) -> dict[str, list[dict]]:
     if end <= start:
         return {}
-    out, invalid = client.bars(symbols, "5Min", start, end=end, feed=feed, adjustment="raw")
+    out, invalid = client.bars(symbols, f"{BAR_MINUTES}Min", start, end=end, feed=feed, adjustment="raw")
     if invalid:
         log.info("watch5m: Alpaca has no %s bars for %s", feed, ",".join(invalid))
     return out
@@ -149,7 +152,7 @@ def _latest_trades(client: AlpacaClient, symbols: list[str], feed: str) -> dict[
 
 
 def refresh_history(symbols: list[str], now: datetime, client: AlpacaClient) -> int:
-    """SIP 5-minute closes for the last ``HISTORY_SESSIONS`` completed sessions, for symbols not yet current.
+    """SIP 15-minute closes for the last ``HISTORY_SESSIONS`` completed sessions, for symbols not yet current.
 
     Current means checked against the latest completed session (today after 16:20 ET). One request
     per batch, only when a session has completed since the last check or the symbol is new.
@@ -160,7 +163,7 @@ def refresh_history(symbols: list[str], now: datetime, client: AlpacaClient) -> 
     if not stale:
         return 0
     start = _at(through - timedelta(days=HISTORY_CALENDAR_DAYS), OPEN)
-    end = min(_at(through, CLOSE), sip_cutoff(now))
+    end = min(_at(through, CLOSE), sip_cutoff(now, BAR_MINUTES))
     bars = _bars(client, stale, start, end, "sip")
     for sym in stale:
         regular = [b for b in bars.get(sym, []) if is_regular(_ts(b["t"]))]
@@ -177,7 +180,7 @@ def refresh_history(symbols: list[str], now: datetime, client: AlpacaClient) -> 
 
 
 def make_range(bars: list[dict], last: float, basis: str, session: str) -> Optional[dict]:
-    """Low / high of ``bars`` (5-minute h/l) with ``last`` placed in it; None when empty or high == low.
+    """Low / high of ``bars`` (15-minute h/l) with ``last`` placed in it; None when empty or high == low.
 
     ``pct`` is where ``last`` sits: 0 at the low of the range, 100 at the high.
     """
@@ -246,7 +249,7 @@ def _premarket_volume(symbol: str, day: date, sip: Mapping[str, list[dict]]) -> 
     rows = [b for b in sip.get(symbol, []) if is_premarket(_ts(b["t"]), day)]
     if not rows:
         return None, None
-    last = max(_ts(b["t"]) for b in rows) + timedelta(minutes=5)
+    last = max(_ts(b["t"]) for b in rows) + BAR
     return float(sum(float(b.get("v") or 0) for b in rows)), _iso(last)
 
 
@@ -281,7 +284,7 @@ def refresh(
     # Today's bars, from 04:00 ET until the history covers today (the 16:20 ET session check).
     weekday = local.weekday() < 5
     premarket_start, open_, close_ = _at(day, PREMARKET_AT), _at(day, OPEN), _at(day, CLOSE)
-    cutoff = sip_cutoff(clock)
+    cutoff = sip_cutoff(clock, BAR_MINUTES)
     sip: dict[str, list[dict]] = {}
     iex: dict[str, list[dict]] = {}
     trades: list[tuple[dict, str]] = []

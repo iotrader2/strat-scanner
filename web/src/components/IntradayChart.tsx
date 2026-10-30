@@ -29,20 +29,20 @@ interface Props {
   visibleBars?: number;
   /** Sessions the server loaded (the scrollable range). */
   displaySessions?: number;
-  /** Sessions of history the 360 EMA was seeded on. */
+  /** Sessions of history the 120 EMA was seeded on. */
   seedSessions?: number;
 }
 
 /**
- * 5-minute candles, volume, and the server-computed EMAs.
+ * 15-minute candles, volume, and the server-computed EMAs.
  * Same library, candle colors, grid, and volume overlay as the daily chart. No MACD pane:
- * this chart's overlays are the 5, 20, 50, and 360 EMAs.
+ * this chart's overlays are the 6, 20, 50, and 120 EMAs.
  */
 export function IntradayChart({
   bars,
   height = INTRADAY_HEIGHT,
   visibleBars = INTRADAY_VISIBLE_BARS,
-  displaySessions = 5,
+  displaySessions = 10,
   seedSessions = 30,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -132,7 +132,7 @@ export function IntradayChart({
   }, [bars, height, visibleBars]);
 
   if (bars.length === 0) {
-    return <p className="muted small">No 5-minute bars for this symbol yet.</p>;
+    return <p className="muted small">No 15-minute bars for this symbol yet.</p>;
   }
 
   return (

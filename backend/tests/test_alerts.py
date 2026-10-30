@@ -14,7 +14,7 @@ def bars(rows, v=1000.0):
     out = []
     for i, r in enumerate(rows):
         o, h, l, c = r[:4]
-        out.append({"t": OPEN + timedelta(minutes=5 * i), "o": o, "h": h, "l": l, "c": c, "v": r[4] if len(r) > 4 else v})
+        out.append({"t": OPEN + timedelta(minutes=15 * i), "o": o, "h": h, "l": l, "c": c, "v": r[4] if len(r) > 4 else v})
     return out
 
 
@@ -65,7 +65,7 @@ def test_a_opening_bar_breakout_levels_and_fill():
     found = run([(100, 101, 99.9, 100.9), (100.9, 101.3, 100.8, 101.2)])
     a = by_setup(found, "A")[0]
     assert (a.trigger, a.stop) == (101.01, 99.89)
-    assert a.setup_index == 0 and a.fired_at == OPEN + timedelta(minutes=5)
+    assert a.setup_index == 0 and a.fired_at == OPEN + timedelta(minutes=15)
     assert a.status == "triggered" and a.fill_price == 101.01
 
 
@@ -119,7 +119,7 @@ def test_c_tight_run_rearms_on_the_last_tight_bar():
     c = cs[0]
     assert c.details["variant"] == "tight" and c.details["rearmed"] == 1
     assert c.setup_index == 2 and (c.trigger, c.stop) == (101.96, 101.59)
-    assert c.origin_bar == OPEN + timedelta(minutes=5)  # key stays on the first tight bar
+    assert c.origin_bar == OPEN + timedelta(minutes=15)  # key stays on the first tight bar
 
 
 def test_c_is_checked_before_other_setups():
@@ -225,7 +225,7 @@ def test_d_hold20_matcher_on_rising_20_without_stack_or_reclaim():
     from strat.alerts import match_d_classic, match_d_hold20, match_d
 
     f, i = _hold20_frame()
-    s = Settings(d_to=90, d_hold20=1, d_hold20_daily_filter=0)
+    s = Settings(d_to=300, d_hold20=1, d_hold20_daily_filter=0)
     assert match_d_hold20(f, i, s) == "hold20"
     # Classic wins when both qualify.
     if match_d_classic(f, i, s):
@@ -237,8 +237,8 @@ def test_d_hold20_matcher_on_rising_20_without_stack_or_reclaim():
 def test_d_hold20_daily_4_ema_gate():
     from strat.alerts import match_d_hold20
 
-    s_on = Settings(d_to=90, d_hold20_daily_filter=1, d_hold20_daily_pct=2.0)
-    s_off = Settings(d_to=90, d_hold20_daily_filter=0)
+    s_on = Settings(d_to=300, d_hold20_daily_filter=1, d_hold20_daily_pct=2.0)
+    s_off = Settings(d_to=300, d_hold20_daily_filter=0)
     f_far, i = _hold20_frame(daily_4_ema=80.0)
     assert match_d_hold20(f_far, i, s_on) is None
     assert match_d_hold20(f_far, i, s_off) == "hold20"
@@ -246,8 +246,9 @@ def test_d_hold20_daily_4_ema_gate():
     assert match_d_hold20(f_near, i, s_on) == "hold20"
 
 
-def test_d_default_window_runs_to_90():
-    assert Settings().d_to == 90
+def test_d_default_window_runs_to_120():
+    assert Settings().d_to == 120
+    assert Settings().trade_bars == 10
     assert Settings().d_hold20 == 1
     assert Settings().d_hold20_daily_filter == 1
     assert Settings().d_hold20_daily_pct == 2.0
@@ -257,8 +258,8 @@ def test_d_hold20_off_disables_path():
     from strat.alerts import match_d_hold20
 
     f, i = _hold20_frame()
-    assert match_d_hold20(f, i, Settings(d_hold20=0, d_hold20_daily_filter=0)) is None
-    assert match_d_hold20(f, i, Settings(d_hold20=1, d_hold20_daily_filter=0)) == "hold20"
+    assert match_d_hold20(f, i, Settings(d_to=300, d_hold20=0, d_hold20_daily_filter=0)) is None
+    assert match_d_hold20(f, i, Settings(d_to=300, d_hold20=1, d_hold20_daily_filter=0)) == "hold20"
 
 
 def test_d_hold20_pltr_like_levels():
@@ -288,7 +289,7 @@ def test_d_hold20_pltr_like_levels():
         ema360_seed=raw["ema360_seed"],
         daily_4_ema=d4,
     )
-    found = simulate("PLTR", "2026-10-27", bars_in, c, Settings(d_to=90, touch_tol_pct=0.1))
+    found = simulate("PLTR", "2026-10-27", bars_in, c, Settings(d_to=300, touch_tol_pct=0.1))
     d = by_setup(found, "D")
     assert d, "expected a D alert on PLTR today"
     a = d[0]
@@ -425,32 +426,32 @@ def test_e_gap_up_opening_wick_is_not_a_v():
 
 
 def test_f_midday_squeeze_breakout_on_heavy_volume():
-    flat = [(100.0, 100.05, 99.95, 100.0)] * 30
+    flat = [(100.0, 100.05, 99.95, 100.0)] * 4
     breakout = (100.0, 100.7, 99.98, 100.65, 3000)
-    avg = {i: 1000.0 for i in range(78)}
+    avg = {i: 1000.0 for i in range(26)}
     found = run(flat + [breakout], ctx(vol_avg=avg, vol_sessions=20))
     f = by_setup(found, "F")
-    assert len(f) == 1 and f[0].setup_index == 30
+    assert len(f) == 1 and f[0].setup_index == 4
 
 
-def test_f_needs_heavy_volume_and_two_hours_of_bunching():
-    flat = [(100.0, 100.05, 99.95, 100.0)] * 30
-    avg = {i: 1000.0 for i in range(78)}
+def test_f_needs_heavy_volume_and_an_hour_of_bunching():
+    flat = [(100.0, 100.05, 99.95, 100.0)] * 4
+    avg = {i: 1000.0 for i in range(26)}
     # Under the soft floor (1.2x) even a marubozu stays quiet.
     assert not by_setup(run(flat + [(100.0, 100.7, 99.98, 100.65, 1100)], ctx(vol_avg=avg, vol_sessions=20)), "F")
     assert not by_setup(run(flat + [(100.0, 100.7, 99.98, 100.65, 3000)], ctx()), "F")  # no volume history
-    short = [(100.0, 100.05, 99.95, 100.0)] * 20
+    short = [(100.0, 100.05, 99.95, 100.0)] * 3
     assert not by_setup(run(short + [(100.0, 100.7, 99.98, 100.65, 3000)], ctx(vol_avg=avg, vol_sessions=20)), "F")
 
 
 def test_f_soft_volume_allows_near_marubozu_at_1_3x():
     """IEX-thin first breakout: body >= soft_body_pct and vol >= soft floor → F."""
-    flat = [(100.0, 100.05, 99.95, 100.0)] * 30
-    avg = {i: 1000.0 for i in range(78)}
+    flat = [(100.0, 100.05, 99.95, 100.0)] * 4
+    avg = {i: 1000.0 for i in range(26)}
     # 1.3x with ~90% body: soft path (would fail the hard 1.5x floor alone).
     found = run(flat + [(100.0, 100.7, 99.98, 100.65, 1300)], ctx(vol_avg=avg, vol_sessions=20))
     f = by_setup(found, "F")
-    assert len(f) == 1 and f[0].setup_index == 30
+    assert len(f) == 1 and f[0].setup_index == 4
     # Same 1.3x but thin body (~55%) stays blocked.
     thin = run(flat + [(100.0, 100.7, 99.98, 100.40, 1300)], ctx(vol_avg=avg, vol_sessions=20))
     assert not by_setup(thin, "F")
@@ -493,7 +494,7 @@ def test_pending_alert_expires_once_two_have_triggered(monkeypatch):
         (100.45, 100.5, 100.35, 100.45),  # E set up, trigger 100.51
         (100.45, 101.0, 100.4, 100.95),  # reaches all three triggers: A and D fill first
     ]
-    found = run(rows, ctx(warm=99.0))
+    found = run(rows, ctx(warm=99.0), Settings(entry_valid_bars=3))
     assert [a.filled for a in found] == [True, True, False]
     e = by_setup(found, "E")[0]
     assert e.status == "expired" and e.exit_reason == "max_attempts"
@@ -515,7 +516,7 @@ def alert(trigger=101.0, stop=99.0, low=99.01):
 
 
 def bar(i, o, h, l, c):
-    return {"t": OPEN + timedelta(minutes=5 * i), "o": o, "h": h, "l": l, "c": c, "v": 1}
+    return {"t": OPEN + timedelta(minutes=15 * i), "o": o, "h": h, "l": l, "c": c, "v": 1}
 
 
 S = Settings()
@@ -557,7 +558,7 @@ def test_breakeven_after_third_new_high_then_stopped_at_entry():
         step(a, bar(i, h - 0.2, h, h - 0.3, h - 0.1), 100.0, S)
     assert a.breakeven_at is None
     step(a, bar(4, 101.5, 101.8, 101.4, 101.7), 100.0, S)  # third new high
-    assert a.breakeven_at == OPEN + timedelta(minutes=25) and a.current_stop == 101.0
+    assert a.breakeven_at == OPEN + timedelta(minutes=75) and a.current_stop == 101.0
     step(a, bar(5, 101.6, 101.65, 100.9, 101.2), 100.0, S)
     assert a.status == "breakeven" and a.exit_price == 101.0 and a.r_multiple == pytest.approx(0.0)
     assert a.high_reached == 101.8
@@ -605,7 +606,7 @@ def test_advance_stored_expires_when_match_no_longer_reproduces():
     """TEAM-like: levels frozen at fire time; trigger never prints in the next 3 bars → expired."""
     from strat.alerts import advance_stored
 
-    setup_t = OPEN + timedelta(minutes=5 * 7)  # ~07:05 Phoenix / 14:05 UTC on a DST day
+    setup_t = OPEN + timedelta(minutes=15 * 7)  # ~07:05 Phoenix / 14:05 UTC on a DST day
     # Build a short day where bar index 7 is the setup; next three highs stay under trigger.
     rows = [(100, 100.5, 99.9, 100.4)] * 7
     rows.append((219.5, 220.5, 219.0, 220.0))  # setup bar (index 7)
@@ -631,7 +632,7 @@ def test_advance_stored_expires_when_match_no_longer_reproduces():
         details={"gap_pct": 1.0},
         bars=bs,
         ctx=ctx(warm=218.0),
-        settings=Settings(entry_valid_bars=3),
+        settings=Settings(entry_valid_bars=3, trade_bars=26),
     )
     assert a is not None
     assert a.status == "expired" and a.exit_reason == "not_triggered"
@@ -695,7 +696,7 @@ def test_metrics_by_setup():
     assert m["All"]["count"] == 5
 
 
-# ------------------------------------------------------------------ not extended (5-minute EMA 360)
+# ------------------------------------------------------------------ not extended (15-minute EMA 120)
 
 
 def test_ema_seed_and_continue_match_one_long_series():
@@ -708,8 +709,8 @@ def test_ema_seed_and_continue_match_one_long_series():
     assert alerts.ema_continue(None, [1.0, 2.0]) == [None, None]
 
 
-def test_ema360_is_thirty_hours_of_five_minute_bars():
-    assert alerts.EMA_LONG * 5 == 30 * 60
+def test_ema_long_is_thirty_hours_of_fifteen_minute_bars():
+    assert alerts.EMA_LONG * alerts.BAR_MINUTES == 30 * 60
 
 
 A_BAR = [(100, 101, 99.9, 100.9)]  # a clean A on its own
@@ -718,7 +719,7 @@ A_BAR = [(100, 101, 99.9, 100.9)]  # a clean A on its own
 def test_not_extended_passes_near_the_ema360_and_records_distance():
     found = run(A_BAR, ctx(ema360_seed=100.0))
     a = by_setup(found, "A")[0]
-    e = 100.0 + 2 / 361 * (100.9 - 100.0)
+    e = 100.0 + 2 / 121 * (100.9 - 100.0)
     assert a.details["ema360"] == pytest.approx(e, abs=1e-4)
     assert a.details["ema360_close_pct"] == pytest.approx((100.9 - e) / e * 100, abs=0.01)
     assert a.details["ema360_low_pct"] == pytest.approx((99.9 - e) / e * 100, abs=0.01)
@@ -761,6 +762,23 @@ def test_ext_settings_round_trip_and_limits():
 
 
 # ------------------------------------------------------------------ cancel stop before trigger
+
+
+def test_entry_cannot_fill_after_the_tenth_candle():
+    a = alert()
+    a.setup_index = 8  # the 9th candle; the 10th (index 9) is the last one a buy stop can fill on
+    a.current_stop = a.stop
+    step(a, bar(9, 100.5, 100.8, 100.2, 100.6), 100.0, S)
+    assert a.status == "pending"
+    step(a, bar(10, 100.5, 101.5, 100.4, 101.2), 100.0, S)  # would have filled, but it is candle 11
+    assert a.status == "expired" and a.exit_reason == "trade_window" and not a.filled
+
+
+def test_no_alert_when_the_entry_bar_is_past_the_tenth_candle():
+    flat = [(100.0, 100.05, 99.95, 100.0)] * 9
+    # A setup bar at index 9 has no later candle inside the first 10, so it is not alerted.
+    assert not run(flat + [(100.0, 100.7, 99.98, 100.65)], ctx(vol_avg={}, vol_sessions=0), Settings(f_from=0, f_to=300))
+    assert by_setup(run(flat[:8] + [(100.0, 100.7, 99.98, 100.65, 3000)], ctx(vol_avg={i: 1000.0 for i in range(26)}, vol_sessions=20), Settings(f_from=0, f_to=300)), "F")
 
 
 def test_pending_cancelled_when_stop_trades_before_trigger():

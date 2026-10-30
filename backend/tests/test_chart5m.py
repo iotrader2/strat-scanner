@@ -1,4 +1,4 @@
-"""5-minute chart EMAs (including the 360-bar seed) and the per-symbol endpoint."""
+"""15-minute chart EMAs (including the 120-bar seed) and the per-symbol endpoint."""
 
 import pickle
 from datetime import date, datetime, time, timedelta, timezone
@@ -44,13 +44,13 @@ def session_bars(day: date, close, start=(9, 30), end=(16, 0)) -> list[dict]:
     while t < stop:
         px = float(close(day, i) if callable(close) else close)
         out.append({"t": iso(t), "o": px, "h": px + 0.4, "l": px - 0.4, "c": px, "v": 1000 + i})
-        t += timedelta(minutes=5)
+        t += timedelta(minutes=15)
         i += 1
     return out
 
 
 class FakeClient:
-    """Serves 5-minute bars for one feed map and records every request. No network."""
+    """Serves 15-minute bars for one feed map and records every request. No network."""
 
     def __init__(self, feeds: dict):
         self.feeds = feeds  # {feed: {symbol: [bars]}} or {feed: [bars]} for every symbol
@@ -83,7 +83,7 @@ def _fresh():
 
 
 def test_session_length_is_one_regular_day():
-    assert len(session_bars(THU, 1)) == 78
+    assert len(session_bars(THU, 1)) == 26
 
 
 def test_ema_matches_the_sma_seed_then_the_smoothing_constant():
@@ -106,7 +106,7 @@ def test_ema_matches_the_sma_seed_then_the_smoothing_constant():
     assert got[-1] == pytest.approx(prev)
     assert got[-1] == pytest.approx(watch_series(long, 360)[-1])
     # Same recurrence for the other chart lengths.
-    for period in (5, 20, 50):
+    for period in (6, 20, 50):
         assert chart5m.ema_series(long, period)[-1] == pytest.approx(watch_ema(long, period))
 
 
@@ -123,20 +123,21 @@ def _flat_history(sessions: int, price: float, jump_at: int | None = None, jump:
     return rows
 
 
-def test_displayed_360_is_seeded_by_the_weeks_before_the_window():
+def test_displayed_120_is_seeded_by_the_weeks_before_the_window():
     rows = _flat_history(chart5m.SEED_SESSIONS, 100.0, jump_at=chart5m.SEED_SESSIONS - chart5m.DISPLAY_SESSIONS)
     client = FakeClient({"sip": rows})
     body = chart5m.chart("AAPL", now=et(THU, 17, 0), client=client)
 
     assert body["session"] == "regular"
-    assert body["display_sessions"] == 5 and body["seed_sessions"] == 30
-    assert body["sessions"] == 5
+    assert body["display_sessions"] == 10 and body["seed_sessions"] == 30
+    assert body["sessions"] == 10
+    assert body["bar_minutes"] == 15
     bars = body["bars"]
-    assert len(bars) == 5 * 78
+    assert len(bars) == 10 * 26
     # One SIP history request, for this ticker only, covering the seed lookback.
     assert len(client.calls) == 1
     call = client.calls[0]
-    assert call["symbols"] == ["AAPL"] and call["timeframe"] == "5Min" and call["feed"] == "sip"
+    assert call["symbols"] == ["AAPL"] and call["timeframe"] == "15Min" and call["feed"] == "sip"
     assert call["adjustment"] == "raw"
     assert (THU - call["start"].astimezone(ET).date()).days == chart5m.LOOKBACK_DAYS
 
@@ -145,54 +146,54 @@ def test_displayed_360_is_seeded_by_the_weeks_before_the_window():
         assert local.weekday() < 5
         assert OPEN <= local.time() < CLOSE
         assert bar["close"] == 130.0
-        assert set(bar["ema"]) == {"5", "20", "50", "360"}
-        assert all(bar["ema"][p] is not None for p in ("5", "20", "50", "360"))
+        assert set(bar["ema"]) == {"6", "20", "50", "120"}
+        assert all(bar["ema"][p] is not None for p in ("6", "20", "50", "120"))
 
-    # The displayed window is all 130s. A 360 EMA computed on only those bars has no
-    # value on the first candle (390 < 360 + 1). The seeded value is still near the
-    # prior weeks of 100s: one smoothing step off 100.
-    seeded = round(100 + (2 / 361) * (130 - 100), 4)
-    assert bars[0]["ema"]["360"] == seeded
-    assert bars[0]["ema"]["5"] == pytest.approx(110.0)
-    assert bars[-1]["ema"]["360"] < 130
-    assert bars[-1]["ema"]["360"] > bars[0]["ema"]["360"]
+    # The displayed window is all 130s. A 120 EMA computed on only those bars would still be
+    # empty for most of the first session. The seeded value is near the prior weeks of
+    # 100s: one smoothing step off 100.
+    seeded = round(100 + (2 / 121) * (130 - 100), 4)
+    assert bars[0]["ema"]["120"] == seeded
+    assert bars[0]["ema"]["6"] == pytest.approx(100 + (2 / 7) * 30, abs=1e-3)
+    assert bars[-1]["ema"]["120"] < 130
+    assert bars[-1]["ema"]["120"] > bars[0]["ema"]["120"]
 
     # Asking again reuses the cache instead of refetching weeks of bars.
     chart5m.chart("AAPL", now=et(THU, 17, 0), client=client)
     assert len(client.calls) == 1
 
 
-def test_360_starts_during_the_window_when_only_one_extra_session_seeds_it():
+def test_120_starts_during_the_window_when_only_one_extra_session_seeds_it():
     rows = _flat_history(chart5m.DISPLAY_SESSIONS + 1, 100.0)
     body = chart5m.chart("MSFT", now=et(THU, 17, 0), client=FakeClient({"sip": rows}))
     bars = body["bars"]
-    assert len(bars) == 5 * 78
-    # One hidden session (78 bars) moves the 360th close 78 bars earlier than a
-    # display-only EMA, which would still be empty until index 359.
-    first = next(i for i, bar in enumerate(bars) if bar["ema"]["360"] is not None)
-    assert first == 359 - 78
-    assert bars[first - 1]["ema"]["360"] is None
-    assert bars[first]["ema"]["360"] == 100.0
+    assert len(bars) == 10 * 26
+    # One hidden session (26 bars) moves the 120th close 26 bars earlier than a
+    # display-only EMA, which would still be empty until index 119.
+    first = next(i for i, bar in enumerate(bars) if bar["ema"]["120"] is not None)
+    assert first == 119 - 26
+    assert bars[first - 1]["ema"]["120"] is None
+    assert bars[first]["ema"]["120"] == 100.0
 
 
 def test_premarket_is_not_a_bar_and_iex_only_covers_the_live_tail():
-    today = session_bars(THU, 50, start=(9, 30), end=(10, 40))
-    # 10:40 is the SIP cutoff at 11:00 ET, so this SIP print must lose to IEX.
-    sip_tail = [{"t": iso(et(THU, 10, 40)), "o": 1, "h": 1, "l": 1, "c": 1, "v": 9}]
+    today = session_bars(THU, 50, start=(9, 30), end=(10, 30))
+    # 10:30 is the SIP cutoff at 11:00 ET, so this SIP print must lose to IEX.
+    sip_tail = [{"t": iso(et(THU, 10, 30)), "o": 1, "h": 1, "l": 1, "c": 1, "v": 9}]
     pre = session_bars(THU, 123, start=(8, 0), end=(9, 30))
     iex = [
-        {"t": iso(et(THU, 10, 30)), "o": 9, "h": 9, "l": 9, "c": 9, "v": 3},  # older than the cutoff: SIP wins
-        {"t": iso(et(THU, 10, 40)), "o": 77, "h": 78, "l": 76, "c": 77, "v": 4},
+        {"t": iso(et(THU, 10, 15)), "o": 9, "h": 9, "l": 9, "c": 9, "v": 3},  # older than the cutoff: SIP wins
+        {"t": iso(et(THU, 10, 30)), "o": 77, "h": 78, "l": 76, "c": 77, "v": 4},
         {"t": iso(et(THU, 8, 15)), "o": 5, "h": 5, "l": 5, "c": 5, "v": 5},  # premarket IEX
     ]
     history = session_bars(date(2026, 10, 21), 40)
     client = FakeClient({"sip": {"QQQ": history + pre + today + sip_tail}, "iex": {"QQQ": iex}})
     body = chart5m.chart("QQQ", now=et(THU, 11, 0), client=client)
     by_minute = {datetime.fromtimestamp(b["time"], ET).strftime("%H:%M"): b for b in body["bars"] if datetime.fromtimestamp(b["time"], ET).date() == THU}
-    assert "08:00" not in by_minute and "09:25" not in by_minute and "08:15" not in by_minute
-    assert by_minute["10:30"]["close"] == 50.0  # SIP
-    assert by_minute["10:40"]["close"] == 77.0  # IEX
-    assert by_minute["10:40"]["volume"] == 4
+    assert "08:00" not in by_minute and "09:15" not in by_minute and "08:15" not in by_minute
+    assert by_minute["10:15"]["close"] == 50.0  # SIP
+    assert by_minute["10:30"]["close"] == 77.0  # IEX
+    assert by_minute["10:30"]["volume"] == 4
     assert all(c["symbols"] == ["QQQ"] for c in client.calls)
     assert {c["feed"] for c in client.calls} == {"sip", "iex"}
 
@@ -233,15 +234,15 @@ def test_endpoint_serves_one_symbol(monkeypatch):
 
     monkeypatch.setattr(chart5m, "chart", at_thursday)
     client = TestClient(api.app)
-    res = client.get("/api/symbol/nvda/bars5m")
+    res = client.get("/api/symbol/nvda/bars15m")
     assert res.status_code == 200
     body = res.json()
     assert body["symbol"] == "NVDA"
     assert body["session"] == "regular"
-    assert body["bars"][0]["ema"]["360"] == pytest.approx(round(100 + (2 / 361) * 30, 4))
+    assert body["bars"][0]["ema"]["120"] == pytest.approx(round(100 + (2 / 121) * 30, 4))
     assert {tuple(c["symbols"]) for c in fake.calls} == {("NVDA",)}
     before = len(fake.calls)
-    assert client.get("/api/symbol/AAPL/bars5m").status_code == 404
+    assert client.get("/api/symbol/AAPL/bars15m").status_code == 404
     assert len(fake.calls) == before
 
 
@@ -251,7 +252,7 @@ def test_endpoint_requires_alpaca_and_hides_upstream_errors(monkeypatch):
     monkeypatch.setattr(api, "live_bars_enabled", lambda: False)
     monkeypatch.setattr(chart5m, "AlpacaClient", lambda: (_ for _ in ()).throw(AssertionError("fetched")))
     client = TestClient(api.app)
-    unavailable = client.get("/api/symbol/NVDA/bars5m")
+    unavailable = client.get("/api/symbol/NVDA/bars15m")
     assert unavailable.status_code == 503
     assert "Alpaca" in unavailable.json()["detail"]
 
@@ -262,7 +263,7 @@ def test_endpoint_requires_alpaca_and_hides_upstream_errors(monkeypatch):
             raise AlpacaError("subscription does not permit querying recent SIP data")
 
     monkeypatch.setattr(chart5m, "AlpacaClient", lambda: Boom())
-    failed = client.get("/api/symbol/NVDA/bars5m")
+    failed = client.get("/api/symbol/NVDA/bars15m")
     assert failed.status_code == 502
     assert "unavailable" in failed.json()["detail"]
     assert "subscription" not in failed.json()["detail"]

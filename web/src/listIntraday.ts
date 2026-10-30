@@ -12,7 +12,7 @@ export function fmtVolume(v: number | null | undefined): string {
 const SOURCE: Record<string, string> = {
   iex: "IEX trade, real time",
   "delayed sip": "all-exchange trade, 15 min delayed",
-  "sip bar": "all-exchange 5-min bar, 15 min delayed",
+  "sip bar": "all-exchange 15-min bar, 15 min delayed",
 };
 
 export function premarketTitle(pm: PremarketPrint): string {
@@ -29,7 +29,7 @@ export function premarketTitle(pm: PremarketPrint): string {
 }
 
 const BASIS: Record<Ema5m["basis"], string> = {
-  live: "last 5-min close",
+  live: "last 15-min close",
   premarket: "premarket print",
   close: "last regular close",
 };
@@ -48,7 +48,7 @@ export function emaSide(em: Ema5m, period: 6 | 20): { side: EmaSide; label: stri
   const label = side === "above" ? "Above" : side === "below" ? "Below" : "At";
   const dist = emaDistance(em, period);
   const pct = dist === null ? "" : ` (${fmtEmaPct(dist)})`;
-  const title = `${BASIS[em.basis]} ${em.price.toFixed(2)} vs ${period} EMA ${value.toFixed(2)}${pct} on the 5-minute chart (regular-session bars, through ${formatLocal(em.bar_time)})`;
+  const title = `${BASIS[em.basis]} ${em.price.toFixed(2)} vs ${period} EMA ${value.toFixed(2)}${pct} on the 15-minute chart (regular-session bars, through ${formatLocal(em.bar_time)})`;
   return { side, label, title };
 }
 
@@ -76,7 +76,7 @@ export function rangeTitle(r: DayRange): string {
   return `${RANGE_BASIS[r.basis]} (${r.session}): low ${r.low.toFixed(2)} · high ${r.high.toFixed(2)} · last ${r.last.toFixed(2)} · ${Math.round(r.pct)}% of the range`;
 }
 
-/** Row highlight while the last completed 5-min bar is a close back above the 6 and/or 20 EMA. */
+/** Row highlight while the last completed 15-min bar is a close back above the 6 and/or 20 EMA. */
 export function crossHighlight(info: ListIntraday | null | undefined): { className: string; title: string } | null {
   const em = info?.ema5m;
   if (!em || em.highlight.length === 0) return null;
@@ -85,6 +85,6 @@ export function crossHighlight(info: ListIntraday | null | undefined): { classNa
   const until = em.highlight_until ? ` Clears at ${formatLocal(em.highlight_until)} when the next bar completes.` : "";
   return {
     className: "ema-cross",
-    title: `Crossed back above the ${which} (5m)${bar}: the last completed bar closed above it after the prior bar closed at or below it.${until}`,
+    title: `Crossed back above the ${which} (15m)${bar}: the last completed bar closed above it after the prior bar closed at or below it.${until}`,
   };
 }

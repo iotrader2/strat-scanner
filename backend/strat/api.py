@@ -60,7 +60,7 @@ class State:
     # download until its rescan has finished. Two jobs never download, write the cache or hold a second copy
     # of the universe in memory together.
     job: Optional[str] = None
-    # The watchlist / positions gained a symbol: seed its 5-minute EMA history on the next free slot.
+    # The watchlist / positions gained a symbol: seed its 15-minute EMA history on the next free slot.
     lists_dirty: bool = True
 
 
@@ -196,7 +196,7 @@ def _prev_close(symbol: str, day: date) -> Optional[float]:
 
 
 def _refresh_watch5m() -> None:
-    """Premarket prints and 5-minute EMAs for the watchlist + positions (Alpaca), inside the job slot.
+    """Premarket prints and 15-minute EMAs for the watchlist + positions (Alpaca), inside the job slot.
 
     Two or three small requests per poll for a handful of symbols. Skipped for a cut-off view, when
     the scheduler is off (tests, CLI) and when Alpaca is not the data source.
@@ -665,9 +665,9 @@ def _daily_ready(symbol: str) -> bool:
     return frame is not None and not frame.empty
 
 
-@app.get("/api/symbol/{symbol}/bars5m")
-def symbol_bars5m(symbol: str):
-    """5-minute regular-session candles and 5/20/50/360 EMAs for one symbol.
+@app.get("/api/symbol/{symbol}/bars15m")
+def symbol_bars15m(symbol: str):
+    """15-minute regular-session candles and 6/20/50/120 EMAs for one symbol.
 
     Fetched on demand and cached for that ticker only. A cold process loads the daily
     cache first (the same scan the chart page already needs); a warm process does not
@@ -679,12 +679,12 @@ def symbol_bars5m(symbol: str):
     if not _daily_ready(symbol):
         raise HTTPException(404, f"{symbol} is not in the cache")
     if not live_bars_enabled():
-        raise HTTPException(503, "5-minute bars need the Alpaca feed")
+        raise HTTPException(503, "15-minute bars need the Alpaca feed")
     try:
         return chart5m.chart(symbol)
     except AlpacaError:
-        log.warning("5-minute bars failed for %s", symbol, exc_info=True)
-        raise HTTPException(502, "5-minute bars are unavailable") from None
+        log.warning("15-minute bars failed for %s", symbol, exc_info=True)
+        raise HTTPException(502, "15-minute bars are unavailable") from None
 
 
 class WatchRequest(BaseModel):
@@ -970,7 +970,7 @@ def _alerts_session(session: Optional[str]) -> str:
 
 
 def _alert_ema5m(symbols: list[str]) -> dict[str, dict | None]:
-    """Current 5-minute 6/20 EMA for these symbols, already computed by the lists poll.
+    """Current 15-minute 6/20 EMA for these symbols, already computed by the lists poll.
 
     ``watch5m.snapshot`` only reads memory. It does not call Alpaca. A name that is on neither
     the watchlist nor in positions has no reading (the alerts table shows a dash).

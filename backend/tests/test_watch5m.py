@@ -1,4 +1,4 @@
-"""Watchlist / positions premarket prints, 5-minute EMAs and the reclaim highlight (Alpaca, mocked)."""
+"""Watchlist / positions premarket prints, 15-minute EMAs and the reclaim highlight (Alpaca, mocked)."""
 
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -29,7 +29,7 @@ def session_bars(day: date, close, start=(9, 30), end=(16, 0)):
     while t < stop:
         c = close(day, i)
         out.append({"t": iso(t), "o": c, "h": c, "l": c, "c": c, "v": 1000})
-        t += timedelta(minutes=5)
+        t += timedelta(minutes=15)
         i += 1
     return out
 
@@ -84,7 +84,7 @@ def test_ema_matches_the_textbook_definition():
 
 def test_premarket_reading_uses_the_newest_print_and_prior_close():
     now = et(THU, 9, 0, 10)
-    sip = {"TEAM": history(flat(100.0)) + session_bars(THU, flat(101.0), start=(4, 0), end=(8, 40))}
+    sip = {"TEAM": history(flat(100.0)) + session_bars(THU, flat(101.0), start=(4, 0), end=(8, 30))}
     trades = {
         "iex": {"TEAM": {"t": iso(et(THU, 8, 59, 30)), "p": 102.0}},  # real time, newest
         "delayed_sip": {"TEAM": {"t": iso(et(THU, 8, 44, 50)), "p": 101.5}},
@@ -94,7 +94,7 @@ def test_premarket_reading_uses_the_newest_print_and_prior_close():
     pm = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["premarket"]
     assert pm["price"] == 102.0 and pm["source"] == "iex"
     assert pm["change_pct"] == 2.0
-    assert pm["volume"] == 1000 * len(session_bars(THU, flat(1), start=(4, 0), end=(8, 40)))
+    assert pm["volume"] == 1000 * len(session_bars(THU, flat(1), start=(4, 0), end=(8, 30)))
     assert pm["final"] is False
     em = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["ema5m"]
     assert em["basis"] == "premarket" and em["vs6"] == "above" and em["vs20"] == "above"
@@ -113,15 +113,15 @@ def test_premarket_freezes_at_the_open_then_hides_after_the_close():
     sip = {"TEAM": history(flat(100.0)) + session_bars(THU, lambda d, i: 101.0 + i * 0.01, start=(4, 0), end=(16, 0))}
     watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=et(THU, 9, 25, 10), client=FakeClient({"sip": sip}))
     early = watch5m.snapshot(["TEAM"], now=et(THU, 9, 25, 10))["TEAM"]["premarket"]
-    # 09:35: the 09:25 SIP bar is not served yet, the last premarket reading stays.
+    # 09:35: the 09:15 SIP bar is not served yet, the last premarket reading stays.
     watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=et(THU, 9, 35, 10), client=FakeClient({"sip": sip, "iex": {}}))
     assert watch5m.snapshot(["TEAM"], now=et(THU, 9, 35, 10))["TEAM"]["premarket"] == early
-    # 09:50: exact premarket close (09:25 bar) and full 04:00-09:30 volume.
+    # 09:50: exact premarket close (09:15 bar) and full 04:00-09:30 volume.
     watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=et(THU, 9, 50, 10), client=FakeClient({"sip": sip, "iex": {}}))
     final = watch5m.snapshot(["TEAM"], now=et(THU, 12, 0))["TEAM"]["premarket"]
     assert final["final"] is True
-    assert final["time"] == iso(et(THU, 9, 25))
-    assert final["volume"] == 1000 * 66
+    assert final["time"] == iso(et(THU, 9, 15))
+    assert final["volume"] == 1000 * 22
     assert watch5m.snapshot(["TEAM"], now=et(THU, 16, 0, 1))["TEAM"]["premarket"] is None
 
 
@@ -154,23 +154,23 @@ def test_history_is_fetched_once_per_session():
 
 
 def reclaim_closes(day, i):
-    # Flat at 100 then a dip to 99 and a close back above at bar 10 (10:20 bar).
-    return 99.0 if 5 <= i <= 9 else 100.0 if i < 10 else 100.6
+    # Flat at 100 then a dip to 99 and a close back above at bar 4 (10:30 bar).
+    return 99.0 if 2 <= i <= 3 else 100.0 if i < 2 else 100.6
 
 
 def test_reclaim_highlight_lasts_until_the_next_bar_completes():
     sip = {"TEAM": history(flat(100.0))}
-    iex = {"TEAM": session_bars(THU, reclaim_closes, end=(10, 30))}  # bars 09:30 .. 10:25
-    now = et(THU, 10, 25, 10)  # the 10:20 bar just completed; 10:25 is forming
+    iex = {"TEAM": session_bars(THU, reclaim_closes, end=(10, 50))}  # bars 09:30 .. 10:45
+    now = et(THU, 10, 50, 10)  # the 10:30 bar just completed; 10:45 is forming
     watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=now, client=FakeClient({"sip": sip, "iex": iex}))
     em = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["ema5m"]
     assert em["highlight"] == [6, 20]
-    assert em["highlight_bar"] == iso(et(THU, 10, 20))
-    assert em["highlight_until"] == iso(et(THU, 10, 30))
+    assert em["highlight_bar"] == iso(et(THU, 10, 30))
+    assert em["highlight_until"] == iso(et(THU, 11, 0))
     snap = watch5m.snapshot(["TEAM"], now=now)["TEAM"]
-    assert snap["ema5m_cross"] == "6+20" and snap["ema5m_cross_bar"] == iso(et(THU, 10, 20))
-    assert watch5m.snapshot(["TEAM"], now=et(THU, 10, 30))["TEAM"]["ema5m_cross"] is None
-    assert watch5m.snapshot(["TEAM"], now=et(THU, 10, 30))["TEAM"]["ema5m"]["highlight"] == []
+    assert snap["ema5m_cross"] == "6+20" and snap["ema5m_cross_bar"] == iso(et(THU, 10, 30))
+    assert watch5m.snapshot(["TEAM"], now=et(THU, 11, 0))["TEAM"]["ema5m_cross"] is None
+    assert watch5m.snapshot(["TEAM"], now=et(THU, 11, 0))["TEAM"]["ema5m"]["highlight"] == []
 
 
 def test_highlight_rule_is_a_crossover_not_just_above():
@@ -224,21 +224,21 @@ def ranged(day, i):
 
 
 def test_day_range_is_todays_regular_session_with_the_latest_price():
-    today = session_bars(THU, ranged, end=(10, 30))  # 09:30 .. 10:25, closes 100.0 .. 101.1
-    today[3] = {**today[3], "h": 103.0, "l": 99.0}  # 09:45: SIP bar (older than 15 min)
+    today = session_bars(THU, ranged, end=(10, 30))  # 09:30 .. 10:15, closes 100.0 .. 100.3
+    today[1] = {**today[1], "h": 103.0, "l": 99.0}  # 09:45: SIP bar (older than 15 min)
     sip = {"TEAM": history(flat(100.0)) + today}
     iex = {"TEAM": today}
     now = et(THU, 10, 27)
     watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=now, client=FakeClient({"sip": sip, "iex": iex}))
     rng = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["day_range"]
-    assert (rng["low"], rng["high"], rng["last"]) == (99.0, 103.0, 101.1)
-    assert rng["pct"] == pytest.approx(52.5)
+    assert (rng["low"], rng["high"], rng["last"]) == (99.0, 103.0, 100.3)
+    assert rng["pct"] == pytest.approx(32.5)
     assert rng["basis"] == "regular" and rng["session"] == "2026-10-22"
 
 
 def test_premarket_range_includes_the_latest_print():
     now = et(THU, 9, 0, 10)
-    sip = {"TEAM": history(flat(100.0)) + session_bars(THU, flat(101.0), start=(4, 0), end=(8, 40))}
+    sip = {"TEAM": history(flat(100.0)) + session_bars(THU, flat(101.0), start=(4, 0), end=(8, 30))}
     trades = {"iex": {"TEAM": {"t": iso(et(THU, 8, 59, 30)), "p": 102.0}}}
     watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=now, client=FakeClient({"sip": sip}, trades))
     rng = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["day_range"]
@@ -251,7 +251,7 @@ def test_outside_the_session_the_last_session_range_is_shown():
     watch5m.refresh(["TEAM"], lambda s, d: 100.0, now=now, client=FakeClient({"sip": sip}))
     rng = watch5m.snapshot(["TEAM"], now=now)["TEAM"]["day_range"]
     assert rng["basis"] == "last session" and rng["session"] == "2026-10-21"
-    assert (rng["low"], rng["high"], rng["pct"]) == (100.0, 107.7, 100.0)
+    assert (rng["low"], rng["high"], rng["pct"]) == (100.0, 102.5, 100.0)
 
 
 def test_a_flat_range_is_a_dash():

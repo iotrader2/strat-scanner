@@ -14,21 +14,25 @@ export function phoenixTime(iso: string | null | undefined): string {
 
 /**
  * Setup windows are minutes after the 9:30 America/New_York open, on the setup bar's start
- * (`lo <= barIndex * 5 <= hi`). The alert is created when that bar closes, five minutes later.
+ * (`lo <= barIndex * 15 <= hi`). The alert is created when that bar closes, fifteen minutes later.
  * A is only the opening bar. These defaults match `Settings` in backend/strat/alerts.py.
  */
 const WINDOW_DEFAULTS: Record<string, number> = {
-  b_from: 5,
-  b_to: 25,
-  c_from: 5,
-  c_to: 25,
-  d_from: 25,
-  d_to: 90,
-  e_from: 10,
-  e_to: 80,
-  f_from: 120,
-  f_to: 385,
+  b_from: 15,
+  b_to: 45,
+  c_from: 15,
+  c_to: 45,
+  d_from: 30,
+  d_to: 120,
+  e_from: 15,
+  e_to: 120,
+  f_from: 60,
+  f_to: 120,
+  trade_bars: 10,
 };
+
+/** Alert bars are 15-minute candles. Keep in step with `BAR_MINUTES` in backend/strat/alerts.py. */
+export const BAR_MINUTES = 15;
 
 const SETUPS = ["A", "B", "C", "D", "E", "F"] as const;
 const ET = "America/New_York";
@@ -38,7 +42,7 @@ export type SetupWindowState = "later" | "open" | "done";
 
 export interface SetupWindowView {
   setup: string;
-  /** Clock range in Phoenix, or "off" when the saved minutes contain no 5-minute bar. */
+  /** Clock range in Phoenix, or "off" when the saved minutes contain no 15-minute bar. */
   label: string;
   state: SetupWindowState;
 }
@@ -95,12 +99,14 @@ function windowMinutes(settings: Record<string, number> | undefined, key: string
 /** Minutes after the open when the alert can print (bar close), or null when no bar falls in the window. */
 function fireMinutes(setup: string, settings: Record<string, number> | undefined): { first: number; last: number } | null {
   const from = setup === "A" ? 0 : windowMinutes(settings, `${setup.toLowerCase()}_from`);
-  const to = setup === "A" ? 0 : windowMinutes(settings, `${setup.toLowerCase()}_to`);
+  // The entry bar must be one of the first `trade_bars` candles, so the last setup bar is the one before it.
+  const lastSetupStart = (windowMinutes(settings, "trade_bars") - 2) * BAR_MINUTES;
+  const to = Math.min(setup === "A" ? 0 : windowMinutes(settings, `${setup.toLowerCase()}_to`), lastSetupStart);
   if (to < from) return null;
-  const firstStart = Math.ceil(from / 5) * 5;
-  const lastStart = Math.floor(to / 5) * 5;
+  const firstStart = Math.ceil(from / BAR_MINUTES) * BAR_MINUTES;
+  const lastStart = Math.floor(to / BAR_MINUTES) * BAR_MINUTES;
   if (firstStart > lastStart) return null;
-  return { first: firstStart + 5, last: lastStart + 5 };
+  return { first: firstStart + BAR_MINUTES, last: lastStart + BAR_MINUTES };
 }
 
 function phoenixClock(date: Date): Clock {
@@ -273,7 +279,7 @@ export function playChime(ctx: AudioContext): void {
   }
 }
 
-/** "+0.62%" distance of the setup bar's close from the 5-minute EMA 360; "—" when unknown (older alerts, thin history). */
+/** "+0.62%" distance of the setup bar's close from the 15-minute EMA 120; "—" when unknown (older alerts, thin history). */
 export function ema360Text(a: Pick<TradeAlert, "details">): string {
   const v = a.details?.ema360_close_pct;
   if (v == null || !Number.isFinite(v)) return "—";
@@ -283,9 +289,9 @@ export function ema360Text(a: Pick<TradeAlert, "details">): string {
 /** Hover text: EMA level and both distances the not-extended filter checks. */
 export function ema360Title(a: Pick<TradeAlert, "details">): string {
   const d = a.details ?? {};
-  if (d.ema360 == null) return "5-minute EMA 360 not known for this alert";
+  if (d.ema360 == null) return "15-minute EMA 120 not known for this alert";
   const pct = (v: number | null | undefined) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
-  return `5m EMA 360 (≈ 1h EMA 30) ${d.ema360.toFixed(2)}. Close ${pct(d.ema360_close_pct)}, last hour's low ${pct(d.ema360_low_pct)}`;
+  return `15m EMA 120 (≈ 1h EMA 30) ${d.ema360.toFixed(2)}. Close ${pct(d.ema360_close_pct)}, last hour's low ${pct(d.ema360_low_pct)}`;
 }
 
 /** Tone for the distance cell: near the level is good, stretched is a warning. */
@@ -328,17 +334,18 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["vol_min_sessions", "Volume filter needs", "sessions of history"],
       ["max_stop_pct", "Skip when the stop is over", "% (A: cap)"],
       ["entry_valid_bars", "Buy stop good for", "bars"],
+      ["trade_bars", "Trade only the first", "15-min candles"],
       ["max_attempts", "Triggered attempts per name per day", ""],
       ["breakeven_after_new_highs", "Stop to break-even after", "new-high bars"],
       ["top_names", "Top names per day", ""],
     ],
   },
   {
-    title: "Not extended (5-minute EMA 360 ≈ 1-hour EMA 30)",
+    title: "Not extended (15-minute EMA 120 ≈ 1-hour EMA 30)",
     items: [
-      ["ext_filter", "Only alert near the EMA 360 (1 = on, 0 = off)", ""],
-      ["ext_low_pct", "Last hour's low at most", "% over the EMA 360"],
-      ["ext_close_pct", "Setup bar close at most", "% over the EMA 360"],
+      ["ext_filter", "Only alert near the EMA 120 (1 = on, 0 = off)", ""],
+      ["ext_low_pct", "Last hour's low at most", "% over the EMA 120"],
+      ["ext_close_pct", "Setup bar close at most", "% over the EMA 120"],
       ["ext_lookback_bars", "Last hour =", "bars (today only)"],
     ],
   },

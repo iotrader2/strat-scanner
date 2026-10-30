@@ -9,14 +9,14 @@ import { DETAIL_TF_KEY } from "../persist";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { symbolMock, bars5mMock } = vi.hoisted(() => ({
+const { symbolMock, bars15mMock } = vi.hoisted(() => ({
   symbolMock: vi.fn(),
-  bars5mMock: vi.fn(),
+  bars15mMock: vi.fn(),
 }));
 
 vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
-  return { ...actual, api: { ...actual.api, symbol: symbolMock, bars5m: bars5mMock } };
+  return { ...actual, api: { ...actual.api, symbol: symbolMock, bars15m: bars15mMock } };
 });
 
 vi.mock("../components/Watch", () => ({
@@ -120,7 +120,7 @@ const intraday: IntradayChartData = {
   seed_sessions: 30,
   sessions: 5,
   bars: [
-    { time: 1_700_000_000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10, ema: { "5": 1.4, "20": 1.2, "50": 1.1, "360": 1 } },
+    { time: 1_700_000_000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10, ema: { "6": 1.4, "20": 1.2, "50": 1.1, "120": 1 } },
   ],
 };
 
@@ -142,8 +142,8 @@ let host: HTMLDivElement;
 beforeEach(() => {
   localStorage.clear();
   symbolMock.mockReset();
-  bars5mMock.mockReset();
-  bars5mMock.mockResolvedValue(intraday);
+  bars15mMock.mockReset();
+  bars15mMock.mockResolvedValue(intraday);
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -173,16 +173,16 @@ async function renderLoaded(trigger: Tf | null) {
 }
 
 describe("detail chart switcher", () => {
-  it("shows one chart and does not fetch 5-minute bars until 5min is selected", async () => {
+  it("shows one chart and does not fetch 15-minute bars until 15min is selected", async () => {
     await renderLoaded("D");
 
-    expect(labels()).toEqual(["5min", "Daily", "Weekly", "Monthly"]);
+    expect(labels()).toEqual(["15min", "Daily", "Weekly", "Monthly"]);
     expect(activeLabel()).toBe("Daily");
     expect(host.querySelector("[data-chart='candles']")).not.toBeNull();
     expect(host.querySelector("[data-chart='intraday']")).toBeNull();
     expect(host.textContent).toContain("SMA 6 20 50");
     expect(host.textContent).toContain("H = hammer");
-    expect(bars5mMock).not.toHaveBeenCalled();
+    expect(bars15mMock).not.toHaveBeenCalled();
     expect(symbolMock).toHaveBeenCalledWith("AAPL");
 
     await act(async () => {
@@ -192,9 +192,9 @@ describe("detail chart switcher", () => {
       await Promise.resolve();
     });
 
-    expect(activeLabel()).toBe("5min");
-    expect(bars5mMock).toHaveBeenCalledTimes(1);
-    expect(bars5mMock).toHaveBeenCalledWith("AAPL");
+    expect(activeLabel()).toBe("15min");
+    expect(bars15mMock).toHaveBeenCalledTimes(1);
+    expect(bars15mMock).toHaveBeenCalledWith("AAPL");
     expect(host.querySelector("[data-chart='intraday']")).not.toBeNull();
     expect(host.querySelector("[data-chart='candles']")).toBeNull();
     expect(host.textContent).toContain("EMA 5 20 50 360");
@@ -206,7 +206,7 @@ describe("detail chart switcher", () => {
     expect(activeLabel()).toBe("Daily");
     expect(host.querySelector("[data-chart='candles']")).not.toBeNull();
     expect(host.querySelector("[data-chart='intraday']")).toBeNull();
-    expect(bars5mMock).toHaveBeenCalledTimes(1);
+    expect(bars15mMock).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(`strat:${DETAIL_TF_KEY}`)).toBe(JSON.stringify("D"));
   });
 
@@ -214,14 +214,14 @@ describe("detail chart switcher", () => {
     await renderLoaded(null);
     expect(activeLabel()).toBe("Weekly");
     expect(host.querySelector("[data-chart='candles']")?.getAttribute("data-times")).toBe("2026-10-22");
-    expect(bars5mMock).not.toHaveBeenCalled();
+    expect(bars15mMock).not.toHaveBeenCalled();
   });
 
   it("fetches 5-minute bars on load only when that view was saved", async () => {
-    localStorage.setItem(`strat:${DETAIL_TF_KEY}`, JSON.stringify("5m"));
+    localStorage.setItem(`strat:${DETAIL_TF_KEY}`, JSON.stringify("15m"));
     await renderLoaded("W");
-    expect(activeLabel()).toBe("5min");
-    expect(bars5mMock).toHaveBeenCalledTimes(1);
+    expect(activeLabel()).toBe("15min");
+    expect(bars15mMock).toHaveBeenCalledTimes(1);
     expect(host.querySelector("[data-chart='intraday']")).not.toBeNull();
     expect(host.querySelector("[data-chart='candles']")).toBeNull();
   });

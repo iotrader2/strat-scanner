@@ -1,25 +1,25 @@
-"""On-demand 5-minute chart for one symbol: regular-session bars and EMAs.
+"""On-demand 15-minute chart for one symbol: regular-session bars and EMAs.
 
 The chart page asks for a single ticker. This module fetches that ticker from Alpaca
-(the same 5-minute client the live poll uses), keeps a small bounded cache, and
+(the same client the live alert poll uses), keeps a small bounded cache, and
 returns only the last few sessions. It does not touch the other names in the universe.
 
-Premarket and after-hours bars are dropped. The watchlist's 5-minute EMAs already use
+Premarket and after-hours bars are dropped. The watchlist's 15-minute EMAs already use
 regular-session bars only (09:30-16:00 ET, :func:`watch5m.is_regular`), and the live
-poll stores the session from the open. The chart follows that same cut so the 5, 20,
-50, and 360 EMAs are not mixed with the thin premarket prints.
+poll stores the session from the open. The chart follows that same cut so the 6, 20,
+50, and 120 EMAs are not mixed with the thin premarket prints.
 
-The 360-period EMA is the stand-in for a 30-period hourly average (360 five-minute
+The 120-period EMA is the stand-in for a 30-period hourly average (120 fifteen-minute
 bars = 30 hours). An EMA seeded with the SMA of its first period is still mostly that
 seed until many more bars have passed, so history covers ``SEED_SESSIONS`` completed
 sessions (several weeks) even though the response only includes ``DISPLAY_SESSIONS``.
 
-Prices are the SIP bar once it is 15 minutes old and the IEX bar after that, matching
+Prices are the SIP bar once it has closed and is 15 minutes old and the IEX bar after that, matching
 :mod:`strat.intraday`. Volume rides along with whichever feed supplied the bar, so the
 last quarter-hour is IEX volume (a small share of the market) until SIP replaces it.
 
 Cache: at most ``CACHE_LIMIT`` symbols. Each entry is the completed-session tuples
-(about 30 x 78 bars) plus today's handful of bars. That is a few megabytes for a full
+(about 30 x 26 bars) plus today's handful of bars. That is a few megabytes for a full
 cache, allocated only for tickers someone actually opened. The raw Alpaca payload is
 discarded after the regular-session filter.
 """
@@ -37,12 +37,13 @@ from .intraday import sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, last_completed_session, now_et
 from .watch5m import ema_series, is_regular
 
-EMA_PERIODS = (5, 20, 50, 360)
-DISPLAY_SESSIONS = 5
-SEED_SESSIONS = 30  # ~6 weeks; the 360 EMA's seed has faded by the displayed window
+BAR_MINUTES = 15
+EMA_PERIODS = (6, 20, 50, 120)
+DISPLAY_SESSIONS = 10
+SEED_SESSIONS = 30  # ~6 weeks; the 120 EMA's seed has faded by the displayed window
 LOOKBACK_DAYS = 56  # calendar days that cover SEED_SESSIONS plus weekends and holidays
 CACHE_LIMIT = 8
-TODAY_TTL = 45.0  # seconds; today's bars change on the 5-minute poll, history does not
+TODAY_TTL = 45.0  # seconds; today's forming bar changes with every trade, history does not
 
 Bar = tuple[int, float, float, float, float, float]  # unix seconds, o, h, l, c, v
 
@@ -108,7 +109,7 @@ def _fetch(client: AlpacaClient, symbol: str, start: datetime, end: datetime, fe
     if end <= start:
         return []
     # One symbol. The live poll uses this same bars() path for the whole universe; a chart must not.
-    payload, _invalid = client.bars([symbol], "5Min", start, end=end, feed=feed, adjustment="raw")
+    payload, _invalid = client.bars([symbol], f"{BAR_MINUTES}Min", start, end=end, feed=feed, adjustment="raw")
     rows = payload.get(symbol, [])
     parsed = regular_bars(rows)
     del payload, rows
@@ -125,7 +126,7 @@ def _want_today(clock: datetime, through: date) -> bool:
 
 def _load_history(client: AlpacaClient, symbol: str, through: date, clock: datetime) -> list[Bar]:
     start = _at(through - timedelta(days=LOOKBACK_DAYS), OPEN)
-    end = min(_at(through, CLOSE), sip_cutoff(clock))
+    end = min(_at(through, CLOSE), sip_cutoff(clock, BAR_MINUTES))
     rows = _fetch(client, symbol, start, end, "sip")
     return keep_sessions(rows, SEED_SESSIONS, through)
 
@@ -133,7 +134,7 @@ def _load_history(client: AlpacaClient, symbol: str, through: date, clock: datet
 def _load_today(client: AlpacaClient, symbol: str, clock: datetime) -> list[Bar]:
     day = now_et(clock).date()
     open_, close_ = _at(day, OPEN), _at(day, CLOSE)
-    cutoff = sip_cutoff(clock)
+    cutoff = sip_cutoff(clock, BAR_MINUTES)
     end = min(clock, close_)
     sip = _fetch(client, symbol, open_, min(cutoff, close_) - timedelta(seconds=1), "sip")
     iex = _fetch(client, symbol, max(open_, cutoff), end, "iex")
@@ -203,7 +204,7 @@ def _payload(symbol: str, rows: list[Bar]) -> dict:
     return {
         "symbol": symbol,
         "session": "regular",
-        "bar_minutes": 5,
+        "bar_minutes": BAR_MINUTES,
         "time_zone": "America/New_York",
         "display_sessions": DISPLAY_SESSIONS,
         "seed_sessions": SEED_SESSIONS,
@@ -213,7 +214,7 @@ def _payload(symbol: str, rows: list[Bar]) -> dict:
 
 
 def chart(symbol: str, now: Optional[datetime] = None, client: Optional[AlpacaClient] = None) -> dict:
-    """5-minute regular-session bars and EMAs for ``symbol``.
+    """15-minute regular-session bars and EMAs for ``symbol``.
 
     ``client`` is injectable so tests never touch the network. The default client is the
     shared Alpaca client (SIP clamped to the 15-minute delay, IEX real time).

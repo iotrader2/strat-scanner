@@ -144,7 +144,7 @@ export default function App() {
   return (
     <WatchlistProvider version={dataVersion} epoch={listsEpoch}>
       <PositionsProvider version={dataVersion} epoch={positionsEpoch + listsEpoch}>
-        {/* listsEpoch is the 5-minute lists poll, which is what refreshes the EMA memory the alert pills read. */}
+        {/* listsEpoch is the lists poll, which is what refreshes the EMA memory the alert pills read. */}
         <AlertsProvider epoch={alertsEpoch + listsEpoch}>
         <div className="app">
           <div className="topbar-wrap">

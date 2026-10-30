@@ -1,4 +1,4 @@
-"""Replay the alert rules over past sessions' real Alpaca 5-minute bars and report what would have fired.
+"""Replay the alert rules over past sessions' real Alpaca 15-minute bars and report what would have fired.
 
     cd backend && .venv/bin/python -m strat.alerts_replay --symbols AAPL,MU,SNDK,QQQ,SPY,CRWD --days 5
 
@@ -49,8 +49,8 @@ def replay_day(client: AlpacaClient, symbols: list[str], day: date, settings: Se
     alerts_live.ensure_profiles(client, symbols, day)
     start = datetime.combine(day, PREMARKET_AT, tzinfo=ET)
     close = datetime.combine(day, CLOSE, tzinfo=ET)
-    sip, _ = client.bars(symbols, "5Min", start, end=close - timedelta(seconds=1), feed="sip", adjustment="raw")
-    iex, _ = client.bars(symbols, "5Min", datetime.combine(day, OPEN, tzinfo=ET), end=close - timedelta(seconds=1), feed="iex", adjustment="raw")
+    sip, _ = client.bars(symbols, alerts_live.BARS, start, end=close - timedelta(seconds=1), feed="sip", adjustment="raw")
+    iex, _ = client.bars(symbols, alerts_live.BARS, datetime.combine(day, OPEN, tzinfo=ET), end=close - timedelta(seconds=1), feed="iex", adjustment="raw")
     pcs = prev_closes(client, symbols, day)
     found, skipped, bars_seen = [], [], {}
     after = close.astimezone(timezone.utc) + timedelta(hours=1)

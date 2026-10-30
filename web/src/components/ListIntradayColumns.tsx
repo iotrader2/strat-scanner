@@ -14,7 +14,7 @@ function Dash({ title }: { title: string }) {
   );
 }
 
-/** Above / Below pill for the live 5-minute EMA. Shared by Positions and Alerts. */
+/** Above / Below pill for the live 15-minute EMA. Shared by Positions and Alerts. */
 export function EmaPill({
   em,
   period,
@@ -24,7 +24,7 @@ export function EmaPill({
   period: 6 | 20;
   missing?: string;
 }) {
-  if (!em) return <Dash title={missing ?? `No 5-minute ${period} EMA yet`} />;
+  if (!em) return <Dash title={missing ?? `No 15-minute ${period} EMA yet`} />;
   const view = emaSide(em, period);
   return (
     <span className={`ema-pill ${view.side}`} title={view.title}>
@@ -53,7 +53,7 @@ function DayRangeCell({ info }: { info: ListIntraday | undefined }) {
 
 /**
  * Premarket, Day, Day range, and the daily vs 6/20/50 MA columns, for both trading lists.
- * `ema5m` adds the 5-minute 6 and 20 EMA pills. Positions turns that on; the watchlist does not.
+ * `ema5m` adds the 15-minute 6 and 20 EMA pills. Positions turns that on; the watchlist does not.
  */
 export function listIntradayColumns(intraday: Intraday, options?: { ema5m?: boolean }): ExtraColumn[] {
   const get = (r: ScanRow) => intraday?.[r.symbol];
@@ -62,7 +62,7 @@ export function listIntradayColumns(intraday: Intraday, options?: { ema5m?: bool
     ? ([6, 20] as const).map(
         (period): ExtraColumn => ({
           key: `ema${period}_5m`,
-          label: `${period} EMA (5m)`,
+          label: `${period} EMA (15m)`,
           className: "ema-col",
           sortValue: (r) => emaDistance(get(r)?.ema5m, period),
           render: (r) => <EmaPill em={get(r)?.ema5m} period={period} />,
@@ -106,7 +106,7 @@ export function listIntradayColumns(intraday: Intraday, options?: { ema5m?: bool
       render: (r) => <DayRangeCell info={get(r)} />,
     },
     ...emaColumns,
-    // Daily 6 / 20 / 50 SMA distance. On Positions these follow the 5-minute EMAs; on the watchlist, Day range.
+    // Daily 6 / 20 / 50 SMA distance. On Positions these follow the 15-minute EMAs; on the watchlist, Day range.
     ...MA_DISTANCE_PERIODS.map(
       (p): ExtraColumn => ({
         key: maSortKey(p),

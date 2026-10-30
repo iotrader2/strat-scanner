@@ -102,9 +102,9 @@ describe("tab restore", () => {
     expect(isTimeframe("W")).toBe(true);
     expect(isTimeframe("Y")).toBe(false);
     expect(isTimeframe(null)).toBe(false);
-    // 5min is a detail-page chart, not a scan / theme timeframe.
-    expect(isTimeframe("5m")).toBe(false);
-    expect(isDetailChart("5m")).toBe(true);
+    // 15min is a detail-page chart, not a scan / theme timeframe.
+    expect(isTimeframe("15m")).toBe(false);
+    expect(isDetailChart("15m")).toBe(true);
     expect(isDetailChart("D")).toBe(true);
     expect(isDetailChart("Y")).toBe(false);
   });
