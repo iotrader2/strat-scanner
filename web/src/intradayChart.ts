@@ -1,16 +1,16 @@
 import type { IntradayBar } from "./api";
 import { volumeBarColor } from "./macd";
 
-/** EMAs drawn on the 5-minute chart. 360 five-minute bars stand in for a 30-period hourly average. */
-export const INTRADAY_EMA_PERIODS = [5, 20, 50, 360] as const;
+/** EMAs drawn on the 15-minute chart. 120 fifteen-minute bars stand in for a 30-period hourly average. */
+export const INTRADAY_EMA_PERIODS = [6, 20, 50, 120] as const;
 
 export type IntradayEmaPeriod = (typeof INTRADAY_EMA_PERIODS)[number];
 
 export const INTRADAY_EMA_COLORS: Record<IntradayEmaPeriod, string> = {
-  5: "#f472b6",
+  6: "#f472b6",
   20: "#38bdf8",
   50: "#c084fc",
-  360: "#fbbf24",
+  120: "#fbbf24",
 };
 
 export const INTRADAY_EMAS = INTRADAY_EMA_PERIODS.map((period) => ({
@@ -18,18 +18,18 @@ export const INTRADAY_EMAS = INTRADAY_EMA_PERIODS.map((period) => ({
   color: INTRADAY_EMA_COLORS[period],
 }));
 
-/** One regular session fills the chart; the older loaded sessions are a scroll away. */
+/** Three regular sessions (26 fifteen-minute bars each) fill the chart; the older loaded sessions are a scroll away. */
 export const INTRADAY_VISIBLE_BARS = 78;
 
 export const INTRADAY_HEIGHT = 480;
 
-/** Chart time steps 5 minutes per bar so overnight and weekend gaps do not swallow the candles. */
-export const INTRADAY_STEP_SEC = 300;
+/** Chart time steps 15 minutes per bar so overnight and weekend gaps do not swallow the candles. */
+export const INTRADAY_STEP_SEC = 900;
 
 const ET = "America/New_York";
 
 export function intradayLegendTitle(seedSessions: number): string {
-  return `Exponential moving averages of regular-session 5-minute closes (5, 20, 50, and 360). The 360 is seeded on ${seedSessions} sessions, several weeks of bars, so it can stand in for a 30-period hourly average.`;
+  return `Exponential moving averages of regular-session 15-minute closes (6, 20, 50, and 120). The 120 is seeded on ${seedSessions} sessions, several weeks of bars, so it can stand in for a 30-period hourly average.`;
 }
 
 export function intradaySessionNote(displaySessions: number): string {
@@ -70,7 +70,7 @@ export interface IntradayPlot {
 
 /**
  * Candles, volume, and EMA lines for the chart.
- * ``time`` on each point is session-compressed (5 minutes per bar). ``clock`` maps it back
+ * ``time`` on each point is session-compressed (15 minutes per bar). ``clock`` maps it back
  * to the real bar so the axis still reads Eastern Time across the overnight gap.
  */
 export function intradayPlot(bars: readonly IntradayBar[]): IntradayPlot {

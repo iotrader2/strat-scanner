@@ -35,14 +35,14 @@ def session_open_utc(now: datetime) -> datetime:
     return datetime.combine(local.date(), OPEN, tzinfo=ET).astimezone(timezone.utc)
 
 
-def floor_bar(ts: datetime) -> datetime:
+def floor_bar(ts: datetime, minutes: int = 5) -> datetime:
     ts = ts.astimezone(timezone.utc)
-    return ts.replace(minute=ts.minute - ts.minute % 5, second=0, microsecond=0)
+    return ts.replace(minute=ts.minute - ts.minute % minutes, second=0, microsecond=0)
 
 
-def sip_cutoff(now: datetime) -> datetime:
-    """Bars starting before this instant closed at least 15 minutes (plus a margin) ago."""
-    return floor_bar(now.astimezone(timezone.utc) - SIP_DELAY - SIP_MARGIN)
+def sip_cutoff(now: datetime, minutes: int = 5) -> datetime:
+    """Bars of ``minutes`` starting before this instant closed at least 15 minutes (plus a margin) ago."""
+    return floor_bar(now.astimezone(timezone.utc) - SIP_DELAY - SIP_MARGIN, minutes)
 
 
 def _iso(ts: datetime) -> str:

@@ -10,8 +10,8 @@ type ScanTableProps = ComponentProps<typeof ScanTable>;
  * The table layout shared by Watchlist and Positions: the trading-list column set (no 1M / 3M / 6M, no D · W · M,
  * no Weekly setup), Score immediately right of Price, then premarket, Day, Day range and the daily vs-MA columns.
  *
- * The 5-minute 6/20 EMA pills and the crossover row highlight are the exception. They stay on Positions
- * (`showEma5m`) because those names are watched on the 5-minute chart for end-of-day sells. The watchlist
+ * The 15-minute 6/20 EMA pills and the crossover row highlight are the exception. They stay on Positions
+ * (`showEma5m`) because those names are watched on the 15-minute chart for end-of-day sells. The watchlist
  * does not show them. Nothing else on the watchlist reads the crossover, so the row highlight goes with the columns.
  * Positions passes its own position columns (entry, P/L, days held) ahead of the shared intraday ones.
  */

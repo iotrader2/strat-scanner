@@ -41,60 +41,69 @@ describe("alert windows", () => {
   it("uses Phoenix clock times, and shifts them when New York leaves daylight time", () => {
     const summer = at("2026-10-23T13:00:00Z");
     expect(summer.phase).toBe("before");
-    expect(summer.headline).toBe("Alerts start at 6:35 AM Phoenix.");
-    expect(summer.detail).toBe("Window 6:35 AM – 1:00 PM Phoenix.");
-    expect(chip("2026-10-23T13:00:00Z", "A").label).toBe("6:35 AM");
-    expect(chip("2026-10-23T13:00:00Z", "B").label).toBe("6:40–7:00 AM");
-    expect(chip("2026-10-23T13:00:00Z", "C").label).toBe("6:40–7:00 AM");
-    expect(chip("2026-10-23T13:00:00Z", "D").label).toBe("7:00–8:05 AM");
-    expect(chip("2026-10-23T13:00:00Z", "E").label).toBe("6:45–7:55 AM");
-    expect(chip("2026-10-23T13:00:00Z", "F").label).toBe("8:35 AM – 1:00 PM");
+    expect(summer.headline).toBe("Alerts start at 6:45 AM Phoenix.");
+    expect(summer.detail).toBe("Window 6:45–8:45 AM Phoenix.");
+    expect(chip("2026-10-23T13:00:00Z", "A").label).toBe("6:45 AM");
+    expect(chip("2026-10-23T13:00:00Z", "B").label).toBe("7:00–7:30 AM");
+    expect(chip("2026-10-23T13:00:00Z", "C").label).toBe("7:00–7:30 AM");
+    expect(chip("2026-10-23T13:00:00Z", "D").label).toBe("7:15–8:45 AM");
+    expect(chip("2026-10-23T13:00:00Z", "E").label).toBe("7:00–8:45 AM");
+    expect(chip("2026-10-23T13:00:00Z", "F").label).toBe("7:45–8:45 AM");
 
     const winter = at("2026-11-02T14:00:00Z");
     expect(winter.phase).toBe("before");
-    expect(winter.headline).toBe("Alerts start at 7:35 AM Phoenix.");
-    expect(winter.detail).toBe("Window 7:35 AM – 2:00 PM Phoenix.");
-    expect(winter.windows.find((w) => w.setup === "F")?.label).toBe("9:35 AM – 2:00 PM");
+    expect(winter.headline).toBe("Alerts start at 7:45 AM Phoenix.");
+    expect(winter.detail).toBe("Window 7:45–9:45 AM Phoenix.");
+    expect(winter.windows.find((w) => w.setup === "F")?.label).toBe("8:45–9:45 AM");
   });
 
-  it("says which setups can still fire, including the gap before the midday window", () => {
-    const mid = at("2026-10-23T13:50:00Z");
+  it("says which setups can still fire, including the gap after the opening candle", () => {
+    const mid = at("2026-10-23T14:15:00Z");
     expect(mid.phase).toBe("open");
-    expect(mid.headline).toBe("Alerts can still fire until 1:00 PM Phoenix.");
-    expect(chip("2026-10-23T13:50:00Z", "A").state).toBe("done");
-    expect(chip("2026-10-23T13:50:00Z", "B").state).toBe("open");
-    expect(chip("2026-10-23T13:50:00Z", "E").state).toBe("open");
-    expect(chip("2026-10-23T13:50:00Z", "F").state).toBe("later");
+    expect(mid.headline).toBe("Alerts can still fire until 8:45 AM Phoenix.");
+    expect(chip("2026-10-23T14:15:00Z", "A").state).toBe("done");
+    expect(chip("2026-10-23T14:15:00Z", "B").state).toBe("open");
+    expect(chip("2026-10-23T14:15:00Z", "E").state).toBe("open");
+    expect(chip("2026-10-23T14:15:00Z", "F").state).toBe("later");
 
-    const gap = at("2026-10-23T15:10:00Z");
+    const gap = at("2026-10-23T13:50:00Z");
     expect(gap.phase).toBe("open");
-    expect(gap.headline).toBe("F can fire 8:35 AM – 1:00 PM Phoenix.");
-    expect(gap.detail).toBe("Alerts finish at 1:00 PM Phoenix.");
-    expect(gap.windows.filter((w) => w.setup !== "F").every((w) => w.state === "done")).toBe(true);
-    expect(gap.windows.find((w) => w.setup === "F")?.state).toBe("later");
+    expect(gap.headline).toBe("B, C and E can still fire.");
+    expect(gap.detail).toBe("Alerts finish at 8:45 AM Phoenix.");
+    expect(gap.windows.find((w) => w.setup === "A")?.state).toBe("done");
+    expect(gap.windows.filter((w) => w.setup !== "A").every((w) => w.state === "later")).toBe(true);
   });
 
   it("says alerts are done for the day after the last window", () => {
     const done = at("2026-10-23T20:01:00Z");
     expect(done.phase).toBe("done");
     expect(done.headline).toBe("Alerts are done for the day.");
-    expect(done.detail).toBe("The window was 6:35 AM – 1:00 PM Phoenix.");
+    expect(done.detail).toBe("The window was 6:45–8:45 AM Phoenix.");
     expect(done.windows.every((w) => w.state === "done")).toBe(true);
-    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The window was 6:35 AM – 1:00 PM Phoenix.");
-    expect(todayEmptyLead(at("2026-10-23T15:10:00Z"))).toBeNull();
+    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The window was 6:45–8:45 AM Phoenix.");
+    expect(todayEmptyLead(at("2026-10-23T14:15:00Z"))).toBeNull();
   });
 
   it("names the next session on a weekend", () => {
     const sat = at("2026-10-24T15:00:00Z");
     expect(sat.phase).toBe("closed");
     expect(sat.headline).toBe("Market is closed.");
-    expect(sat.detail).toBe("Next window is Monday, 6:35 AM – 1:00 PM Phoenix.");
+    expect(sat.detail).toBe("Next window is Monday, 6:45–8:45 AM Phoenix.");
     expect(sat.windows.every((w) => w.state === "later")).toBe(true);
   });
 
   it("follows a saved window instead of the default", () => {
-    const day = at("2026-10-23T13:00:00Z", { e_from: 10, e_to: 200 });
-    expect(day.windows.find((w) => w.setup === "E")?.label).toBe("6:45–9:55 AM");
+    const day = at("2026-10-23T13:00:00Z", { e_from: 30, e_to: 60 });
+    expect(day.windows.find((w) => w.setup === "E")?.label).toBe("7:15–7:45 AM");
+  });
+
+  it("never lets a window run past the candle limit for entries", () => {
+    // Trading the first 5 candles: the last setup bar is the 4th (starts at 45 min), so D can fire 7:15-7:30.
+    const day = at("2026-10-23T13:00:00Z", { trade_bars: 5 });
+    expect(day.windows.find((w) => w.setup === "D")?.label).toBe("7:15–7:30 AM");
+    expect(day.windows.find((w) => w.setup === "F")?.label).toBe("off");
+    const wide = at("2026-10-23T13:00:00Z", { e_to: 390 });
+    expect(wide.windows.find((w) => w.setup === "E")?.label).toBe("7:00–8:45 AM");
   });
 });
 

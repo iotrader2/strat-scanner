@@ -61,7 +61,7 @@ const bars: IntradayBar[] = [10, 11, 12, 13, 14, 15].map((close, i) => ({
   low: close - 1,
   close,
   volume: 5000 + i,
-  ema: { "5": close - 0.2, "20": close - 0.5, "50": close - 1, "360": 100 + i },
+  ema: { "6": close - 0.2, "20": close - 0.5, "50": close - 1, "120": 100 + i },
 }));
 
 let root: Root;
@@ -87,7 +87,7 @@ describe("IntradayChart", () => {
 
     const html = host.innerHTML;
     expect(html).toContain("EMA");
-    for (const period of [5, 20, 50, 360]) expect(html).toContain(`>${period}<`);
+    for (const period of [6, 20, 50, 120]) expect(html).toContain(`>${period}<`);
     // jsdom serializes hex backgrounds as rgb().
     expect(html).toContain("rgb(244, 114, 182)");
     expect(html).toContain("rgb(56, 189, 248)");
@@ -106,7 +106,7 @@ describe("IntradayChart", () => {
     expect(volume?.data).toHaveLength(bars.length);
     expect(volume?.data?.[0].color).toBe(VOLUME_UP_COLOR);
     expect(lines.map((line) => line.options.color)).toEqual(["#f472b6", "#38bdf8", "#c084fc", "#fbbf24"]);
-    // The 360 line is the server's values, not a fresh EMA of the candles on screen.
+    // The 120 line is the server's values, not a fresh EMA of the candles on screen.
     expect(lines[3].data?.map((point) => point.value)).toEqual([100, 101, 102, 103, 104, 105]);
     // Three bars on screen, the rest a scroll away.
     expect(chart.range?.from).toBe(bars.length - 3 - 0.5);
@@ -116,7 +116,7 @@ describe("IntradayChart", () => {
     await act(async () => {
       root.render(<IntradayChart bars={[]} />);
     });
-    expect(host.textContent).toContain("No 5-minute bars");
+    expect(host.textContent).toContain("No 15-minute bars");
     expect(charts).toHaveLength(0);
   });
 });

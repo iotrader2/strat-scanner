@@ -76,15 +76,15 @@ export function isTimeframe(v: unknown): v is (typeof TIMEFRAMES)[number] {
 }
 
 /**
- * Charts on the symbol page. ``5m`` is only this page: themes and the market stay on M / W / D,
+ * Charts on the symbol page. ``15m`` is only this page: themes and the market stay on M / W / D,
  * so it is not part of {@link TIMEFRAMES}.
  */
-export const DETAIL_CHARTS = ["5m", "D", "W", "M"] as const;
+export const DETAIL_CHARTS = ["15m", "D", "W", "M"] as const;
 export type DetailChart = (typeof DETAIL_CHARTS)[number];
 
 /** Segment buttons, left to right. */
 export const DETAIL_CHART_BUTTONS: { id: DetailChart; label: string }[] = [
-  { id: "5m", label: "5min" },
+  { id: "15m", label: "15min" },
   { id: "D", label: "Daily" },
   { id: "W", label: "Weekly" },
   { id: "M", label: "Monthly" },

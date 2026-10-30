@@ -150,7 +150,7 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect(html).toContain('<span class="red-text">-1.04%</span>');
   });
 
-  it("watchlist: intraday columns after page columns, without the 5-minute EMAs or the crossover highlight", () => {
+  it("watchlist: intraday columns after page columns, without the 15-minute EMAs or the crossover highlight", () => {
     const html = list({
       extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
     });
@@ -159,24 +159,24 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).not.toContain(">Trigger<");
     expect(html).not.toContain(">To trigger<");
-    expect(html).not.toContain("6 EMA (5m)");
-    expect(html).not.toContain("20 EMA (5m)");
+    expect(html).not.toContain("6 EMA (15m)");
+    expect(html).not.toContain("20 EMA (15m)");
     expect(html).not.toContain("ema-pill");
     expect(html).not.toContain("ema-cross");
   });
 
-  it("positions: keeps the 5-minute EMA columns and the crossover highlight", () => {
+  it("positions: keeps the 15-minute EMA columns and the crossover highlight", () => {
     const html = list({
       showEma5m: true,
       extraColumns: [{ key: "pnl", label: "$ P/L", sortValue: () => null, render: () => "x" }],
     });
-    const order = ["$ P/L", "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "Avg $vol"].map((label) =>
+    const order = ["$ P/L", "Premkt", "Day", "Day range", "6 EMA (15m)", "20 EMA (15m)", "vs 6 MA", "Avg $vol"].map((label) =>
       html.indexOf(`>${label}<`),
     );
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain('class="ema-pill above"');
-    expect(html).toMatch(/<tr class="ema-cross" title="Crossed back above the 6 EMA \(5m\)/);
+    expect(html).toMatch(/<tr class="ema-cross" title="Crossed back above the 6 EMA \(15m\)/);
   });
 
   it("puts Score immediately right of Price on both trading lists, once", () => {
@@ -213,7 +213,7 @@ describe("ListTable (Watchlist and Positions share it)", () => {
     expect(positions.match(/score-pill/g)).toHaveLength(1);
     expect(positions).not.toContain("score-col");
     expect(posHeads.indexOf("Last") + 1).toBe(posHeads.indexOf("Score"));
-    expect(posHeads).toContain("6 EMA (5m)");
+    expect(posHeads).toContain("6 EMA (15m)");
   });
 });
 
@@ -249,7 +249,7 @@ describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
     expect(html).toContain("score-col");
   });
 
-  it("watchlist: daily MA columns right after Day range, once, and they are not the 5-minute EMAs", () => {
+  it("watchlist: daily MA columns right after Day range, once, and they are not the 15-minute EMAs", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <ListTable rows={[withMa]} watchColumn={false} intraday={{}} />
@@ -259,18 +259,18 @@ describe("Price distance from the 6 / 20 / 50 SMA on every table", () => {
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const label of labels) expect(html.split(`>${label}<`)).toHaveLength(2);
-    expect(html).not.toContain("EMA (5m)");
+    expect(html).not.toContain("EMA (15m)");
     expect(html).toContain('<span class="green-text" title="Percent distance of price from the daily 6 SMA; 0% = on the average">+2.4%</span>');
     expect(html).toContain(">-0.2%</span>");
   });
 
-  it("positions: daily MA columns right after 20 EMA (5m), once", () => {
+  it("positions: daily MA columns right after 20 EMA (15m), once", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <ListTable rows={[withMa]} watchColumn={false} intraday={{}} showEma5m />
       </MemoryRouter>,
     );
-    const order = ["20 EMA (5m)", ...labels, "Avg $vol"].map((label) => html.indexOf(`>${label}<`));
+    const order = ["20 EMA (15m)", ...labels, "Avg $vol"].map((label) => html.indexOf(`>${label}<`));
     expect(order.every((i) => i > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const label of labels) expect(html.split(`>${label}<`)).toHaveLength(2);

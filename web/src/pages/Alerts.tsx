@@ -58,7 +58,7 @@ const money = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2
 
 /** Shown when the lists poll has no 5-minute EMA for this symbol (it is on neither list). */
 const emaMissing = (period: 6 | 20) =>
-  `No live 5-minute ${period} EMA (only names on the watchlist or in positions are polled)`;
+  `No live 15-minute ${period} EMA (only names on the watchlist or in positions are polled)`;
 
 function AttentionControls() {
   const { soundReady, muted, setMuted, enableSound, notifyPermission, enableNotifications } = useAlerts();
@@ -144,17 +144,17 @@ export function AlertsTable({
             <th>Ticker</th>
             <th className="num">Score</th>
             <th>Setup</th>
-            <th className="ema-col" title="Live price versus the 6 EMA on the 5-minute chart">
-              6 EMA (5m)
+            <th className="ema-col" title="Live price versus the 6 EMA on the 15-minute chart">
+              6 EMA (15m)
             </th>
-            <th className="ema-col" title="Live price versus the 20 EMA on the 5-minute chart">
-              20 EMA (5m)
+            <th className="ema-col" title="Live price versus the 20 EMA on the 15-minute chart">
+              20 EMA (15m)
             </th>
             <th className="num">Trigger</th>
             <th className="num">Stop</th>
             <th className="num">Stop %</th>
             <th className="num">Risk / sh</th>
-            <th className="num" title="Setup bar close vs the 5-minute EMA 360 (about the 1-hour EMA 30)">vs EMA360</th>
+            <th className="num" title="Setup bar close vs the 15-minute EMA 120 (about the 1-hour EMA 30)">vs EMA120</th>
             <th>Status</th>
             <th className="num">High</th>
             <th className="num">R</th>
@@ -336,7 +336,7 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
             <>
               No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover the{" "}
               <Link className="sector-link" to="/watchlist">Watchlist</Link> ({view.watchlist.length} names) during the regular session and
-              show up about a minute after each 5-minute bar closes.
+              show up about a minute after each 15-minute candle closes.
               {today?.last_run?.at && <> Last check {phoenixTime(today.last_run.at)} Phoenix.</>}
             </>
           )}
@@ -549,10 +549,10 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
         archiveOnly
           ? "Saved. Today's alerts move to History after 4:05 PM New York when this is on."
           : rules && warning
-            ? "Saved. Setup rules apply from the next 5-minute check. The earnings warning updates the next time each page loads."
+            ? "Saved. Setup rules apply from the next check. The earnings warning updates the next time each page loads."
             : warning
               ? "Saved. The earnings warning updates the next time each page loads."
-              : "Saved. New values apply from the next 5-minute check.",
+              : "Saved. New values apply from the next check.",
       );
       setError(null);
     } catch (e) {
@@ -637,8 +637,9 @@ export default function Alerts() {
         <div>
           <h1>Alerts</h1>
           <p className="muted">
-            Setups A to F on the 5-minute chart for your watchlist, regular session only. Each one is a buy stop 1c over the setup
-            bar with a stop 1c under it, tracked until it fills, stops, exits or expires. Times are Phoenix.
+            Setups A to F on the 15-minute chart for your watchlist, regular session only. Nothing fires until the first 15-minute
+            candle forms, and entries are limited to the first 10 candles. Each one is a buy stop 1c over the setup
+            candle with a stop 1c under it, tracked until it fills, stops, exits or expires. Times are Phoenix.
           </p>
           <AlertDayBanner status={day} />
         </div>

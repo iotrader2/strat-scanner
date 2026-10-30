@@ -3,7 +3,7 @@ import { api, type AlertsPayload, type TradeAlert } from "../api";
 import { freshAlerts, notificationText, playChime } from "../alerts";
 import { usePersisted } from "../persist";
 
-/** Fallback poll when the socket push is missed; the server pushes right after each 5-minute poll. */
+/** Fallback poll when the socket push is missed; the server pushes right after each poll. */
 export const ALERTS_POLL_MS = 60_000;
 const FLASH_MS = 12_000;
 

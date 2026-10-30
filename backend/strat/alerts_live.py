@@ -1,14 +1,15 @@
-"""Alerts for the watchlist, run from the existing 5-minute poll (inside the job slot).
+"""Alerts for the watchlist on 15-minute bars, run from the existing 5-minute poll (inside the job slot).
 
 Per poll, two small Alpaca requests for the watchlist: today's SIP bars (04:00 ET up to the 15-minute
 SIP cutoff, which also gives the premarket low) and today's IEX bars from the open. Each completed
 regular-session bar takes its prices from SIP when SIP has it and from IEX otherwise; volume is always
 IEX, so it is compared like for like with the IEX time-of-day average. That average (20 sessions,
-one number per 5-minute slot) and the prior sessions' closes that seed the EMAs are fetched once per
+one number per 15-minute slot) and the prior sessions' closes that seed the EMAs are fetched once per
 session per symbol and held here: under 1 KB a symbol.
 
-Only 09:30-16:00 ET (6:30-1:00 Phoenix in daylight time) is used; outside it the poll does nothing,
-apart from one run just after the close so the last bar is scored and open trades are closed.
+Only 09:30-16:00 ET (6:30-1:00 Phoenix in daylight time) is used, and nothing runs until the opening
+15-minute candle has formed (09:45 ET); outside it the poll does nothing, apart from one run just after
+the close so the last bar is scored and open trades are closed.
 """
 
 from __future__ import annotations
@@ -19,21 +20,22 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable, Iterable, Mapping, Optional
 
 from . import alerts_store
-from .alerts import ACTIVE, EMA_LONG, Alert, Context, Settings, advance_stored, ema_seed, simulate
+from .alerts import ACTIVE, BAR, BAR_MINUTES, EMA_LONG, SESSION_BARS, Alert, Context, Settings, advance_stored, ema_seed, simulate
 from .alpaca import AlpacaClient
-from .intraday import sip_cutoff
+from .intraday import sip_cutoff as _sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT, now_et
 
 log = logging.getLogger(__name__)
 
-BAR = timedelta(minutes=5)
+BARS = f"{BAR_MINUTES}Min"  # Alpaca timeframe
 PROFILE_SESSIONS = 20
 PROFILE_CALENDAR_DAYS = 34  # 20 sessions plus weekends and a holiday or two
 WARM_SESSIONS = 5
 WARM_CALENDAR_DAYS = 10
 PROFILE_BATCH = 5  # symbols per profile request, keeps the transient bar list small
-EMA360_CALENDAR_DAYS = 42  # ~29 sessions (~2,260 regular 5-minute closes) so the EMA 360 has settled
-EMA360_BATCH = 2  # symbols per EMA 360 history request (~12k SIP bars incl. extended hours, freed per batch)
+EMA360_CALENDAR_DAYS = 42  # ~29 sessions (~750 regular 15-minute closes) so the EMA 360 has settled
+EMA360_BATCH = 5  # symbols per EMA 120 history request (~4k SIP bars incl. extended hours each, freed per batch)
+FIRST_RUN = time(9, 45)  # the opening 15-minute candle has formed; no alert can exist before it
 RUN_UNTIL = time(16, 15)  # one last pass after the close
 PREPARE_FROM = time(8, 0)  # premarket polls from here fetch the per-day inputs ahead of the open
 
@@ -53,12 +55,12 @@ def _at(day: date, t: time) -> datetime:
 
 
 def slot(ts: datetime) -> Optional[int]:
-    """5-minute bar index after the open (0 = the opening bar), None outside the regular session."""
+    """15-minute bar index after the open (0 = the opening bar), None outside the regular session."""
     local = ts.astimezone(ET)
     minutes = (local.hour * 60 + local.minute) - (OPEN.hour * 60 + OPEN.minute)
     if minutes < 0 or local.time() >= CLOSE:
         return None
-    return minutes // 5
+    return minutes // BAR_MINUTES
 
 
 def _bar(b: Mapping) -> dict:
@@ -124,8 +126,8 @@ def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
     open_ = _at(day, OPEN)
     for i in range(0, len(stale), PROFILE_BATCH):
         batch = stale[i : i + PROFILE_BATCH]
-        iex, _ = client.bars(batch, "5Min", open_ - timedelta(days=PROFILE_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="iex", adjustment="raw")
-        sip, _ = client.bars(batch, "5Min", open_ - timedelta(days=WARM_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
+        iex, _ = client.bars(batch, BARS, open_ - timedelta(days=PROFILE_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="iex", adjustment="raw")
+        sip, _ = client.bars(batch, BARS, open_ - timedelta(days=WARM_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
         for sym in batch:
             avg, n = volume_profile(iex.get(sym, []), day)
             sip_bars = sip.get(sym, [])
@@ -140,10 +142,10 @@ def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
             with _lock:
                 _profiles[sym] = entry
         del iex, sip
-    # The 5-minute EMA 360 (not-extended filter) needs weeks of closes; only the final value is kept.
+    # The 15-minute EMA 120 (not-extended filter) needs weeks of closes; only the final value is kept.
     for i in range(0, len(stale), EMA360_BATCH):
         batch = stale[i : i + EMA360_BATCH]
-        sip, _ = client.bars(batch, "5Min", open_ - timedelta(days=EMA360_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
+        sip, _ = client.bars(batch, BARS, open_ - timedelta(days=EMA360_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
         for sym in batch:
             seed = ema_seed(regular_closes(sip.get(sym, []), day), EMA_LONG)
             with _lock:
@@ -201,14 +203,19 @@ def context_for(sym: str, prev_close: Optional[float], pm_low: Optional[float], 
     )
 
 
+def sip_cutoff(now: datetime) -> datetime:
+    """Bars starting before this instant closed (whole 15-minute candles) at least 15 minutes ago."""
+    return _sip_cutoff(now, BAR_MINUTES)
+
+
 def prepare_due(now: datetime) -> bool:
     local = now_et(now)
-    return local.weekday() < 5 and PREPARE_FROM <= local.time() < time(9, 35)
+    return local.weekday() < 5 and PREPARE_FROM <= local.time() < FIRST_RUN
 
 
 def due(now: datetime) -> bool:
     local = now_et(now)
-    return local.weekday() < 5 and time(9, 35) <= local.time() <= RUN_UNTIL
+    return local.weekday() < 5 and FIRST_RUN <= local.time() <= RUN_UNTIL
 
 
 def _parse_ts(raw) -> datetime:
@@ -285,7 +292,7 @@ def refresh(
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     syms = list(dict.fromkeys(s for s in symbols if s))
     if syms and prepare_due(clock):
-        # Premarket: fetch the volume averages and EMA seeds now, so the 6:35 pass only needs today's bars.
+        # Premarket: fetch the volume averages and EMA seeds now, so the 6:45 pass only needs today's bars.
         client = client or AlpacaClient()
         return {"symbols": len(syms), "skipped": True, "inserted": [], "prepared": ensure_profiles(client, syms, now_et(clock).date())}
     if not syms or not due(clock):
@@ -297,8 +304,8 @@ def refresh(
     prepared = ensure_profiles(client, syms, day)
     cutoff = sip_cutoff(clock)
     open_, close_ = _at(day, OPEN), _at(day, CLOSE)
-    sip, _ = client.bars(syms, "5Min", _at(day, PREMARKET_AT), end=min(cutoff, close_) - timedelta(seconds=1), feed="sip", adjustment="raw")
-    iex, _ = client.bars(syms, "5Min", open_, end=min(clock, close_), feed="iex", adjustment="raw")
+    sip, _ = client.bars(syms, BARS, _at(day, PREMARKET_AT), end=min(cutoff, close_) - timedelta(seconds=1), feed="sip", adjustment="raw")
+    iex, _ = client.bars(syms, BARS, open_, end=min(clock, close_), feed="iex", adjustment="raw")
     session_over = clock >= close_ + BAR
     found: list[Alert] = []
     bars_by: dict[str, list] = {}
@@ -307,7 +314,7 @@ def refresh(
         bars, pm_low = merge_day(sip.get(sym, []), iex.get(sym, []), day, cutoff, clock)
         if not bars:
             continue
-        ctx = context_for(sym, prev_close(sym, day), pm_low, len(bars) if session_over else 78)
+        ctx = context_for(sym, prev_close(sym, day), pm_low, len(bars) if session_over else SESSION_BARS)
         bars_by[sym] = bars
         ctx_by[sym] = ctx
         found.extend(simulate(sym, day.isoformat(), bars, ctx, settings))

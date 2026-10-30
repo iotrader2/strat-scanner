@@ -41,7 +41,7 @@ describe("watchlist / positions intraday columns", () => {
   it("watchlist headers omit the 5-minute EMAs; positions keeps them before the daily MAs", () => {
     expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "Day", "Day range", "vs 6 MA", "vs 20 MA", "vs 50 MA"]);
     expect(listIntradayColumns({}, { ema5m: true }).map((c) => c.label)).toEqual([
-      "Premkt", "Day", "Day range", "6 EMA (5m)", "20 EMA (5m)", "vs 6 MA", "vs 20 MA", "vs 50 MA",
+      "Premkt", "Day", "Day range", "6 EMA (15m)", "20 EMA (15m)", "vs 6 MA", "vs 20 MA", "vs 50 MA",
     ]);
   });
 
@@ -103,7 +103,7 @@ describe("5-minute EMA crossover row highlight", () => {
     };
     const mark = crossHighlight(crossed)!;
     expect(mark.className).toBe("ema-cross");
-    expect(mark.title).toContain("Crossed back above the 6 EMA (5m)");
+    expect(mark.title).toContain("Crossed back above the 6 EMA (15m)");
     expect(crossHighlight({ ...crossed, ema5m: { ...crossed.ema5m, highlight: [6, 20] } })!.title).toContain(
       "6 EMA and 20 EMA",
     );

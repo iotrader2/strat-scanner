@@ -22,7 +22,7 @@ export function WatchlistProvider({
   children,
 }: {
   version: string | null;
-  /** Bumps when the server refreshed the lists' premarket / 5-minute data. */
+  /** Bumps when the server refreshed the lists' premarket / 15-minute EMA data. */
   epoch?: number;
   children: ReactNode;
 }) {

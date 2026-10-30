@@ -45,23 +45,23 @@ export default function Detail({ version }: { version: string | null }) {
   }, [symbol, version]);
 
   const row = data?.row;
-  // Saved choice wins. Otherwise the row's trigger timeframe, then Weekly. 5min is never the default.
+  // Saved choice wins. Otherwise the row's trigger timeframe, then Weekly. 15min is never the default.
   const chart: DetailChart | null = isDetailChart(storedTf) ? storedTf : row ? (row.trigger_tf ?? "W") : null;
   // Once the row is in, chart is a real selection. The fallback only satisfies the type before that.
   const view: DetailChart = chart ?? "W";
 
   useEffect(() => {
-    if (chart !== "5m") return;
+    if (chart !== "15m") return;
     let cancelled = false;
     setIntraday(null);
     setIntradayError(null);
     api
-      .bars5m(symbol)
+      .bars15m(symbol)
       .then((bars) => {
         if (!cancelled) setIntraday(bars);
       })
       .catch((e) => {
-        if (!cancelled) setIntradayError(e instanceof ApiError ? e.message : "5-minute bars are unavailable");
+        if (!cancelled) setIntradayError(e instanceof ApiError ? e.message : "15-minute bars are unavailable");
       });
     return () => {
       cancelled = true;
@@ -164,14 +164,14 @@ export default function Detail({ version }: { version: string | null }) {
                 </button>
               ))}
             </div>
-            {view !== "5m" && <span className="muted small">H = hammer · I = inside bar</span>}
+            {view !== "15m" && <span className="muted small">H = hammer · I = inside bar</span>}
           </div>
-          {view === "5m" ? (
+          {view === "15m" ? (
             <>
               {intradayError && <p className="muted small">{intradayError}</p>}
               {!intraday && !intradayError && (
                 <div aria-busy="true">
-                  <LoadingIndicator label={`Loading 5-minute ${row.symbol}`} />
+                  <LoadingIndicator label={`Loading 15-minute ${row.symbol}`} />
                   <div className="skeleton-chart" style={{ height: CHART_HEIGHT }} />
                 </div>
               )}

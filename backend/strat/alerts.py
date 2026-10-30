@@ -1,4 +1,4 @@
-"""Intraday setup alerts (A-F) on 5-minute bars, and what happened after each one.
+"""Intraday setup alerts (A-F) on 15-minute bars, and what happened after each one.
 
 Everything here is pure: :func:`simulate` takes one symbol's completed regular-session bars for one
 day plus a little context and returns the alerts that day would have produced, each with its outcome
@@ -6,9 +6,10 @@ so far. The live poll (``alerts_live``) and the replay script call the same func
 shows exactly what the tab would have shown.
 
 Bars are dicts ``{"t": datetime (bar start, UTC), "o", "h", "l", "c", "v"}``. ``v`` is IEX volume
-(compared only to IEX averages). Bar ``i`` is the ``i``-th 5-minute bar after the open, so bar 0 is
-the opening bar (6:30 Phoenix while New York is on daylight time). Setup windows are stored as minutes
-after the open, which keeps them right when the clocks change.
+(compared only to IEX averages). Bar ``i`` is the ``i``-th 15-minute bar after the open, so bar 0 is
+the opening bar (6:30 Phoenix while New York is on daylight time) and nothing can fire until it has
+formed (9:45 ET). Setup windows are stored as minutes after the open, which keeps them right when the
+clocks change.
 
 Rules common to every setup:
 
@@ -16,6 +17,9 @@ Rules common to every setup:
   ``doji_close_top_pct`` of its range;
 * entry is a buy stop at setup high + $0.01, good for the next ``entry_valid_bars`` bars, cancelled
   when a bar closes under the setup low;
+* trading is limited to the first ``trade_bars`` (10) candles of the session: a pending entry can only
+  fill on those bars, so a setup bar that has no later candle inside the limit is not alerted. A trade
+  already open is still managed (stop, 20 EMA exit, session end);
 * the stop is setup low - $0.01; a setup whose stop is more than ``max_stop_pct`` away is skipped,
   except A, which uses entry - ``max_stop_pct`` instead;
 * the setup bar's IEX volume must be at least ``vol_mult`` x the average IEX volume of the same bar
@@ -25,7 +29,7 @@ Rules common to every setup:
   tight run moves its pending entry to the newest tight bar instead), and no new alert at all once
   ``max_attempts`` of the name's alerts have triggered that day;
 * not extended (``ext_filter``): at the setup bar the lowest low of today's last ``ext_lookback_bars``
-  bars is at most ``ext_low_pct`` above the 5-minute EMA 360 (the trader's stand-in for the 1-hour
+  bars is at most ``ext_low_pct`` above the 15-minute EMA 120 (the trader's stand-in for the 1-hour
   EMA 30; at or under it is fine), and the setup bar closes at most ``ext_close_pct`` above it. The
   EMA 360 runs over regular-session closes only (no premarket), seeded from prior sessions. When there
   is not enough history for it the filter does not block.
@@ -47,7 +51,9 @@ from typing import Any, Mapping, Optional, Sequence
 from .earnings import DEFAULT_WARNING_WINDOW_DAYS
 
 TICK = 0.01
-BAR = timedelta(minutes=5)
+BAR_MINUTES = 15
+BAR = timedelta(minutes=BAR_MINUTES)
+SESSION_BARS = 390 // BAR_MINUTES  # bars in a full regular session
 SETUPS = ("A", "B", "C", "D", "E", "F")
 SETUP_NAMES = {
     "A": "Opening-bar breakout",
@@ -73,7 +79,7 @@ class Settings:
     strong_close_top_pct: float = 30.0
     tight_range_pct: float = 50.0
     gap_down_pct: float = 1.0  # E: open this far under the prior close, or the low this far under the 20 and 50
-    f_bunched_minutes: int = 120
+    f_bunched_minutes: int = 60
     f_volume_mult: float = 1.5
     # Strong marubozu breakout: allow a slightly lower IEX volume floor (IEX is thin vs SIP).
     f_soft_body_pct: float = 80.0  # body at least this % of range to use the soft volume floor
@@ -82,36 +88,38 @@ class Settings:
     # From the spec.
     vol_mult: float = 0.8
     max_stop_pct: float = 2.0
-    entry_valid_bars: int = 3
+    entry_valid_bars: int = 2
+    trade_bars: int = 10  # entries only on the first this-many candles of the session
     cancel_stop_before_trigger: int = 1  # pending entry cancelled once a bar trades at/under the stop
     max_attempts: int = 2
     breakeven_after_new_highs: int = 3
     # Working definitions for the looser words in the spec (all adjustable).
     vol_min_sessions: int = 5
     touch_tol_pct: float = 0.1
-    d_lookback_bars: int = 6
+    d_lookback_bars: int = 2
     f_full_body_pct: float = 50.0
-    # Not extended: price near the 5-minute EMA 360 (about the 1-hour EMA 30). 1 = on, 0 = off.
+    # Not extended: price near the 15-minute EMA 120 (about the 1-hour EMA 30). 1 = on, 0 = off.
     ext_filter: int = 1
-    ext_low_pct: float = 1.0  # last hour's low at most this far over the EMA 360
-    ext_close_pct: float = 3.0  # setup bar close at most this far over the EMA 360
-    ext_lookback_bars: int = 12  # "last hour" in 5-minute bars (today's bars only)
-    # Windows, minutes after the open (setup bar start). 5-25 = 6:35-6:55 Phoenix in daylight time.
-    b_from: int = 5
-    b_to: int = 25
-    c_from: int = 5
-    c_to: int = 25
-    d_from: int = 25
-    d_to: int = 90
+    ext_low_pct: float = 1.0  # last hour's low at most this far over the EMA 120
+    ext_close_pct: float = 3.0  # setup bar close at most this far over the EMA 120
+    ext_lookback_bars: int = 4  # "last hour" in 15-minute bars (today's bars only)
+    # Windows, minutes after the open (setup bar start). 15-45 = 6:45-7:15 Phoenix in daylight time.
+    # No window reaches past bar 8 (120): its entry bar is the last of the ``trade_bars`` candles.
+    b_from: int = 15
+    b_to: int = 45
+    c_from: int = 15
+    c_to: int = 45
+    d_from: int = 30
+    d_to: int = 120
     # D hold20 path (additive to classic pullback). 1 = on, 0 = off.
     d_hold20: int = 1
     d_hold20_extend_pct: float = 0.5  # skip hold20 when the prior bar was already this far over the 20
     d_hold20_daily_filter: int = 1  # hold20 only near the daily 4 EMA (1 = on, 0 = off)
     d_hold20_daily_pct: float = 2.0  # trigger at most this far from the daily 4 EMA (%)
-    e_from: int = 10
-    e_to: int = 80
-    f_from: int = 120
-    f_to: int = 385
+    e_from: int = 15
+    e_to: int = 120
+    f_from: int = 60
+    f_to: int = 120
     # Earnings ⚠ on the scanner, watchlist, alerts, positions and the chart. Calendar days, today included.
     earnings_window_days: int = DEFAULT_WARNING_WINDOW_DAYS
     # 1 = move that day's alerts into history after the 16:05 ET close. 0 = leave them on the live table.
@@ -134,12 +142,12 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "doji_body_pct": (0, 50), "doji_close_top_pct": (0, 100), "bunched_pct": (0.01, 5),
     "strong_close_top_pct": (1, 100), "tight_range_pct": (1, 100), "gap_down_pct": (0.1, 20),
     "f_bunched_minutes": (15, 360), "f_volume_mult": (0.1, 20), "f_soft_body_pct": (0, 100), "f_soft_volume_mult": (0, 20), "top_names": (0, 50),
-    "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "cancel_stop_before_trigger": (0, 1), "max_attempts": (1, 20),
+    "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "trade_bars": (1, 26), "cancel_stop_before_trigger": (0, 1), "max_attempts": (1, 20),
     "breakeven_after_new_highs": (1, 50), "vol_min_sessions": (1, 20), "touch_tol_pct": (0, 5),
     "d_lookback_bars": (1, 30), "f_full_body_pct": (0, 100),
     "d_hold20": (0, 1), "d_hold20_extend_pct": (0, 5), "d_hold20_daily_filter": (0, 1),
     "d_hold20_daily_pct": (0, 20),
-    "ext_filter": (0, 1), "ext_low_pct": (0, 50), "ext_close_pct": (0, 50), "ext_lookback_bars": (1, 78),
+    "ext_filter": (0, 1), "ext_low_pct": (0, 50), "ext_close_pct": (0, 50), "ext_lookback_bars": (1, 26),
     "b_from": (0, 390), "b_to": (0, 390), "c_from": (0, 390), "c_to": (0, 390), "d_from": (0, 390),
     "d_to": (0, 390), "e_from": (0, 390), "e_to": (0, 390), "f_from": (0, 390), "f_to": (0, 390),
     "earnings_window_days": (0, 30),
@@ -151,13 +159,13 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
 class Context:
     """Per symbol, per day inputs that are not today's bars."""
 
-    warm_closes: Sequence[float] = ()  # prior sessions' regular 5-minute closes, oldest first (EMA seed)
+    warm_closes: Sequence[float] = ()  # prior sessions' regular 15-minute closes, oldest first (EMA seed)
     prev_close: Optional[float] = None
     premarket_low: Optional[float] = None
     vol_avg: Mapping[int, float] = field(default_factory=dict)  # bar index -> average IEX volume
     vol_sessions: int = 0  # sessions behind vol_avg
-    session_bars: int = 78  # bars in a full session (fewer on a half day)
-    ema360_seed: Optional[float] = None  # 5-minute EMA 360 after the prior session's last regular bar
+    session_bars: int = SESSION_BARS  # bars in a full session (fewer on a half day)
+    ema360_seed: Optional[float] = None  # 15-minute EMA 120 after the prior session's last regular bar
     daily_4_ema: Optional[float] = None  # daily EMA 4 as of the prior session close (hold20 quality gate)
 
 
@@ -251,7 +259,7 @@ def _iso(ts: Optional[datetime]) -> Optional[str]:
 
 
 def ema_series(values: Sequence[float], period: int) -> list[Optional[float]]:
-    """Same definition as the 5-minute chart (watch5m): seeded with the SMA of the first ``period``."""
+    """Same definition as the 15-minute chart (watch5m): seeded with the SMA of the first ``period``."""
     out: list[Optional[float]] = [None] * len(values)
     if period <= 0 or len(values) < period:
         return out
@@ -264,7 +272,7 @@ def ema_series(values: Sequence[float], period: int) -> list[Optional[float]]:
     return out
 
 
-EMA_LONG = 360  # 5-minute bars: 360 x 5 min = 30 hours = 30 one-hour bars of the regular session (6.5 h/day)
+EMA_LONG = 120  # 15-minute bars: 120 x 15 min = 30 hours = 30 one-hour bars of the regular session (6.5 h/day)
 
 
 def ema_seed(closes: Sequence[float], period: int = EMA_LONG) -> Optional[float]:
@@ -368,7 +376,7 @@ def bunched(levels: Sequence[float], s: Settings) -> bool:
 
 
 def _in(i: int, lo: int, hi: int) -> bool:
-    return lo <= i * 5 <= hi
+    return lo <= i * BAR_MINUTES <= hi
 
 
 # --------------------------------------------------------------------------------------------- setups
@@ -377,7 +385,7 @@ def _in(i: int, lo: int, hi: int) -> bool:
 def _c_tight_run(f: Frame, i: int, s: Settings) -> bool:
     """Bars 1..i are all tight (range <= tight_range_pct of bar 0) and each closes over the 6 EMA or VWAP."""
     r0 = _range(f.bars[0])
-    if i < 1 or i > 5 or r0 <= 0:
+    if i < 1 or r0 <= 0:
         return False
     for k in range(1, i + 1):
         b = f.bars[k]
@@ -569,7 +577,7 @@ def match_e(f: Frame, i: int, s: Settings) -> Optional[str]:
 def match_f(f: Frame, i: int, s: Settings) -> Optional[str]:
     if not _in(i, s.f_from, s.f_to):
         return None
-    n = max(1, s.f_bunched_minutes // 5)
+    n = max(1, s.f_bunched_minutes // BAR_MINUTES)
     if i < n:
         return None
     window = range(i - n, i)
@@ -620,7 +628,7 @@ def volume_check(f: Frame, i: int, s: Settings) -> tuple[bool, Optional[float]]:
 
 
 def extension(f: Frame, i: int, s: Settings) -> Optional[dict]:
-    """Distance of the last hour's low and the setup bar's close from the 5-minute EMA 360, in percent."""
+    """Distance of the last hour's low and the setup bar's close from the 15-minute EMA 120, in percent."""
     e = f.e360[i]
     if e is None or e <= 0:
         return None
@@ -666,6 +674,12 @@ def step(a: Alert, bar: Mapping, e20: Optional[float], s: Settings) -> None:
     end = bar["t"] + BAR
     if a.status == "pending":
         a.bars_waited += 1
+        if a.setup_index + a.bars_waited >= s.trade_bars:
+            # Past the last candle trading is allowed on: the entry never gets a chance to fill.
+            a.status = "expired"
+            a.exit_reason = "trade_window"
+            a.exit_at = bar["t"]
+            return
         if s.cancel_stop_before_trigger and bar["l"] <= a.stop:
             # Stop traded before a fill. Same bar as the trigger counts as stop first (no fill, no R).
             a.status = "cancelled"
@@ -813,6 +827,8 @@ def simulate(
                     a.status, a.exit_at, a.exit_reason = "expired", bar["t"], "max_attempts"
                     continue
                 step(a, bar, f.e20[i], s)
+        if i + 1 >= s.trade_bars:
+            continue  # the entry bar would fall outside the first ``trade_bars`` candles
         tag = tag_bar(f, i, s)
         if not tag:
             continue
@@ -844,7 +860,7 @@ def simulate(
         elif not ok_vol:
             reason = "volume under %.1fx" % s.vol_mult
         elif not ok_ext:
-            reason = "extended: hour low %+.2f%%, close %+.2f%% vs 5m EMA 360 (max %.1f%% / %.1f%%)" % (
+            reason = "extended: hour low %+.2f%%, close %+.2f%% vs 15m EMA 120 (max %.1f%% / %.1f%%)" % (
                 ext["low_pct"], ext["close_pct"], s.ext_low_pct, s.ext_close_pct)
         trigger, stop, wide = levels(f, i, setup, s)
         if reason is None and wide:

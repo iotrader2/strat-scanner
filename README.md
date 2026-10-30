@@ -134,7 +134,7 @@ shows their **nearest trigger** (the closer of the last two completed weeks' hig
 | 2D-2U reversal | `2D` week then `2U` week | 2D-week high |
 | Hammer triggered | prior week a hammer, last completed week breaks its high | hammer high |
 
-Stops are intentionally not shown: they are managed intraday (e.g. on the 5-minute chart), which is out of
+Stops are intentionally not shown: they are managed intraday (e.g. on the 15-minute chart), which is out of
 scope for this scanner.
 
 See [How scoring works](#how-scoring-works) for the leadership score.
@@ -623,9 +623,18 @@ Not investment advice. Yahoo Finance data is unofficial and can be delayed or in
 
 ## Alerts tab
 
-Setups A to F on the 5-minute chart for the **watchlist** (not positions), regular session only
-(09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time). Rules: `backend/strat/alerts.py` (pure, shared
-by the live poll and the replay); live inputs: `alerts_live.py`, run from the existing 5-minute poll;
+Setups A to F on the **15-minute chart** for the **watchlist** (not positions), regular session only
+(09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time). Nothing can fire until the opening 15-minute
+candle has formed (09:45 ET), and entries are limited to the first 10 candles (`trade_bars`, up to 12:00
+ET): a buy stop can only fill on those candles, so the last setup candle is the 9th. A trade already open
+is still managed after that (stop, close under the 20 EMA, session end). Each trigger is a buy stop 1c
+over the setup candle's high, with the stop 1c under its low. The 6, 20 and 50 EMAs now run over 15-minute
+closes, and the not-extended filter uses the 15-minute EMA 120 (30 hours, the stand-in for a 30-period
+hourly average). The chart, the watchlist / positions 6 and 20 EMA pills and the crossover highlight use
+the same 15-minute bars. (Module and payload names such as `watch5m` / `ema5m` kept their old names.)
+Rules: `backend/strat/alerts.py` (pure, shared
+by the live poll and the replay); live inputs: `alerts_live.py`, run from the existing 5-minute poll
+(the poll cadence is unchanged, the bars it evaluates are 15-minute);
 storage: `alerts_store.py`. Every alert is kept with its outcome (filled, fill price, high reached,
 stop hit, break-even time, exit price / time, R with 1R = entry minus the original stop). The
 metrics view groups them by setup over a date range and ticker. Every rule threshold is editable

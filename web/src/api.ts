@@ -250,7 +250,7 @@ export interface ChartCandle {
   hammer: boolean;
 }
 
-/** One regular-session 5-minute bar. ``time`` is unix seconds (UTC). EMAs are null until that period has a full seed. */
+/** One regular-session 15-minute bar. ``time`` is unix seconds (UTC). EMAs are null until that period has a full seed. */
 export interface IntradayBar {
   time: number;
   open: number;
@@ -258,10 +258,10 @@ export interface IntradayBar {
   low: number;
   close: number;
   volume: number;
-  ema: Partial<Record<"5" | "20" | "50" | "360", number | null>>;
+  ema: Partial<Record<"6" | "20" | "50" | "120", number | null>>;
 }
 
-/** 5-minute chart for one symbol. Bars are the last few sessions; the 360 EMA was seeded on ``seed_sessions``. */
+/** 15-minute chart for one symbol. Bars are the last few sessions; the 120 EMA was seeded on ``seed_sessions``. */
 export interface IntradayChartData {
   symbol: string;
   /** Always the regular session. Premarket bars are not included. */
@@ -488,8 +488,8 @@ export const api = {
     get<{ as_of: string | null; count: number; rows: ScanRow[] }>("/api/scan?min_price=0&min_dollar_volume=0&leaders_only=false"),
   symbol: (symbol: string) =>
     get<{ row: ScanRow; charts: Record<Tf, ChartCandle[]> }>(`/api/symbol/${encodeURIComponent(symbol)}`),
-  /** Regular-session 5-minute candles and 5/20/50/360 EMAs. One ticker, fetched when its chart opens. */
-  bars5m: (symbol: string) => get<IntradayChartData>(`/api/symbol/${encodeURIComponent(symbol)}/bars5m`),
+  /** Regular-session 15-minute candles and 6/20/50/120 EMAs. One ticker, fetched when its chart opens. */
+  bars15m: (symbol: string) => get<IntradayChartData>(`/api/symbol/${encodeURIComponent(symbol)}/bars15m`),
   /** Theme cards, strongest first. */
   themes: (tf: Tf, bars = 60) => get<{ tf: Tf; as_of: string | null; themes: ThemeCard[] }>(`/api/themes?tf=${tf}&bars=${bars}`),
   /** QQQ, SPY and IWM for the State of the Market tab. */
@@ -573,7 +573,7 @@ export interface TradeAlert {
     volume_ratio?: number | null;
     rearmed?: number;
     a_stop_capped?: boolean;
-    /** 5-minute EMA 360 at the setup bar (about the 1-hour EMA 30) and the distance to it, in percent. */
+    /** 15-minute EMA 120 at the setup bar (about the 1-hour EMA 30) and the distance to it, in percent. */
     ema360?: number | null;
     ema360_close_pct?: number | null;
     ema360_low_pct?: number | null;
@@ -606,7 +606,7 @@ export interface AlertsPayload {
   watchlist: string[];
   setups: Record<AlertSetup, string>;
   /**
-   * Current live 5-minute 6/20 EMA for each alert symbol, from the lists poll already in memory.
+   * Current live 15-minute 6/20 EMA for each alert symbol, from the lists poll already in memory.
    * Null when that name is not on the watchlist or in positions. Keyed by symbol, not by alert.
    */
   ema5m: Record<string, Ema5m | null>;
@@ -695,10 +695,10 @@ export interface PremarketPrint {
 
 export type EmaSide = "above" | "below" | "at";
 
-/** Price against the 6 and 20 EMA on the 5-minute chart (regular-session bars). */
+/** Price against the 6 and 20 EMA on the 15-minute chart (regular-session bars). */
 export interface Ema5m {
   price: number;
-  /** What the price is: the live 5-minute close, the premarket print, or the last regular close. */
+  /** What the price is: the live 15-minute close, the premarket print, or the last regular close. */
   basis: "live" | "premarket" | "close";
   time: string;
   bar_time: string;
@@ -712,7 +712,7 @@ export interface Ema5m {
   highlight_until: string | null;
 }
 
-/** Low / high of the day (5-minute bars) with the latest price placed in it. */
+/** Low / high of the day (15-minute bars) with the latest price placed in it. */
 export interface DayRange {
   low: number;
   high: number;
