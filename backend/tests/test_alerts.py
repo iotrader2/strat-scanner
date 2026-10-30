@@ -262,41 +262,51 @@ def test_d_hold20_off_disables_path():
     assert match_d_hold20(f, i, Settings(d_to=300, d_hold20=1, d_hold20_daily_filter=0)) == "hold20"
 
 
-def test_d_hold20_pltr_like_levels():
-    """PLTR-shaped morning: hold20 fires 198.92 / 198.34 at the 07:45 bar (index 15)."""
+def _pltr_15m(name):
+    """Committed 15-minute PLTR fixture (tests/fixtures). No /tmp file, so CI always runs it."""
     import json
-    from datetime import datetime
-    from pathlib import Path as P
+    from pathlib import Path
 
-    raw_path = P("/tmp/pltr_today.json")
-    if not raw_path.exists():
-        return  # optional fixture
-    raw = json.loads(raw_path.read_text())
-    bars_in = []
-    for b in raw["bars"]:
-        t = datetime.fromisoformat(b["t"].replace(" ", "T"))
-        bars_in.append({**b, "t": t})
-    # Daily 4 EMA from prior daily closes (same seed as the morning diagnosis).
-    closes = [x["c"] for x in raw["daily"] if not str(x["t"]).startswith("2026-10-27")]
-    from strat.alerts import ema_seed
-
-    d4 = ema_seed(closes, 4)
+    spec = json.loads((Path(__file__).resolve().parent / "fixtures" / "pltr_2026-10-27_15m.json").read_text())[name]
+    rows = []
+    for b in spec["bars"]:
+        rows.append({**b, "t": datetime.fromisoformat(b["t"].replace("Z", "+00:00"))})
     c = Context(
-        warm_closes=raw["warm"],
-        prev_close=raw["pc"],
-        vol_avg={int(k): float(v) for k, v in raw["avg"].items()},
-        vol_sessions=raw["sessions"],
-        ema360_seed=raw["ema360_seed"],
-        daily_4_ema=d4,
+        warm_closes=spec["warm_closes"],
+        prev_close=spec["prev_close"],
+        vol_avg={int(k): float(v) for k, v in spec["vol_avg"].items()},
+        vol_sessions=spec["vol_sessions"],
+        ema360_seed=spec["ema120_seed"],
+        daily_4_ema=spec["daily_4_ema"],
     )
-    found = simulate("PLTR", "2026-10-27", bars_in, c, Settings(d_to=300, touch_tol_pct=0.1))
+    return rows, c
+
+
+def test_d_hold20_pltr_like_levels():
+    """Hold20 on the PLTR 2026-10-27 07:45 print, read as a 15-minute candle.
+
+    High 198.91 / low 198.35 is that morning's real 07:45 print, so the buy stop and stop
+    stay 198.92 / 198.34. On a 15-minute clock the candle is index 5 (75 minutes after the
+    open): inside the default 30–120 window and inside the first 10 candles. The lead-in
+    puts the 15-minute 20 where the 5-minute 20 was (~198.37) and rising. The raw 15-minute
+    aggregate of this session does not hold20 — the 15-minute 20 was flat-to-down into the
+    slot — so the fixture is that print on a 15-minute rising-20 path, not the raw tape.
+    """
+    from zoneinfo import ZoneInfo
+
+    rows, c = _pltr_15m("hold20")
+    found = simulate("PLTR", "2026-10-27", rows, c, Settings())
     d = by_setup(found, "D")
-    assert d, "expected a D alert on PLTR today"
+    assert len(d) == 1, "expected one D alert on the PLTR-like 15-minute hold20"
     a = d[0]
     assert a.details["variant"] == "hold20"
     assert a.trigger == 198.92
     assert a.stop == 198.34
-    assert a.setup_index == 15
+    assert a.setup_index == 5
+    assert rows[a.setup_index]["t"].astimezone(ZoneInfo("America/Phoenix")).strftime("%H:%M") == "07:45"
+    e20 = a.details["ema20"]
+    bar = rows[a.setup_index]
+    assert e20 is not None and bar["c"] > e20 and bar["l"] <= e20 * (1 + Settings().touch_tol_pct / 100)
 
 
 # ------------------------------------------------------------------ E
@@ -343,38 +353,33 @@ def test_f_soft_volume_gate_logic():
 
 
 def test_f_soft_volume_pltr_08_40():
-    """With IEX volume, PLTR 08:40 Phx is the first F (soft path); 1.5-only would wait for 08:45."""
-    import json
-    from datetime import datetime, timezone
-    from pathlib import Path as P
-    from zoneinfo import ZoneInfo
-    from strat.alerts import Context, Settings, simulate, ema_seed
+    """Soft-volume F on the 15-minute candle that contains PLTR's 08:40 Phoenix print.
 
-    raw_path = P("/tmp/pltr_today.json")
-    if not raw_path.exists():
-        return
-    # Prefer full IEX+SIP merge if cached
-    full = P("/tmp/pltr_iex_sip_bars.json")
-    if not full.exists():
-        return
-    bars = json.loads(full.read_text())
-    for b in bars:
-        b["t"] = datetime.fromisoformat(b["t"].replace("Z", "+00:00") if isinstance(b["t"], str) and b["t"].endswith("Z") else str(b["t"]).replace(" ", "T"))
-    raw = json.loads(raw_path.read_text())
-    closes = [x["c"] for x in raw["daily"] if not str(x["t"]).startswith("2026-10-27")]
-    ctx = Context(
-        warm_closes=raw["warm"], prev_close=raw["pc"], premarket_low=raw.get("pm_low"),
-        vol_avg={int(k): float(v) for k, v in raw["avg"].items()}, vol_sessions=raw["sessions"],
-        ema360_seed=raw["ema360_seed"], daily_4_ema=ema_seed(closes, 4),
-    )
-    found = simulate("PLTR", "2026-10-27", bars, ctx, Settings())
+    That candle starts at 08:30 Phoenix (index 8, the last bar of the 60–120 window and
+    still inside the first 10 candles). Its real body is 80.5% of the range. Consolidated
+    volume was 0.51x the slot average, under the soft floor; the fixture sets 1.35x, the
+    IEX ratio this path was added for. The hard 1.5x floor does not qualify it, and with
+    the soft floor off nothing else in the window does either.
+    """
+    from zoneinfo import ZoneInfo
+
+    rows, c = _pltr_15m("soft_volume")
+    found = simulate("PLTR", "2026-10-27", rows, c, Settings())
     fs = [a for a in found if a.setup == "F"]
-    assert fs, "expected F on PLTR"
+    assert len(fs) == 1, "expected one F on the PLTR 15-minute soft-volume breakout"
     a = fs[0]
-    PHX = ZoneInfo("America/Phoenix")
-    assert bars[a.setup_index]["t"].astimezone(PHX).strftime("%H:%M") == "08:40"
-    assert a.trigger == 200.46
-    assert a.stop == 199.7
+    bar = rows[a.setup_index]
+    rng = bar["h"] - bar["l"]
+    body_pct = (bar["c"] - bar["o"]) / rng * 100
+    s = Settings()
+    assert bar["t"].astimezone(ZoneInfo("America/Phoenix")).strftime("%H:%M") == "08:30"
+    assert a.setup_index == 8
+    assert a.trigger == 200.45
+    assert a.stop == 199.15
+    assert body_pct >= s.f_soft_body_pct
+    assert s.f_soft_volume_mult <= a.details["volume_ratio"] < s.f_volume_mult
+    quiet = simulate("PLTR", "2026-10-27", rows, c, Settings(f_soft_volume_mult=0))
+    assert not by_setup(quiet, "F")
 
 
 def test_e_gap_down_higher_low_then_close_over_20():
