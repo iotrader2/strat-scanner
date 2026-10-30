@@ -178,11 +178,22 @@ def test_history_endpoint_is_read_only_and_live_shape_stays(db):
     assert metrics["symbols"] == ["AAA", "BBB"]
 
 
+def _history_table(schema: str) -> str:
+    """Column list of ``alerts_history``, not the earlier comment that names the table.
+
+    The live ``alerts`` table is ``INTEGER PRIMARY KEY AUTOINCREMENT`` / ``BIGSERIAL``.
+    History copies that id, so its own primary key must not be a second sequence.
+    """
+    marker = "CREATE TABLE IF NOT EXISTS alerts_history"
+    start = schema.index(marker) + len(marker)
+    return schema[start:].split("CREATE INDEX", 1)[0]
+
+
 def test_history_table_keeps_the_original_id_on_both_backends():
     assert "CREATE TABLE IF NOT EXISTS alerts_history" in userdb.SQLITE_SCHEMA
     assert "CREATE TABLE IF NOT EXISTS alerts_history" in userdb.PG_SCHEMA
-    sqlite_history = userdb.SQLITE_SCHEMA.split("alerts_history", 1)[1].split("CREATE INDEX", 1)[0]
-    pg_history = userdb.PG_SCHEMA.split("alerts_history", 1)[1].split("CREATE INDEX", 1)[0]
+    sqlite_history = _history_table(userdb.SQLITE_SCHEMA)
+    pg_history = _history_table(userdb.PG_SCHEMA)
     assert "AUTOINCREMENT" not in sqlite_history
     assert "INTEGER PRIMARY KEY" in sqlite_history
     assert "BIGSERIAL" not in pg_history
