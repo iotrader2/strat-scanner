@@ -320,6 +320,8 @@ def refresh(
         found.extend(simulate(sym, day.isoformat(), bars, ctx, settings))
     # SIP backfill can make match_* stop reproducing an alert that already fired; still advance outcomes.
     found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, session_over=session_over))
+    # save_session treats a key already in alerts_history as fired. This pass stays inside
+    # RUN_UNTIL (16:15), which is after the 16:05 archive, including on a restart warm-up.
     saved = alerts_store.save_session(day.isoformat(), found, now=clock, top_names=settings.top_names)
     stats = {
         "symbols": len(syms),
@@ -327,6 +329,7 @@ def refresh(
         "alerts": len(found),
         "inserted": saved["inserted"],
         "updated": saved["updated"],
+        "removed": saved["removed"],
         "requests": client.requests - before,
     }
     with _lock:
