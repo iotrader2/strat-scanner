@@ -26,7 +26,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Iterable, Mapping, Optional
 
 from . import alerts_store
-from .alerts import ACTIVE, BAR, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings, advance_stored, context_from_closes, simulate
+from .alerts import ACTIVE, BAR, SETUPS, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings, advance_stored, context_from_closes, simulate
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff as _sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT, now_et
@@ -226,8 +226,13 @@ def refresh(
         return {"symbols": len(syms), "skipped": True, "inserted": [], "prepared": ensure_profiles(client, syms, day)}
     if not due(clock):
         return {"symbols": len(syms), "skipped": True, "inserted": []}
-    # A name whose score slipped under the cut keeps being tracked while its alert is live.
-    live = [r["symbol"] for r in alerts_store.list_alerts(session=day.isoformat()) if r["status"] in ACTIVE]
+    # A name whose score slipped under the cut keeps being tracked while its alert is live, but only its
+    # existing alert is advanced: it cannot start a new one. Rows from the old A-F rules are not tracked.
+    picked = set(syms)
+    live = [
+        r["symbol"] for r in alerts_store.list_alerts(session=day.isoformat())
+        if r["status"] in ACTIVE and r["setup"] in SETUPS
+    ]
     syms = list(dict.fromkeys(syms + live))
     if not syms:
         return {"symbols": 0, "skipped": True, "inserted": []}
@@ -251,7 +256,8 @@ def refresh(
         ctx = context_for(sym, len(bars) if session_over else SESSION_BARS)
         forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock)
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
-        found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming))
+        if sym in picked:
+            found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming))
     del sip, iex
     # SIP backfill can make a touch stop reproducing an alert that already fired; still advance outcomes.
     found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, forming_by))
