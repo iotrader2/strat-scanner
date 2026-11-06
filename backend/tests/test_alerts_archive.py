@@ -11,8 +11,10 @@ from strat import alerts_live, alerts_store, api, config, userdb
 from strat.alerts import Context, simulate
 
 OPEN = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)  # 09:30 EDT, Friday
-A_ROWS = [(100, 101, 99.9, 100.9)]
-LIVE_KEYS = ["session", "alerts", "sessions", "unread", "last_run", "watchlist", "setups", "ema5m"]
+# A pullback to the rising 120 EMA (it ended the prior session at 99.09) on the opening bar.
+A_ROWS = [(100.5, 100.8, 99.1, 100.2)]
+CTX = Context(ma_tail={120: [99.0 + 0.01 * k for k in range(10)]}, prev_close=101.0)
+LIVE_KEYS = ["session", "alerts", "sessions", "unread", "last_run", "watchlist", "universe", "setups", "ema5m"]
 
 
 @pytest.fixture
@@ -29,7 +31,7 @@ def _bars(rows, start=OPEN):
 
 
 def _save(symbol, session, when=None, start=OPEN):
-    found = simulate(symbol, session, _bars(A_ROWS, start), Context(warm_closes=[100.0] * 60))
+    found = simulate(symbol, session, _bars(A_ROWS, start), CTX)
     return alerts_store.save_session(session, found, now=when or (OPEN + timedelta(minutes=6)))
 
 
@@ -176,7 +178,7 @@ def test_history_endpoint_is_read_only_and_live_shape_stays(db):
     assert older["alerts"][0]["symbol"] == "BBB" and older["alerts"][0]["id"] != default["alerts"][0]["id"]
     assert empty["date"] == "2026-10-21" and empty["alerts"] == []
     assert c.get("/api/alerts/history", params={"date": "Friday"}).status_code == 422
-    assert {r["setup"]: r["count"] for r in metrics["rows"]}["A"] == 2
+    assert {r["setup"]: r["count"] for r in metrics["rows"]}["120"] == 2
     assert metrics["symbols"] == ["AAA", "BBB"]
 
 
@@ -290,7 +292,7 @@ def test_an_archived_key_is_not_recreated_by_a_later_pass(db):
     assert alerts_live.due(later)
     assert alerts_store.archive_if_due(later)["moved"] == 1
 
-    found = simulate("AAA", "2026-10-23", _bars(A_ROWS), Context(warm_closes=[100.0] * 60))
+    found = simulate("AAA", "2026-10-23", _bars(A_ROWS), CTX)
     assert any(a.key == key for a in found)
     again = alerts_store.save_session("2026-10-23", found, now=later)
     assert again["inserted"] == [] and again["removed"] == 0
@@ -329,28 +331,42 @@ class _Bars:
         return out, []
 
 
+def _rising_history(days=7, start=90.0, step=0.01):
+    """Regular-session SIP bars on the days before OPEN, rising, so the 120 EMA is known and rising."""
+    rows, v = [], start
+    for d in range(days, 0, -1):
+        for k in range(26):
+            rows.append(_raw(OPEN - timedelta(days=d) + timedelta(minutes=15 * k), v, v, v, v, 1))
+            v = round(v + step, 4)
+    return rows
+
+
+def _touch_bar(history):
+    """Today's opening bar dipping to the 120 EMA and closing back up."""
+    from strat.alerts import context_from_closes
+
+    ctx = context_from_closes(alerts_live.regular_closes(history, OPEN.date()))
+    ma, last = ctx.ma_tail[120][-1], ctx.prev_close
+    return _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
+
+
 def test_a_restart_poll_after_the_archive_does_not_recreate_the_alert(db):
     """The boot catch-up archives, then the warm-up poll re-runs today. That must not mint an id."""
     alerts_live.clear()
-    prior = OPEN - timedelta(days=1)
-    today = _raw(OPEN, 100, 101, 99.9, 100.9, 1000)
+    history = _rising_history()
+    today = _touch_bar(history)
     # After 16:05 the SIP cutoff covers the open, so today's candle must be on SIP (as on stage).
-    sip = {
-        "AAA": [_raw(prior + timedelta(minutes=15 * k), 100, 100, 100, 100, 1) for k in range(26)] + [today]
-    }
-    iex = {
-        "AAA": [today]
-        + [_raw(prior + timedelta(minutes=15 * k), 100, 100, 100, 100, 1000) for k in range(26)]
-    }
+    sip = {"AAA": history + [today]}
+    iex = {"AAA": [today]}
     client = _Bars(sip, iex)
     try:
-        first = alerts_live.refresh(["AAA"], lambda s, d: 100.0, now=OPEN + timedelta(minutes=16), client=client)
+        first = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client)
         assert len(first["inserted"]) == 1
         original = first["inserted"][0]["id"]
         later = datetime(2026, 10, 23, 20, 10, tzinfo=timezone.utc)  # 16:10 EDT, still inside RUN_UNTIL
         assert alerts_live.due(later)
         assert alerts_store.archive_if_due(later)["moved"] == 1
-        second = alerts_live.refresh(["AAA"], lambda s, d: 100.0, now=later, client=client)
+        second = alerts_live.refresh(["AAA"], now=later, client=client)
         assert not second.get("skipped")
         assert second["alerts"] >= 1 and second["inserted"] == []
         assert alerts_store.list_alerts() == []

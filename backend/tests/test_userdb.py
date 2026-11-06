@@ -81,7 +81,8 @@ def test_postgres_path(monkeypatch, tmp_path):
         from strat.alerts import Context, simulate
 
         t0 = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)
-        found = simulate("AAA", "2026-10-23", [{"t": t0, "o": 100, "h": 101, "l": 99.9, "c": 100.9, "v": 1}], Context(warm_closes=[100.0] * 60))
+        found = simulate("AAA", "2026-10-23", [{"t": t0, "o": 100.5, "h": 100.8, "l": 99.1, "c": 100.2, "v": 1}],
+                         Context(ma_tail={120: [99.0 + 0.01 * k for k in range(10)]}, prev_close=101.0))
         saved = alerts_store.save_session("2026-10-23", found, now=t0 + timedelta(minutes=6))
         assert len(saved["inserted"]) == 1
         assert alerts_store.list_alerts()[0]["top"] is True

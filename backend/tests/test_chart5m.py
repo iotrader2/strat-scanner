@@ -129,7 +129,7 @@ def test_displayed_120_is_seeded_by_the_weeks_before_the_window():
     body = chart5m.chart("AAPL", now=et(THU, 17, 0), client=client)
 
     assert body["session"] == "regular"
-    assert body["display_sessions"] == 10 and body["seed_sessions"] == 30
+    assert body["display_sessions"] == 10 and body["seed_sessions"] == 63
     assert body["sessions"] == 10
     assert body["bar_minutes"] == 15
     bars = body["bars"]
@@ -146,8 +146,8 @@ def test_displayed_120_is_seeded_by_the_weeks_before_the_window():
         assert local.weekday() < 5
         assert OPEN <= local.time() < CLOSE
         assert bar["close"] == 130.0
-        assert set(bar["ema"]) == {"6", "20", "50", "120"}
-        assert all(bar["ema"][p] is not None for p in ("6", "20", "50", "120"))
+        assert set(bar["ema"]) == {"6", "20", "50", "120", "240", "480"}
+        assert all(bar["ema"][p] is not None for p in ("6", "20", "50", "120", "240", "480"))
 
     # The displayed window is all 130s. A 120 EMA computed on only those bars would still be
     # empty for most of the first session. The seeded value is near the prior weeks of
@@ -157,6 +157,10 @@ def test_displayed_120_is_seeded_by_the_weeks_before_the_window():
     assert bars[0]["ema"]["6"] == pytest.approx(100 + (2 / 7) * 30, abs=1e-3)
     assert bars[-1]["ema"]["120"] < 130
     assert bars[-1]["ema"]["120"] > bars[0]["ema"]["120"]
+
+    # The 480 is seeded the same way: one smoothing step off the earlier 100s.
+    assert bars[0]["ema"]["480"] == round(100 + (2 / 481) * 30, 4)
+    assert bars[0]["ema"]["240"] < bars[0]["ema"]["120"]
 
     # Asking again reuses the cache instead of refetching weeks of bars.
     chart5m.chart("AAPL", now=et(THU, 17, 0), client=client)

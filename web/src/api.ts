@@ -258,10 +258,10 @@ export interface IntradayBar {
   low: number;
   close: number;
   volume: number;
-  ema: Partial<Record<"6" | "20" | "50" | "120", number | null>>;
+  ema: Partial<Record<"6" | "20" | "50" | "120" | "240" | "480", number | null>>;
 }
 
-/** 15-minute chart for one symbol. Bars are the last few sessions; the 120 EMA was seeded on ``seed_sessions``. */
+/** 15-minute chart for one symbol. Bars are the last few sessions; the long EMAs were seeded on ``seed_sessions``. */
 export interface IntradayChartData {
   symbol: string;
   /** Always the regular session. Premarket bars are not included. */
@@ -536,7 +536,8 @@ export const api = {
   resetAlertSettings: () => get<AlertSettingsPayload>("/api/alerts/settings", { method: "DELETE" }),
 };
 
-export type AlertSetup = "A" | "B" | "C" | "D" | "E" | "F";
+/** The EMA the stock pulled back to on the 15-minute chart. */
+export type AlertSetup = "120" | "240" | "480";
 export type AlertStatus = "pending" | "triggered" | "stopped" | "breakeven" | "exited" | "expired" | "cancelled";
 
 /** One setup alert and what happened after it. Times are UTC ISO; the UI shows them in Phoenix time. */
@@ -545,7 +546,7 @@ export interface TradeAlert {
   symbol: string;
   session: string;
   setup: AlertSetup;
-  /** Start of the setup bar; the alert fires when that bar closes (fired_at). */
+  /** The candle whose high + 1c is the buy stop. It moves while the alert waits; fired_at (the touch) does not. */
   setup_bar: string;
   fired_at: string;
   detected_at: string;
@@ -569,14 +570,18 @@ export interface TradeAlert {
   exit_reason: string | null;
   r_multiple: number | null;
   details: {
-    variant?: string;
-    volume_ratio?: number | null;
+    /** The EMA's value on the touch candle. */
+    ma?: number | null;
+    /** How much the EMA rose over the rising check, in percent. */
+    ma_slope_pct?: number | null;
+    /** Every EMA the touch candle reached and held (the alert is for the lowest). */
+    touched?: number[];
+    /** 120 / 240 / 480 EMA values on the touch candle. */
+    ma_values?: Record<string, number | null>;
+    /** Candles that did not take out the buy stop, each moving it to their own high + 1c. */
     rearmed?: number;
-    a_stop_capped?: boolean;
-    /** 15-minute EMA 120 at the setup bar (about the 1-hour EMA 30) and the distance to it, in percent. */
-    ema360?: number | null;
-    ema360_close_pct?: number | null;
-    ema360_low_pct?: number | null;
+    /** Filled while the candle was still forming (caught by the poll before it closed). */
+    fill_on_forming_bar?: boolean;
   };
   acknowledged: boolean;
   /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
@@ -604,6 +609,8 @@ export interface AlertsPayload {
   unread: number;
   last_run: { at?: string; alerts?: number; symbols?: number };
   watchlist: string[];
+  /** How many universe stocks are at or over the score cut (the names the poll checks). */
+  universe?: number;
   setups: Record<AlertSetup, string>;
   /**
    * Current live 15-minute 6/20 EMA for each alert symbol, from the lists poll already in memory.

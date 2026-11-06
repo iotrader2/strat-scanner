@@ -1,12 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { TradeAlert } from "./api";
-import { SETTING_GROUPS, alertDayStatus, ema360Text, ema360Title, ema360Tone, fmtR, freshAlerts, notificationText, phoenixTime, playChime, riskPerShare, statusTone, stopPct, todayEmptyLead } from "./alerts";
+import {
+  SETTING_GROUPS,
+  STATUS_LABEL,
+  alertDayStatus,
+  fmtR,
+  freshAlerts,
+  maText,
+  notificationText,
+  phoenixTime,
+  playChime,
+  riskPerShare,
+  statusTone,
+  stopPct,
+  todayEmptyLead,
+  triggeredAlerts,
+} from "./alerts";
 
 export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   id: 1,
   symbol: "AAPL",
   session: "2026-10-23",
-  setup: "A",
+  setup: "120",
   setup_bar: "2026-10-23T13:30:00Z",
   fired_at: "2026-10-23T13:35:00Z",
   detected_at: "2026-10-23T13:36:00Z",
@@ -28,82 +43,47 @@ export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   exit_at: null,
   exit_reason: null,
   r_multiple: null,
-  details: {},
+  details: { ma: 99.1234, ma_slope_pct: 0.0512, touched: [120], ma_values: { "120": 99.1234, "240": 97.5, "480": null } },
   acknowledged: false,
   score: null,
   ...over,
 });
 
-describe("alert windows", () => {
+describe("alert day", () => {
   const at = (iso: string, settings?: Record<string, number>) => alertDayStatus(new Date(iso), settings);
-  const chip = (iso: string, setup: string) => at(iso).windows.find((w) => w.setup === setup)!;
 
-  it("uses Phoenix clock times, and shifts them when New York leaves daylight time", () => {
+  it("runs from the first 15-minute close to the bell, in Phoenix time all year", () => {
     const summer = at("2026-10-23T13:00:00Z");
     expect(summer.phase).toBe("before");
     expect(summer.headline).toBe("Alerts start at 6:45 AM Phoenix.");
-    expect(summer.detail).toBe("Window 6:45–8:45 AM Phoenix.");
-    expect(chip("2026-10-23T13:00:00Z", "A").label).toBe("6:45 AM");
-    expect(chip("2026-10-23T13:00:00Z", "B").label).toBe("7:00–7:30 AM");
-    expect(chip("2026-10-23T13:00:00Z", "C").label).toBe("7:00–7:30 AM");
-    expect(chip("2026-10-23T13:00:00Z", "D").label).toBe("7:15–8:45 AM");
-    expect(chip("2026-10-23T13:00:00Z", "E").label).toBe("7:00–8:45 AM");
-    expect(chip("2026-10-23T13:00:00Z", "F").label).toBe("7:45–8:45 AM");
+    expect(summer.detail).toBe("Session 6:45 AM – 1:00 PM Phoenix.");
+    expect(summer.windows.map((w) => w.setup)).toEqual(["120", "240", "480"]);
+    expect(summer.windows.every((w) => w.state === "later")).toBe(true);
 
     const winter = at("2026-11-02T14:00:00Z");
-    expect(winter.phase).toBe("before");
     expect(winter.headline).toBe("Alerts start at 7:45 AM Phoenix.");
-    expect(winter.detail).toBe("Window 7:45–9:45 AM Phoenix.");
-    expect(winter.windows.find((w) => w.setup === "F")?.label).toBe("8:45–9:45 AM");
   });
 
-  it("says which setups can still fire, including the gap after the opening candle", () => {
-    const mid = at("2026-10-23T14:15:00Z");
+  it("is open during the session and done after it", () => {
+    const mid = at("2026-10-23T16:00:00Z");
     expect(mid.phase).toBe("open");
-    expect(mid.headline).toBe("Alerts can still fire until 8:45 AM Phoenix.");
-    expect(chip("2026-10-23T14:15:00Z", "A").state).toBe("done");
-    expect(chip("2026-10-23T14:15:00Z", "B").state).toBe("open");
-    expect(chip("2026-10-23T14:15:00Z", "E").state).toBe("open");
-    expect(chip("2026-10-23T14:15:00Z", "F").state).toBe("later");
-
-    const gap = at("2026-10-23T13:50:00Z");
-    expect(gap.phase).toBe("open");
-    expect(gap.headline).toBe("B, C and E can still fire.");
-    expect(gap.detail).toBe("Alerts finish at 8:45 AM Phoenix.");
-    expect(gap.windows.find((w) => w.setup === "A")?.state).toBe("done");
-    expect(gap.windows.filter((w) => w.setup !== "A").every((w) => w.state === "later")).toBe(true);
-  });
-
-  it("says alerts are done for the day after the last window", () => {
+    expect(mid.headline).toBe("Watching for pullbacks until 1:00 PM Phoenix.");
+    expect(mid.windows.every((w) => w.state === "open")).toBe(true);
     const done = at("2026-10-23T20:01:00Z");
     expect(done.phase).toBe("done");
-    expect(done.headline).toBe("Alerts are done for the day.");
-    expect(done.detail).toBe("The window was 6:45–8:45 AM Phoenix.");
-    expect(done.windows.every((w) => w.state === "done")).toBe(true);
-    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The window was 6:45–8:45 AM Phoenix.");
-    expect(todayEmptyLead(at("2026-10-23T14:15:00Z"))).toBeNull();
+    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The session was 6:45 AM – 1:00 PM Phoenix.");
+    expect(todayEmptyLead(mid)).toBeNull();
   });
 
   it("names the next session on a weekend", () => {
     const sat = at("2026-10-24T15:00:00Z");
     expect(sat.phase).toBe("closed");
-    expect(sat.headline).toBe("Market is closed.");
-    expect(sat.detail).toBe("Next window is Monday, 6:45–8:45 AM Phoenix.");
-    expect(sat.windows.every((w) => w.state === "later")).toBe(true);
+    expect(sat.detail).toBe("Next session is Monday, 6:45 AM – 1:00 PM Phoenix.");
   });
 
-  it("follows a saved window instead of the default", () => {
-    const day = at("2026-10-23T13:00:00Z", { e_from: 30, e_to: 60 });
-    expect(day.windows.find((w) => w.setup === "E")?.label).toBe("7:15–7:45 AM");
-  });
-
-  it("never lets a window run past the candle limit for entries", () => {
-    // Trading the first 5 candles: the last setup bar is the 4th (starts at 45 min), so D can fire 7:15-7:30.
-    const day = at("2026-10-23T13:00:00Z", { trade_bars: 5 });
-    expect(day.windows.find((w) => w.setup === "D")?.label).toBe("7:15–7:30 AM");
-    expect(day.windows.find((w) => w.setup === "F")?.label).toBe("off");
-    const wide = at("2026-10-23T13:00:00Z", { e_to: 390 });
-    expect(wide.windows.find((w) => w.setup === "E")?.label).toBe("7:00–8:45 AM");
+  it("shows a turned-off EMA as off, and all off as alerts off", () => {
+    expect(at("2026-10-23T16:00:00Z", { ma_240: 0 }).windows.find((w) => w.setup === "240")?.label).toBe("off");
+    expect(at("2026-10-23T16:00:00Z", { ma_120: 0, ma_240: 0, ma_480: 0 }).headline).toBe("Alerts are off.");
   });
 });
 
@@ -133,6 +113,16 @@ describe("alerts helpers", () => {
     expect(statusTone(sample({ status: "exited", r_multiple: 1.5 }))).toBe("good");
     expect(statusTone(sample({ status: "stopped", r_multiple: -1 }))).toBe("bad");
     expect(statusTone(sample({ status: "breakeven", r_multiple: 0 }))).toBe("flat");
+  });
+
+  it("chimes again when a watch triggers, never on the first load", () => {
+    const watching = sample({ id: 1 });
+    const fired = sample({ id: 1, status: "triggered", filled: true, fill_price: 101.01 });
+    expect(triggeredAlerts([fired], null)).toEqual([]);
+    expect(triggeredAlerts([fired], new Map([[1, "pending"]]))).toEqual([fired]);
+    expect(triggeredAlerts([fired], new Map([[1, "triggered"]]))).toEqual([]);
+    expect(triggeredAlerts([watching], new Map([[1, "pending"]]))).toEqual([]);
+    expect(STATUS_LABEL.pending).toBe("Watch");
   });
 
   it("chimes only for alerts new since the last fetch, never on the first load or for late ones", () => {
@@ -175,41 +165,30 @@ describe("alerts helpers", () => {
     expect(stops[1]).toBeLessThanOrEqual(starts[2]);
   });
 
-  it("notification text has the levels and no emoji", () => {
-    const { title, body } = notificationText(sample(), "Opening-bar breakout");
-    expect(title).toBe("AAPL setup A (top)");
-    expect(body).toContain("Buy stop 101.01, stop 99.89");
-    expect(body).toContain("6:35 AM Phoenix");
-    expect(/\p{Extended_Pictographic}/u.test(title + body)).toBe(false);
+  it("notification text says watch, then triggered, with the levels and no emoji", () => {
+    const watch = notificationText(sample(), "Pullback to rising 120 EMA");
+    expect(watch.title).toBe("AAPL watch: 120 EMA (top)");
+    expect(watch.body).toContain("Trigger over 101.01 (previous 15-min high + 1c), stop 99.89");
+    expect(watch.body).toContain("6:35 AM Phoenix");
+    const hit = notificationText(sample({ status: "triggered", filled: true, fill_price: 101.05, fill_at: "2026-10-23T13:45:00Z" }), "");
+    expect(hit.title).toBe("AAPL triggered over 101.01 (top)");
+    expect(hit.body).toContain("Pullback to rising 120 EMA. Filled 101.05");
+    expect(hit.body).toContain("6:45 AM Phoenix");
+    expect(/\p{Extended_Pictographic}/u.test(watch.title + watch.body + hit.title + hit.body)).toBe(false);
   });
 });
 
-describe("EMA 360 distance", () => {
-  const mk = (d: Record<string, number | null>) => ({ details: d });
-  it("formats the close distance with a sign", () => {
-    expect(ema360Text(mk({ ema360: 100, ema360_close_pct: 0.62, ema360_low_pct: 0.1 }))).toBe("+0.62%");
-    expect(ema360Text(mk({ ema360: 100, ema360_close_pct: -0.4 }))).toBe("-0.40%");
-    expect(ema360Text(mk({}))).toBe("—");
+describe("EMA level and settings", () => {
+  it("shows the touched EMA's level", () => {
+    expect(maText(sample())).toBe("99.12");
+    expect(maText({ details: {} })).toBe("—");
   });
-  it("tones near as good and stretched as a warning", () => {
-    expect(ema360Tone(mk({ ema360_close_pct: 0.5 }))).toBe("green-text");
-    expect(ema360Tone(mk({ ema360_close_pct: 2 }))).toBe("");
-    expect(ema360Tone(mk({ ema360_close_pct: 9.4 }))).toBe("red-text");
-    expect(ema360Tone(mk({ ema360_close_pct: 2 }), { ext_close_pct: 1.5 })).toBe("red-text");
-  });
-  it("explains both distances on hover", () => {
-    expect(ema360Title(mk({ ema360: 121.7, ema360_close_pct: 9.43, ema360_low_pct: 6.82 }))).toContain("low +6.82%");
-    expect(ema360Title(mk({}))).toContain("not known");
-  });
-  it("has a settings group for the filter", () => {
-    const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
-    expect(keys).toEqual(expect.arrayContaining(["ext_filter", "ext_low_pct", "ext_close_pct", "ext_lookback_bars"]));
-  });
-  it("exposes D hold20 and the daily-4-EMA gate in settings", () => {
+  it("has the score cut, the three EMAs and the watch length in settings", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
     expect(keys).toEqual(
-      expect.arrayContaining(["d_hold20", "d_hold20_extend_pct", "d_hold20_daily_filter", "d_hold20_daily_pct", "f_soft_body_pct", "f_soft_volume_mult"]),
+      expect.arrayContaining(["min_score", "max_symbols", "ma_120", "ma_240", "ma_480", "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars"]),
     );
+    expect(keys).not.toContain("d_hold20");
   });
   it("has one earnings-warning setting, in calendar days", () => {
     const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "earnings_window_days");

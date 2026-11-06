@@ -61,7 +61,7 @@ const bars: IntradayBar[] = [10, 11, 12, 13, 14, 15].map((close, i) => ({
   low: close - 1,
   close,
   volume: 5000 + i,
-  ema: { "6": close - 0.2, "20": close - 0.5, "50": close - 1, "120": 100 + i },
+  ema: { "6": close - 0.2, "20": close - 0.5, "50": close - 1, "120": 100 + i, "240": 90 + i, "480": 80 + i },
 }));
 
 let root: Root;
@@ -87,12 +87,14 @@ describe("IntradayChart", () => {
 
     const html = host.innerHTML;
     expect(html).toContain("EMA");
-    for (const period of [6, 20, 50, 120]) expect(html).toContain(`>${period}<`);
+    for (const period of [6, 20, 50, 120, 240, 480]) expect(html).toContain(`>${period}<`);
     // jsdom serializes hex backgrounds as rgb().
     expect(html).toContain("rgb(244, 114, 182)");
     expect(html).toContain("rgb(56, 189, 248)");
     expect(html).toContain("rgb(192, 132, 252)");
-    expect(html).toContain("rgb(251, 191, 36)");
+    expect(html).toContain("rgb(239, 68, 68)"); // 120 red
+    expect(html).toContain("rgb(250, 204, 21)"); // 240 yellow
+    expect(html).toContain("rgb(59, 130, 246)"); // 480 blue
     expect(html).toContain("Premarket is excluded");
     expect(html).toContain("30 sessions");
 
@@ -105,9 +107,10 @@ describe("IntradayChart", () => {
     expect(volume?.options.priceScaleId).toBe("vol");
     expect(volume?.data).toHaveLength(bars.length);
     expect(volume?.data?.[0].color).toBe(VOLUME_UP_COLOR);
-    expect(lines.map((line) => line.options.color)).toEqual(["#f472b6", "#38bdf8", "#c084fc", "#fbbf24"]);
+    expect(lines.map((line) => line.options.color)).toEqual(["#f472b6", "#38bdf8", "#c084fc", "#ef4444", "#facc15", "#3b82f6"]);
     // The 120 line is the server's values, not a fresh EMA of the candles on screen.
     expect(lines[3].data?.map((point) => point.value)).toEqual([100, 101, 102, 103, 104, 105]);
+    expect(lines[5].data?.map((point) => point.value)).toEqual([80, 81, 82, 83, 84, 85]);
     // Three bars on screen, the rest a scroll away.
     expect(chart.range?.from).toBe(bars.length - 3 - 0.5);
   });

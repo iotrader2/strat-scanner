@@ -1,44 +1,42 @@
-"""Intraday setup alerts (A-F) on 15-minute bars, and what happened after each one.
+"""Intraday pullback alerts on 15-minute bars: a high-score stock pulls back to a rising 120 / 240 / 480 EMA.
 
 Everything here is pure: :func:`simulate` takes one symbol's completed regular-session bars for one
 day plus a little context and returns the alerts that day would have produced, each with its outcome
 so far. The live poll (``alerts_live``) and the replay script call the same function, so a replay
 shows exactly what the tab would have shown.
 
-Bars are dicts ``{"t": datetime (bar start, UTC), "o", "h", "l", "c", "v"}``. ``v`` is IEX volume
-(compared only to IEX averages). Bar ``i`` is the ``i``-th 15-minute bar after the open, so bar 0 is
-the opening bar (6:30 Phoenix while New York is on daylight time) and nothing can fire until it has
-formed (9:45 ET). Setup windows are stored as minutes after the open, which keeps them right when the
-clocks change.
+Bars are dicts ``{"t": datetime (bar start, UTC), "o", "h", "l", "c", "v"}``. Bar ``i`` is the
+``i``-th 15-minute bar after the open, so bar 0 is the opening bar (6:30 Phoenix while New York is on
+daylight time). The moving averages are EMAs of regular-session 15-minute closes (premarket and after
+hours are left out), the same lines the 15-minute chart draws: 120 (red), 240 (yellow) and 480 (blue).
+Each is carried over from the prior sessions (``Context.ma_tail``) and continued with today's closes.
 
-Rules common to every setup:
+An alert has two steps.
 
-* the setup bar is green, or a doji (body <= ``doji_body_pct`` of its range) closing in the top
-  ``doji_close_top_pct`` of its range;
-* entry is a buy stop at setup high + $0.01, good for the next ``entry_valid_bars`` bars, cancelled
-  when a bar closes under the setup low;
-* trading is limited to the first ``trade_bars`` (10) candles of the session: a pending entry can only
-  fill on those bars, so a setup bar that has no later candle inside the limit is not alerted. A trade
-  already open is still managed (stop, 20 EMA exit, session end);
-* the stop is setup low - $0.01; a setup whose stop is more than ``max_stop_pct`` away is skipped,
-  except A, which uses entry - ``max_stop_pct`` instead;
-* the setup bar's IEX volume must be at least ``vol_mult`` x the average IEX volume of the same bar
-  (same time of day) over the last 20 sessions (skipped when fewer than ``vol_min_sessions`` exist);
-* each bar gets at most one tag, checked C, A, B, D, E, F;
-* no second alert of the same setup on a name while the first is still pending or in a trade (a C
-  tight run moves its pending entry to the newest tight bar instead), and no new alert at all once
-  ``max_attempts`` of the name's alerts have triggered that day;
-* not extended (``ext_filter``): at the setup bar the lowest low of today's last ``ext_lookback_bars``
-  bars is at most ``ext_low_pct`` above the 15-minute EMA 120 (the trader's stand-in for the 1-hour
-  EMA 30; at or under it is fine), and the setup bar closes at most ``ext_close_pct`` above it. The
-  EMA 360 runs over regular-session closes only (no premarket), seeded from prior sessions. When there
-  is not enough history for it the filter does not block.
+1. **Watch** (status ``pending``). A completed bar touches a rising EMA coming from above:
 
-D has two paths. Classic (variant ``pullback``): stacked 6>20>50, rising 20, reclaim of the 6 after a
-touch/hold of the 20 EMA or VWAP. Hold20 (variant ``hold20``, when ``d_hold20`` is on): a green bar whose
-low is within ``touch_tol_pct`` of a rising 20 EMA, closing above it, and not already more than
-``d_hold20_extend_pct`` above the 20 on the prior bar. Hold20 can also require the trigger within
-``d_hold20_daily_pct`` of the daily 4 EMA (``d_hold20_daily_filter``; skipped when that EMA is unknown).
+   * the EMA is rising: its value on the bar before is higher than ``rising_bars`` bars earlier;
+   * the bar before closed above the EMA (more than ``touch_tol_pct`` over it), so this is a pullback
+     to the line, not price already sitting on it;
+   * this bar's low reaches the EMA (within ``touch_tol_pct``);
+   * this bar did not close more than ``hold_pct`` under the EMA.
+
+   When one bar touches more than one EMA, the alert is for the lowest one it held. The buy stop is the
+   touch bar's high + $0.01 and the stop is the pullback low - $0.01.
+
+2. **Trigger** (status ``triggered``). A later bar trades over the previous 15-minute candle's high +
+   $0.01. While the alert waits, each completed bar that does not trigger moves the buy stop to its own
+   high + $0.01 and the stop to the lowest low so far - $0.01. The watch is cancelled when a bar closes
+   more than ``hold_pct`` under the EMA, and expires after ``watch_bars`` bars without a trigger. The live
+   poll also checks the forming bar, so a trigger shows up within a poll instead of after the candle closes.
+
+After the fill the trade is managed on completed bars: the stop, break-even after
+``breakeven_after_new_highs`` new-high bars, an exit on a close more than ``hold_pct`` under the EMA
+(``exit_close_under_ma``), and the session end.
+
+One live alert per name at a time, and no new alert once ``max_attempts`` of the name's alerts have
+triggered that day. Which names are checked (universe stocks with a scan score of at least ``min_score``)
+is decided by the caller.
 """
 
 from __future__ import annotations
@@ -54,72 +52,34 @@ TICK = 0.01
 BAR_MINUTES = 15
 BAR = timedelta(minutes=BAR_MINUTES)
 SESSION_BARS = 390 // BAR_MINUTES  # bars in a full regular session
-SETUPS = ("A", "B", "C", "D", "E", "F")
-SETUP_NAMES = {
-    "A": "Opening-bar breakout",
-    "B": "Opening flush then reclaim",
-    "C": "Opening-drive continuation",
-    "D": "Pullback to rising 20 EMA",
-    "E": "Gap-down V-reversal",
-    "F": "Midday squeeze",
-}
-CHECK_ORDER = ("C", "A", "B", "D", "E", "F")
+MA_PERIODS = (120, 240, 480)
+EMA_LONG = MA_PERIODS[-1]
+SETUPS = tuple(str(p) for p in MA_PERIODS)
+SETUP_NAMES = {str(p): f"Pullback to rising {p} EMA" for p in MA_PERIODS}
 ACTIVE = ("pending", "triggered")
 FINAL = ("stopped", "breakeven", "exited", "expired", "cancelled")
+TAIL_KEEP = 30  # prior-session EMA values kept per period (enough for any ``rising_bars``)
 
 
 @dataclass
 class Settings:
     """Adjustable rule values. Percentages are in percent (0.5 means 0.5%)."""
 
-    # Approved defaults.
-    doji_body_pct: float = 10.0
-    doji_close_top_pct: float = 45.0
-    bunched_pct: float = 0.5
-    strong_close_top_pct: float = 30.0
-    tight_range_pct: float = 50.0
-    gap_down_pct: float = 1.0  # E: open this far under the prior close, or the low this far under the 20 and 50
-    f_bunched_minutes: int = 60
-    f_volume_mult: float = 1.5
-    # Strong marubozu breakout: allow a slightly lower IEX volume floor (IEX is thin vs SIP).
-    f_soft_body_pct: float = 80.0  # body at least this % of range to use the soft volume floor
-    f_soft_volume_mult: float = 1.2  # soft volume floor; 0 disables the exception
-    top_names: int = 3
-    # From the spec.
-    vol_mult: float = 0.8
-    max_stop_pct: float = 2.0
-    entry_valid_bars: int = 2
-    trade_bars: int = 10  # entries only on the first this-many candles of the session
-    cancel_stop_before_trigger: int = 1  # pending entry cancelled once a bar trades at/under the stop
+    # Which names: universe stocks with at least this scan score, highest first, at most this many.
+    min_score: float = 70.0
+    max_symbols: int = 150
+    # Which averages (1 = on, 0 = off).
+    ma_120: int = 1
+    ma_240: int = 1
+    ma_480: int = 1
+    touch_tol_pct: float = 0.1  # a low this close above the EMA counts as a touch
+    hold_pct: float = 0.3  # a close more than this under the EMA has lost it
+    rising_bars: int = 4  # rising = higher than this many bars earlier (4 bars = 1 hour)
+    watch_bars: int = 4  # bars after the touch the buy stop stays live
     max_attempts: int = 2
     breakeven_after_new_highs: int = 3
-    # Working definitions for the looser words in the spec (all adjustable).
-    vol_min_sessions: int = 5
-    touch_tol_pct: float = 0.1
-    d_lookback_bars: int = 2
-    f_full_body_pct: float = 50.0
-    # Not extended: price near the 15-minute EMA 120 (about the 1-hour EMA 30). 1 = on, 0 = off.
-    ext_filter: int = 1
-    ext_low_pct: float = 1.0  # last hour's low at most this far over the EMA 120
-    ext_close_pct: float = 3.0  # setup bar close at most this far over the EMA 120
-    ext_lookback_bars: int = 4  # "last hour" in 15-minute bars (today's bars only)
-    # Windows, minutes after the open (setup bar start). 15-45 = 6:45-7:15 Phoenix in daylight time.
-    # No window reaches past bar 8 (120): its entry bar is the last of the ``trade_bars`` candles.
-    b_from: int = 15
-    b_to: int = 45
-    c_from: int = 15
-    c_to: int = 45
-    d_from: int = 30
-    d_to: int = 120
-    # D hold20 path (additive to classic pullback). 1 = on, 0 = off.
-    d_hold20: int = 1
-    d_hold20_extend_pct: float = 0.5  # skip hold20 when the prior bar was already this far over the 20
-    d_hold20_daily_filter: int = 1  # hold20 only near the daily 4 EMA (1 = on, 0 = off)
-    d_hold20_daily_pct: float = 2.0  # trigger at most this far from the daily 4 EMA (%)
-    e_from: int = 15
-    e_to: int = 120
-    f_from: int = 60
-    f_to: int = 120
+    exit_close_under_ma: int = 1  # exit an open trade on a close under the EMA (1 = on, 0 = off)
+    top_names: int = 3
     # Earnings ⚠ on the scanner, watchlist, alerts, positions and the chart. Calendar days, today included.
     earnings_window_days: int = DEFAULT_WARNING_WINDOW_DAYS
     # 1 = move that day's alerts into history after the 16:05 ET close. 0 = leave them on the live table.
@@ -137,21 +97,16 @@ class Settings:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    def periods(self) -> list[int]:
+        return [p for p in MA_PERIODS if getattr(self, f"ma_{p}", 0)]
+
 
 SETTING_LIMITS: dict[str, tuple[float, float]] = {
-    "doji_body_pct": (0, 50), "doji_close_top_pct": (0, 100), "bunched_pct": (0.01, 5),
-    "strong_close_top_pct": (1, 100), "tight_range_pct": (1, 100), "gap_down_pct": (0.1, 20),
-    "f_bunched_minutes": (15, 360), "f_volume_mult": (0.1, 20), "f_soft_body_pct": (0, 100), "f_soft_volume_mult": (0, 20), "top_names": (0, 50),
-    "vol_mult": (0, 20), "max_stop_pct": (0.1, 20), "entry_valid_bars": (1, 20), "trade_bars": (1, 26), "cancel_stop_before_trigger": (0, 1), "max_attempts": (1, 20),
-    "breakeven_after_new_highs": (1, 50), "vol_min_sessions": (1, 20), "touch_tol_pct": (0, 5),
-    "d_lookback_bars": (1, 30), "f_full_body_pct": (0, 100),
-    "d_hold20": (0, 1), "d_hold20_extend_pct": (0, 5), "d_hold20_daily_filter": (0, 1),
-    "d_hold20_daily_pct": (0, 20),
-    "ext_filter": (0, 1), "ext_low_pct": (0, 50), "ext_close_pct": (0, 50), "ext_lookback_bars": (1, 26),
-    "b_from": (0, 390), "b_to": (0, 390), "c_from": (0, 390), "c_to": (0, 390), "d_from": (0, 390),
-    "d_to": (0, 390), "e_from": (0, 390), "e_to": (0, 390), "f_from": (0, 390), "f_to": (0, 390),
-    "earnings_window_days": (0, 30),
-    "auto_archive": (0, 1),
+    "min_score": (0, 100), "max_symbols": (1, 1000),
+    "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
+    "touch_tol_pct": (0, 5), "hold_pct": (0, 5), "rising_bars": (1, TAIL_KEEP - 1), "watch_bars": (1, 26),
+    "max_attempts": (1, 20), "breakeven_after_new_highs": (1, 50), "exit_close_under_ma": (0, 1),
+    "top_names": (0, 50), "earnings_window_days": (0, 30), "auto_archive": (0, 1),
 }
 
 
@@ -159,29 +114,35 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
 class Context:
     """Per symbol, per day inputs that are not today's bars."""
 
-    warm_closes: Sequence[float] = ()  # prior sessions' regular 15-minute closes, oldest first (EMA seed)
-    prev_close: Optional[float] = None
-    premarket_low: Optional[float] = None
-    vol_avg: Mapping[int, float] = field(default_factory=dict)  # bar index -> average IEX volume
-    vol_sessions: int = 0  # sessions behind vol_avg
+    # Per period: the EMA after each of the prior session's last few regular bars, oldest first.
+    ma_tail: Mapping[int, Sequence[float]] = field(default_factory=dict)
+    prev_close: Optional[float] = None  # last regular-session close before today
     session_bars: int = SESSION_BARS  # bars in a full session (fewer on a half day)
-    ema360_seed: Optional[float] = None  # 15-minute EMA 120 after the prior session's last regular bar
-    daily_4_ema: Optional[float] = None  # daily EMA 4 as of the prior session close (hold20 quality gate)
+
+
+def context_from_closes(closes: Sequence[float], session_bars: int = SESSION_BARS) -> Context:
+    """Context from prior sessions' regular 15-minute closes (oldest first). Periods without enough closes stay unknown."""
+    tails = {}
+    for p in MA_PERIODS:
+        series = [v for v in ema_series(closes, p) if v is not None]
+        if series:
+            tails[p] = series[-TAIL_KEEP:]
+    return Context(ma_tail=tails, prev_close=float(closes[-1]) if closes else None, session_bars=session_bars)
 
 
 @dataclass
 class Alert:
     symbol: str
     session: str
-    setup: str
-    origin_bar: datetime  # first setup bar (the key; a C tight run can move the setup bar later)
-    setup_bar: datetime
+    setup: str  # the EMA period, "120" / "240" / "480"
+    origin_bar: datetime  # the touch bar (the key)
+    setup_bar: datetime  # the candle whose high + $0.01 is the buy stop (moves while waiting)
     setup_index: int
     trigger: float
     stop: float
-    setup_low: float
-    setup_high: float
-    ref_price: float  # setup bar close, the price "stop %" is measured against
+    setup_low: float  # pullback low so far
+    setup_high: float  # high of ``setup_bar``
+    ref_price: float  # touch bar close
     status: str = "pending"
     filled: bool = False
     fill_price: Optional[float] = None
@@ -205,8 +166,12 @@ class Alert:
         return f"{self.symbol}|{self.session}|{self.setup}|{_iso(self.origin_bar)}"
 
     @property
+    def period(self) -> int:
+        return int(self.setup)
+
+    @property
     def fired_at(self) -> datetime:
-        return self.setup_bar + BAR
+        return self.origin_bar + BAR
 
     @property
     def stop_pct(self) -> float:
@@ -259,7 +224,7 @@ def _iso(ts: Optional[datetime]) -> Optional[str]:
 
 
 def ema_series(values: Sequence[float], period: int) -> list[Optional[float]]:
-    """Same definition as the 15-minute chart (watch5m): seeded with the SMA of the first ``period``."""
+    """Same definition as the 15-minute chart: seeded with the SMA of the first ``period``."""
     out: list[Optional[float]] = [None] * len(values)
     if period <= 0 or len(values) < period:
         return out
@@ -270,9 +235,6 @@ def ema_series(values: Sequence[float], period: int) -> list[Optional[float]]:
         value += k * (values[i] - value)
         out[i] = value
     return out
-
-
-EMA_LONG = 120  # 15-minute bars: 120 x 15 min = 30 hours = 30 one-hour bars of the regular session (6.5 h/day)
 
 
 def ema_seed(closes: Sequence[float], period: int = EMA_LONG) -> Optional[float]:
@@ -286,7 +248,7 @@ def ema_seed(closes: Sequence[float], period: int = EMA_LONG) -> Optional[float]
     return value
 
 
-def ema_continue(seed: Optional[float], values: Sequence[float], period: int = EMA_LONG) -> list[Optional[float]]:
+def ema_continue(seed: Optional[float], values: Sequence[float], period: int) -> list[Optional[float]]:
     """EMA after each value, continuing from ``seed`` (all None without a seed)."""
     if seed is None:
         return [None] * len(values)
@@ -298,363 +260,54 @@ def ema_continue(seed: Optional[float], values: Sequence[float], period: int = E
     return out
 
 
-def vwap_series(bars: Sequence[Mapping]) -> list[Optional[float]]:
-    """Regular-session VWAP after each bar, typical price weighted by (IEX) volume."""
-    out: list[Optional[float]] = []
-    pv = vol = 0.0
-    for b in bars:
-        v = float(b.get("v") or 0)
-        pv += (b["h"] + b["l"] + b["c"]) / 3 * v
-        vol += v
-        out.append(pv / vol if vol > 0 else None)
-    return out
-
-
 class Frame:
-    """Today's bars with the indicators every rule reads."""
+    """Today's bars with the EMAs every rule reads. Negative indexes reach into the prior session."""
 
     def __init__(self, bars: Sequence[Mapping], ctx: Context):
         self.bars = list(bars)
-        warm = list(ctx.warm_closes)
-        closes = warm + [float(b["c"]) for b in self.bars]
-        n = len(warm)
-        self.e6 = ema_series(closes, 6)[n:]
-        self.e20 = ema_series(closes, 20)[n:]
-        self.e50 = ema_series(closes, 50)[n:]
-        # The 20 EMA one bar before today's first bar (for "rising" on bar 0).
-        full20 = ema_series(closes, 20)
-        self.e20_before = full20[n - 1] if n >= 1 else None
-        self.vwap = vwap_series(self.bars)
-        self.e360 = ema_continue(ctx.ema360_seed, [float(b["c"]) for b in self.bars])
         self.ctx = ctx
+        closes = [float(b["c"]) for b in self.bars]
+        self.tail = {p: list(ctx.ma_tail.get(p) or ()) for p in MA_PERIODS}
+        self.ma = {p: ema_continue(self.tail[p][-1] if self.tail[p] else None, closes, p) for p in MA_PERIODS}
 
-    def emas(self, i: int) -> Optional[tuple[float, float, float]]:
-        a, b, c = self.e6[i], self.e20[i], self.e50[i]
-        if a is None or b is None or c is None:
-            return None
-        return a, b, c
+    def ma_at(self, p: int, i: int) -> Optional[float]:
+        if i >= 0:
+            return self.ma[p][i] if i < len(self.bars) else None
+        tail = self.tail[p]
+        return tail[i] if -i <= len(tail) else None
 
-    def e20_prev(self, i: int) -> Optional[float]:
-        return self.e20[i - 1] if i > 0 else self.e20_before
-
-
-def _range(b: Mapping) -> float:
-    return float(b["h"]) - float(b["l"])
-
-
-def _close_pos(b: Mapping) -> Optional[float]:
-    """Close as a fraction of the bar's range from the low (1 = closed on the high)."""
-    r = _range(b)
-    return (b["c"] - b["l"]) / r if r > 0 else None
+    def close_at(self, i: int) -> Optional[float]:
+        if i >= 0:
+            return float(self.bars[i]["c"])
+        return self.ctx.prev_close if i == -1 else None
 
 
-def is_green(b: Mapping) -> bool:
-    return b["c"] > b["o"]
-
-
-def is_doji(b: Mapping, s: Settings) -> bool:
-    r = _range(b)
-    return r > 0 and abs(b["c"] - b["o"]) <= r * s.doji_body_pct / 100
-
-
-def setup_bar_ok(b: Mapping, s: Settings) -> bool:
-    """Green, or a doji closing in the top ``doji_close_top_pct`` of its range."""
-    if is_green(b):
-        return True
-    pos = _close_pos(b)
-    return is_doji(b, s) and pos is not None and pos >= 1 - s.doji_close_top_pct / 100
-
-
-def strong_bar(b: Mapping, s: Settings) -> bool:
-    pos = _close_pos(b)
-    return is_green(b) and pos is not None and pos >= 1 - s.strong_close_top_pct / 100
-
-
-def bunched(levels: Sequence[float], s: Settings) -> bool:
-    lo, hi = min(levels), max(levels)
-    return lo > 0 and (hi - lo) / lo * 100 <= s.bunched_pct
-
-
-def _in(i: int, lo: int, hi: int) -> bool:
-    return lo <= i * BAR_MINUTES <= hi
-
-
-# --------------------------------------------------------------------------------------------- setups
-
-
-def _c_tight_run(f: Frame, i: int, s: Settings) -> bool:
-    """Bars 1..i are all tight (range <= tight_range_pct of bar 0) and each closes over the 6 EMA or VWAP."""
-    r0 = _range(f.bars[0])
-    if i < 1 or r0 <= 0:
-        return False
-    for k in range(1, i + 1):
-        b = f.bars[k]
-        if _range(b) > r0 * s.tight_range_pct / 100:
-            return False
-        e6, vw = f.e6[k], f.vwap[k]
-        if not ((e6 is not None and b["c"] > e6) or (vw is not None and b["c"] > vw)):
-            return False
-    return True
-
-
-def match_c(f: Frame, i: int, s: Settings) -> Optional[str]:
-    if not _in(i, s.c_from, s.c_to) or not strong_bar(f.bars[0], s):
+def match(f: Frame, i: int, p: int, s: Settings) -> Optional[dict]:
+    """Bar ``i`` pulls back to the rising ``p`` EMA from above and holds it. Returns the levels, or None."""
+    m, mp, mb = f.ma_at(p, i), f.ma_at(p, i - 1), f.ma_at(p, i - 1 - s.rising_bars)
+    pc = f.close_at(i - 1)
+    if m is None or mp is None or mb is None or pc is None or m <= 0:
         return None
-    if i == 1 and f.bars[1]["c"] > f.bars[0]["h"]:
-        return "drive"
-    if _c_tight_run(f, i, s):
-        return "tight"
-    return None
-
-
-def match_a(f: Frame, i: int, s: Settings) -> Optional[str]:
-    if i != 0:
-        return None
-    b = f.bars[0]
-    e6, e20 = f.e6[0], f.e20[0]
-    if e6 is None or e20 is None or not strong_bar(b, s):
-        return None
-    return "open" if b["c"] > e6 and b["c"] > e20 else None
-
-
-def _b_dipped(f: Frame, i: int) -> bool:
-    open0 = f.bars[0]["o"]
-    lows = [f.bars[k]["l"] for k in range(i + 1)]
-    if f.ctx.premarket_low is not None:
-        lows.append(f.ctx.premarket_low)
-    low = min(lows)
-    return low < open0 or (f.ctx.prev_close is not None and low < f.ctx.prev_close)
-
-
-def _b_ok(f: Frame, i: int, s: Settings) -> bool:
-    b = f.bars[i]
-    em = f.emas(i)
-    if em is None or not is_green(b) or not b["c"] > max(em) or not bunched(em, s):
-        return False
-    prev = f.emas(i - 1) if i > 0 else None
-    # A reclaim: the bar before had not already closed over all three.
-    return prev is None or not f.bars[i - 1]["c"] > max(prev)
-
-
-def match_b(f: Frame, i: int, s: Settings) -> Optional[str]:
-    if not _in(i, s.b_from, s.b_to) or not _b_dipped(f, i) or not _b_ok(f, i, s):
-        return None
-    # Only the first qualifying bar of the window.
-    for k in range(i):
-        if _in(k, s.b_from, s.b_to) and _b_dipped(f, k) and _b_ok(f, k, s):
-            return None
-    return "reclaim"
-
-
-def match_d_classic(f: Frame, i: int, s: Settings) -> Optional[str]:
-    """Stacked 6>20>50, rising 20, reclaim of the 6 after a touch/hold of the 20 EMA or VWAP."""
-    if not _in(i, s.d_from, s.d_to) or i < 1:
-        return None
-    # The trend is judged on the bar before the setup bar, so the setup bar cannot create it alone:
-    # 6 > 20 > 50 there and the 20 rising into it, and still stacked on the setup bar.
-    em, prev_em, e20pp = f.emas(i), f.emas(i - 1), f.e20_prev(i - 1)
-    if em is None or prev_em is None or e20pp is None:
-        return None
-    e6, e20, e50 = em
-    if not (e6 > e20 > e50 and prev_em[0] > prev_em[1] > prev_em[2] and prev_em[1] > e20pp):
-        return None
-    b, prev = f.bars[i], f.bars[i - 1]
-    if f.e6[i - 1] is None or not (prev["c"] <= f.e6[i - 1] and is_green(b) and b["c"] > e6):
-        return None
+    if not mp > mb:
+        return None  # not rising
     tol = s.touch_tol_pct / 100
-    start = max(0, i - s.d_lookback_bars)
-    touch = None
-    for k in range(i - 1, start - 1, -1):
-        lvl = [x for x in (f.e20[k], f.vwap[k]) if x is not None]
-        if lvl and any(f.bars[k]["l"] <= x * (1 + tol) for x in lvl):
-            touch = k
-            break
-    if touch is None:
-        return None
-    for k in range(touch, i):
-        lvl = [x for x in (f.e20[k], f.vwap[k]) if x is not None]
-        if not lvl or f.bars[k]["c"] < min(lvl) * (1 - tol):
-            return None  # it did not hold
-    return "pullback"
-
-
-def match_d_hold20(f: Frame, i: int, s: Settings) -> Optional[str]:
-    """Green hold of a rising 20 EMA (no stack / reclaim-6 required).
-
-    Low within ``touch_tol_pct`` of the 20, close above it, and the prior bar not already more than
-    ``d_hold20_extend_pct`` above the 20. Optional daily-4-EMA proximity gate uses the trigger.
-    """
-    if not s.d_hold20 or not _in(i, s.d_from, s.d_to) or i < 1:
-        return None
-    em, prev_em, e20pp = f.emas(i), f.emas(i - 1), f.e20_prev(i - 1)
-    if em is None or e20pp is None or f.e20[i] is None:
-        return None
-    _e6, e20, _e50 = em
-    if not (prev_em and prev_em[1] > e20pp):
-        return None  # 20 must be rising into the setup bar
+    if pc <= mp * (1 + tol):
+        return None  # the bar before was not above the line: not a pullback to it
     b = f.bars[i]
-    if not (is_green(b) and b["c"] > e20):
+    if float(b["l"]) > m * (1 + tol):
+        return None  # did not reach it
+    if float(b["c"]) < m * (1 - s.hold_pct / 100):
+        return None  # closed through it
+    return {"ma": m, "slope_pct": (mp - mb) / mb * 100}
+
+
+def touch(f: Frame, i: int, s: Settings) -> Optional[tuple[int, dict, list[int]]]:
+    """(period, levels, every period touched) for the lowest EMA bar ``i`` pulled back to and held."""
+    hits = [(p, x) for p in s.periods() if (x := match(f, i, p, s))]
+    if not hits:
         return None
-    tol = s.touch_tol_pct / 100
-    if b["l"] > e20 * (1 + tol):
-        return None  # this bar itself must touch the 20
-    start = max(0, i - s.d_lookback_bars)
-    if not any(
-        f.e20[k] is not None and f.bars[k]["l"] <= f.e20[k] * (1 + tol)
-        for k in range(i, start - 1, -1)
-    ):
-        return None
-    prev, pe = f.bars[i - 1], f.e20[i - 1]
-    if pe and prev["c"] > pe * (1 + s.d_hold20_extend_pct / 100) and prev["l"] > pe * (1 + tol):
-        return None  # already extended above the 20 on the prior bar
-    if s.d_hold20_daily_filter and f.ctx.daily_4_ema is not None and f.ctx.daily_4_ema > 0:
-        trigger = round(float(b["h"]) + TICK, 2)
-        dist = abs(trigger - f.ctx.daily_4_ema) / f.ctx.daily_4_ema * 100
-        if dist > s.d_hold20_daily_pct:
-            return None
-    return "hold20"
-
-
-def match_d(f: Frame, i: int, s: Settings) -> Optional[str]:
-    """Classic pullback first; else hold20 when enabled."""
-    return match_d_classic(f, i, s) or match_d_hold20(f, i, s)
-
-
-def _e_pivot(f: Frame, i: int) -> Optional[int]:
-    """Index of a higher low after the session low (before bar ``i``), or None."""
-    if i < 3:
-        return None
-    lows = [f.bars[k]["l"] for k in range(i)]
-    m = min(range(i), key=lambda k: (lows[k], k))
-    for j in range(m + 1, i):
-        nxt = f.bars[j + 1]["l"] if j + 1 <= i else None
-        if lows[j] > lows[m] and lows[j] <= lows[j - 1] and nxt is not None and lows[j] < nxt:
-            return j
-    return None
-
-
-def _far_below(price: float, e20: Optional[float], e50: Optional[float], pct: float) -> bool:
-    """True when ``price`` is at least ``pct`` under both the 20 and the 50."""
-    if e20 is None or e50 is None or e20 <= 0 or e50 <= 0:
-        return False
-    band = 1 - pct / 100
-    return price <= e20 * band and price <= e50 * band
-
-
-def match_e(f: Frame, i: int, s: Settings) -> Optional[str]:
-    """Gap-down, or a washout far below the 20 and 50, then a higher low and the first close back over the 20.
-
-    The open has to be at least ``gap_down_pct`` under the prior close, or the session low has to be at least
-    that far under both the 20 and the 50. A wick under the open is not a washout. The higher low prints while
-    price is still under the 20, and the setup bar is the first close back over it.
-    """
-    if not _in(i, s.e_from, s.e_to) or i < 1:
-        return None
-    open0 = f.bars[0]["o"]
-    pc = f.ctx.prev_close
-    gap = pc is not None and open0 <= pc * (1 - s.gap_down_pct / 100)
-    lows = [f.bars[k]["l"] for k in range(i)]
-    m = min(range(i), key=lambda k: (lows[k], k))
-    e20_m = f.e20[m]
-    # The reversal starts under the 20. The setup bar is the reclaim of it.
-    if e20_m is None or not lows[m] < e20_m:
-        return None
-    washout = _far_below(lows[m], e20_m, f.e50[m], s.gap_down_pct)
-    if not (gap or washout):
-        return None
-    j = _e_pivot(f, i)
-    b, e20 = f.bars[i], f.e20[i]
-    if j is None or e20 is None or f.e20[j] is None or not (is_green(b) and b["c"] > e20):
-        return None
-    if lows[j] >= f.e20[j] or b["l"] <= lows[m]:
-        return None  # higher low is already back over the 20, or this bar undercuts the low
-    for k in range(m, i):
-        if f.e20[k] is not None and f.bars[k]["c"] > f.e20[k]:
-            return None  # not the first close back over the 20 since the low
-    return "gap" if gap else "washout"
-
-
-def match_f(f: Frame, i: int, s: Settings) -> Optional[str]:
-    if not _in(i, s.f_from, s.f_to):
-        return None
-    n = max(1, s.f_bunched_minutes // BAR_MINUTES)
-    if i < n:
-        return None
-    window = range(i - n, i)
-    for k in window:
-        em = f.emas(k)
-        if em is None or not bunched(em, s):
-            return None
-    first, last = f.e20[i - n], f.e20[i - 1]
-    if first is None or last is None or abs(last - first) / first * 100 > s.bunched_pct:
-        return None  # not flat
-    b, em = f.bars[i], f.emas(i)
-    r = _range(b)
-    if em is None or r <= 0 or not is_green(b) or (b["c"] - b["o"]) < r * s.f_full_body_pct / 100:
-        return None
-    if not (b["c"] > max(f.bars[k]["h"] for k in window) and b["c"] > max(em)):
-        return None
-    avg = f.ctx.vol_avg.get(i)
-    if not avg or f.ctx.vol_sessions < s.vol_min_sessions:
-        return None
-    v = float(b.get("v") or 0)
-    if v >= s.f_volume_mult * avg:
-        return "squeeze"
-    # IEX volume is often thin on the first breakout bar; a near-marubozu at a slightly
-    # lower multiple is still the squeeze resolution (see PLTR 2026-10-27 08:40 Phx).
-    body_pct = (b["c"] - b["o"]) / r * 100
-    if s.f_soft_volume_mult > 0 and body_pct >= s.f_soft_body_pct and v >= s.f_soft_volume_mult * avg:
-        return "squeeze"
-    return None
-
-
-MATCHERS = {"A": match_a, "B": match_b, "C": match_c, "D": match_d, "E": match_e, "F": match_f}
-
-
-def tag_bar(f: Frame, i: int, s: Settings) -> Optional[tuple[str, str]]:
-    for setup in CHECK_ORDER:
-        variant = MATCHERS[setup](f, i, s)
-        if variant:
-            return setup, variant
-    return None
-
-
-def volume_check(f: Frame, i: int, s: Settings) -> tuple[bool, Optional[float]]:
-    avg = f.ctx.vol_avg.get(i)
-    if not avg or f.ctx.vol_sessions < s.vol_min_sessions:
-        return True, None
-    ratio = float(f.bars[i].get("v") or 0) / avg
-    return ratio >= s.vol_mult, ratio
-
-
-def extension(f: Frame, i: int, s: Settings) -> Optional[dict]:
-    """Distance of the last hour's low and the setup bar's close from the 15-minute EMA 120, in percent."""
-    e = f.e360[i]
-    if e is None or e <= 0:
-        return None
-    lo = min(float(f.bars[k]["l"]) for k in range(max(0, i - max(1, s.ext_lookback_bars) + 1), i + 1))
-    return {"ema360": e, "low_pct": (lo - e) / e * 100, "close_pct": (float(f.bars[i]["c"]) - e) / e * 100}
-
-
-def not_extended(f: Frame, i: int, s: Settings) -> tuple[bool, Optional[dict]]:
-    """(passes, distances). Passes when the filter is off or the EMA 360 is not known yet."""
-    x = extension(f, i, s)
-    if not s.ext_filter or x is None:
-        return True, x
-    return x["low_pct"] <= s.ext_low_pct and x["close_pct"] <= s.ext_close_pct, x
-
-
-def levels(f: Frame, i: int, setup: str, s: Settings) -> tuple[float, float, bool]:
-    """(trigger, stop, too_wide). A wide A bar gets a 2% stop instead of being skipped."""
-    b = f.bars[i]
-    trigger = round(b["h"] + TICK, 2)
-    stop = round(b["l"] - TICK, 2)
-    pct = (trigger - stop) / trigger * 100
-    if pct > s.max_stop_pct:
-        if setup == "A":
-            return trigger, round(trigger * (1 - s.max_stop_pct / 100), 2), False
-        return trigger, stop, True
-    return trigger, stop, False
+    p, x = min(hits, key=lambda h: (h[1]["ma"], h[0]))
+    return p, x, [h[0] for h in hits]
 
 
 # --------------------------------------------------------------------------------------------- outcomes
@@ -669,47 +322,50 @@ def _close_trade(a: Alert, price: float, at: datetime, reason: str, status: str)
     a.r_multiple = (price - (a.fill_price or a.trigger)) / risk if risk > 0 else None
 
 
-def step(a: Alert, bar: Mapping, e20: Optional[float], s: Settings) -> None:
-    """Advance one active alert by one completed bar (the bars after its setup bar, in order)."""
+def _fill(a: Alert, bar: Mapping) -> None:
+    a.filled = True
+    a.fill_price = max(a.trigger, float(bar["o"]))
+    a.fill_at = bar["t"]
+    a.status = "triggered"
+    a.current_stop = a.stop
+    a.running_high = float(bar["h"])
+    a.high_reached = float(bar["h"])
+
+
+def _lost(bar: Mapping, ma: Optional[float], s: Settings) -> bool:
+    return ma is not None and float(bar["c"]) < ma * (1 - s.hold_pct / 100)
+
+
+def step(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -> None:
+    """Advance one active alert by one completed bar (the bars after its touch bar, in order)."""
     end = bar["t"] + BAR
     if a.status == "pending":
         a.bars_waited += 1
-        if a.setup_index + a.bars_waited >= s.trade_bars:
-            # Past the last candle trading is allowed on: the entry never gets a chance to fill.
-            a.status = "expired"
-            a.exit_reason = "trade_window"
-            a.exit_at = bar["t"]
-            return
-        if s.cancel_stop_before_trigger and bar["l"] <= a.stop:
-            # Stop traded before a fill. Same bar as the trigger counts as stop first (no fill, no R).
-            a.status = "cancelled"
-            a.exit_reason = "stop_before_trigger"
-            a.exit_at = end
-            return
         if bar["h"] >= a.trigger:
-            a.filled = True
-            a.fill_price = max(a.trigger, float(bar["o"]))
-            a.fill_at = bar["t"]
-            a.status = "triggered"
-            a.current_stop = a.stop
-            a.running_high = float(bar["h"])
-            a.high_reached = float(bar["h"])
+            _fill(a, bar)
             if bar["l"] <= a.stop:  # stop and fill in one bar: the stop counts first
                 a.stop_hit = True
                 _close_trade(a, a.stop, end, "stop", "stopped")
-                return
-            if e20 is not None and bar["c"] < e20:
-                _close_trade(a, float(bar["c"]), end, "close_under_20ema", "exited")
+            elif s.exit_close_under_ma and _lost(bar, ma, s):
+                _close_trade(a, float(bar["c"]), end, "close_under_ma", "exited")
             return
-        if bar["c"] < a.setup_low:
+        if _lost(bar, ma, s):
             a.status = "cancelled"
-            a.exit_reason = "close_under_setup_low"
+            a.exit_reason = "close_under_ma"
             a.exit_at = end
             return
-        if a.bars_waited >= s.entry_valid_bars:
+        if a.bars_waited >= s.watch_bars:
             a.status = "expired"
             a.exit_at = end
             a.exit_reason = "not_triggered"
+            return
+        # Still watching: the buy stop follows the previous candle, the stop the pullback low.
+        a.setup_bar, a.setup_index = bar["t"], index
+        a.setup_high = float(bar["h"])
+        a.trigger = round(float(bar["h"]) + TICK, 2)
+        a.setup_low = min(a.setup_low, float(bar["l"]))
+        a.stop = a.current_stop = round(a.setup_low - TICK, 2)
+        a.details["rearmed"] = a.details.get("rearmed", 0) + 1
         return
     if a.status != "triggered":
         return
@@ -726,12 +382,19 @@ def step(a: Alert, bar: Mapping, e20: Optional[float], s: Settings) -> None:
         if a.breakeven_at is None and a.new_highs >= s.breakeven_after_new_highs:
             a.breakeven_at = end
             a.current_stop = max(a.current_stop, a.fill_price or a.trigger)
-    if e20 is not None and bar["c"] < e20:
-        _close_trade(a, float(bar["c"]), end, "close_under_20ema", "exited")
+    if s.exit_close_under_ma and _lost(bar, ma, s):
+        _close_trade(a, float(bar["c"]), end, "close_under_ma", "exited")
+
+
+def check_forming(a: Alert, bar: Mapping) -> None:
+    """The bar still forming has traded through the buy stop: mark the fill now (no stop or exit checks)."""
+    if a.status == "pending" and float(bar["h"]) >= a.trigger:
+        _fill(a, bar)
+        a.details["fill_on_forming_bar"] = True
 
 
 def finish_session(a: Alert, last_bar: Mapping) -> None:
-    """The session is over: a pending entry expires and an open trade is closed at the last close."""
+    """The session is over: a waiting alert expires and an open trade is closed at the last close."""
     end = last_bar["t"] + BAR
     if a.status == "pending":
         a.status = "expired"
@@ -742,6 +405,13 @@ def finish_session(a: Alert, last_bar: Mapping) -> None:
 
 
 # --------------------------------------------------------------------------------------------- driver
+
+
+def _index_of(bars: Sequence[Mapping], ts: datetime) -> Optional[int]:
+    for i, b in enumerate(bars):
+        if b["t"] == ts or _iso(b["t"]) == _iso(ts):
+            return i
+    return None
 
 
 def advance_stored(
@@ -760,45 +430,36 @@ def advance_stored(
     bars: Sequence[Mapping],
     ctx: Context,
     settings: Optional[Settings] = None,
+    forming: Optional[Mapping] = None,
 ) -> Optional["Alert"]:
-    """Re-walk outcomes for an alert that already fired, without re-matching the setup.
+    """Re-walk outcomes for an alert that already fired, without re-matching the touch.
 
-    Live polls re-run ``simulate`` from scratch. When SIP later replaces IEX prices on bars
-    before the setup, ``match_*`` can stop reproducing the alert; ``save_session`` would then
-    leave the stored row stuck (e.g. forever ``pending``). Call this for ACTIVE rows missing
-    from the new simulate run so fills / expiry / stops still update from the frozen levels.
+    Live polls re-run ``simulate`` from scratch. When SIP later replaces IEX prices on earlier bars
+    the touch can stop reproducing; ``save_session`` would then leave the stored row stuck. Call this
+    for ACTIVE rows missing from the new run so fills / expiry / stops still update from the stored levels.
     """
     s = settings or Settings()
-    if not bars:
+    if not bars or setup not in SETUPS:
         return None
-    setup_i = None
-    for i, b in enumerate(bars):
-        if b["t"] == setup_bar or _iso(b["t"]) == _iso(setup_bar):
-            setup_i = i
-            break
+    setup_i = _index_of(bars, setup_bar)
+    origin_i = _index_of(bars, origin_bar)
     if setup_i is None:
         return None
     a = Alert(
-        symbol=symbol,
-        session=session,
-        setup=setup,
-        origin_bar=origin_bar,
-        setup_bar=setup_bar,
-        setup_index=setup_i,
-        trigger=trigger,
-        stop=stop,
-        setup_low=setup_low,
-        setup_high=setup_high,
-        ref_price=ref_price,
-        details=dict(details or {}),
+        symbol=symbol, session=session, setup=setup, origin_bar=origin_bar, setup_bar=setup_bar,
+        setup_index=setup_i, trigger=trigger, stop=stop, setup_low=setup_low, setup_high=setup_high,
+        ref_price=ref_price, details=dict(details or {}), current_stop=stop,
+        bars_waited=setup_i - origin_i if origin_i is not None else 0,
     )
     f = Frame(bars, ctx)
     for i in range(setup_i + 1, len(bars)):
         if a.status not in ACTIVE:
             break
-        step(a, bars[i], f.e20[i], s)
+        step(a, bars[i], i, f.ma[a.period][i], s)
     if a.status in ACTIVE and ctx.session_bars and len(bars) >= ctx.session_bars:
         finish_session(a, bars[-1])
+    elif forming is not None:
+        check_forming(a, forming)
     return a
 
 
@@ -809,11 +470,13 @@ def simulate(
     ctx: Context,
     settings: Optional[Settings] = None,
     skipped: Optional[list] = None,
+    forming: Optional[Mapping] = None,
 ) -> list[Alert]:
     """Alerts for one symbol and day, oldest first, with outcomes through the last bar given.
 
     ``bars`` are that day's completed regular-session bars in order, starting with the opening bar.
-    When ``skipped`` is a list, tagged bars that a filter rejected are appended to it (for replays).
+    ``forming`` is the bar still forming (live only): it can fill a waiting alert, nothing else.
+    When ``skipped`` is a list, touches that were not alerted are appended to it (for replays).
     """
     s = settings or Settings()
     if not bars:
@@ -823,75 +486,42 @@ def simulate(
     for i, bar in enumerate(f.bars):
         for a in alerts:
             if a.status in ACTIVE and a.setup_index < i:
-                if a.status == "pending" and sum(1 for x in alerts if x.filled) >= s.max_attempts:
-                    a.status, a.exit_at, a.exit_reason = "expired", bar["t"], "max_attempts"
-                    continue
-                step(a, bar, f.e20[i], s)
-        if i + 1 >= s.trade_bars:
-            continue  # the entry bar would fall outside the first ``trade_bars`` candles
-        tag = tag_bar(f, i, s)
-        if not tag:
+                step(a, bar, i, f.ma[a.period][i], s)
+        hit = touch(f, i, s)
+        if not hit:
             continue
-        same = [a for a in alerts if a.status in ACTIVE and a.setup == tag[0]]
-        if same:
-            # Same setup already live on this name: no duplicate. A C tight run that keeps going moves its
-            # pending entry to the newest tight bar instead.
-            a = same[-1]
-            if (
-                tag[1] == "tight" and a.status == "pending" and a.details.get("variant") == "tight"
-                and setup_bar_ok(bar, s) and volume_check(f, i, s)[0] and not_extended(f, i, s)[0]
-            ):
-                trigger, stop, wide = levels(f, i, "C", s)
-                if not wide:
-                    a.setup_bar, a.setup_index = bar["t"], i
-                    a.trigger, a.stop, a.current_stop = trigger, stop, stop
-                    a.setup_low, a.setup_high, a.ref_price = float(bar["l"]), float(bar["h"]), float(bar["c"])
-                    a.bars_waited = 0
-                    a.details["rearmed"] = a.details.get("rearmed", 0) + 1
-            continue
-        if sum(1 for a in alerts if a.filled) >= s.max_attempts:
-            continue
-        setup, variant = tag
+        period, lv, touched = hit
         reason = None
-        ok_vol, ratio = volume_check(f, i, s)
-        ok_ext, ext = not_extended(f, i, s)
-        if not setup_bar_ok(bar, s):
-            reason = "setup bar not green / doji"
-        elif not ok_vol:
-            reason = "volume under %.1fx" % s.vol_mult
-        elif not ok_ext:
-            reason = "extended: hour low %+.2f%%, close %+.2f%% vs 15m EMA 120 (max %.1f%% / %.1f%%)" % (
-                ext["low_pct"], ext["close_pct"], s.ext_low_pct, s.ext_close_pct)
-        trigger, stop, wide = levels(f, i, setup, s)
-        if reason is None and wide:
-            reason = "stop over %.1f%%" % s.max_stop_pct
+        if i + 1 >= ctx.session_bars:
+            reason = "last bar of the session"
+        elif any(a.status in ACTIVE for a in alerts):
+            reason = "an alert on this name is still live"
+        elif sum(1 for a in alerts if a.filled) >= s.max_attempts:
+            reason = "%d attempts already" % s.max_attempts
         if reason:
             if skipped is not None:
-                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup, "reason": reason})
+                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": str(period), "reason": reason})
             continue
-        em = f.emas(i)
+        stop = round(float(bar["l"]) - TICK, 2)
         alerts.append(
             Alert(
-                symbol=symbol, session=session, setup=setup, origin_bar=bar["t"], setup_bar=bar["t"], setup_index=i,
-                trigger=trigger, stop=stop, setup_low=float(bar["l"]), setup_high=float(bar["h"]),
-                ref_price=float(bar["c"]), current_stop=stop,
+                symbol=symbol, session=session, setup=str(period), origin_bar=bar["t"], setup_bar=bar["t"],
+                setup_index=i, trigger=round(float(bar["h"]) + TICK, 2), stop=stop, setup_low=float(bar["l"]),
+                setup_high=float(bar["h"]), ref_price=float(bar["c"]), current_stop=stop,
                 details={
-                    "variant": variant,
-                    "volume_ratio": None if ratio is None else round(ratio, 2),
-                    "ema6": None if f.e6[i] is None else round(f.e6[i], 4),
-                    "ema20": None if f.e20[i] is None else round(f.e20[i], 4),
-                    "ema50": None if em is None else round(em[2], 4),
-                    "vwap": None if f.vwap[i] is None else round(f.vwap[i], 4),
-                    "a_stop_capped": setup == "A" and round(bar["l"] - TICK, 2) != stop,
-                    "ema360": None if ext is None else round(ext["ema360"], 4),
-                    "ema360_close_pct": None if ext is None else round(ext["close_pct"], 2),
-                    "ema360_low_pct": None if ext is None else round(ext["low_pct"], 2),
+                    "ma": round(lv["ma"], 4),
+                    "ma_slope_pct": round(lv["slope_pct"], 3),
+                    "touched": touched,
+                    "ma_values": {str(p): (None if f.ma[p][i] is None else round(f.ma[p][i], 4)) for p in MA_PERIODS},
                 },
             )
         )
     if len(f.bars) >= ctx.session_bars:
         for a in alerts:
             finish_session(a, f.bars[-1])
+    elif forming is not None:
+        for a in alerts:
+            check_forming(a, forming)
     return alerts
 
 

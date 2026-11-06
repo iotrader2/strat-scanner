@@ -23,10 +23,14 @@ const bar = (time: number, close: number, extra: Partial<IntradayBar> = {}): Int
 });
 
 describe("15-minute EMA legend", () => {
-  it("gives 6, 20, 50, and 120 each their own color", () => {
-    expect([...INTRADAY_EMA_PERIODS]).toEqual([6, 20, 50, 120]);
+  it("gives 6, 20, 50, 120, 240, and 480 each their own color, with 120 red, 240 yellow, 480 blue", () => {
+    expect([...INTRADAY_EMA_PERIODS]).toEqual([6, 20, 50, 120, 240, 480]);
     const colors = INTRADAY_EMA_PERIODS.map((period) => INTRADAY_EMA_COLORS[period]);
-    expect(new Set(colors).size).toBe(4);
+    expect(new Set(colors).size).toBe(6);
+    expect(INTRADAY_EMA_COLORS[120]).toBe("#ef4444");
+    expect(INTRADAY_EMA_COLORS[240]).toBe("#facc15");
+    expect(INTRADAY_EMA_COLORS[480]).toBe("#3b82f6");
+    expect(intradayLegendTitle(30)).toContain("480");
     expect(intradayLegendTitle(30)).toContain("120");
     expect(intradayLegendTitle(30)).toContain("30 sessions");
     expect(intradaySessionNote(5)).toContain("Premarket is excluded");

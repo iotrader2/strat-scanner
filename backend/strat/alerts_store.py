@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from . import userdb
-from .alerts import SETTING_LIMITS, Alert, Settings, mark_top
+from .alerts import MA_PERIODS, SETTING_LIMITS, Alert, Settings, mark_top
 
 _lock = threading.Lock()
 
@@ -136,6 +136,9 @@ def save_session(
 ) -> dict:
     """Insert new alerts and update the outcome of known ones (by key) for one session, then mark "top".
 
+    An alert that moves from watching (``pending``) to ``triggered`` is marked unread again and
+    returned in ``triggered``, so the page chimes a second time for the entry.
+
     A key already in ``alerts_history`` has already fired. It is not inserted again — the local
     order app uses the alert id as ``clientOrderId``, so a new id would be a second order — and a
     live duplicate of that key is removed. Alerts stored earlier but missing from this run are
@@ -143,7 +146,7 @@ def save_session(
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     stamp = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
-    inserted, updated, removed = [], 0, 0
+    inserted, triggered, updated, removed = [], [], 0, 0
     with _lock, _writing(), userdb.connect(db_path) as conn:
         archived = {
             r[0]
@@ -166,20 +169,25 @@ def save_session(
         known = {
             r[0]: r[1:]
             for r in conn.execute(
-                f"SELECT key, {', '.join(OUTCOME)} FROM alerts WHERE session = ?", (session,)
+                f"SELECT key, {', '.join(OUTCOME)}, id FROM alerts WHERE session = ?", (session,)
             ).fetchall()
         }
+        status_at = OUTCOME.index("status")
         for a in alerts:
             rec = a.record()
             if rec["key"] in archived:
                 continue
             if rec["key"] in known:
-                if tuple(known[rec["key"]]) != tuple(rec[c] for c in OUTCOME):
+                old = known[rec["key"]]
+                if tuple(old[: len(OUTCOME)]) != tuple(rec[c] for c in OUTCOME):
                     conn.execute(
                         f"UPDATE alerts SET {', '.join(c + ' = ?' for c in OUTCOME)}, updated_at = ? WHERE key = ?",
                         tuple(rec[c] for c in OUTCOME) + (stamp, rec["key"]),
                     )
                     updated += 1
+                    if old[status_at] == "pending" and rec["filled"]:
+                        conn.execute("UPDATE alerts SET acknowledged = 0 WHERE key = ?", (rec["key"],))
+                        triggered.append({"id": old[-1], "symbol": a.symbol, "setup": a.setup})
                 continue
             late = (clock - a.fired_at).total_seconds() > LATE_AFTER_SECONDS
             cols = list(rec) + ["detected_at", "late", "top", "acknowledged", "updated_at"]
@@ -201,7 +209,7 @@ def save_session(
             # New alerts for names that are already top get the tag too.
             for sym in sorted(already):
                 conn.execute("UPDATE alerts SET top = 1 WHERE session = ? AND symbol = ? AND top = 0", (session, sym))
-    return {"inserted": inserted, "updated": updated, "removed": removed}
+    return {"inserted": inserted, "triggered": triggered, "updated": updated, "removed": removed}
 
 
 def load_settings(db_path: Optional[Path] = None) -> Settings:
@@ -232,9 +240,8 @@ def save_settings(changes: dict, db_path: Optional[Path] = None) -> Settings:
             raise SettingsError(f"{k} must be between {lo:g} and {hi:g}")
         clean[k] = int(num) if isinstance(current[k], int) else num
     merged = {**current, **clean}
-    for a, b in (("b_from", "b_to"), ("c_from", "c_to"), ("d_from", "d_to"), ("e_from", "e_to"), ("f_from", "f_to")):
-        if merged[a] > merged[b]:
-            raise SettingsError(f"{a} must not be after {b}")
+    if not any(merged[f"ma_{p}"] for p in MA_PERIODS):
+        raise SettingsError("Turn on at least one moving average")
     with _lock, _writing(), userdb.connect(db_path) as conn:
         for k, v in clean.items():
             conn.execute(

@@ -24,11 +24,15 @@ def _bars(rows):
     ]
 
 
+CTX = Context(ma_tail={120: [99.0 + 0.01 * k for k in range(10)]}, prev_close=101.0)
+
+
 def _alerts(symbol, rows):
-    return simulate(symbol, "2026-10-23", _bars(rows), Context(warm_closes=[100.0] * 60))
+    return simulate(symbol, "2026-10-23", _bars(rows), CTX)
 
 
-A_ROWS = [(100, 101, 99.9, 100.9)]
+# A pullback to the rising 120 EMA (it ended the prior session at 99.09) on the opening bar.
+A_ROWS = [(100.5, 100.8, 99.1, 100.2)]
 
 
 def test_insert_then_update_outcome_by_key(db):
@@ -39,12 +43,16 @@ def test_insert_then_update_outcome_by_key(db):
     assert rows[0]["status"] == "pending" and rows[0]["fired_at"] == "2026-10-23T13:45:00Z"
     assert rows[0]["top"] and not rows[0]["acknowledged"]
     # Next poll: bar 2 fills it.
+    alerts_store.acknowledge()
     later = alerts_store.save_session(
-        "2026-10-23", [a for a in _alerts("AAA", A_ROWS + [(100.9, 101.3, 100.8, 101.2)]) if a.setup == "A"], now=now + timedelta(minutes=15)
+        "2026-10-23", _alerts("AAA", A_ROWS + [(100.2, 101.3, 100.1, 101.2)]), now=now + timedelta(minutes=15)
     )
     assert later["inserted"] == [] and later["updated"] == 1
     row = alerts_store.list_alerts(session="2026-10-23")[0]
-    assert row["status"] == "triggered" and row["filled"] and row["fill_price"] == 101.01
+    assert row["status"] == "triggered" and row["filled"] and row["fill_price"] == 100.81
+    # The trigger is a second alert: reported, and the row is unread again.
+    assert later["triggered"] == [{"id": row["id"], "symbol": "AAA", "setup": "120"}]
+    assert not row["acknowledged"]
     assert row["detected_at"] == "2026-10-23T13:46:00Z"  # fire / detection times never move
 
 
@@ -74,15 +82,15 @@ def test_acknowledge(db):
 
 def test_settings_round_trip_and_validation(db):
     assert alerts_store.load_settings() == Settings()
-    s = alerts_store.save_settings({"bunched_pct": 0.75, "top_names": 4})
-    assert s.bunched_pct == 0.75 and s.top_names == 4
+    s = alerts_store.save_settings({"hold_pct": 0.5, "top_names": 4, "min_score": 80})
+    assert s.hold_pct == 0.5 and s.top_names == 4 and s.min_score == 80
     assert alerts_store.load_settings().top_names == 4
     with pytest.raises(alerts_store.SettingsError):
         alerts_store.save_settings({"nope": 1})
     with pytest.raises(alerts_store.SettingsError):
-        alerts_store.save_settings({"bunched_pct": 99})
+        alerts_store.save_settings({"hold_pct": 99})
     with pytest.raises(alerts_store.SettingsError):
-        alerts_store.save_settings({"b_from": 100})  # after b_to
+        alerts_store.save_settings({"ma_120": 0, "ma_240": 0, "ma_480": 0})
     assert alerts_store.reset_settings() == Settings()
 
 
@@ -108,16 +116,6 @@ def test_merge_day_prices_from_sip_volume_from_iex():
     assert (bars[1]["h"], bars[1]["v"]) == (101.2, 800)  # IEX after the cutoff
 
 
-def test_volume_profile_by_time_of_day():
-    bars = []
-    for d in range(3):
-        start = OPEN - timedelta(days=d + 1)
-        bars.append(_raw(start, 1, 1, 1, 1, 100 * (d + 1)))
-        bars.append(_raw(start + timedelta(minutes=15), 1, 1, 1, 1, 10))
-    avg, n = alerts_live.volume_profile(bars, date(2026, 10, 23))
-    assert n == 3 and avg[0] == 200 and avg[1] == 10
-
-
 def test_slot_uses_the_new_york_open_all_year():
     assert alerts_live.slot(datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)) == 0  # 6:30 Phoenix (EDT)
     assert alerts_live.slot(datetime(2026, 11, 2, 14, 30, tzinfo=timezone.utc)) == 0  # 7:30 Phoenix (EST)
@@ -139,20 +137,66 @@ class FakeClient:
         return out, []
 
 
+def _rising_history(days=7, start=90.0, step=0.01):
+    """Regular-session SIP bars on the days before OPEN, rising, so the 120 EMA is known and rising."""
+    rows, v = [], start
+    for d in range(days, 0, -1):
+        for k in range(26):
+            rows.append(_raw(OPEN - timedelta(days=d) + timedelta(minutes=15 * k), v, v, v, v, 1))
+            v = round(v + step, 4)
+    return rows
+
+
 def test_refresh_end_to_end(db):
     alerts_live.clear()
-    sip = {"AAA": [_raw(OPEN - timedelta(days=1) + timedelta(minutes=15 * k), 100, 100, 100, 100, 1) for k in range(26)]}
-    iex = {"AAA": [_raw(OPEN, 100, 101, 99.9, 100.9, 1000)] + [_raw(OPEN - timedelta(days=1) + timedelta(minutes=15 * k), 100, 100, 100, 100, 1000) for k in range(26)]}
-    client = FakeClient(sip, iex)
-    stats = alerts_live.refresh(["AAA"], lambda s, d: 100.0, now=OPEN + timedelta(minutes=16), client=client)
+    history = _rising_history()
+    ctx = alerts.context_from_closes(alerts_live.regular_closes(history, OPEN.date()))
+    ma, last = ctx.ma_tail[120][-1], ctx.prev_close
+    touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
+    forming = _raw(OPEN + timedelta(minutes=15), last, last + 0.5, last - 0.05, last + 0.4, 500)
+    client = FakeClient({"AAA": history}, {"AAA": [touch]})
+    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client)
     assert stats["alerts"] == 1 and len(stats["inserted"]) == 1
     row = alerts_store.list_alerts()[0]
-    assert row["setup"] == "A" and row["symbol"] == "AAA"
+    assert row["setup"] == "120" and row["symbol"] == "AAA" and row["status"] == "pending"
+    assert row["trigger_price"] == round(last + 0.31, 2)
+    # Five minutes later the forming candle trades through the buy stop: triggered before it closes.
+    client.iex["AAA"].append(forming)
+    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=21), client=client)
+    assert stats["symbols"] == 1  # kept because its alert is live, even off the list
+    assert len(stats["triggered"]) == 1
+    assert alerts_store.list_alerts()[0]["status"] == "triggered"
     # Overnight nothing runs; in premarket only the per-day inputs are prepared.
-    assert alerts_live.refresh(["AAA"], lambda s, d: 100.0, now=OPEN - timedelta(hours=4), client=client)["skipped"]
+    assert alerts_live.refresh(["AAA"], now=OPEN - timedelta(hours=4), client=client)["skipped"]
     alerts_live.clear()
-    pre = alerts_live.refresh(["AAA"], lambda s, d: 100.0, now=OPEN - timedelta(minutes=30), client=client)
+    pre = alerts_live.refresh(["AAA"], now=OPEN - timedelta(minutes=30), client=client)
     assert pre["skipped"] and pre["prepared"] == 1
+
+
+def test_forming_bar_is_the_next_slot_only():
+    day = OPEN.date()
+    iex = [_raw(OPEN, 1, 2, 1, 2, 1), _raw(OPEN + timedelta(minutes=15), 2, 3, 2, 3, 1)]
+    now = OPEN + timedelta(minutes=20)
+    assert alerts_live.forming_bar(iex, day, 1, now)["h"] == 3
+    assert alerts_live.forming_bar(iex, day, 2, now) is None
+    assert alerts_live.forming_bar(iex, day, 1, OPEN + timedelta(minutes=31)) is None
+
+
+def test_alert_symbols_are_high_score_universe_stocks():
+    from strat.api import alert_symbols
+
+    rows = [
+        {"symbol": "AAA", "kind": "stock", "in_universe": True, "score": 91},
+        {"symbol": "BBB", "kind": "stock", "in_universe": True, "score": 69.9},
+        {"symbol": "CCC", "kind": "etf", "in_universe": True, "score": 95},
+        {"symbol": "DDD", "kind": "stock", "in_universe": False, "score": 99},
+        {"symbol": "EEE", "kind": "stock", "in_universe": True, "score": 75},
+        {"symbol": "theme-x", "kind": "theme", "score": 99},
+        {"symbol": "FFF", "kind": "stock", "in_universe": True, "score": None},
+    ]
+    assert alert_symbols(rows, Settings()) == ["AAA", "EEE"]
+    assert alert_symbols(rows, Settings(max_symbols=1)) == ["AAA"]
+    assert alert_symbols(rows, Settings(min_score=60)) == ["AAA", "EEE", "BBB"]
 
 
 # ------------------------------------------------------------------ API
@@ -220,12 +264,12 @@ def test_alerts_api(db):
     assert body["sessions"] == ["2026-10-23"]
     assert c.post("/api/alerts/ack", json={"ids": None}).json()["unread"] == 0
     m = c.get("/api/alerts/metrics", params={"start": "2026-10-01", "end": "2026-10-31"}).json()
-    assert {r["setup"]: r["count"] for r in m["rows"]}["A"] == 1
+    assert {r["setup"]: r["count"] for r in m["rows"]}["120"] == 1
     assert c.get("/api/alerts/metrics", params={"symbol": "ZZZ"}).json()["rows"][-1]["count"] == 0
-    s = c.put("/api/alerts/settings", json={"bunched_pct": 0.6}).json()
-    assert s["settings"]["bunched_pct"] == 0.6 and s["defaults"]["bunched_pct"] == 0.5
-    assert c.put("/api/alerts/settings", json={"bunched_pct": -1}).status_code == 422
-    assert c.delete("/api/alerts/settings").json()["settings"]["bunched_pct"] == 0.5
+    s = c.put("/api/alerts/settings", json={"hold_pct": 0.6}).json()
+    assert s["settings"]["hold_pct"] == 0.6 and s["defaults"]["hold_pct"] == 0.3
+    assert c.put("/api/alerts/settings", json={"hold_pct": -1}).status_code == 422
+    assert c.delete("/api/alerts/settings").json()["settings"]["hold_pct"] == 0.3
     assert c.get("/api/alerts", params={"session": "bad"}).status_code == 422
     assert c.get("/api/status").json()["storage"] == {"backend": "sqlite"}
 
@@ -239,13 +283,21 @@ def test_regular_closes_drop_premarket_and_after_hours():
     assert alerts_live.regular_closes(rows, day) == [2.0, 3.0]
 
 
-def test_ensure_profiles_keeps_only_the_ema_long_value(db):
+def test_ensure_profiles_keeps_only_the_ema_tails(db):
     alerts_live.clear()
-    sip = {"AAA": [_raw(OPEN - timedelta(days=d) + timedelta(minutes=15 * k), 100 + d, 100 + d, 100 + d, 100 + d, 1) for d in range(1, 8) for k in range(26)]}
+    sip = {"AAA": _rising_history(days=25)}
     client = FakeClient(sip, {"AAA": []})
-    alerts_live.ensure_profiles(client, ["AAA"], OPEN.date())
-    p = alerts_live._profiles["AAA"]
+    assert alerts_live.ensure_profiles(client, ["AAA"], OPEN.date()) == 1
     closes = alerts_live.regular_closes(sip["AAA"], OPEN.date())
-    assert len(closes) >= 120
-    assert p["e360"] == pytest.approx(alerts.ema_seed(closes, 120))
-    assert alerts_live.context_for("AAA", 100.0, None, 26).ema360_seed == p["e360"]
+    assert len(closes) >= 480
+    p = alerts_live._profiles["AAA"]
+    assert set(p["tail"]) == {120, 240, 480}
+    assert p["tail"][480][-1] == pytest.approx(alerts.ema_seed(closes, 480))
+    assert p["prev_close"] == closes[-1]
+    ctx = alerts_live.context_for("AAA", 26)
+    assert ctx.ma_tail[120] == p["tail"][120] and ctx.prev_close == closes[-1]
+    # Same day, another call: nothing fetched. A name that leaves the list keeps its profile today.
+    before = client.requests
+    assert alerts_live.ensure_profiles(client, ["BBB"], OPEN.date()) == 1
+    assert "AAA" in alerts_live._profiles and client.requests == before + 1
+    assert alerts_live.ensure_profiles(client, ["AAA"], OPEN.date()) == 0
