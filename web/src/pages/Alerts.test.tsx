@@ -1,25 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import type { Ema5m } from "../api";
 import { alertDayStatus } from "../alerts";
 import { sample } from "../alerts.test";
 import { AlertDayBanner, AlertsTable } from "./Alerts";
-
-const liveEma = (over: Partial<Ema5m> = {}): Ema5m => ({
-  price: 226.9,
-  basis: "live",
-  time: "2026-10-23T14:00:00Z",
-  bar_time: "2026-10-23T13:55:00Z",
-  ema6: 225.8697,
-  ema20: 227.5,
-  vs6: "above",
-  vs20: "below",
-  highlight: [],
-  highlight_bar: null,
-  highlight_until: null,
-  ...over,
-});
 
 describe("AlertsTable", () => {
   const html = renderToStaticMarkup(
@@ -28,25 +12,24 @@ describe("AlertsTable", () => {
         alerts={[
           sample({ id: 7, score: 91 }),
           sample({
-            id: 8, symbol: "MU", setup: "D", top: false, acknowledged: true, status: "exited", filled: true, fill_price: 101.01,
-            fill_at: "2026-10-23T13:40:00Z", exit_price: 103.25, exit_at: "2026-10-23T15:00:00Z", exit_reason: "close_under_20ema",
+            id: 8, symbol: "MU", setup: "240", top: false, acknowledged: true, status: "exited", filled: true, fill_price: 101.01,
+            fill_at: "2026-10-23T13:40:00Z", exit_price: 103.25, exit_at: "2026-10-23T15:00:00Z", exit_reason: "close_under_ma",
             r_multiple: 2.0, high_reached: 103.9, score: null,
           }),
         ]}
         flashing={new Set([7])}
         onAck={() => undefined}
         onBought={() => undefined}
-        ema5m={{ AAPL: liveEma(), MU: null }}
       />
     </MemoryRouter>,
   );
 
   it("has the spec columns, with Score after Ticker and Bought before Acknowledge", () => {
-    for (const h of ["Fired", "Ticker", "Score", "Setup", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
+    for (const h of ["Watch", "Ticker", "Score", "Setup", "EMA", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
     const head = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
     const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
     expect(labels.slice(labels.indexOf("Ticker"), labels.indexOf("Trigger") + 1)).toEqual([
-      "Ticker", "Score", "Setup", "6 EMA (15m)", "20 EMA (15m)", "Trigger",
+      "Ticker", "Score", "Setup", "EMA", "Trigger",
     ]);
     const bought = labels.indexOf("");
     expect(head).toContain('aria-label="Bought"');
@@ -94,26 +77,24 @@ describe("AlertsTable", () => {
     expect(html).toContain(">101.01<");
     expect(html).toContain(">99.89<");
     expect(html).toContain(">1.12<");
-    expect(html).toContain(">Pending<");
+    expect(html).toContain(">Watch<");
+    expect(html).toContain("Watching: trigger over 101.00 (last 15-min high)");
     expect(html).toContain("+2.00R");
-    expect(html).toContain("out 103.25 at 8:00 AM (close under 20 EMA)");
+    expect(html).toContain("out 103.25 at 8:00 AM (close under 240 EMA)");
   });
 
-  it("shows the live 15-minute EMA side, with the percent distance on the tooltip", () => {
-    expect(html).toContain('class="ema-pill above"');
-    expect(html).toContain(">Above<");
-    expect(html).toContain('class="ema-pill below"');
-    expect(html).toContain("(+0.46%)");
-    expect(html).toContain("(-0.26%)");
-    expect(html).toContain("last 15-min close 226.90 vs 6 EMA 225.87");
-    // MU has no live reading: a dash, not a pill copied from the setup bar.
-    expect(html).toContain("No live 15-minute 6 EMA");
-    expect(html).toContain("No live 15-minute 20 EMA");
+  it("names the EMA with its chart color and shows its level on the touch", () => {
+    expect(html).toContain("Pullback to rising 120 EMA");
+    expect(html).toContain("Pullback to rising 240 EMA");
+    expect(html).toContain('class="ema-dot" style="background:#ef4444"');
+    expect(html).toContain('class="ema-dot" style="background:#facc15"');
+    expect(html).toContain(">99.12<");
+    expect(html).toContain("On the touch candle: 120 EMA 99.12, 240 EMA 97.50, rising 0.05% over the check");
   });
 
   it("shows the trigger rule when hovering the setup", () => {
-    expect(html).toContain('title="Opening bar closes in the top 30% and over the 6 and 20 EMAs."');
-    expect(html).toContain('title="After a pullback to the rising 20 EMA, a green bar closes back over the 6."');
+    expect(html).toContain("pulls back from above to the rising 120 EMA on the 15-minute chart and holds it");
+    expect(html).toContain("the trigger is the previous 15-minute candle&#x27;s high + 1c");
   });
 
   it("uses no emoji", () => {
@@ -132,7 +113,7 @@ describe("AlertsTable", () => {
         />
       </MemoryRouter>,
     );
-    for (const h of ["Fired", "Ticker", "Score", "Setup", "Trigger", "Stop", "Status", "What happened"]) {
+    for (const h of ["Watch", "Ticker", "Score", "Setup", "Trigger", "Stop", "Status", "What happened"]) {
       expect(archived).toContain(`>${h}</th>`);
     }
     expect(archived).toContain('aria-label="Bought"');
@@ -142,23 +123,19 @@ describe("AlertsTable", () => {
 });
 
 describe("Alert day window", () => {
-  it("shows the later windows waiting and the opening setup finished", () => {
-    const html = renderToStaticMarkup(<AlertDayBanner status={alertDayStatus(new Date("2026-10-23T13:50:00Z"))} />);
+  it("shows each EMA chip watching during the session", () => {
+    const html = renderToStaticMarkup(<AlertDayBanner status={alertDayStatus(new Date("2026-10-23T15:00:00Z"))} />);
     expect(html).toContain('role="status"');
-    expect(html).toContain("B, C and E can still fire.");
-    expect(html).toContain("Alerts finish at 8:45 AM Phoenix.");
-    expect(html).toContain('class="alert-window-chip done"');
-    expect(html).toContain(">done<");
-    expect(html).toContain('class="alert-window-chip later"');
-    expect(html).not.toContain("weakening");
+    expect(html).toContain("Watching for pullbacks until 1:00 PM Phoenix.");
+    expect(html).toContain('class="alert-window-chip open"');
+    for (const p of ["120", "240", "480"]) expect(html).toContain(`${p} EMA`);
     expect(/\p{Extended_Pictographic}/u.test(html)).toBe(false);
   });
 
-  it("says the day is finished after the last window", () => {
+  it("says the day is finished after the close", () => {
     const html = renderToStaticMarkup(<AlertDayBanner status={alertDayStatus(new Date("2026-10-23T20:01:00Z"))} />);
     expect(html).toContain('class="alert-day done"');
     expect(html).toContain("Alerts are done for the day.");
-    expect(html).toContain("The window was 6:45–8:45 AM Phoenix.");
-    expect(html).not.toContain(">done<");
+    expect(html).toContain("The session was 6:45 AM – 1:00 PM Phoenix.");
   });
 });

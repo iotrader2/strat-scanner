@@ -7,17 +7,17 @@ import {
   type AlertSettings,
   type AlertSettingsPayload,
   type AlertsPayload,
-  type Ema5m,
   type TradeAlert,
 } from "../api";
 import {
   SETTING_GROUPS,
+  SETUP_NAMES,
+  SETUP_RULES,
   STATUS_LABEL,
   alertDayStatus,
-  ema360Text,
-  ema360Title,
-  ema360Tone,
   fmtR,
+  maText,
+  maTitle,
   phoenixTime,
   rTone,
   riskPerShare,
@@ -27,38 +27,26 @@ import {
   type AlertDayStatus,
 } from "../alerts";
 import { useAlerts } from "../components/AlertsCenter";
-import { EmaPill } from "../components/ListIntradayColumns";
 import { EntryModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ScorePill } from "../components/ScoreBreakdown";
 import { EarningsIcon } from "../components/EarningsIcon";
 import { TickerLogo } from "../components/TickerLogo";
+import { INTRADAY_EMA_COLORS } from "../intradayChart";
 import { usePersisted } from "../persist";
 
-const SETUP_NAMES: Record<string, string> = {
-  A: "Opening-bar breakout",
-  B: "Opening flush then reclaim",
-  C: "Opening-drive continuation",
-  D: "Pullback to rising 20 EMA",
-  E: "Gap-down V-reversal",
-  F: "Midday squeeze",
-};
+/** The EMA's line color on the 15-minute chart: 120 red, 240 yellow, 480 blue. */
+function emaColor(setup: string): string | undefined {
+  const p = Number(setup) as keyof typeof INTRADAY_EMA_COLORS;
+  return INTRADAY_EMA_COLORS[p];
+}
 
-/** One-line trigger rule, shown on hover over the setup column. */
-const SETUP_RULES: Record<string, string> = {
-  A: "Opening bar closes in the top 30% and over the 6 and 20 EMAs.",
-  B: "After a dip under the open or prior close, the first green close over the bunched 6/20/50.",
-  C: "After a strong open, a bar closes over the opening high, or tight bars hold over the 6 EMA.",
-  D: "After a pullback to the rising 20 EMA, a green bar closes back over the 6.",
-  E: "Gap under the prior close, or a low under the 20 and 50, then a higher low and the first close back over the 20.",
-  F: "After the 6/20/50 stay flat and bunched, a full green bar breaks out on heavy volume.",
-};
+function EmaDot({ setup }: { setup: string }) {
+  const color = emaColor(setup);
+  return color ? <i className="ema-dot" style={{ background: color }} aria-hidden="true" /> : null;
+}
 
 const money = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
-
-/** Shown when the lists poll has no 5-minute EMA for this symbol (it is on neither list). */
-const emaMissing = (period: 6 | 20) =>
-  `No live 15-minute ${period} EMA (only names on the watchlist or in positions are polled)`;
 
 function AttentionControls() {
   const { soundReady, muted, setMuted, enableSound, notifyPermission, enableNotifications } = useAlerts();
@@ -106,13 +94,17 @@ function AlertScore({ a }: { a: TradeAlert }) {
 }
 
 function outcomeText(a: TradeAlert): string {
-  if (a.status === "pending") return "Waiting for the buy stop";
-  if (a.status === "expired") return a.exit_reason === "max_attempts" ? "Expired: 2 attempts already" : "Not triggered in time";
-  if (a.status === "cancelled") return "Closed under the setup low";
+  if (a.status === "pending") return `Watching: trigger over ${money(a.setup_high)} (last 15-min high)`;
+  if (a.status === "expired") {
+    if (a.exit_reason === "max_attempts") return "Expired: 2 attempts already";
+    if (a.exit_reason === "session_end") return "Not triggered by the close";
+    return "Not triggered in time";
+  }
+  if (a.status === "cancelled") return `Closed under the ${a.setup} EMA before triggering`;
   const parts = [`Filled ${money(a.fill_price)} at ${phoenixTime(a.fill_at)}`];
   if (a.breakeven_at) parts.push(`stop to break-even ${phoenixTime(a.breakeven_at)}`);
   if (a.exit_price != null) {
-    const why = a.exit_reason === "close_under_20ema" ? "close under 20 EMA" : a.exit_reason === "session_end" ? "session end" : "stop";
+    const why = a.exit_reason === "close_under_ma" ? `close under ${a.setup} EMA` : a.exit_reason === "session_end" ? "session end" : "stop";
     parts.push(`out ${money(a.exit_price)} at ${phoenixTime(a.exit_at)} (${why})`);
   }
   return parts.join(", ");
@@ -123,15 +115,12 @@ export function AlertsTable({
   flashing,
   onAck,
   onBought,
-  ema5m,
   readOnly = false,
 }: {
   alerts: TradeAlert[];
   flashing: Set<number>;
   onAck: (id: number) => void;
   onBought: (alert: TradeAlert) => void;
-  /** Live 5-minute EMA by symbol. Missing or null renders a dash. */
-  ema5m?: Record<string, Ema5m | null>;
   /** History rows keep the same columns and do not acknowledge or record a buy. */
   readOnly?: boolean;
 }) {
@@ -140,21 +129,15 @@ export function AlertsTable({
       <table className="scan-table alerts-table">
         <thead>
           <tr>
-            <th>Fired</th>
+            <th title="When the 15-minute candle that touched the EMA closed">Watch</th>
             <th>Ticker</th>
             <th className="num">Score</th>
             <th>Setup</th>
-            <th className="ema-col" title="Live price versus the 6 EMA on the 15-minute chart">
-              6 EMA (15m)
-            </th>
-            <th className="ema-col" title="Live price versus the 20 EMA on the 15-minute chart">
-              20 EMA (15m)
-            </th>
-            <th className="num">Trigger</th>
+            <th className="num" title="The EMA's value on the touch candle">EMA</th>
+            <th className="num" title="Previous 15-minute candle high + 1c">Trigger</th>
             <th className="num">Stop</th>
             <th className="num">Stop %</th>
             <th className="num">Risk / sh</th>
-            <th className="num" title="Setup bar close vs the 15-minute EMA 120 (about the 1-hour EMA 30)">vs EMA120</th>
             <th>Status</th>
             <th className="num">High</th>
             <th className="num">R</th>
@@ -187,23 +170,20 @@ export function AlertsTable({
               </td>
               <td>
                 <span className="setup-hover" title={SETUP_RULES[a.setup]}>
-                  <span className="setup-letter">{a.setup}</span>
-                  <span className="muted small setup-name">{SETUP_NAMES[a.setup]}</span>
+                  <span className="setup-letter">
+                    <EmaDot setup={a.setup} />
+                    {a.setup}
+                  </span>
+                  <span className="muted small setup-name">{SETUP_NAMES[a.setup] ?? `Setup ${a.setup}`}</span>
                 </span>
               </td>
-              <td className="ema-col">
-                <EmaPill em={ema5m?.[a.symbol]} period={6} missing={emaMissing(6)} />
-              </td>
-              <td className="ema-col">
-                <EmaPill em={ema5m?.[a.symbol]} period={20} missing={emaMissing(20)} />
+              <td className="num" title={maTitle(a)}>
+                {maText(a)}
               </td>
               <td className="num">{money(a.trigger_price)}</td>
               <td className="num">{money(a.stop_price)}</td>
               <td className="num">{stopPct(a).toFixed(2)}%</td>
               <td className="num">{money(riskPerShare(a))}</td>
-              <td className={`num ${ema360Tone(a)}`} title={ema360Title(a)}>
-                {ema360Text(a)}
-              </td>
               <td>
                 <StatusPill a={a} />
               </td>
@@ -254,7 +234,10 @@ export function AlertDayBanner({ status }: { status: AlertDayStatus }) {
       <ul className="alert-day-windows">
         {status.windows.map((w) => (
           <li key={w.setup} className={`alert-window-chip ${w.state}`}>
-            <span className="setup-letter">{w.setup}</span>
+            <span className="setup-letter">
+              <EmaDot setup={w.setup} />
+              {w.setup} EMA
+            </span>
             <span>{w.label}</span>
             {status.phase === "open" && w.state === "done" && <span className="alert-window-state">done</span>}
             {w.state === "open" && <span className="alert-window-state">open</span>}
@@ -334,9 +317,10 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
             <>No alerts today. {emptyLead}</>
           ) : (
             <>
-              No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover the{" "}
-              <Link className="sector-link" to="/watchlist">Watchlist</Link> ({view.watchlist.length} names) during the regular session and
-              show up about a minute after each 15-minute candle closes.
+              No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover universe stocks with a high{" "}
+              <Link className="sector-link" to="/">scan score</Link>
+              {view.universe != null ? ` (${view.universe} names right now)` : ""} during the regular session. A watch shows up a
+              few minutes after a 15-minute candle touches a rising 120, 240 or 480 EMA.
               {today?.last_run?.at && <> Last check {phoenixTime(today.last_run.at)} Phoenix.</>}
             </>
           )}
@@ -345,7 +329,6 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
         <AlertsTable
           alerts={view.alerts}
           flashing={flashing}
-          ema5m={view.ema5m}
           onAck={(id) => ack([id])}
           onBought={setMoving}
         />
@@ -420,7 +403,6 @@ function HistoryView() {
         <AlertsTable
           alerts={alerts}
           flashing={new Set()}
-          ema5m={data.ema5m}
           onAck={() => undefined}
           onBought={() => undefined}
           readOnly
@@ -492,7 +474,12 @@ function MetricsView() {
               <tr key={r.setup} className={r.setup === "All" ? "total-row" : ""}>
                 <td>
                   <span className={SETUP_RULES[r.setup] ? "setup-hover" : undefined} title={SETUP_RULES[r.setup]}>
-                    {r.setup !== "All" && <span className="setup-letter">{r.setup}</span>}
+                    {r.setup !== "All" && (
+                      <span className="setup-letter">
+                        <EmaDot setup={r.setup} />
+                        {r.setup}
+                      </span>
+                    )}
                     <span className={r.setup === "All" ? "" : "setup-name"}>{r.name}</span>
                   </span>
                 </td>
@@ -568,7 +555,7 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
     <section className="card settings-card">
       <button type="button" className="settings-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span>Rule settings</span>
-        <span className="muted small">{open ? "Hide" : "Adjust the setup rules and the earnings warning"}</span>
+        <span className="muted small">{open ? "Hide" : "Adjust the score cut, the EMAs and the earnings warning"}</span>
       </button>
       {open && payload && (
         <div className="settings-body">
@@ -620,6 +607,7 @@ export default function Alerts() {
   const [now, setNow] = useState(() => new Date());
   const [windowSettings, setWindowSettings] = useState<AlertSettings | undefined>(undefined);
   const fired = today?.alerts.length ?? 0;
+  const triggered = (today?.alerts ?? []).filter((a) => a.filled).length;
   const top = new Set((today?.alerts ?? []).filter((a) => a.top).map((a) => a.symbol)).size;
   const day = useMemo(() => alertDayStatus(now, windowSettings), [now, windowSettings]);
 
@@ -637,9 +625,10 @@ export default function Alerts() {
         <div>
           <h1>Alerts</h1>
           <p className="muted">
-            Setups A to F on the 15-minute chart for your watchlist, regular session only. Nothing fires until the first 15-minute
-            candle forms, and entries are limited to the first 10 candles. Each one is a buy stop 1c over the setup
-            candle with a stop 1c under it, tracked until it fills, stops, exits or expires. Times are Phoenix.
+            High-score universe stocks pulling back to a rising 120 (red), 240 (yellow) or 480 (blue) EMA on the 15-minute
+            chart, regular session only. When a candle touches one of them and holds, you get a watch alert. It triggers when
+            price trades 1c over the previous 15-minute candle's high, with a stop 1c under the pullback low, and is tracked
+            until it fills, stops, exits or expires. Times are Phoenix.
           </p>
           <AlertDayBanner status={day} />
         </div>
@@ -647,6 +636,10 @@ export default function Alerts() {
           <div className="stat-card">
             <span className="stat-value">{fired}</span>
             <span className="stat-label">today</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{triggered}</span>
+            <span className="stat-label">triggered</span>
           </div>
           <div className="stat-card">
             <span className={`stat-value ${unread ? "accent-text" : ""}`}>{unread}</span>
@@ -667,7 +660,7 @@ export default function Alerts() {
             History
           </button>
           <button type="button" role="tab" aria-selected={view === "metrics"} className={view === "metrics" ? "active" : ""} onClick={() => setView("metrics")}>
-            Metrics by setup
+            Metrics by EMA
           </button>
         </div>
       </div>

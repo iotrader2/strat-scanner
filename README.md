@@ -623,25 +623,38 @@ Not investment advice. Yahoo Finance data is unofficial and can be delayed or in
 
 ## Alerts tab
 
-Setups A to F on the **15-minute chart** for the **watchlist** (not positions), regular session only
-(09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time). Nothing can fire until the opening 15-minute
-candle has formed (09:45 ET), and entries are limited to the first 10 candles (`trade_bars`, up to 12:00
-ET): a buy stop can only fill on those candles, so the last setup candle is the 9th. A trade already open
-is still managed after that (stop, close under the 20 EMA, session end). Each trigger is a buy stop 1c
-over the setup candle's high, with the stop 1c under its low. The 6, 20 and 50 EMAs now run over 15-minute
-closes, and the not-extended filter uses the 15-minute EMA 120 (30 hours, the stand-in for a 30-period
-hourly average). The chart, the watchlist / positions 6 and 20 EMA pills and the crossover highlight use
-the same 15-minute bars. (Module and payload names such as `watch5m` / `ema5m` kept their old names.)
-Rules: `backend/strat/alerts.py` (pure, shared
-by the live poll and the replay); live inputs: `alerts_live.py`, run from the existing 5-minute poll
-(the poll cadence is unchanged, the bars it evaluates are 15-minute);
+Pullbacks to a **rising 120, 240 or 480 EMA on the 15-minute chart** (red / yellow / blue on the chart)
+for **high-score universe stocks**: universe stocks (not ETFs, not off-universe names) with a scan score of
+at least `min_score` (default 70), highest score first, at most `max_symbols` (default 150). They do not
+have to be on the watchlist. A name whose alert is still live keeps being tracked even if its score drops
+under the cut. Regular session only (09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time); nothing can fire
+until the opening 15-minute candle has formed (09:45 ET). No other setups are alerted.
+
+Each alert has two steps, and each chimes / notifies:
+
+1. **Watch.** A completed 15-minute candle touches a rising EMA coming from above: the EMA is higher than
+   `rising_bars` (4) candles earlier, the candle before closed above it, this candle's low reaches it
+   (within `touch_tol_pct`) and it does not close more than `hold_pct` (0.3%) under it. When one candle
+   touches several EMAs the alert is for the lowest one it held.
+2. **Trigger.** Price trades over the previous 15-minute candle's high + 1c. While waiting, each candle
+   that does not take it out moves the buy stop to its own high + 1c and the stop to the pullback low - 1c.
+   The watch is cancelled on a close more than `hold_pct` under the EMA and expires after `watch_bars` (4)
+   candles. The 5-minute poll also checks the candle still forming (IEX, real time), so a trigger shows up
+   within a poll; the row turns unread again and the tab chimes a second time.
+
+After the fill the trade is tracked on completed candles: the stop, break-even after 3 new-high candles,
+an exit on a close under the EMA (`exit_close_under_ma`), and the session end. The EMAs are regular-session
+15-minute closes (no premarket), the same lines the chart draws; their history (~63 sessions) is fetched
+once per day per name in premarket and only the last few values are kept.
+Rules: `backend/strat/alerts.py` (pure, shared by the live poll and the replay); live inputs:
+`alerts_live.py`, run from the existing 5-minute poll; name selection: `alert_symbols` in `api.py`;
 storage: `alerts_store.py`. Every alert is kept with its outcome (filled, fill price, high reached,
-stop hit, break-even time, exit price / time, R with 1R = entry minus the original stop). The
-metrics view groups them by setup over a date range and ticker. Every rule threshold is editable
-from the tab (Rule settings) and stored in `alert_settings`.
+stop hit, break-even time, exit price / time, R with 1R = entry minus the stop at the fill). The
+metrics view groups them by EMA over a date range and ticker. Every threshold is editable from the tab
+(Rule settings) and stored in `alert_settings`.
 
 Replay the rules over real past sessions (nothing is stored):
-`cd backend && python -m strat.alerts_replay --symbols AAPL,MU,SNDK,QQQ,SPY,CRWD --days 5`
+`cd backend && python -m strat.alerts_replay --symbols AAPL,MU,SNDK,CRWD --days 5` (the score filter is not applied)
 
 Browsers only play sound after a click, so the tab has an Enable sound button. Background
 notifications need permission (and on iPad, TiltKiller added to the Home Screen).

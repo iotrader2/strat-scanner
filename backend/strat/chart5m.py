@@ -7,19 +7,20 @@ returns only the last few sessions. It does not touch the other names in the uni
 Premarket and after-hours bars are dropped. The watchlist's 15-minute EMAs already use
 regular-session bars only (09:30-16:00 ET, :func:`watch5m.is_regular`), and the live
 poll stores the session from the open. The chart follows that same cut so the 6, 20,
-50, and 120 EMAs are not mixed with the thin premarket prints.
+50, 120, 240, and 480 EMAs are not mixed with the thin premarket prints.
 
-The 120-period EMA is the stand-in for a 30-period hourly average (120 fifteen-minute
-bars = 30 hours). An EMA seeded with the SMA of its first period is still mostly that
+The 120 / 240 / 480 EMAs are the pullback levels the intraday alerts watch (red / yellow /
+blue on the chart). An EMA seeded with the SMA of its first period is still mostly that
 seed until many more bars have passed, so history covers ``SEED_SESSIONS`` completed
-sessions (several weeks) even though the response only includes ``DISPLAY_SESSIONS``.
+sessions (about three months, the same window the alerts use) even though the response
+only includes ``DISPLAY_SESSIONS``.
 
 Prices are the SIP bar once it has closed and is 15 minutes old and the IEX bar after that, matching
 :mod:`strat.intraday`. Volume rides along with whichever feed supplied the bar, so the
 last quarter-hour is IEX volume (a small share of the market) until SIP replaces it.
 
 Cache: at most ``CACHE_LIMIT`` symbols. Each entry is the completed-session tuples
-(about 30 x 26 bars) plus today's handful of bars. That is a few megabytes for a full
+(about 63 x 26 bars) plus today's handful of bars. That is a few megabytes for a full
 cache, allocated only for tickers someone actually opened. The raw Alpaca payload is
 discarded after the regular-session filter.
 """
@@ -38,10 +39,10 @@ from .scheduler import CLOSE, ET, OPEN, last_completed_session, now_et
 from .watch5m import ema_series, is_regular
 
 BAR_MINUTES = 15
-EMA_PERIODS = (6, 20, 50, 120)
+EMA_PERIODS = (6, 20, 50, 120, 240, 480)
 DISPLAY_SESSIONS = 10
-SEED_SESSIONS = 30  # ~6 weeks; the 120 EMA's seed has faded by the displayed window
-LOOKBACK_DAYS = 56  # calendar days that cover SEED_SESSIONS plus weekends and holidays
+SEED_SESSIONS = 63  # ~3 months; the 480 EMA's seed has faded by the displayed window
+LOOKBACK_DAYS = 92  # calendar days that cover SEED_SESSIONS plus weekends and holidays
 CACHE_LIMIT = 8
 TODAY_TTL = 45.0  # seconds; today's forming bar changes with every trade, history does not
 

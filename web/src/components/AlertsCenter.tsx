@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type AlertsPayload, type TradeAlert } from "../api";
-import { freshAlerts, notificationText, playChime } from "../alerts";
+import { freshAlerts, notificationText, playChime, triggeredAlerts } from "../alerts";
 import { usePersisted } from "../persist";
 
 /** Fallback poll when the socket push is missed; the server pushes right after each poll. */
@@ -31,7 +31,8 @@ function notificationSupport(): NotificationPermission | "unsupported" {
 
 /**
  * App-wide alert watcher, so a new alert chimes and notifies on any tab: fetches today's alerts when the server
- * pushes an "alerts" message (epoch) and once a minute, and plays the chime / shows a notification for new ones.
+ * pushes an "alerts" message (epoch) and once a minute, and plays the chime / shows a notification for new ones:
+ * once when a stock touches a rising EMA (watch) and again when it trades over the previous candle's high (trigger).
  */
 export function AlertsProvider({ epoch, children }: { epoch: number; children: ReactNode }) {
   const [today, setToday] = useState<AlertsPayload | null>(null);
@@ -42,6 +43,8 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
   const [notifyPermission, setNotifyPermission] = useState(notificationSupport);
   const audio = useRef<AudioContext | null>(null);
   const seen = useRef<Set<number> | null>(null);
+  /** Status of each alert in the previous fetch, so a watch that triggers chimes a second time. */
+  const statuses = useRef<Map<number, string> | null>(null);
   const request = useRef(0);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
@@ -62,7 +65,7 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
       for (const a of fresh) {
         const { title, body } = notificationText(a, payload.setups?.[a.setup] ?? "");
         try {
-          const n = new Notification(title, { body, tag: `alert-${a.id}`, icon: "/apple-touch-icon.png" });
+          const n = new Notification(title, { body, tag: `alert-${a.id}-${a.filled ? "trigger" : "watch"}`, icon: "/apple-touch-icon.png" });
           n.onclick = () => {
             window.focus();
             n.close();
@@ -82,8 +85,9 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
       .alerts()
       .then((payload) => {
         if (id !== request.current) return;
-        const fresh = freshAlerts(payload.alerts, seen.current);
+        const fresh = [...freshAlerts(payload.alerts, seen.current), ...triggeredAlerts(payload.alerts, statuses.current)];
         seen.current = new Set([...(seen.current ?? []), ...payload.alerts.map((a) => a.id)]);
+        statuses.current = new Map([...(statuses.current ?? []), ...payload.alerts.map((a) => [a.id, a.status] as [number, string])]);
         setToday(payload);
         setError(null);
         announce(fresh, payload);

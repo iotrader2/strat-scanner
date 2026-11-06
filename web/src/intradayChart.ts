@@ -1,8 +1,11 @@
 import type { IntradayBar } from "./api";
 import { volumeBarColor } from "./macd";
 
-/** EMAs drawn on the 15-minute chart. 120 fifteen-minute bars stand in for a 30-period hourly average. */
-export const INTRADAY_EMA_PERIODS = [6, 20, 50, 120] as const;
+/**
+ * EMAs drawn on the 15-minute chart. The 120 (red), 240 (yellow), and 480 (blue) are the pullback
+ * levels the intraday alerts watch.
+ */
+export const INTRADAY_EMA_PERIODS = [6, 20, 50, 120, 240, 480] as const;
 
 export type IntradayEmaPeriod = (typeof INTRADAY_EMA_PERIODS)[number];
 
@@ -10,7 +13,9 @@ export const INTRADAY_EMA_COLORS: Record<IntradayEmaPeriod, string> = {
   6: "#f472b6",
   20: "#38bdf8",
   50: "#c084fc",
-  120: "#fbbf24",
+  120: "#ef4444",
+  240: "#facc15",
+  480: "#3b82f6",
 };
 
 export const INTRADAY_EMAS = INTRADAY_EMA_PERIODS.map((period) => ({
@@ -29,7 +34,7 @@ export const INTRADAY_STEP_SEC = 900;
 const ET = "America/New_York";
 
 export function intradayLegendTitle(seedSessions: number): string {
-  return `Exponential moving averages of regular-session 15-minute closes (6, 20, 50, and 120). The 120 is seeded on ${seedSessions} sessions, several weeks of bars, so it can stand in for a 30-period hourly average.`;
+  return `Exponential moving averages of regular-session 15-minute closes (6, 20, 50, 120, 240, and 480). The 120 (red), 240 (yellow), and 480 (blue) are seeded on ${seedSessions} sessions of bars; alerts fire when a high-score stock pulls back to one of them while it is rising.`;
 }
 
 export function intradaySessionNote(displaySessions: number): string {

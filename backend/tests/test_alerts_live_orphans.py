@@ -18,14 +18,14 @@ def db(tmp_path, monkeypatch):
 
 
 def _bars_setup_then_miss():
-    """Setup at index 2 (high 100.5 → trigger 100.51); next 3 bars stay under trigger."""
+    """Setup at index 2 (high 100.5 → trigger 100.51); each of the next 3 bars stays under the previous high."""
     rows = [
         (100.0, 100.3, 99.9, 100.2),
         (100.2, 100.35, 100.1, 100.25),
         (100.25, 100.5, 100.1, 100.4),  # setup
         (100.4, 100.45, 100.3, 100.42),
-        (100.42, 100.48, 100.35, 100.4),
-        (100.4, 100.49, 100.35, 100.45),
+        (100.42, 100.44, 100.35, 100.4),
+        (100.4, 100.43, 100.35, 100.42),
         (100.45, 101.0, 100.4, 100.9),  # late print above trigger — after expiry window
     ]
     return [
@@ -40,7 +40,7 @@ def test_orphan_pending_expires_when_simulate_drops_it(db):
     pending = Alert(
         symbol="TEAM",
         session="2026-10-23",
-        setup="E",
+        setup="120",
         origin_bar=setup_t,
         setup_bar=setup_t,
         setup_index=2,
@@ -54,7 +54,7 @@ def test_orphan_pending_expires_when_simulate_drops_it(db):
     alerts_store.save_session("2026-10-23", [pending], now=setup_t + timedelta(minutes=5))
     assert alerts_store.list_alerts(session="2026-10-23")[0]["status"] == "pending"
 
-    ctx = Context(warm_closes=[99.0] * 60, session_bars=78)
+    ctx = Context(ma_tail={120: [99.0] * 10}, prev_close=100.0, session_bars=78)
     # Rematch failed: simulate returns nothing for this key.
     found = []
     advanced = alerts_live._advance_orphans(
@@ -62,7 +62,7 @@ def test_orphan_pending_expires_when_simulate_drops_it(db):
         found,
         {"TEAM": bars},
         {"TEAM": ctx},
-        Settings(entry_valid_bars=3),
+        Settings(watch_bars=3, hold_pct=5),
     )
     assert len(advanced) == 1
     assert advanced[0].status == "expired"
@@ -74,7 +74,8 @@ def test_orphan_pending_expires_when_simulate_drops_it(db):
     row = alerts_store.list_alerts(session="2026-10-23")[0]
     assert row["status"] == "expired"
     assert row["exit_reason"] == "not_triggered"
-    assert row["trigger_price"] == 100.51  # frozen levels unchanged
+    # While waiting, the buy stop followed each candle that did not take it out.
+    assert row["trigger_price"] == 100.45
 
 
 def test_known_key_is_not_double_advanced(db):
@@ -83,7 +84,7 @@ def test_known_key_is_not_double_advanced(db):
     a = Alert(
         symbol="TEAM",
         session="2026-10-23",
-        setup="E",
+        setup="120",
         origin_bar=setup_t,
         setup_bar=setup_t,
         setup_index=2,
@@ -94,6 +95,6 @@ def test_known_key_is_not_double_advanced(db):
         ref_price=100.4,
     )
     alerts_store.save_session("2026-10-23", [a], now=setup_t + timedelta(minutes=5))
-    ctx = Context(warm_closes=[99.0] * 60)
+    ctx = Context(ma_tail={120: [99.0] * 10}, prev_close=100.0)
     # Already in found → orphan helper skips
     assert alerts_live._advance_orphans("2026-10-23", [a], {"TEAM": bars}, {"TEAM": ctx}, Settings()) == []

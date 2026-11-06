@@ -1,10 +1,10 @@
 """Replay the alert rules over past sessions' real Alpaca 15-minute bars and report what would have fired.
 
-    cd backend && .venv/bin/python -m strat.alerts_replay --symbols AAPL,MU,SNDK,QQQ,SPY,CRWD --days 5
+    cd backend && .venv/bin/python -m strat.alerts_replay --symbols AAPL,MU,SNDK,CRWD --days 5
 
-Same inputs as the live tab: SIP prices (the session is over, so SIP covers every bar), IEX volume
-against the IEX time-of-day average of the 20 sessions before each day, EMAs seeded with the 5 sessions
-before. Nothing is written to the database. Times are printed in Phoenix time.
+Same inputs as the live tab: SIP prices (the session is over, so SIP covers every bar) and the 120 / 240 /
+480 EMAs carried over from the weeks before each day. Nothing is written to the database. Times are printed
+in Phoenix time. The score filter is not applied: pass the names to check.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from . import alerts_live
-from .alerts import SETUP_NAMES, Settings, mark_top, metrics, simulate
+from .alerts import Settings, mark_top, metrics, simulate
 from .alpaca import AlpacaClient
-from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT
+from .scheduler import CLOSE, ET, OPEN
 
 PHX = ZoneInfo("America/Phoenix")
 
@@ -34,39 +34,28 @@ def sessions(client: AlpacaClient, end: date, n: int) -> list[date]:
     return [d for d in days if d <= end][-n:]
 
 
-def prev_closes(client: AlpacaClient, symbols: list[str], day: date) -> dict[str, float]:
-    rows, _ = client.bars(symbols, "1Day", day - timedelta(days=10), end=datetime.combine(day, time(0, 0), tzinfo=ET), feed="sip", adjustment="raw")
-    out = {}
-    for s, bars in rows.items():
-        prior = [b for b in bars if _ts(b["t"]).astimezone(ET).date() < day]
-        if prior:
-            out[s] = float(prior[-1]["c"])
-    return out
-
-
 def replay_day(client: AlpacaClient, symbols: list[str], day: date, settings: Settings) -> dict:
     alerts_live.clear()
     alerts_live.ensure_profiles(client, symbols, day)
-    start = datetime.combine(day, PREMARKET_AT, tzinfo=ET)
+    start = datetime.combine(day, OPEN, tzinfo=ET)
     close = datetime.combine(day, CLOSE, tzinfo=ET)
     sip, _ = client.bars(symbols, alerts_live.BARS, start, end=close - timedelta(seconds=1), feed="sip", adjustment="raw")
     iex, _ = client.bars(symbols, alerts_live.BARS, datetime.combine(day, OPEN, tzinfo=ET), end=close - timedelta(seconds=1), feed="iex", adjustment="raw")
-    pcs = prev_closes(client, symbols, day)
     found, skipped, bars_seen = [], [], {}
     after = close.astimezone(timezone.utc) + timedelta(hours=1)
     for sym in symbols:
-        bars, pm_low = alerts_live.merge_day(sip.get(sym, []), iex.get(sym, []), day, after, after)
+        bars, _ = alerts_live.merge_day(sip.get(sym, []), iex.get(sym, []), day, after, after)
         bars_seen[sym] = len(bars)
         if not bars:
             continue
-        ctx = alerts_live.context_for(sym, pcs.get(sym), pm_low, len(bars))
+        ctx = alerts_live.context_for(sym, len(bars))
         found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, skipped))
     rows = [a.record() for a in found]
     top = mark_top(rows, settings.top_names)
     for r in rows:
         r["top"] = r["symbol"] in top
     rows.sort(key=lambda r: (r["fired_at"], r["symbol"]))
-    profiles = {s: {"vol_sessions": (alerts_live._profiles.get(s) or {}).get("sessions", 0)} for s in symbols}
+    profiles = {s: {"emas": sorted((alerts_live._profiles.get(s) or {}).get("tail", {}))} for s in symbols}
     return {"day": day.isoformat(), "alerts": rows, "skipped": skipped, "bars": bars_seen, "profiles": profiles}
 
 
@@ -75,14 +64,14 @@ def _phx(iso):
 
 
 def print_day(res: dict) -> None:
-    print(f"\n== {res['day']}  bars per symbol: {res['bars']}  volume-history sessions: "
-          f"{ {s: p['vol_sessions'] for s, p in res['profiles'].items()} }")
+    print(f"\n== {res['day']}  bars per symbol: {res['bars']}  EMAs known: "
+          f"{ {s: p['emas'] for s, p in res['profiles'].items()} }")
     if not res["alerts"]:
         print("   no alerts")
     for r in res["alerts"]:
         risk = r["trigger_price"] - r["stop_price"]
         print(
-            f"   {_phx(r['fired_at'])} PHX  {r['symbol']:<5} {r['setup']} {json.loads(r['details']).get('variant', ''):<8}"
+            f"   {_phx(r['fired_at'])} PHX  {r['symbol']:<5} EMA {r['setup']:<4} @ {json.loads(r['details']).get('ma', 0):>9.2f}"
             f" trig {r['trigger_price']:>9.2f} stop {r['stop_price']:>9.2f} ({risk / r['trigger_price'] * 100:4.2f}%, ${risk:.2f}/sh)"
             f"  {r['status']:<9}"
             + (f" fill {r['fill_price']:.2f} @{_phx(r['fill_at'])}" if r["filled"] else "")
@@ -95,12 +84,12 @@ def print_day(res: dict) -> None:
         reasons: dict[str, int] = {}
         for s in res["skipped"]:
             reasons[f"{s['setup']}: {s['reason']}"] = reasons.get(f"{s['setup']}: {s['reason']}", 0) + 1
-        print("   tagged but filtered:", ", ".join(f"{k} x{v}" for k, v in sorted(reasons.items())))
+        print("   touches not alerted:", ", ".join(f"{k} x{v}" for k, v in sorted(reasons.items())))
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--symbols", default="AAPL,MU,SNDK,QQQ,SPY,CRWD")
+    ap.add_argument("--symbols", default="AAPL,MU,SNDK,CRWD")
     ap.add_argument("--end", default=None, help="last session to replay (YYYY-MM-DD), default the latest")
     ap.add_argument("--days", type=int, default=1)
     ap.add_argument("--json", default=None, help="also write the full result here")

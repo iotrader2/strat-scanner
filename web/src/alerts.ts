@@ -12,37 +12,35 @@ export function phoenixTime(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : timeFmt.format(d);
 }
 
-/**
- * Setup windows are minutes after the 9:30 America/New_York open, on the setup bar's start
- * (`lo <= barIndex * 15 <= hi`). The alert is created when that bar closes, fifteen minutes later.
- * A is only the opening bar. These defaults match `Settings` in backend/strat/alerts.py.
- */
-const WINDOW_DEFAULTS: Record<string, number> = {
-  b_from: 15,
-  b_to: 45,
-  c_from: 15,
-  c_to: 45,
-  d_from: 30,
-  d_to: 120,
-  e_from: 15,
-  e_to: 120,
-  f_from: 60,
-  f_to: 120,
-  trade_bars: 10,
-};
-
 /** Alert bars are 15-minute candles. Keep in step with `BAR_MINUTES` in backend/strat/alerts.py. */
 export const BAR_MINUTES = 15;
 
-const SETUPS = ["A", "B", "C", "D", "E", "F"] as const;
+/** The EMAs on the 15-minute chart that alerts watch. Keep in step with `MA_PERIODS` in backend/strat/alerts.py. */
+export const ALERT_EMAS = ["120", "240", "480"] as const;
+
+export const SETUP_NAMES: Record<string, string> = {
+  "120": "Pullback to rising 120 EMA",
+  "240": "Pullback to rising 240 EMA",
+  "480": "Pullback to rising 480 EMA",
+};
+
+/** One-line rule, shown on hover over the setup column. */
+export const SETUP_RULES: Record<string, string> = Object.fromEntries(
+  ALERT_EMAS.map((p) => [
+    p,
+    `A high-score stock pulls back from above to the rising ${p} EMA on the 15-minute chart and holds it. Watch; the trigger is the previous 15-minute candle's high + 1c.`,
+  ]),
+);
+
 const ET = "America/New_York";
 
 export type AlertDayPhase = "before" | "open" | "done" | "closed";
 export type SetupWindowState = "later" | "open" | "done";
 
 export interface SetupWindowView {
+  /** The EMA period ("120" / "240" / "480"). */
   setup: string;
-  /** Clock range in Phoenix, or "off" when the saved minutes contain no 15-minute bar. */
+  /** Clock range in Phoenix, or "off" when that EMA is turned off in the settings. */
   label: string;
   state: SetupWindowState;
 }
@@ -91,24 +89,6 @@ function shiftDate(year: number, month: number, day: number, days: number): { ye
   return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
 }
 
-function windowMinutes(settings: Record<string, number> | undefined, key: string): number {
-  const v = settings?.[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : WINDOW_DEFAULTS[key];
-}
-
-/** Minutes after the open when the alert can print (bar close), or null when no bar falls in the window. */
-function fireMinutes(setup: string, settings: Record<string, number> | undefined): { first: number; last: number } | null {
-  const from = setup === "A" ? 0 : windowMinutes(settings, `${setup.toLowerCase()}_from`);
-  // The entry bar must be one of the first `trade_bars` candles, so the last setup bar is the one before it.
-  const lastSetupStart = (windowMinutes(settings, "trade_bars") - 2) * BAR_MINUTES;
-  const to = Math.min(setup === "A" ? 0 : windowMinutes(settings, `${setup.toLowerCase()}_to`), lastSetupStart);
-  if (to < from) return null;
-  const firstStart = Math.ceil(from / BAR_MINUTES) * BAR_MINUTES;
-  const lastStart = Math.floor(to / BAR_MINUTES) * BAR_MINUTES;
-  if (firstStart > lastStart) return null;
-  return { first: firstStart + BAR_MINUTES, last: lastStart + BAR_MINUTES };
-}
-
 function phoenixClock(date: Date): Clock {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: ALERT_TZ, hour: "numeric", minute: "2-digit" }).formatToParts(date);
   const hour = parts.find((p) => p.type === "hour")?.value ?? "";
@@ -125,19 +105,9 @@ function rangeLabel(start: Date, end: Date): string {
   return `${a.full} – ${b.full}`;
 }
 
-function joinSetups(setups: string[]): string {
-  if (setups.length <= 1) return setups[0] ?? "";
-  if (setups.length === 2) return `${setups[0]} and ${setups[1]}`;
-  return `${setups.slice(0, -1).join(", ")} and ${setups[setups.length - 1]}`;
-}
-
-interface BuiltWindow extends SetupWindowView {
-  first: number;
-  last: number;
-}
-
 /**
- * Whether new alerts can still fire, and each setup's window in Phoenix time.
+ * Whether alerts are running, and which EMAs are watched, in Phoenix time.
+ * Alerts run from the close of the opening 15-minute candle (9:45 New York) to the 4:00 close.
  * `now` defaults to the current instant. Weekends use the next session's clock times.
  */
 export function alertDayStatus(now: Date = new Date(), settings?: Record<string, number>): AlertDayStatus {
@@ -145,54 +115,19 @@ export function alertDayStatus(now: Date = new Date(), settings?: Record<string,
   const weekend = here.weekday === "Sat" || here.weekday === "Sun";
   const session = weekend ? shiftDate(here.year, here.month, here.day, here.weekday === "Sat" ? 2 : 1) : { year: here.year, month: here.month, day: here.day };
   const open = zonedDateTime(ET, session.year, session.month, session.day, 9, 30);
-  const at = (minutes: number) => new Date(open.getTime() + minutes * 60_000);
-
-  const built: BuiltWindow[] = SETUPS.map((setup) => {
-    const span = fireMinutes(setup, settings);
-    if (!span) return { setup, label: "off", state: "done" as const, first: Number.POSITIVE_INFINITY, last: Number.NEGATIVE_INFINITY };
-    const firstAt = at(span.first);
-    const lastAt = at(span.last);
-    const state: SetupWindowState = now < firstAt ? "later" : now <= lastAt ? "open" : "done";
-    return { setup, label: rangeLabel(firstAt, lastAt), state, first: firstAt.getTime(), last: lastAt.getTime() };
-  });
-
-  const active = built.filter((w) => w.label !== "off");
-  const first = active.reduce((min, w) => Math.min(min, w.first), Number.POSITIVE_INFINITY);
-  const last = active.reduce((max, w) => Math.max(max, w.last), Number.NEGATIVE_INFINITY);
-  const span = active.length ? rangeLabel(new Date(first), new Date(last)) : "";
+  const first = new Date(open.getTime() + BAR_MINUTES * 60_000);
+  const last = new Date(open.getTime() + 390 * 60_000);
+  const span = rangeLabel(first, last);
+  const state: SetupWindowState = weekend || now < first ? "later" : now <= last ? "open" : "done";
+  const on = (p: string) => (settings?.[`ma_${p}`] ?? 1) !== 0;
+  const windows: SetupWindowView[] = ALERT_EMAS.map((p) => ({ setup: p, label: on(p) ? span : "off", state: on(p) ? state : "done" }));
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone: ET, weekday: "long" }).format(open);
 
-  const windows: SetupWindowView[] = built.map(({ setup, label, state }) => ({ setup, label, state: weekend ? "later" : state }));
-
-  if (!active.length) {
-    return { phase: "done", headline: "Alerts are off.", detail: "No setup has a window.", windows };
-  }
-  if (weekend) {
-    return {
-      phase: "closed",
-      headline: "Market is closed.",
-      detail: `Next window is ${weekday}, ${span} Phoenix.`,
-      windows,
-    };
-  }
-  const clock = now.getTime();
-  if (clock < first) {
-    return { phase: "before", headline: `Alerts start at ${phoenixClock(new Date(first)).full} Phoenix.`, detail: `Window ${span} Phoenix.`, windows };
-  }
-  if (clock > last) {
-    return { phase: "done", headline: "Alerts are done for the day.", detail: `The window was ${span} Phoenix.`, windows };
-  }
-  const inside = built.filter((w) => w.state === "open");
-  if (inside.length) {
-    return { phase: "open", headline: `Alerts can still fire until ${phoenixClock(new Date(last)).full} Phoenix.`, detail: `Window ${span} Phoenix.`, windows };
-  }
-  const upcoming = built.filter((w) => w.state === "later");
-  const nextAt = Math.min(...upcoming.map((w) => w.first));
-  const next = upcoming.filter((w) => w.first === nextAt);
-  const sameLabel = next.every((w) => w.label === next[0].label);
-  const who = joinSetups(next.map((w) => w.setup));
-  const headline = sameLabel ? `${who} can fire ${next[0].label} Phoenix.` : `${who} can still fire.`;
-  return { phase: "open", headline, detail: `Alerts finish at ${phoenixClock(new Date(last)).full} Phoenix.`, windows };
+  if (!ALERT_EMAS.some(on)) return { phase: "done", headline: "Alerts are off.", detail: "No moving average is turned on.", windows };
+  if (weekend) return { phase: "closed", headline: "Market is closed.", detail: `Next session is ${weekday}, ${span} Phoenix.`, windows };
+  if (now < first) return { phase: "before", headline: `Alerts start at ${phoenixClock(first).full} Phoenix.`, detail: `Session ${span} Phoenix.`, windows };
+  if (now > last) return { phase: "done", headline: "Alerts are done for the day.", detail: `The session was ${span} Phoenix.`, windows };
+  return { phase: "open", headline: `Watching for pullbacks until ${phoenixClock(last).full} Phoenix.`, detail: `Session ${span} Phoenix.`, windows };
 }
 
 /** Lead sentence for an empty Today list. Null keeps the "no alerts yet" copy. */
@@ -202,7 +137,7 @@ export function todayEmptyLead(day: AlertDayStatus): string | null {
 }
 
 export const STATUS_LABEL: Record<AlertStatus, string> = {
-  pending: "Pending",
+  pending: "Watch",
   triggered: "Triggered",
   stopped: "Stopped",
   breakeven: "Break-even",
@@ -252,10 +187,26 @@ export function freshAlerts(alerts: TradeAlert[], seen: Set<number> | null): Tra
   return alerts.filter((a) => !seen.has(a.id) && !a.late && !a.acknowledged);
 }
 
+/**
+ * Watch alerts that have just triggered: seen as "pending" in an earlier fetch of this page load and filled now.
+ * `before` is the status each alert had in the previous fetch (null on the first fetch, which never chimes).
+ */
+export function triggeredAlerts(alerts: TradeAlert[], before: Map<number, string> | null): TradeAlert[] {
+  if (before === null) return [];
+  return alerts.filter((a) => before.get(a.id) === "pending" && a.filled);
+}
+
 export function notificationText(a: TradeAlert, setupName: string): { title: string; body: string } {
+  const name = setupName || SETUP_NAMES[a.setup] || `EMA ${a.setup}`;
+  if (a.filled) {
+    return {
+      title: `${a.symbol} triggered over ${a.trigger_price.toFixed(2)}${a.top ? " (top)" : ""}`,
+      body: `${name}. Filled ${(a.fill_price ?? a.trigger_price).toFixed(2)}, stop ${a.stop_price.toFixed(2)} (${stopPct(a).toFixed(2)}%). ${phoenixTime(a.fill_at)} Phoenix.`,
+    };
+  }
   return {
-    title: `${a.symbol} setup ${a.setup}${a.top ? " (top)" : ""}`,
-    body: `${setupName}. Buy stop ${a.trigger_price.toFixed(2)}, stop ${a.stop_price.toFixed(2)} (${stopPct(a).toFixed(2)}%). ${phoenixTime(a.fired_at)} Phoenix.`,
+    title: `${a.symbol} watch: ${a.setup} EMA${a.top ? " (top)" : ""}`,
+    body: `${name}. Trigger over ${a.trigger_price.toFixed(2)} (previous 15-min high + 1c), stop ${a.stop_price.toFixed(2)} (${stopPct(a).toFixed(2)}%). ${phoenixTime(a.fired_at)} Phoenix.`,
   };
 }
 
@@ -279,74 +230,50 @@ export function playChime(ctx: AudioContext): void {
   }
 }
 
-/** "+0.62%" distance of the setup bar's close from the 15-minute EMA 120; "—" when unknown (older alerts, thin history). */
-export function ema360Text(a: Pick<TradeAlert, "details">): string {
-  const v = a.details?.ema360_close_pct;
-  if (v == null || !Number.isFinite(v)) return "—";
-  return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+/** The EMA level the stock pulled back to, and its color on the 15-minute chart. */
+export function maText(a: Pick<TradeAlert, "details">): string {
+  const v = a.details?.ma;
+  return v == null || !Number.isFinite(v) ? "—" : v.toFixed(2);
 }
 
-/** Hover text: EMA level and both distances the not-extended filter checks. */
-export function ema360Title(a: Pick<TradeAlert, "details">): string {
+/** Hover text: every EMA on the touch candle and how much the one touched was rising. */
+export function maTitle(a: Pick<TradeAlert, "setup" | "details">): string {
   const d = a.details ?? {};
-  if (d.ema360 == null) return "15-minute EMA 120 not known for this alert";
-  const pct = (v: number | null | undefined) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
-  return `15m EMA 120 (≈ 1h EMA 30) ${d.ema360.toFixed(2)}. Close ${pct(d.ema360_close_pct)}, last hour's low ${pct(d.ema360_low_pct)}`;
-}
-
-/** Tone for the distance cell: near the level is good, stretched is a warning. */
-export function ema360Tone(a: Pick<TradeAlert, "details">, settings?: Record<string, number>): string {
-  const c = a.details?.ema360_close_pct;
-  if (c == null) return "";
-  const max = settings?.ext_close_pct ?? 3;
-  return c > max ? "red-text" : c <= 1 ? "green-text" : "";
+  const values = Object.entries(d.ma_values ?? {})
+    .filter(([, v]) => v != null)
+    .map(([p, v]) => `${p} EMA ${(v as number).toFixed(2)}`);
+  const slope = d.ma_slope_pct == null ? "" : `, rising ${d.ma_slope_pct.toFixed(2)}% over the check`;
+  return values.length ? `On the touch candle: ${values.join(", ")}${slope}` : `15-minute ${a.setup} EMA`;
 }
 
 /** Human labels and grouping for the settings form. */
 export const SETTING_GROUPS: { title: string; items: [key: string, label: string, unit?: string][] }[] = [
   {
-    title: "Bar and EMA definitions",
+    title: "Which stocks",
     items: [
-      ["doji_body_pct", "Doji: body at most", "% of range"],
-      ["doji_close_top_pct", "Doji: closes in the top", "% of range"],
-      ["bunched_pct", "Bunched: 6/20/50 EMAs within", "%"],
-      ["strong_close_top_pct", "Strong opening bar: closes in the top", "% of range"],
-      ["tight_range_pct", "Tight bar: range at most", "% of opening bar"],
-      ["gap_down_pct", "E: gap under the prior close, or low under the 20 and 50, by at least", "%"],
-      ["touch_tol_pct", "D: touch / hold tolerance", "%"],
-      ["d_lookback_bars", "D: pullback within the last", "bars"],
-      ["d_hold20", "D: hold20 path (1 = on, 0 = off)", ""],
-      ["cancel_stop_before_trigger", "Cancel pending entry if the stop trades before the trigger (1 = on, 0 = off)", ""],
-      ["d_hold20_extend_pct", "D hold20: prior bar at most", "% over the 20 EMA"],
-      ["d_hold20_daily_filter", "D hold20: only near the daily 4 EMA (1 = on, 0 = off)", ""],
-      ["d_hold20_daily_pct", "D hold20: trigger within", "% of the daily 4 EMA"],
-      ["f_bunched_minutes", "F: bunched and flat for at least", "minutes"],
-      ["f_full_body_pct", "F: breakout body at least", "% of range"],
+      ["min_score", "Universe stocks with a scan score of at least", ""],
+      ["max_symbols", "Check at most (highest score first)", "names"],
     ],
   },
   {
-    title: "Filters and tracking",
+    title: "Pullback to a rising EMA (15-minute chart)",
     items: [
-      ["vol_mult", "Setup bar volume at least", "x 20-session avg"],
-      ["f_volume_mult", "F: breakout volume at least", "x avg"],
-      ["f_soft_body_pct", "F: soft-volume body at least", "% of range"],
-      ["f_soft_volume_mult", "F: soft-volume floor", "x avg (0=off)"],
-      ["vol_min_sessions", "Volume filter needs", "sessions of history"],
-      ["max_stop_pct", "Skip when the stop is over", "% (A: cap)"],
-      ["entry_valid_bars", "Buy stop good for", "bars"],
-      ["trade_bars", "Trade only the first", "15-min candles"],
+      ["ma_120", "120 EMA, red (1 = on, 0 = off)", ""],
+      ["ma_240", "240 EMA, yellow (1 = on, 0 = off)", ""],
+      ["ma_480", "480 EMA, blue (1 = on, 0 = off)", ""],
+      ["touch_tol_pct", "Touch: low within", "% over the EMA"],
+      ["hold_pct", "Lost the EMA: a close more than", "% under it"],
+      ["rising_bars", "Rising: higher than", "candles earlier"],
+    ],
+  },
+  {
+    title: "Trigger and tracking",
+    items: [
+      ["watch_bars", "Watch for a trigger for", "15-min candles after the touch"],
       ["max_attempts", "Triggered attempts per name per day", ""],
-      ["breakeven_after_new_highs", "Stop to break-even after", "new-high bars"],
+      ["breakeven_after_new_highs", "Stop to break-even after", "new-high candles"],
+      ["exit_close_under_ma", "Exit on a close under the EMA (1 = on, 0 = off)", ""],
       ["top_names", "Top names per day", ""],
-    ],
-  },
-  {
-    title: "Not extended (15-minute EMA 120 ≈ 1-hour EMA 30)",
-    items: [
-      ["ext_filter", "Only alert near the EMA 120 (1 = on, 0 = off)", ""],
-      ["ext_low_pct", "Last hour's low at most", "% over the EMA 120"],
-      ["ext_close_pct", "Setup bar close at most", "% over the EMA 120"],
-      ["ext_lookback_bars", "Last hour =", "bars (today only)"],
     ],
   },
   {
@@ -359,21 +286,6 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     title: "After the close",
     items: [
       ["auto_archive", "Move the day's alerts to History after 4:05 PM New York (1 = on, 0 = off)", ""],
-    ],
-  },
-  {
-    title: "Windows (minutes after the open; 0 = the opening bar)",
-    items: [
-      ["b_from", "B from", "min"],
-      ["b_to", "B to", "min"],
-      ["c_from", "C from", "min"],
-      ["c_to", "C to", "min"],
-      ["d_from", "D from", "min"],
-      ["d_to", "D to", "min"],
-      ["e_from", "E from", "min"],
-      ["e_to", "E to", "min"],
-      ["f_from", "F from", "min"],
-      ["f_to", "F to", "min"],
     ],
   },
 ];

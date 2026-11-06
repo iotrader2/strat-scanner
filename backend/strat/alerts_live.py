@@ -1,15 +1,21 @@
-"""Alerts for the watchlist on 15-minute bars, run from the existing 5-minute poll (inside the job slot).
+"""Pullback alerts for high-score universe stocks on 15-minute bars, run from the 5-minute lists poll (inside the job slot).
 
-Per poll, two small Alpaca requests for the watchlist: today's SIP bars (04:00 ET up to the 15-minute
-SIP cutoff, which also gives the premarket low) and today's IEX bars from the open. Each completed
-regular-session bar takes its prices from SIP when SIP has it and from IEX otherwise; volume is always
-IEX, so it is compared like for like with the IEX time-of-day average. That average (20 sessions,
-one number per 15-minute slot) and the prior sessions' closes that seed the EMAs are fetched once per
-session per symbol and held here: under 1 KB a symbol.
+Which names: the caller passes universe stocks with a scan score of at least ``Settings.min_score``
+(highest first, at most ``max_symbols``); names with an alert still live today are always kept.
 
-Only 09:30-16:00 ET (6:30-1:00 Phoenix in daylight time) is used, and nothing runs until the opening
-15-minute candle has formed (09:45 ET); outside it the poll does nothing, apart from one run just after
-the close so the last bar is scored and open trades are closed.
+Per poll, two Alpaca requests for those names: today's SIP bars (from the open up to the 15-minute SIP
+cutoff) and today's IEX bars from the open. Each completed regular-session bar takes its prices from SIP
+when SIP has it and from IEX otherwise. The bar still forming (IEX, real time) is only used to catch a
+trigger early.
+
+The 120 / 240 / 480 EMAs need weeks of 15-minute closes. Once per session per symbol (premarket from
+08:00 ET, or the first poll that sees a new name) ``HISTORY_CALENDAR_DAYS`` of SIP bars are fetched, a few
+symbols per request, and only the last ``TAIL_KEEP`` EMA values per period and the prior close are kept:
+under 1 KB a symbol.
+
+Only 09:30-16:00 ET is used, and nothing runs until the opening 15-minute candle has formed (09:45 ET);
+outside it the poll does nothing, apart from one run just after the close so the last bar is scored and
+open trades are closed.
 """
 
 from __future__ import annotations
@@ -17,10 +23,10 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Callable, Iterable, Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
 from . import alerts_store
-from .alerts import ACTIVE, BAR, BAR_MINUTES, EMA_LONG, SESSION_BARS, Alert, Context, Settings, advance_stored, ema_seed, simulate
+from .alerts import ACTIVE, BAR, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings, advance_stored, context_from_closes, simulate
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff as _sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT, now_et
@@ -28,19 +34,15 @@ from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT, now_et
 log = logging.getLogger(__name__)
 
 BARS = f"{BAR_MINUTES}Min"  # Alpaca timeframe
-PROFILE_SESSIONS = 20
-PROFILE_CALENDAR_DAYS = 34  # 20 sessions plus weekends and a holiday or two
-WARM_SESSIONS = 5
-WARM_CALENDAR_DAYS = 10
-PROFILE_BATCH = 5  # symbols per profile request, keeps the transient bar list small
-EMA360_CALENDAR_DAYS = 42  # ~29 sessions (~750 regular 15-minute closes) so the EMA 360 has settled
-EMA360_BATCH = 5  # symbols per EMA 120 history request (~4k SIP bars incl. extended hours each, freed per batch)
+# ~63 sessions (~1,600 regular 15-minute closes) so the EMA 480 has settled; same window as the chart.
+HISTORY_CALENDAR_DAYS = 92
+HISTORY_BATCH = 2  # symbols per history request (~4k SIP bars each incl. extended hours; one page)
 FIRST_RUN = time(9, 45)  # the opening 15-minute candle has formed; no alert can exist before it
 RUN_UNTIL = time(16, 15)  # one last pass after the close
 PREPARE_FROM = time(8, 0)  # premarket polls from here fetch the per-day inputs ahead of the open
 
 _lock = threading.Lock()
-_profiles: dict[str, dict] = {}  # symbol -> {"day": iso, "avg": {slot: vol}, "sessions": n, "warm": [closes], "e360": float, "d4": float}
+_profiles: dict[str, dict] = {}  # symbol -> {"day": iso, "tail": {period: [ema...]}, "prev_close": float}
 _last_run: dict = {}
 
 
@@ -67,50 +69,6 @@ def _bar(b: Mapping) -> dict:
     return {"t": _ts(b["t"]), "o": float(b["o"]), "h": float(b["h"]), "l": float(b["l"]), "c": float(b["c"]), "v": float(b.get("v") or 0)}
 
 
-def volume_profile(bars: Iterable[Mapping], before: date) -> tuple[dict[int, float], int]:
-    """Average IEX volume per bar slot over the last ``PROFILE_SESSIONS`` sessions before ``before``.
-
-    A slot with no IEX bar in a session counts as zero volume for that session.
-    """
-    by_day: dict[date, dict[int, float]] = {}
-    for b in bars:
-        t = _ts(b["t"])
-        d = t.astimezone(ET).date()
-        k = slot(t)
-        if k is None or d >= before:
-            continue
-        by_day.setdefault(d, {})[k] = by_day.get(d, {}).get(k, 0.0) + float(b.get("v") or 0)
-    days = sorted(by_day)[-PROFILE_SESSIONS:]
-    if not days:
-        return {}, 0
-    slots = {k for d in days for k in by_day[d]}
-    return {k: sum(by_day[d].get(k, 0.0) for d in days) / len(days) for k in sorted(slots)}, len(days)
-
-
-
-def session_end_closes(bars: Iterable[Mapping], before: date) -> list[float]:
-    """Last regular-session close of each of the last ``WARM_SESSIONS`` sessions before ``before``."""
-    by_day: dict[date, float] = {}
-    for b in bars:
-        t = _ts(b["t"])
-        d = t.astimezone(ET).date()
-        k = slot(t)
-        if k is None or d >= before:
-            continue
-        by_day[d] = float(b["c"])  # bars oldest→newest; last write is the session close
-    days = sorted(by_day)[-WARM_SESSIONS:]
-    return [by_day[d] for d in days]
-
-
-def warm_closes(bars: Iterable[Mapping], before: date) -> list[float]:
-    """Regular-session closes of the last ``WARM_SESSIONS`` sessions before ``before`` (EMA seed)."""
-    rows = sorted((_ts(b["t"]), float(b["c"])) for b in bars)
-    rows = [(t, c) for t, c in rows if slot(t) is not None and t.astimezone(ET).date() < before]
-    days = sorted({t.astimezone(ET).date() for t, _ in rows})[-WARM_SESSIONS:]
-    keep = set(days)
-    return [c for t, c in rows if t.astimezone(ET).date() in keep]
-
-
 def regular_closes(bars: Iterable[Mapping], before: date) -> list[float]:
     """Regular-session (09:30-16:00 ET) closes before ``before``, oldest first. Premarket and after hours are dropped."""
     rows = sorted((_ts(b["t"]), float(b["c"])) for b in bars)
@@ -118,39 +76,23 @@ def regular_closes(bars: Iterable[Mapping], before: date) -> list[float]:
 
 
 def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
-    """Fetch the volume profile and EMA seed for symbols not yet prepared for ``day``. Returns how many."""
+    """Fetch the EMA history for symbols not yet prepared for ``day``. Returns how many.
+
+    Profiles from earlier days are dropped; a name that leaves the list keeps today's profile, so a
+    score hovering around the cut does not fetch it again.
+    """
     with _lock:
-        stale = [s for s in symbols if (_profiles.get(s) or {}).get("day") != day.isoformat()]
-        for gone in set(_profiles) - set(symbols):
-            _profiles.pop(gone, None)
+        for sym in [s for s, p in _profiles.items() if p.get("day") != day.isoformat()]:
+            _profiles.pop(sym, None)
+        stale = [s for s in symbols if s not in _profiles]
     open_ = _at(day, OPEN)
-    for i in range(0, len(stale), PROFILE_BATCH):
-        batch = stale[i : i + PROFILE_BATCH]
-        iex, _ = client.bars(batch, BARS, open_ - timedelta(days=PROFILE_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="iex", adjustment="raw")
-        sip, _ = client.bars(batch, BARS, open_ - timedelta(days=WARM_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
+    for i in range(0, len(stale), HISTORY_BATCH):
+        batch = stale[i : i + HISTORY_BATCH]
+        sip, _ = client.bars(batch, BARS, open_ - timedelta(days=HISTORY_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
         for sym in batch:
-            avg, n = volume_profile(iex.get(sym, []), day)
-            sip_bars = sip.get(sym, [])
-            ends = session_end_closes(sip_bars, day)
-            entry = {
-                "day": day.isoformat(),
-                "avg": avg,
-                "sessions": n,
-                "warm": warm_closes(sip_bars, day),
-                "d4": ema_seed(ends, 4),
-            }
+            ctx = context_from_closes(regular_closes(sip.get(sym, []), day))
             with _lock:
-                _profiles[sym] = entry
-        del iex, sip
-    # The 15-minute EMA 120 (not-extended filter) needs weeks of closes; only the final value is kept.
-    for i in range(0, len(stale), EMA360_BATCH):
-        batch = stale[i : i + EMA360_BATCH]
-        sip, _ = client.bars(batch, BARS, open_ - timedelta(days=EMA360_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
-        for sym in batch:
-            seed = ema_seed(regular_closes(sip.get(sym, []), day), EMA_LONG)
-            with _lock:
-                if sym in _profiles:
-                    _profiles[sym]["e360"] = seed
+                _profiles[sym] = {"day": day.isoformat(), "tail": dict(ctx.ma_tail), "prev_close": ctx.prev_close}
         del sip
     return len(stale)
 
@@ -188,19 +130,19 @@ def merge_day(sip: list[Mapping], iex: list[Mapping], day: date, cutoff: datetim
     return out, pm_low
 
 
-def context_for(sym: str, prev_close: Optional[float], pm_low: Optional[float], session_bars: int) -> Context:
+def forming_bar(iex: list[Mapping], day: date, done: int, now: datetime) -> Optional[dict]:
+    """Today's IEX bar still forming at ``now``, when it is the next bar after the ``done`` completed ones."""
+    for b in iex:
+        t = _ts(b["t"])
+        if t.astimezone(ET).date() == day and slot(t) == done and t <= now < t + BAR:
+            return _bar(b)
+    return None
+
+
+def context_for(sym: str, session_bars: int) -> Context:
     with _lock:
         p = dict(_profiles.get(sym) or {})
-    return Context(
-        warm_closes=p.get("warm") or [],
-        prev_close=prev_close,
-        premarket_low=pm_low,
-        vol_avg=p.get("avg") or {},
-        vol_sessions=p.get("sessions") or 0,
-        session_bars=session_bars,
-        ema360_seed=p.get("e360"),
-        daily_4_ema=p.get("d4"),
-    )
+    return Context(ma_tail=p.get("tail") or {}, prev_close=p.get("prev_close"), session_bars=session_bars)
 
 
 def sip_cutoff(now: datetime) -> datetime:
@@ -230,7 +172,7 @@ def _advance_orphans(
     bars_by: Mapping[str, list],
     ctx_by: Mapping[str, Context],
     settings: Settings,
-    session_over: bool = False,
+    forming_by: Optional[Mapping[str, Optional[dict]]] = None,
 ) -> list:
     """ACTIVE DB alerts for this session that simulate no longer emits — re-walk outcomes only."""
     known = {a.key for a in found}
@@ -245,25 +187,12 @@ def _advance_orphans(
             continue
         parts = str(row["key"]).split("|")
         origin = _parse_ts(parts[3]) if len(parts) >= 4 else _parse_ts(row["setup_bar"])
-        setup_bar = _parse_ts(row["setup_bar"])
-        ctx2 = ctx
-        if session_over:
-            ctx2 = Context(
-                warm_closes=ctx.warm_closes,
-                prev_close=ctx.prev_close,
-                premarket_low=ctx.premarket_low,
-                vol_avg=ctx.vol_avg,
-                vol_sessions=ctx.vol_sessions,
-                session_bars=len(bars),
-                ema360_seed=ctx.ema360_seed,
-                daily_4_ema=ctx.daily_4_ema,
-            )
         a = advance_stored(
             symbol=sym,
             session=session,
             setup=row["setup"],
             origin_bar=origin,
-            setup_bar=setup_bar,
+            setup_bar=_parse_ts(row["setup_bar"]),
             trigger=float(row["trigger_price"]),
             stop=float(row["stop_price"]),
             setup_low=float(row["setup_low"]),
@@ -271,8 +200,9 @@ def _advance_orphans(
             ref_price=float(row["ref_price"]),
             details=row.get("details") if isinstance(row.get("details"), dict) else {},
             bars=bars,
-            ctx=ctx2,
+            ctx=ctx,
             settings=settings,
+            forming=(forming_by or {}).get(sym),
         )
         if a is not None:
             out.append(a)
@@ -280,46 +210,51 @@ def _advance_orphans(
     return out
 
 
-
 def refresh(
     symbols: Iterable[str],
-    prev_close: Callable[[str, date], Optional[float]],
     now: Optional[datetime] = None,
     client: Optional[AlpacaClient] = None,
     settings: Optional[Settings] = None,
 ) -> dict:
-    """One alerts pass for the watchlist. Returns counts for the log line (new alert ids included)."""
+    """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line."""
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    day = now_et(clock).date()
     syms = list(dict.fromkeys(s for s in symbols if s))
     if syms and prepare_due(clock):
-        # Premarket: fetch the volume averages and EMA seeds now, so the 6:45 pass only needs today's bars.
+        # Premarket: fetch the EMA history now, so the 6:45 pass only needs today's bars.
         client = client or AlpacaClient()
-        return {"symbols": len(syms), "skipped": True, "inserted": [], "prepared": ensure_profiles(client, syms, now_et(clock).date())}
-    if not syms or not due(clock):
+        return {"symbols": len(syms), "skipped": True, "inserted": [], "prepared": ensure_profiles(client, syms, day)}
+    if not due(clock):
         return {"symbols": len(syms), "skipped": True, "inserted": []}
+    # A name whose score slipped under the cut keeps being tracked while its alert is live.
+    live = [r["symbol"] for r in alerts_store.list_alerts(session=day.isoformat()) if r["status"] in ACTIVE]
+    syms = list(dict.fromkeys(syms + live))
+    if not syms:
+        return {"symbols": 0, "skipped": True, "inserted": []}
     client = client or AlpacaClient()
     before = client.requests
-    day = now_et(clock).date()
     settings = settings or alerts_store.load_settings()
     prepared = ensure_profiles(client, syms, day)
     cutoff = sip_cutoff(clock)
     open_, close_ = _at(day, OPEN), _at(day, CLOSE)
-    sip, _ = client.bars(syms, BARS, _at(day, PREMARKET_AT), end=min(cutoff, close_) - timedelta(seconds=1), feed="sip", adjustment="raw")
+    sip, _ = client.bars(syms, BARS, open_, end=min(cutoff, close_) - timedelta(seconds=1), feed="sip", adjustment="raw")
     iex, _ = client.bars(syms, BARS, open_, end=min(clock, close_), feed="iex", adjustment="raw")
     session_over = clock >= close_ + BAR
     found: list[Alert] = []
     bars_by: dict[str, list] = {}
     ctx_by: dict[str, Context] = {}
+    forming_by: dict[str, Optional[dict]] = {}
     for sym in syms:
-        bars, pm_low = merge_day(sip.get(sym, []), iex.get(sym, []), day, cutoff, clock)
+        bars, _ = merge_day(sip.get(sym, []), iex.get(sym, []), day, cutoff, clock)
         if not bars:
             continue
-        ctx = context_for(sym, prev_close(sym, day), pm_low, len(bars) if session_over else SESSION_BARS)
-        bars_by[sym] = bars
-        ctx_by[sym] = ctx
-        found.extend(simulate(sym, day.isoformat(), bars, ctx, settings))
-    # SIP backfill can make match_* stop reproducing an alert that already fired; still advance outcomes.
-    found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, session_over=session_over))
+        ctx = context_for(sym, len(bars) if session_over else SESSION_BARS)
+        forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock)
+        bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
+        found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming))
+    del sip, iex
+    # SIP backfill can make a touch stop reproducing an alert that already fired; still advance outcomes.
+    found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, forming_by))
     # save_session treats a key already in alerts_history as fired. This pass stays inside
     # RUN_UNTIL (16:15), which is after the 16:05 archive, including on a restart warm-up.
     saved = alerts_store.save_session(day.isoformat(), found, now=clock, top_names=settings.top_names)
@@ -328,6 +263,7 @@ def refresh(
         "prepared": prepared,
         "alerts": len(found),
         "inserted": saved["inserted"],
+        "triggered": saved["triggered"],
         "updated": saved["updated"],
         "removed": saved["removed"],
         "requests": client.requests - before,

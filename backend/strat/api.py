@@ -215,21 +215,37 @@ def _refresh_watch5m() -> None:
     _refresh_alerts()
 
 
+def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
+    """Universe stocks with a scan score of at least ``min_score``, highest score first, at most ``max_symbols``."""
+    picked = [
+        r for r in rows
+        if r.get("kind", "stock") == "stock" and r.get("in_universe", True)
+        and isinstance(r.get("score"), (int, float)) and r["score"] >= settings.min_score
+    ]
+    picked.sort(key=lambda r: (-r["score"], r["symbol"]))
+    return [r["symbol"] for r in picked[: settings.max_symbols]]
+
+
 def _refresh_alerts() -> None:
-    """Setup alerts for the watchlist (not positions), on the same poll. No-op outside the regular session."""
+    """Pullback alerts for high-score universe stocks, on the same poll. No-op outside the regular session."""
     try:
-        stats = alerts_live.refresh(data.watchlist(), _prev_close)
+        settings = alerts_store.load_settings()
+        stats = alerts_live.refresh(alert_symbols(State.scan, settings), settings=settings)
         if stats.get("skipped"):
             if stats.get("prepared"):
-                log.info("alerts prepared volume averages for %s symbols", stats["prepared"])
+                log.info("alerts prepared EMA history for %s symbols", stats["prepared"])
             return
         log.info(
-            "alerts symbols=%s alerts=%s new=%s updated=%s removed=%s requests=%s",
-            stats["symbols"], stats["alerts"], len(stats["inserted"]), stats["updated"],
-            stats.get("removed", 0), stats["requests"],
+            "alerts symbols=%s alerts=%s new=%s triggered=%s updated=%s removed=%s requests=%s",
+            stats["symbols"], stats["alerts"], len(stats["inserted"]), len(stats.get("triggered", [])),
+            stats["updated"], stats.get("removed", 0), stats["requests"],
         )
         if stats["inserted"] or stats["updated"] or stats.get("removed"):
-            hub.publish({"type": "alerts", "new": [a["id"] for a in stats["inserted"] if not a["late"]]})
+            hub.publish({
+                "type": "alerts",
+                "new": [a["id"] for a in stats["inserted"] if not a["late"]],
+                "triggered": [a["id"] for a in stats.get("triggered", [])],
+            })
     except Exception:
         log.exception("alerts refresh failed")
 
@@ -1009,7 +1025,7 @@ def _alert_ema5m(symbols: list[str]) -> dict[str, dict | None]:
     """Current 15-minute 6/20 EMA for these symbols, already computed by the lists poll.
 
     ``watch5m.snapshot`` only reads memory. It does not call Alpaca. A name that is on neither
-    the watchlist nor in positions has no reading (the alerts table shows a dash).
+    the watchlist nor in positions has no reading.
     """
     if not symbols:
         return {}
@@ -1053,6 +1069,8 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
         "unread": alerts_store.unread_count(),
         "last_run": alerts_live.last_run(),
         "watchlist": data.watchlist(),
+        # Names the next poll checks: universe stocks at or over the score cut.
+        "universe": len(alert_symbols(State.scan, alerts_store.load_settings())),
         "setups": alert_rules.SETUP_NAMES,
         # One small reading per symbol, not a copy on every alert row.
         "ema5m": _alert_ema5m(symbols),
