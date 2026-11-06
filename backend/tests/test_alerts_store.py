@@ -301,3 +301,33 @@ def test_ensure_profiles_keeps_only_the_ema_tails(db):
     assert alerts_live.ensure_profiles(client, ["BBB"], OPEN.date()) == 1
     assert "AAA" in alerts_live._profiles and client.requests == before + 1
     assert alerts_live.ensure_profiles(client, ["AAA"], OPEN.date()) == 0
+
+
+def test_a_name_off_the_list_only_advances_its_alert_and_never_starts_one(db):
+    """A low-score name kept for tracking (or one with an old A-F row) must not get a new pullback alert."""
+    from strat.alerts import Alert
+
+    alerts_live.clear()
+    history = _rising_history()
+    ctx = alerts.context_from_closes(alerts_live.regular_closes(history, OPEN.date()))
+    ma, last = ctx.ma_tail[120][-1], ctx.prev_close
+    touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
+    # MU had an alert from the old watchlist rules still open today.
+    old = Alert(symbol="MU", session="2026-10-23", setup="D", origin_bar=OPEN - timedelta(minutes=15),
+                setup_bar=OPEN - timedelta(minutes=15), setup_index=0, trigger=1.0, stop=0.5,
+                setup_low=0.6, setup_high=0.99, ref_price=0.9)
+    alerts_store.save_session("2026-10-23", [old], now=OPEN)
+    client = FakeClient({"MU": history}, {"MU": [touch]})
+    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=16), client=client)
+    assert stats["skipped"] and stats["symbols"] == 0  # the old row does not pull MU into the poll
+    assert [r["setup"] for r in alerts_store.list_alerts()] == ["D"]
+
+    # A new-rules alert that is live keeps MU tracked, but the same touch cannot mint a second alert.
+    watch = alerts.simulate("MU", "2026-10-23", [alerts_live._bar(touch)], ctx)
+    assert len(watch) == 1
+    alerts_store.save_session("2026-10-23", watch, now=OPEN + timedelta(minutes=16))
+    nxt = _raw(OPEN + timedelta(minutes=15), last, last + 0.05, round(ma, 2) - 0.01, last - 0.05, 1000)
+    client.iex["MU"].append(nxt)
+    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=31), client=client)
+    assert stats["symbols"] == 1 and stats["inserted"] == []
+    assert sorted(r["setup"] for r in alerts_store.list_alerts()) == ["120", "D"]
