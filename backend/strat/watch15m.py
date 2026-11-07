@@ -1,6 +1,6 @@
 """Premarket prints and 15-minute EMA position for the watchlist and positions (Alpaca).
 
-(The module and the ``ema5m`` payload keys keep their original names; the bars are 15-minute.)
+(The ``ema5m`` payload keys keep their original names for API compatibility; the bars are 15-minute.)
 
 The alerts table reads the same in-memory EMA comparison (above / below the 6 and 20). It does not fetch.
 
@@ -136,7 +136,7 @@ def _bars(client: AlpacaClient, symbols: list[str], start: datetime, end: dateti
         return {}
     out, invalid = client.bars(symbols, f"{BAR_MINUTES}Min", start, end=end, feed=feed, adjustment="raw")
     if invalid:
-        log.info("watch5m: Alpaca has no %s bars for %s", feed, ",".join(invalid))
+        log.info("watch15m: Alpaca has no %s bars for %s", feed, ",".join(invalid))
     return out
 
 
@@ -146,7 +146,7 @@ def _latest_trades(client: AlpacaClient, symbols: list[str], feed: str) -> dict[
             "/v2/stocks/trades/latest", {"symbols": ",".join(to_alpaca(s) for s in symbols), "feed": feed}
         )
     except HTTPStatus as exc:
-        log.warning("watch5m: latest trades (%s) failed: %s", feed, exc.status)
+        log.warning("watch15m: latest trades (%s) failed: %s", feed, exc.status)
         return {}
     return {from_alpaca(sym): t for sym, t in (payload.get("trades") or {}).items() if isinstance(t, dict)}
 

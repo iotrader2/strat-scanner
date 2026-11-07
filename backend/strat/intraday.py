@@ -1,9 +1,9 @@
-"""Today's session from Alpaca 5-minute bars.
+"""Today's session from Alpaca 15-minute bars (the entry timeframe for the Ariel setups).
 
-Every poll (about 10 seconds after each 5-minute mark, see ``scheduler.intraday_due``):
+Every poll (about 10 seconds after each 15-minute mark, see ``scheduler.intraday_due``):
 
-1. IEX 5-minute bars (real time, free) since the last IEX bar already stored, for the whole universe.
-2. SIP 5-minute bars (all exchanges) for every bar that closed at least 15 minutes ago. They overwrite
+1. IEX 15-minute bars (real time, free) since the last IEX bar already stored, for the whole universe.
+2. SIP 15-minute bars (all exchanges) for every bar that closed at least 15 minutes ago. They overwrite
    the IEX rows with the same timestamp, so the stored history is exact once it is old enough.
 3. Today's daily bar is rebuilt from the stored bars and written to ``session_bar`` (the scan overlays it):
    open / high / low / close from all of today's bars (SIP where backfilled, IEX for the last ~15 minutes),
@@ -26,7 +26,7 @@ from .scheduler import ET, OPEN, now_et
 
 log = logging.getLogger(__name__)
 
-BAR = timedelta(minutes=5)
+BAR = timedelta(minutes=15)
 IEX_MARK = "intraday_iex_through"
 SIP_MARK = "intraday_sip_through"
 
@@ -35,12 +35,12 @@ def session_open_utc(now: datetime) -> datetime:
     return datetime.combine(local.date(), OPEN, tzinfo=ET).astimezone(timezone.utc)
 
 
-def floor_bar(ts: datetime, minutes: int = 5) -> datetime:
+def floor_bar(ts: datetime, minutes: int = 15) -> datetime:
     ts = ts.astimezone(timezone.utc)
     return ts.replace(minute=ts.minute - ts.minute % minutes, second=0, microsecond=0)
 
 
-def sip_cutoff(now: datetime, minutes: int = 5) -> datetime:
+def sip_cutoff(now: datetime, minutes: int = 15) -> datetime:
     """Bars of ``minutes`` starting before this instant closed at least 15 minutes (plus a margin) ago."""
     return floor_bar(now.astimezone(timezone.utc) - SIP_DELAY - SIP_MARGIN, minutes)
 
@@ -99,7 +99,7 @@ def prune(today_open: datetime, db_path: Path | None = None) -> None:
 
 
 def session_bars(db_path: Path | None = None) -> dict[str, dict]:
-    """Today's daily bar per symbol from the stored 5-minute bars."""
+    """Today's daily bar per symbol from the stored 15-minute bars."""
     with data.connect(db_path) as conn:
         rows = conn.execute(
             "SELECT symbol, ts, open, high, low, close, volume, feed FROM intraday_bars ORDER BY symbol, ts"
@@ -124,7 +124,7 @@ def poll(
     client: AlpacaClient | None = None,
     db_path: Path | None = None,
 ) -> dict:
-    """One 5-minute poll. Returns counts for the log line."""
+    """One 15-minute poll. Returns counts for the log line."""
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     client = client or AlpacaClient()
     before = client.requests
@@ -135,7 +135,7 @@ def poll(
 
     # 1. IEX, real time. Refetch the last stored bar: it may have been still forming last time.
     iex_from = _mark(IEX_MARK, today_open, db_path)
-    iex, _ = client.bars(symbols, "5Min", iex_from, end=clock, feed="iex", adjustment="raw")
+    iex, _ = client.bars(symbols, "15Min", iex_from, end=clock, feed="iex", adjustment="raw")
     iex_rows = _rows(iex, today_open)
     n_iex = upsert(iex_rows, "iex", db_path)
     if iex_rows:
@@ -147,7 +147,7 @@ def poll(
     n_sip = 0
     if cutoff > sip_from:
         sip, _ = client.bars(
-            symbols, "5Min", sip_from, end=cutoff - timedelta(seconds=1), feed="sip", adjustment="raw"
+            symbols, "15Min", sip_from, end=cutoff - timedelta(seconds=1), feed="sip", adjustment="raw"
         )
         sip_rows = _rows(sip, sip_from, before=cutoff)
         n_sip = upsert(sip_rows, "sip", db_path)

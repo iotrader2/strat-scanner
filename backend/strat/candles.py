@@ -1,7 +1,11 @@
-"""Pure Strat candle logic: classification, continuity, hammers and long combos.
+"""Pure candle logic: Strat classification, continuity and hammers.
 
 Everything here works on plain ``Candle`` tuples so it can be unit tested
-without pandas or network access.
+without pandas or network access. The Strat *numbers* (1 / 2U / 2D / 3),
+continuity and hammers are still used for the chart markers, the Candle
+Pattern filter and the M/W/D badges. The Strat *setups* were removed on
+2026-11-07 and replaced by the RealSimpleAriel setups in
+``strat.ariel_setups`` (daily bars, 15-minute entry).
 """
 
 from __future__ import annotations
@@ -97,15 +101,22 @@ def is_hammer(
 
 @dataclass
 class Setup:
-    """A long setup found on one timeframe."""
+    """A long setup found on one timeframe.
 
-    kind: str  # machine key, e.g. "inside", "hammer", "2-1-2"
-    label: str  # human label, e.g. "2-1-2 bullish"
+    ``stop`` is the playbook's defined-risk stop for the setup (RealSimpleAriel
+    setups carry one; the old Strat setups did not). ``entry_tf`` is the
+    chart used only to time the entry — "15m" for the Ariel setups.
+    """
+
+    kind: str  # machine key, e.g. "episodic-pivot"
+    label: str  # human label, e.g. "Episodic Pivot"
     trigger: float
     triggered: bool  # True once price already traded through the trigger
     detail: str = ""
-    # True when the break happened in the week / month still in progress (the trigger itself is from completed bars).
+    # True when the break happened in the bar still in progress (the trigger itself is from completed bars).
     live: bool = False
+    stop: Optional[float] = None
+    entry_tf: str = "15m"
 
 
 @dataclass
@@ -128,49 +139,13 @@ class TimeframeState:
 
 
 def find_long_setups(candles: Sequence[Candle], types: Sequence[Optional[str]]) -> list[Setup]:
-    """Long-only Strat setups ending on the last (current) candle."""
-    setups: list[Setup] = []
-    if len(candles) < 2:
-        return setups
-    cur = candles[-1]
-    prev = candles[-2]
-    t0 = types[-1]
-    t1 = types[-2] if len(types) >= 2 else None
-    t2 = types[-3] if len(types) >= 3 else None
-
-    if t0 == INSIDE:
-        if t1 in (TWO_UP, TWO_DOWN):
-            label, kind = "2-1 → 2-1-2 setup", "2-1-2-pending"
-        elif t1 == OUTSIDE:
-            label, kind = "3-1 → 3-1-2 setup", "3-1-2-pending"
-        else:
-            label, kind = "Inside bar", "inside"
-        setups.append(
-            Setup(kind, label, cur.high, False, "break of the inside-bar high")
-        )
-
-    if is_hammer(cur):
-        setups.append(Setup("hammer", "Hammer", cur.high, False, "break of the hammer high"))
-
-    if t0 == TWO_UP and t1 == INSIDE:
-        if t2 in (TWO_UP, TWO_DOWN):
-            label = "2D-1-2U reversal" if t2 == TWO_DOWN else "2U-1-2U continuation"
-            setups.append(Setup("2-1-2", f"2-1-2 bullish ({label})", prev.high, True))
-        elif t2 == OUTSIDE:
-            setups.append(Setup("3-1-2", "3-1-2 bullish", prev.high, True))
-
-    if t0 == TWO_UP and t1 == TWO_DOWN:
-        if t2 == INSIDE:
-            setups.append(Setup("1-2-2", "1-2-2 RevStrat", prev.high, True))
-        else:
-            setups.append(Setup("2D-2U", "2D-2U reversal", prev.high, True))
-
-    if t0 != INSIDE and len(candles) >= 2 and is_hammer(prev) and cur.high > prev.high:
-        setups.append(
-            Setup("hammer-triggered", "Hammer triggered", prev.high, True, "broke the prior hammer high")
-        )
-
-    return setups
+    """Removed 2026-11-07: The Strat long setups (2-1-2, 3-1-2, hammers, …)
+    were replaced by the RealSimpleAriel setups in :mod:`strat.ariel_setups`,
+    detected on daily bars in :func:`strat.scanner.scan_symbol`. Kept as a
+    no-op so old imports fail loudly at the call site instead of silently
+    returning Strat setups; delete it once no caller references it.
+    """
+    return []
 
 
 def timeframe_state(tf: str, candles: Sequence[Candle]) -> Optional[TimeframeState]:
@@ -178,6 +153,10 @@ def timeframe_state(tf: str, candles: Sequence[Candle]) -> Optional[TimeframeSta
         return None
     types = classify_series(candles)
     cur = candles[-1]
+    # Setups are no longer detected here: the Ariel setups live on the daily
+    # timeframe and need volume, which ``Candle`` does not carry. The scanner
+    # attaches them to the "D" state from the daily bars (see
+    # ``strat.scanner.scan_symbol``); M/W states carry no setups.
     return TimeframeState(
         tf=tf,
         strat=types[-1],
@@ -189,11 +168,11 @@ def timeframe_state(tf: str, candles: Sequence[Candle]) -> Optional[TimeframeSta
         close=cur.close,
         inside=types[-1] == INSIDE,
         hammer=is_hammer(cur),
-        setups=find_long_setups(candles, types),
+        setups=[],
     )
 
 
-PERIOD_WORDS = {"W": "week", "M": "month"}
+PERIOD_WORDS = {"D": "day", "W": "week", "M": "month"}
 
 
 def apply_live_triggers(
@@ -201,10 +180,9 @@ def apply_live_triggers(
 ) -> Optional[TimeframeState]:
     """Mark pending long setups triggered once the bar still in progress has traded above the trigger.
 
-    Setups and their trigger levels come from completed bars only (``find_long_setups`` on the completed weekly or
-    monthly candles); the week or month in progress never sets a trigger. It only decides whether a pending trigger
-    has already been broken: ``live_high`` is the high of the in-progress bar (which includes today's session and the
-    latest price), or None when no bar is in progress (e.g. over the weekend for weeks). Strictly above, like a break.
+    Setups and their trigger levels come from completed bars only; the bar in progress never sets a trigger. It only
+    decides whether a pending trigger has already been broken: ``live_high`` is the high of the in-progress bar
+    (which includes today's session and the latest price), or None when no bar is in progress. Strictly above, like a break.
     Only long setups exist, so there is no short-side mirror to apply. ``tolerance`` (dollars) is the
     IEX allowance: a live high from the real-time IEX feed must clear the trigger by more than that.
     """

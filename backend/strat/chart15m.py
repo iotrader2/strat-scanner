@@ -5,7 +5,7 @@ The chart page asks for a single ticker. This module fetches that ticker from Al
 returns only the last few sessions. It does not touch the other names in the universe.
 
 Premarket and after-hours bars are dropped. The watchlist's 15-minute EMAs already use
-regular-session bars only (09:30-16:00 ET, :func:`watch5m.is_regular`), and the live
+regular-session bars only (09:30-16:00 ET, :func:`watch15m.is_regular`), and the live
 poll stores the session from the open. The chart follows that same cut so the 6, 20,
 50, 120, 240, and 480 EMAs are not mixed with the thin premarket prints.
 
@@ -36,7 +36,7 @@ from typing import Optional
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, last_completed_session, now_et
-from .watch5m import ema_series, is_regular
+from .watch15m import ema_series, is_regular
 
 BAR_MINUTES = 15
 EMA_PERIODS = (6, 20, 50, 120, 240, 480)

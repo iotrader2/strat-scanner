@@ -168,7 +168,7 @@ class TestBreakoutBacktest:
         assert "Recent breakouts" in text and "Became leader" in text and "| B |" in text and "Biggest winners" in text
 
 
-class TestWeeklySetupsBacktest:
+class TestDailySetupsBacktest:
     def _by_date(self):
         dates = ["2026-01-02", "2026-01-16", "2026-01-30"]
         out = {}
@@ -220,7 +220,7 @@ class TestWeeklySetupsBacktest:
     def test_section_renders(self):
         by_date, dates = self._by_date()
         text = bt.render_setups(by_date, {d: (2.0, 4.0) for d in dates}, test_start=dates[1])
-        assert "Weekly setups" in text and "Leaders, no setup" in text and "| Test |" in text and "| Train |" in text
+        assert "Daily setups" in text and "Leaders, no setup" in text and "| Test |" in text and "| Train |" in text
 
 
 class TestFailedBreakoutsBacktest:

@@ -167,15 +167,16 @@ class TestResample:
 
 
 class TestCtvaTrigger:
-    def test_weekly_trigger_setup_continuity_and_chips_ignore_mondays_high(self):
+    def test_daily_setup_continuity_and_chips_ignore_mondays_high(self):
+        # The CTVA-like frame has no Ariel setup (no gap, no flat base, no reclaim, no run-up),
+        # so the trigger is None — but Monday's high must still not leak into any state.
         df = _ctva_like(monday=True)
         row = scan_symbol(Member("CTVA", "Corteva", "Materials", "stock", "SP500"), df)
-        assert row["trigger"] == 18
-        assert row["trigger"] != 13.01
-        assert "2-1-2" in row["setup"]
-        assert row["triggered"] is False
-        assert row["trigger_distance_pct"] == pytest.approx((18 - 12.80) / 12.80 * 100, abs=0.01)
-        assert "13.01" not in row["reason"] and "18.00" in row["reason"]
+        assert row["trigger"] is None
+        assert row["setup"] is None
+        assert row["triggered"] is None  # no setup, so nothing can be triggered
+        assert row["trigger_distance_pct"] is None
+        assert "13.01" not in row["reason"] and "No daily setup" in row["reason"]
         weekly = row["tf"]["W"]
         assert weekly["strat"] == "1" and weekly["color"] == "red"
         assert weekly["high"] == 18 and weekly["open"] == 17 and weekly["close"] == 14
@@ -190,7 +191,7 @@ class TestCtvaTrigger:
         assert "13.01" not in detail
 
         # The weekly chart shows the week in progress (Monday's bar), like the daily chart shows today;
-        # the completed week before it is still the inside week the setup reads.
+        # the completed week before it is still the inside week — but it no longer sets a setup trigger.
         candles = chart_payload(df, "W", 8)
         assert candles[-1]["time"] == "2026-10-19" and candles[-1]["high"] == 13.01
         assert candles[-2]["time"] == "2026-10-12"
@@ -212,9 +213,10 @@ class TestCtvaTrigger:
         monkeypatch.setattr("strat.periods.clock", lambda: _at("2026-10-16", 11))
         row = scan_symbol(Member("CTVA", "Corteva", "Materials", "stock", "SP500"), _ctva_like(monday=False))
         assert row["tf"]["W"]["high"] == 20
-        assert row["trigger"] != 18
+        assert row["trigger"] is None  # no Ariel setup on this frame, whatever the week in progress is
 
     def test_friday_after_the_close_uses_the_week_that_just_finished(self, monkeypatch):
         monkeypatch.setattr("strat.periods.clock", lambda: _at("2026-10-16", 17))
         row = scan_symbol(Member("CTVA", "Corteva", "Materials", "stock", "SP500"), _ctva_like(monday=False))
-        assert row["trigger"] == 18 and row["tf"]["W"]["high"] == 18 and row["tf"]["W"]["strat"] == "1"
+        assert row["tf"]["W"]["high"] == 18 and row["tf"]["W"]["strat"] == "1"
+        assert row["trigger"] is None  # the completed inside week is Strat state only, not an Ariel setup

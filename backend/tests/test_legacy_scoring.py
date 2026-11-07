@@ -1,6 +1,7 @@
 import pytest
 
-from strat.candles import Candle, timeframe_state
+from strat.ariel_setups import SETUP_POINTS
+from strat.candles import Candle, Setup, timeframe_state
 from strat.perf import MomentumRanks
 from strat.legacy_scoring import (
     ETF_MAX_RAW_POINTS,
@@ -21,6 +22,17 @@ def _states(m, w, d):
     return {"M": timeframe_state("M", m), "W": timeframe_state("W", w), "D": timeframe_state("D", d)}
 
 
+def _with_setup(states, tf, *setups):
+    """Inject Ariel ``Setup`` objects into one timeframe state (the scanner now attaches daily Ariel setups itself)."""
+    from dataclasses import replace
+
+    return {**states, tf: replace(states[tf], setups=list(setups))}
+
+
+def _ep(trigger=106.0, stop=102.0, triggered=False):
+    return Setup("episodic-pivot", "Episodic Pivot", trigger, triggered, stop=stop)
+
+
 GREEN_UP = [Candle(90, 100, 85, 95), Candle(95, 106, 94, 105)]  # 2U, green, no setup
 GREEN_INSIDE_PRIOR = [Candle(90, 110, 85, 105), Candle(100, 108, 95, 104)]  # 1, green, plain prior
 RED_DOWN = [Candle(90, 100, 85, 95), Candle(95, 96, 80, 82)]  # 2D, red
@@ -28,28 +40,29 @@ INSIDE_GREEN = [Candle(90, 110, 85, 105), Candle(100, 106, 95, 104)]  # 1, green
 HAMMER = [Candle(100, 105, 95, 96), Candle(96, 97.2, 89, 97)]  # 2D hammer, green
 
 
-def test_only_weekly_setups_are_ranked():
-    weekly = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
-    assert weekly.has_setup
-    assert weekly.primary.tf == "W"
-    assert weekly.primary.setup.trigger == 106
-    assert all(s.tf == "W" for s in weekly.setups)
+def test_only_daily_setups_are_ranked():
+    daily = score_symbol(_with_setup(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), "D", _ep()), 104, 1e9)
+    assert daily.has_setup
+    assert daily.primary.tf == "D"
+    assert daily.primary.setup.trigger == 106
+    assert all(s.tf == "D" for s in daily.setups)
 
 
-def test_monthly_only_and_daily_only_setups_are_ignored():
-    monthly_only = score_symbol(_states(INSIDE_GREEN, GREEN_UP, GREEN_UP), 104, 1e9)
-    daily_only = score_symbol(_states(GREEN_UP, GREEN_UP, HAMMER), 97, 1e9)
-    for s in (monthly_only, daily_only):
-        assert not s.has_setup
-        assert s.primary is None
-        assert s.trigger_distance_pct is None
-        assert "No weekly setup" in s.reasons
+def test_weekly_and_monthly_only_setups_are_ignored():
+    # Setups injected on the Weekly and Monthly states are never ranked: only daily setups count.
+    states = _with_setup(_states(GREEN_UP, GREEN_UP, GREEN_UP), "W", _ep())
+    states = _with_setup(states, "M", _ep(trigger=90.0, stop=88.0))
+    no_setup = score_symbol(states, 104, 1e9)
+    assert not no_setup.has_setup
+    assert no_setup.primary is None
+    assert no_setup.trigger_distance_pct is None
+    assert "No daily setup" in no_setup.reasons
 
 
-def test_weekly_hammer_is_a_setup():
-    s = score_symbol(_states(GREEN_UP, HAMMER, GREEN_UP), 97, 1e9)
-    assert s.primary.setup.kind == "hammer"
-    assert s.primary.setup.trigger == 97.2
+def test_daily_ep_is_a_setup():
+    s = score_symbol(_with_setup(_states(GREEN_UP, GREEN_UP, GREEN_UP), "D", _ep()), 104, 1e9)
+    assert s.primary.setup.kind == "episodic-pivot"
+    assert s.primary.setup.trigger == 106.0
 
 
 def test_monthly_2u_gets_a_strong_boost():
@@ -70,8 +83,8 @@ def test_full_continuity_beats_red_monthly():
 
 
 def test_trigger_closer_to_price_scores_higher():
-    near = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.5, 1e9)
-    far = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 100.0, 1e9)
+    near = score_symbol(_with_setup(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), "D", _ep()), 105.5, 1e9)
+    far = score_symbol(_with_setup(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), "D", _ep()), 100.0, 1e9)
     assert near.trigger_distance_pct < far.trigger_distance_pct
     assert near.score > far.score
 
@@ -88,17 +101,24 @@ def test_pinned_low_volatility_name_is_penalised():
     assert any("low volatility" in r for r in pinned.reasons)
 
 
-def test_reason_leads_with_weekly_trigger_without_stop():
-    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
-    assert s.reasons[0].startswith("Weekly Inside bar — trigger 106.00")
-    assert "stop" not in " ".join(s.reasons).lower()
+def test_reason_leads_with_daily_trigger_and_stop_on_setup():
+    s = score_symbol(_with_setup(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), "D", _ep()), 104, 1e9)
+    assert s.reasons[0].startswith("Daily Episodic Pivot — trigger 106.00")
+    assert s.primary.setup.stop == 102.0
 
 
 def test_best_possible_setup_scores_at_most_100():
     top = TOP_MOMENTUM.momentum("stock", {"1m": 99.0, "3m": 99.0, "6m": 99.0})
-    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.9, 50e9, theme=TOP_THEME, momentum=top)
+    # Best case needs two daily setups (EP 23 + 25% of HTF 22 = 28.5, capped at 25) to reach the old >90 bound.
+    best = _with_setup(
+        _states(GREEN_UP, INSIDE_GREEN, GREEN_UP),
+        "D",
+        _ep(),
+        Setup("high-tight-flag", "High Tight Flag", 110.0, False, stop=105.0),
+    )
+    s = score_symbol(best, 105.9, 50e9, theme=TOP_THEME, momentum=top)
     assert 90 < s.score <= 100
-    etf = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 105.9, 50e9, kind="etf", momentum=top)
+    etf = score_symbol(best, 105.9, 50e9, kind="etf", momentum=top)
     assert 90 < etf.score <= 100
 
 
@@ -106,7 +126,7 @@ def test_breakdown_components_sum_to_raw_and_rescale_to_score():
     top = TOP_MOMENTUM.momentum("stock", {"1m": 5.0, "3m": 5.0, "6m": 5.0})
     s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9, theme=TOP_THEME, momentum=top)
     keys = [c.key for c in s.breakdown]
-    assert keys == ["monthly_2u", "continuity", "weekly_setup", "proximity", "liquidity", "momentum", "theme_strength"]
+    assert keys == ["monthly_2u", "continuity", "daily_setup", "proximity", "liquidity", "momentum", "theme_strength"]
     assert abs(sum(c.points for c in s.breakdown) - s.raw) < 0.01
     assert abs(s.score - s.raw * 100 / MAX_RAW_POINTS) < 0.06
     assert sum(c.max_points for c in s.breakdown) == MAX_RAW_POINTS == s.max_raw == 163
@@ -123,7 +143,7 @@ def test_etfs_are_scored_without_theme_strength_on_the_123_scale():
 
 def test_themes_are_scored_without_liquidity_or_theme_strength_on_the_113_scale():
     s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 0.0, kind="theme", theme=TOP_THEME)
-    assert [c.key for c in s.breakdown] == ["monthly_2u", "continuity", "weekly_setup", "proximity", "momentum"]
+    assert [c.key for c in s.breakdown] == ["monthly_2u", "continuity", "daily_setup", "proximity", "momentum"]
     assert sum(c.max_points for c in s.breakdown) == THEME_MAX_RAW_POINTS == s.max_raw == 113
     assert abs(s.score - s.raw * 100 / 113) < 0.06
 
@@ -143,12 +163,12 @@ def test_momentum_component_adds_up_to_15_points_and_rescales_the_score():
 
 
 def test_breakdown_values_for_known_setup():
-    # Monthly 2U green, weekly inside green, daily 2U green; price 104 vs trigger 106 (1.92% away).
-    s = score_symbol(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), 104, 1e9)
+    # Monthly 2U green, weekly inside green, daily 2U green; price 104 vs an Episodic Pivot trigger of 106 (1.92% away).
+    s = score_symbol(_with_setup(_states(GREEN_UP, INSIDE_GREEN, GREEN_UP), "D", _ep()), 104, 1e9)
     pts = {c.key: c.points for c in s.breakdown}
     assert pts["monthly_2u"] == 20
     assert pts["continuity"] == 12 + 12 + 6 + 8
-    assert pts["weekly_setup"] == 20
+    assert pts["daily_setup"] == SETUP_POINTS["episodic-pivot"] == 23.0
     assert abs(pts["proximity"] - 15 * (1 - (2 / 104 * 100) / 5)) < 1e-9
     assert abs(pts["liquidity"] - liquidity_points(1e9)) < 1e-9
 
@@ -162,10 +182,15 @@ def test_pinned_penalty_shows_in_breakdown():
 
 
 def test_setup_points_cap_is_explained():
-    # A 2-1 pending inside week that is also a hammer: 23 + 25% of 18 = 27.5 -> capped at 25.
-    w = [Candle(100, 110, 90, 95), Candle(95, 105, 85, 88), Candle(96, 96.6, 89, 96.5)]
-    s = score_symbol(_states(GREEN_UP, w, GREEN_UP), 96.5, 1e9)
-    setup = next(c for c in s.breakdown if c.key == "weekly_setup")
+    # An Episodic Pivot (23) plus a High Tight Flag (22): 23 + 25% of 22 = 28.5 -> capped at 25.
+    states = _with_setup(
+        _states(GREEN_UP, INSIDE_GREEN, GREEN_UP),
+        "D",
+        _ep(),
+        Setup("high-tight-flag", "High Tight Flag", 110.0, False, stop=105.0),
+    )
+    s = score_symbol(states, 104, 1e9)
+    setup = next(c for c in s.breakdown if c.key == "daily_setup")
     assert setup.points == 25
     assert "capped at 25" in setup.detail
 

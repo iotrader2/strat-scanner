@@ -25,7 +25,7 @@ import {
 /** User-facing name of the filter group. The persisted value stays under the "leadership" key. */
 export const SETUPS_FILTER_LABEL = "Setups";
 
-/** Widest Min RS the Leaders / Weekly setups views allow — hero chips use this, not the current slider. */
+/** Widest Min RS the Leaders / Daily setups views allow — hero chips use this, not the current slider. */
 const CHIP_RS = sliderToRs(MIN_RS_RANGE.min);
 import { RsSlider } from "../components/RsSlider";
 import {
@@ -46,15 +46,15 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "leaders", label: "Leaders", hint: "Relative strength at the Min RS cut (default P90) or an RS line versus QQQ that made a 52-week high in the last 5 sessions, trend not broken, score above 70, highest score first. The slider can raise the cut above P90; lowering it does not add other names, and an RS-line high does not bypass a higher cut." },
   {
     value: "setups_pending",
-    label: "Weekly strat awaiting trigger",
+    label: "Daily Ariel awaiting trigger",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side weekly Strat setup on the last completed week (the trigger is that week's high, never the week still in progress) that has not been broken yet, not even by this week's high: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side daily Ariel setup on the last completed day (the trigger is that setup's level, never today's session) that has not been broken yet, not even by today's high: Episodic Pivot, Delayed High Volume Close, Flat Base Breakout, Undercut and Rally, MA Undercut and Rally, or High Tight Flag. Sorted by score.",
   },
   {
     value: "setups_triggered",
-    label: "Weekly strat already triggered",
+    label: "Daily Ariel already triggered",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, a hammer that cleared its high, or a pending setup whose trigger (set by the last completed week) the week in progress has traded above (marked “triggered this week”). Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) whose last completed daily Ariel setup has already broken the trigger, or a pending setup whose trigger (set by the last completed day) today's session has traded above (marked “triggered today”). Sorted by score.",
   },
   {
     value: "daily_bullish",
@@ -108,7 +108,7 @@ type HeroChipKey =
   | "breakouts"
   | "failedBreakouts"
   | "broken";
-/** Summary tiles, in this order (the weekly Strat views have no tile; pick them from Setups). */
+/** Summary tiles, in this order (the daily Ariel views have no tile; pick them from Setups). */
 export const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
   { key: "all", filter: "all", label: "all names", tone: "muted" },
   { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
@@ -243,7 +243,7 @@ export default function Scanner({ version }: { version: string | null }) {
 
   /**
    * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
-   * liquidity, theme or setup filters. Leaders / Weekly setups use the widest Min RS (P50); dig in with the slider.
+   * liquidity, theme or setup filters. Leaders / Daily setups use the widest Min RS (P50); dig in with the slider.
    */
   const stats = useMemo(
     () => ({

@@ -210,14 +210,14 @@ describe("detail chart switcher", () => {
     expect(localStorage.getItem(`strat:${DETAIL_TF_KEY}`)).toBe(JSON.stringify("D"));
   });
 
-  it("keeps Weekly when the row has no trigger timeframe, still without a 5-minute fetch", async () => {
+  it("keeps Weekly when the row has no trigger timeframe, still without a 15-minute fetch", async () => {
     await renderLoaded(null);
     expect(activeLabel()).toBe("Weekly");
     expect(host.querySelector("[data-chart='candles']")?.getAttribute("data-times")).toBe("2026-10-22");
     expect(bars15mMock).not.toHaveBeenCalled();
   });
 
-  it("fetches 5-minute bars on load only when that view was saved", async () => {
+  it("fetches 15-minute bars on load only when that view was saved", async () => {
     localStorage.setItem(`strat:${DETAIL_TF_KEY}`, JSON.stringify("15m"));
     await renderLoaded("W");
     expect(activeLabel()).toBe("15min");

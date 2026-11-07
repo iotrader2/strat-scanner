@@ -123,7 +123,7 @@ describe("matchesLeadership", () => {
     expect(pick("broken", sliderToRs(99))).toEqual([brokenLeader, brokenMid, brokenBreakout]);
   });
 
-  it("only Leaders and Weekly setups use the Min RS slider", () => {
+  it("only Leaders and Daily setups use the Min RS slider", () => {
     expect(leadershipUsesMinRs("leaders")).toBe(true);
     expect(leadershipUsesMinRs("setups_pending")).toBe(true);
     expect(leadershipUsesMinRs("setups_triggered")).toBe(true);
@@ -151,7 +151,7 @@ describe("matchesLeadership", () => {
   });
 });
 
-describe("Weekly setups", () => {
+describe("Daily setups", () => {
   const pendingLeader = row(0.96, "none", null, true, false);
   const pendingWarning = row(0.92, "warning", null, true, false);
   const pendingMid = row(0.84, "none", null, true, false);

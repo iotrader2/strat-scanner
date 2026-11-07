@@ -38,7 +38,7 @@ const html = (cols: ReturnType<typeof listIntradayColumns>, key: string) =>
   renderToStaticMarkup(<>{cols.find((c) => c.key === key)!.render(row)}</>);
 
 describe("watchlist / positions intraday columns", () => {
-  it("watchlist headers omit the 5-minute EMAs; positions keeps them before the daily MAs", () => {
+  it("watchlist headers omit the 15-minute EMAs; positions keeps them before the daily MAs", () => {
     expect(listIntradayColumns({}).map((c) => c.label)).toEqual(["Premkt", "Day", "Day range", "vs 6 MA", "vs 20 MA", "vs 50 MA"]);
     expect(listIntradayColumns({}, { ema5m: true }).map((c) => c.label)).toEqual([
       "Premkt", "Day", "Day range", "6 EMA (15m)", "20 EMA (15m)", "vs 6 MA", "vs 20 MA", "vs 50 MA",
@@ -90,7 +90,7 @@ describe("watchlist / positions intraday columns", () => {
   });
 });
 
-describe("5-minute EMA crossover row highlight", () => {
+describe("15-minute EMA crossover row highlight", () => {
   it("is off without a crossover", () => {
     expect(crossHighlight(info)).toBeNull();
     expect(crossHighlight(undefined)).toBeNull();
