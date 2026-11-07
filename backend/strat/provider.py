@@ -175,7 +175,7 @@ def release_download_cache() -> None:
 
 
 class AlpacaProvider:
-    """Alpaca Market Data: daily SIP bars, real-time IEX 15-minute bars for the session in progress.
+    """Alpaca Market Data: daily SIP bars, real-time IEX 5-minute bars for the session in progress.
 
     Daily bars are requested unadjusted (``ALPACA_ADJUSTMENT=raw``) and the splits come from
     Alpaca's corporate-actions endpoint, so the cache keeps raw bars plus a split table exactly
@@ -183,7 +183,7 @@ class AlpacaProvider:
     """
 
     name = "alpaca"
-    # The session in progress comes from 15-minute bars (see intraday.py), polled on 15-minute marks.
+    # The session in progress comes from 5-minute bars (see intraday.py), polled on 5-minute marks.
     live_bars = True
 
     def __init__(self, client=None):
@@ -284,7 +284,7 @@ def active_name() -> str:
 
 
 def live_bars_enabled() -> bool:
-    """True when today's session is built from 15-minute bars polled on the 15-minute marks (Alpaca)."""
+    """True when today's session is built from 5-minute bars polled on the 5-minute marks (Alpaca)."""
     try:
         return active_name() == "alpaca"
     except Exception:

@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS session_bar (
     volume     REAL NOT NULL,
     updated_at TEXT NOT NULL
 );
--- Today's 15-minute bars (Alpaca: IEX live, replaced by SIP once 15 minutes old). See intraday.py.
+-- Today's 5-minute bars (Alpaca: IEX live, replaced by SIP once 15 minutes old). See intraday.py.
 CREATE TABLE IF NOT EXISTS intraday_bars (
     symbol TEXT NOT NULL,
     ts     TEXT NOT NULL,

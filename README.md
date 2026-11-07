@@ -74,7 +74,7 @@ Defaults can be changed with environment variables (the UI filters can also be c
 | `ALPACA_ADJUSTMENT` | `raw` | Daily-bar adjustment. `raw` keeps the cache unadjusted; splits and spin-offs come from Alpaca's corporate actions and are applied point-in-time |
 | `ALPACA_MAX_RPM` | `180` | Request budget per minute (the free plan allows 200) |
 | `ALPACA_RECENT_FEED` | `clamp` | SIP is only served 15 minutes after the fact on the free plan. `clamp` moves a too-recent `end` back; `delayed_sip` asks for that feed instead (paid plans) |
-| `STRAT_LIVE_POLL_MINUTES` / `STRAT_LIVE_POLL_OFFSET_SECONDS` | `15` / `10` | Alpaca: today's bar is rebuilt from 15-minute bars this many seconds after each mark |
+| `STRAT_LIVE_POLL_MINUTES` / `STRAT_LIVE_POLL_OFFSET_SECONDS` | `5` / `10` | Alpaca: today's bar is rebuilt from 5-minute bars this many seconds after each mark (independent of the 15-minute entry chart) |
 | `STRAT_LIVE_TRIGGER_TOLERANCE` | `0.05` | Alpaca, regular session: a live IEX high must clear a daily trigger by more than this many dollars to count as broken |
 | `STRAT_SCHEDULER` | `1` | Set to `0` to disable the background fetcher (the test suite does this) |
 | `STRAT_API_PORT` / `STRAT_WEB_PORT` | `8000` / `5173` | Local ports |
@@ -89,7 +89,7 @@ A single thread in the API process is the only thing that talks to the price pro
 
 - When the newest confirmed daily bar is older than the last completed session, it downloads history (5 days if the gap is small, 3 months if the cache is merely behind, 3 years for a symbol that has never been downloaded).
 - During the regular session (09:30–16:00 America/New_York, weekdays) it rebuilds today's bar. Today's bar is kept beside the confirmed history, so a restart cannot overwrite a finished day with a partial one.
-  - **Alpaca**: about 10 seconds after every 15-minute mark it fetches the universe's 15-minute bars from IEX (real time, free) and, for every bar that closed at least 15 minutes ago, the SIP version (all exchanges), which overwrites the IEX row. Today's open / high / low / close come from those bars; today's volume is the SIP bars only, so it trails by ~15 minutes but is never mixed with IEX volume (~2.5% of the market). About 8 requests per poll; the first poll of a day catches up from the open.
+  - **Alpaca**: about 10 seconds after every 5-minute mark it fetches the universe's 5-minute bars from IEX (real time, free) and, for every bar that closed at least 15 minutes ago, the SIP version (all exchanges), which overwrites the IEX row. Today's open / high / low / close come from those bars; today's volume is the SIP bars only, so it trails by ~15 minutes but is never mixed with IEX volume (~2.5% of the market). About 8 requests per poll; the first poll of a day catches up from the open.
   - **Yahoo**: quotes at most every 15 minutes.
 - After each download it recomputes the scan and stores the rows in `scan_snapshot`. The next page load reads that snapshot immediately. Chart pages still build from the bar cache.
 - Browsers connect to `/ws` (proxied by Vite). They receive the snapshot on connect, a delta when the scan changes, and a ping every 15 seconds. If the socket drops, the page reconnects on its own and falls back to `GET /api/status` until it is back.
@@ -137,12 +137,15 @@ The **15-minute chart is only for timing the entry** — never for the setup dec
 
 | Setup | Pattern (daily bars) | Entry (15-min chart) | Stop |
 | --- | --- | --- | --- |
-| Episodic Pivot | large gap up (≥ 2%) on ≥ 1.5× 20-day volume, close in the upper half | Opening Range Break above the high of the first 15-min bar | gap-day low |
-| Delayed High Volume Close | price breaks back through an Episodic Pivot gap-day close, any day after | break of that close | low of entry day |
-| Flat Base Breakout | horizontal base ≥ 15 sessions, ≤ 10% deep, 10/20-day MAs within 3% near price, ranges tightening; close breaks the base high | above the prior day's high, clearing base resistance | prior day's low if the breakout candle is tight, else breakout-day low |
-| Undercut and Rally | price dips below a swing low, then reclaims it | on reclaim of the prior low | the new swing low formed during the undercut |
-| MA Undercut and Rally | price moves below a key daily MA (20/50/10-day), then reclaims it with strength | as price rallies back through the MA | low of reclaim day |
-| High Tight Flag | after a ≥ 50% run-up, a tight 10–25 session flag holding near the highs on contracting volume; close breaks the flag high | break through the upper half of the tight range | low of breakout day |
+| Episodic Pivot | **today's** bar gaps up ≥ 2% on ≥ 1.5× 20-day volume (projected from the session so far); a same-day trade, so it is not shown once the gap day has closed | Opening Range Break above the high of the first 15-min bar (before 09:45 ET the trigger is the high so far) | low of day |
+| Delayed High Volume Close | price breaks back through a recent (≤ 10 sessions) Episodic Pivot gap-day close, any day after; pending while price is below that close | break of that close | low of entry day |
+| Flat Base Breakout | after a ≥ 20% prior trend, a horizontal base ≥ 15 sessions, ≤ 10% deep, ranges tightening, 10/20-day MAs within 3%; pending when the last bar sits at the base high | above the prior day's high, clearing base resistance | prior day's low if the breakout candle is tight, else breakout-day low (the playbook gives no stop; this is the scanner's) |
+| Undercut and Rally | price closes below a ~1-month swing low, then reclaims it the next day | on reclaim of the prior low | the new swing low formed during the undercut |
+| MA Undercut and Rally | price closes below a key daily MA (20/50/10-day), then reclaims it with strength (an up day closing in the upper half of its range) | as price rallies back through the MA | low of reclaim day |
+| High Tight Flag | a ≥ 50% run-up within ~8 weeks, then a tight 10–25 session flag holding near the highs on contracting volume; pending while in the flag | break through the top of the tight range | low of breakout day |
+
+Pending setups break during today's session (today's high / the live price above the trigger). A setup whose stop is
+not below its entry (the trigger, or the breakout day's open when it gapped above) is dropped.
 
 General rules from the same playbook: only take trades when the market and the group / sector support the direction,
 with institutional accumulation / relative strength; every setup has a defined risk; typical risk is **0.5% to 1% of
@@ -592,7 +595,7 @@ backend/
   strat/data.py       SQLite cache (bars, splits, session bar, scan snapshot, watchlist, positions, earnings)
   strat/provider.py   MarketDataProvider: Alpaca (default with keys) and Yahoo
   strat/alpaca.py     Alpaca Market Data client: feeds, pagination, rate limit, corporate actions
-  strat/intraday.py   Today's bar from Alpaca 15-minute bars (IEX live, SIP backfill)
+  strat/intraday.py   Today's bar from Alpaca 5-minute bars (IEX live, SIP backfill), 15-min opening range
   strat/scheduler.py  when to download history vs poll the open session
   strat/adjust.py     point-in-time split adjustment
   strat/hub.py        WebSocket fan-out (one upstream fetcher, N browsers)
@@ -651,7 +654,7 @@ Each alert has two steps, and each chimes / notifies:
 2. **Trigger.** Price trades over the previous 15-minute candle's high + 1c. While waiting, each candle
    that does not take it out moves the buy stop to its own high + 1c and the stop to the pullback low - 1c.
    The watch is cancelled on a close more than `hold_pct` under the EMA and expires after `watch_bars` (4)
-   candles. The 15-minute poll also checks the candle still forming (IEX, real time), so a trigger shows up
+   candles. The 5-minute poll also checks the candle still forming (IEX, real time), so a trigger shows up
    within a poll; the row turns unread again and the tab chimes a second time.
 
 After the fill the trade is tracked on completed candles: the stop, break-even after 3 new-high candles,
@@ -659,7 +662,7 @@ an exit on a close under the EMA (`exit_close_under_ma`), and the session end. T
 15-minute closes (no premarket), the same lines the chart draws; their history (~63 sessions) is fetched
 once per day per name in premarket and only the last few values are kept.
 Rules: `backend/strat/alerts.py` (pure, shared by the live poll and the replay); live inputs:
-`alerts_live.py`, run from the existing 15-minute poll; name selection: `alert_symbols` in `api.py`;
+`alerts_live.py`, run from the existing 5-minute poll; name selection: `alert_symbols` in `api.py`;
 storage: `alerts_store.py`. Every alert is kept with its outcome (filled, fill price, high reached,
 stop hit, break-even time, exit price / time, R with 1R = entry minus the stop at the fill). The
 metrics view groups them by EMA over a date range and ticker. Every threshold is editable from the tab

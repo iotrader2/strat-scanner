@@ -96,13 +96,26 @@ def _load_theme_map() -> Optional[ThemeMap]:
         return None
 
 
+def _opening_highs() -> dict[str, float]:
+    """Today's 15-minute opening-range highs (the Episodic Pivot entry level), from the live Alpaca bars."""
+    if not live_bars_enabled():
+        return {}
+    try:
+        from . import intraday as intraday_bars
+
+        return intraday_bars.opening_range_highs()
+    except Exception:  # noqa: BLE001 — a missing opening range must never break the scan
+        log.exception("opening range highs failed")
+        return {}
+
+
 def _scan_one(member: Member, daily) -> Optional[dict]:
     """Scan one symbol against the current theme ranking and momentum distributions."""
     qqq_daily = State.daily.get(BENCHMARK)
     bench_close = None if qqq_daily is None or qqq_daily.empty else qqq_daily["close"]
     return scan_symbol(
         member, daily, State.strengths, State.ranks, State.theme_map, State.qqq, prior=State.prior,
-        benchmark_close=bench_close,
+        benchmark_close=bench_close, opening_high=_opening_highs().get(member.symbol),
     )
 
 
@@ -130,7 +143,7 @@ def _log_rss(phase: str, **fields) -> None:
 def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True, intraday: bool = False) -> None:
     live = intraday and live_bars_enabled()
     fetch = "child" if fetch_worker.use_child(full, with_earnings) else "in-process"
-    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch, **({"kind": "live15m"} if live else {}))
+    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch, **({"kind": "live5m"} if live else {}))
     try:
         symbols = [m.symbol for m in _universe()]
 
@@ -142,7 +155,7 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             from . import intraday as intraday_bars
 
             stats = intraday_bars.poll(symbols)
-            log.info("live 15m poll %s", stats)
+            log.info("live 5m poll %s", stats)
         elif fetch == "child":
             fetch_worker.fetch_in_child(full, period, with_earnings, progress)
         else:
@@ -447,7 +460,7 @@ def _compute_scan(key: Optional[str]) -> list[dict]:
     data.reload_daily(State.daily)
     memory.release_heap()
     State.theme_map = _load_theme_map()
-    result = scan_all(_universe(), State.daily, State.theme_map)
+    result = scan_all(_universe(), State.daily, State.theme_map, opening_highs=_opening_highs())
     State.result, State.scan = result, result.rows
     State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
     State.scan_key = key
@@ -606,8 +619,8 @@ def _status_body() -> dict:
         "universe_size": len(universe),
         "version": State.version,
         "computed_at": State.scan_key,
-        # Alpaca: prices from real-time IEX 15-minute bars (volume trails ~15 min on SIP). Yahoo: ~15-minute delay.
-        "delay": "live" if live_bars_enabled() else "15m",
+        # Alpaca: prices from real-time IEX 5-minute bars (volume trails ~15 min on SIP). Yahoo: ~15-minute delay.
+        "delay": "5m" if live_bars_enabled() else "15m",
         "source": "alpaca" if live_bars_enabled() else "yahoo",
         "storage": userdb.describe(),
     }

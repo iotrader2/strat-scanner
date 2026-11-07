@@ -213,7 +213,10 @@ class TestCtvaTrigger:
         monkeypatch.setattr("strat.periods.clock", lambda: _at("2026-10-16", 11))
         row = scan_symbol(Member("CTVA", "Corteva", "Materials", "stock", "SP500"), _ctva_like(monday=False))
         assert row["tf"]["W"]["high"] == 20
-        assert row["trigger"] is None  # no Ariel setup on this frame, whatever the week in progress is
+        # Friday's synthetic bar opens 21% above Thursday's close, so the only setup is a live Episodic Pivot read
+        # from today's bar (opening range still forming: the high so far), never the weekly high of 20.
+        assert [s["kind"] for s in row["setups"]] == ["episodic-pivot"]
+        assert row["trigger"] == 18
 
     def test_friday_after_the_close_uses_the_week_that_just_finished(self, monkeypatch):
         monkeypatch.setattr("strat.periods.clock", lambda: _at("2026-10-16", 17))

@@ -232,7 +232,7 @@ def test_provider_selection(monkeypatch):
     assert active_name() == "yahoo"
 
 
-# --- intraday: 15-minute bars -> today's daily bar ---------------------------------------------
+# --- intraday: 5-minute bars -> today's daily bar ----------------------------------------------
 
 
 def _intraday_handler(iex, sip, calls):
@@ -246,12 +246,12 @@ def _intraday_handler(iex, sip, calls):
 
 def test_poll_builds_todays_bar_from_iex_and_keeps_volume_to_sip(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CACHE_DB", tmp_path / "c.sqlite3")
-    now = datetime(2026, 10, 22, 14, 15, 12, tzinfo=UTC)  # 10:15:12 ET
+    now = datetime(2026, 10, 22, 14, 0, 12, tzinfo=UTC)  # 10:00:12 ET
     iex = {
         "AAA": [
             bar("2026-10-22T13:30:00Z", o=10, h=10.5, l=9.8, c=10.2, v=50),
-            bar("2026-10-22T13:45:00Z", o=10.2, h=10.9, l=10.1, c=10.8, v=40),
-            bar("2026-10-22T14:00:00Z", o=10.8, h=11.4, l=10.7, c=11.3, v=30),
+            bar("2026-10-22T13:35:00Z", o=10.2, h=10.9, l=10.1, c=10.8, v=40),
+            bar("2026-10-22T13:55:00Z", o=10.8, h=11.4, l=10.7, c=11.3, v=30),
         ]
     }
     sip = {"AAA": [bar("2026-10-22T13:30:00Z", o=10.01, h=10.55, l=9.75, c=10.2, v=5000)]}
@@ -260,8 +260,8 @@ def test_poll_builds_todays_bar_from_iex_and_keeps_volume_to_sip(tmp_path, monke
     stats = intraday.poll(["AAA"], now=now, client=c)
     assert stats["symbols"] == 1
     sip_call = next(p for p in calls if p["feed"] == "sip")
-    # SIP only asks for bars that closed 15+ minutes ago (plus a 1-minute margin).
-    assert sip_call["end"] == "2026-10-22T13:44:59Z"
+    # SIP only asks for bars that closed 15+ minutes ago.
+    assert sip_call["end"] == "2026-10-22T13:39:59Z"
     frames = data._session_frames(None)
     day = frames["AAA"].iloc[-1]
     assert frames["AAA"].index[-1] == pd.Timestamp("2026-10-22")
@@ -286,15 +286,15 @@ def test_backfill_advances_and_old_sessions_are_pruned(tmp_path, monkeypatch):
     intraday.upsert([("AAA", "2026-10-21T19:55:00Z", 1, 1, 1, 1, 1)], "sip")  # yesterday
     calls = []
     c, _ = client(_intraday_handler({}, {}, calls))
-    intraday.poll(["AAA"], now=datetime(2026, 10, 22, 14, 15, 12, tzinfo=UTC), client=c)
+    intraday.poll(["AAA"], now=datetime(2026, 10, 22, 14, 0, 12, tzinfo=UTC), client=c)
     with data.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM intraday_bars").fetchone()[0] == 0
     first_sip = [p for p in calls if p["feed"] == "sip"][0]
     calls.clear()
-    intraday.poll(["AAA"], now=datetime(2026, 10, 22, 14, 30, 12, tzinfo=UTC), client=c)
+    intraday.poll(["AAA"], now=datetime(2026, 10, 22, 14, 5, 12, tzinfo=UTC), client=c)
     second_sip = [p for p in calls if p["feed"] == "sip"][0]
-    assert first_sip["start"] == "2026-10-22T13:30:00Z" and first_sip["end"] == "2026-10-22T13:44:59Z"
-    assert second_sip["start"] == "2026-10-22T13:45:00Z" and second_sip["end"] == "2026-10-22T13:59:59Z"
+    assert first_sip["start"] == "2026-10-22T13:30:00Z" and first_sip["end"] == "2026-10-22T13:39:59Z"
+    assert second_sip["start"] == "2026-10-22T13:40:00Z" and second_sip["end"] == "2026-10-22T13:44:59Z"
 
 
 def test_poll_before_the_open_does_nothing(tmp_path, monkeypatch):
@@ -307,14 +307,14 @@ def test_poll_before_the_open_does_nothing(tmp_path, monkeypatch):
 # --- scheduler alignment ----------------------------------------------------------------------
 
 
-def test_aligned_poll_runs_once_per_fifteen_minute_mark():
+def test_aligned_poll_runs_once_per_five_minute_mark():
     at = lambda h, m, s: datetime(2026, 10, 22, h, m, s, tzinfo=ET)
-    assert not scheduler.intraday_due(at(10, 15, 5), at(10, 0, 11), aligned=True)  # before 10:15:10
-    assert scheduler.intraday_due(at(10, 15, 11), at(10, 0, 11), aligned=True)
-    assert not scheduler.intraday_due(at(10, 15, 30), at(10, 15, 11), aligned=True)
-    assert scheduler.intraday_due(at(16, 0, 12), at(15, 45, 11), aligned=True)  # picks up the 15:45 bar
+    assert not scheduler.intraday_due(at(10, 5, 5), at(10, 0, 11), aligned=True)  # before 10:05:10
+    assert scheduler.intraday_due(at(10, 5, 11), at(10, 0, 11), aligned=True)
+    assert not scheduler.intraday_due(at(10, 5, 30), at(10, 5, 11), aligned=True)
+    assert scheduler.intraday_due(at(16, 0, 12), at(15, 55, 11), aligned=True)  # picks up the 15:55 bar
     assert not scheduler.intraday_due(at(16, 2, 0), at(16, 0, 12), aligned=True)
-    assert scheduler.scheduler_sleep(at(10, 14, 58), True) <= 13
+    assert scheduler.scheduler_sleep(at(10, 4, 58), True) <= 13
 
 
 # --- IEX tolerance on live trigger breaks -----------------------------------------------------
@@ -347,3 +347,19 @@ def test_tolerance_only_while_alpaca_session_bar_is_live(monkeypatch):
     assert scanner.live_trigger_tolerance(daily, datetime(2026, 10, 22, 17, 0, tzinfo=ET)) == 0.0
     monkeypatch.setenv("STRAT_DATA_PROVIDER", "yahoo")
     assert scanner.live_trigger_tolerance(daily, session) == 0.0
+
+
+def test_opening_range_high_is_the_first_15_minutes_once_closed(tmp_path, monkeypatch):
+    """The Episodic Pivot's ORB level: the high of the first 15-minute bar, built from the stored 5-minute bars."""
+    monkeypatch.setattr(config, "CACHE_DB", tmp_path / "c.sqlite3")
+    intraday.upsert(
+        [
+            ("AAA", "2026-10-22T13:30:00Z", 10, 10.4, 9.9, 10.2, 5),
+            ("AAA", "2026-10-22T13:35:00Z", 10.2, 10.8, 10.1, 10.5, 5),
+            ("AAA", "2026-10-22T13:40:00Z", 10.5, 10.6, 10.3, 10.4, 5),
+            ("AAA", "2026-10-22T13:45:00Z", 10.4, 11.5, 10.3, 11.4, 5),  # after the opening range
+        ],
+        "iex",
+    )
+    assert intraday.opening_range_highs(now=datetime(2026, 10, 22, 13, 44, tzinfo=UTC)) == {}  # still forming
+    assert intraday.opening_range_highs(now=datetime(2026, 10, 22, 13, 46, tzinfo=UTC)) == {"AAA": 10.8}

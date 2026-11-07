@@ -122,8 +122,8 @@ class TestSetupsRemoved:
         df = pd.DataFrame(
             {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000.0}, index=idx
         )
-        df.iloc[-1] = (103.0, 106.0, 102.0, 105.0, 3_000_000.0)
-        setups = find_ariel_setups(df)
+        today = {"open": 103.0, "high": 106.0, "low": 102.0, "close": 105.0, "volume": 0.0}
+        setups = find_ariel_setups(df, today=today, opening_high=104.0)
         assert setups and setups[0].kind == "episodic-pivot"
         assert setups[0].stop == 102.0 and setups[0].to_setup().entry_tf == "15m"
 

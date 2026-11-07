@@ -75,6 +75,20 @@ def candle_patterns(daily: pd.DataFrame, frames: Mapping[str, pd.DataFrame], can
     return out
 
 
+def session_fraction(now: Optional[datetime] = None) -> Optional[float]:
+    """Share of today's regular session that has traded (0–1), or None outside it (or in an as-of run)."""
+    if config.AS_OF:
+        return None
+    from .scheduler import CLOSE, OPEN, now_et, regular_session
+
+    clock = now_et(now)
+    if not regular_session(clock):
+        return None
+    open_ = clock.replace(hour=OPEN.hour, minute=OPEN.minute, second=0, microsecond=0)
+    close = clock.replace(hour=CLOSE.hour, minute=CLOSE.minute, second=0, microsecond=0)
+    return max(0.0, min(1.0, (clock - open_) / (close - open_)))
+
+
 def live_trigger_tolerance(daily: pd.DataFrame, now: Optional[datetime] = None) -> float:
     """``STRAT_LIVE_TRIGGER_TOLERANCE`` while today's bar is live from IEX (Alpaca, regular session); else 0."""
     if config.AS_OF or daily is None or daily.empty or config.LIVE_TRIGGER_TOLERANCE <= 0:
@@ -192,8 +206,12 @@ def scan_symbol(
     method: str = LEADERS,
     prior: Optional[Mapping[int, PriorRanks]] = None,
     benchmark_close: Optional[pd.Series] = None,
+    opening_high: Optional[float] = None,
 ) -> Optional[dict]:
     """Scan one symbol.
+
+    ``opening_high`` is the high of today's first 15-minute bar once it has closed (the Episodic Pivot's
+    Opening Range Break level), or None when it is not known.
 
     ``ranks`` supplies the peer distributions for relative strength and ``qqq`` the QQQ returns; stocks
     also get Theme strength from ``strengths`` (see ``theme_strengths``) for their primary theme in ``themes``.
@@ -213,18 +231,26 @@ def scan_symbol(
     # Daily Ariel setups read completed daily bars only; today's session is
     # still forming, so it is dropped until the close. The setup decision is
     # daily; the 15-minute chart is only for timing the entry.
+    # The Episodic Pivot is the exception: it is a same-day trade, read from
+    # today's forming bar (with the 15-minute opening-range high when known).
     bar_complete = daily_bar_complete(pd.Timestamp(daily.index[-1]).date())
     completed = daily if bar_complete else daily.iloc[:-1]
+    today = None if bar_complete else {
+        "open": float(last.open), "high": max(float(last.high), price), "low": min(float(last.low), price),
+        "close": price, "volume": float(last.volume) if pd.notna(last.volume) else 0.0,
+    }
     if states.get("D") is not None:
-        states["D"] = replace(
-            states["D"], setups=[s.to_setup() for s in find_ariel_setups(completed)]
+        found = find_ariel_setups(
+            completed, today=today, opening_high=opening_high, session_fraction=session_fraction(),
         )
+        states["D"] = replace(states["D"], setups=[s.to_setup() for s in found])
     # A daily trigger stays on the last completed bar; the bar in progress only
     # decides whether one has broken (today's high / the latest price).
-    if not bar_complete:
-        states["D"] = apply_live_triggers(
-            states["D"], max(float(last.high), price), live_trigger_tolerance(daily)
-        )
+    if today is not None and states.get("D") is not None:
+        states["D"] = apply_live_triggers(states["D"], today["high"], live_trigger_tolerance(daily))
+        for setup in states["D"].setups:
+            if setup.live and setup.stop is None:
+                setup.stop = today["low"]  # "stop at the low of the day the entry triggers"
     # Continuity (score, badges, M+W / full flags) reads the bars in progress; the Strat state above does not.
     for tf, open_ in live_opens(daily).items():
         if states.get(tf) is not None and open_ is not None:
@@ -425,6 +451,7 @@ def scan_all(
     themes: Optional[ThemeMap] = None,
     method: str = LEADERS,
     changes: bool = True,
+    opening_highs: Optional[Mapping[str, float]] = None,
 ) -> ScanResult:
     """Scan everything. Order matters: returns are ranked first (relative strength), then the themes are scored and
     ranked, and only then the stocks, whose Theme strength comes from their theme's rank. ``changes`` adds the RS change
@@ -471,6 +498,7 @@ def scan_all(
         if m.kind != "theme":
             row = scan_symbol(
                 m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method, prior, bench_close,
+                opening_high=(opening_highs or {}).get(m.symbol),
             )
             if row:
                 rows.append(row)

@@ -20,7 +20,7 @@ OPEN = time(9, 30)
 CLOSE = time(16, 0)
 AFTER_HOURS_END = time(20, 0)
 EOD_AT = time(16, 20)
-CLOSING_POLL_END = time(16, 1)  # the 16:00:10 poll picks up the 15:45 bar
+CLOSING_POLL_END = time(16, 1)  # the 16:00:10 poll picks up the 15:55 bar
 # A few minutes after the 16:00 bell, once the closing poll (through 16:01) has finished.
 ARCHIVE_AT = time(16, 5)
 
@@ -110,7 +110,7 @@ def intraday_due(
 ) -> bool:
     """Regular-session poll.
 
-    ``aligned`` (Alpaca 15-minute bars): once per mark, about 10 seconds after each 15-minute boundary,
+    ``aligned`` (Alpaca 5-minute bars): once per mark, about 10 seconds after each 5-minute boundary,
     including the 16:00 mark that closes the last bar. Otherwise every ``STRAT_POLL_SECONDS``.
     """
     if aligned:
@@ -146,7 +146,7 @@ def extended_due(now: datetime, last_poll: datetime | None, interval: int | None
 
 
 def lists_due(now: datetime, last_poll: datetime | None, *, aligned: bool = False) -> bool:
-    """Watchlist / positions premarket poll: once per 15-minute mark, premarket only, Alpaca only.
+    """Watchlist / positions premarket poll: once per 5-minute mark, premarket only, Alpaca only.
 
     In the regular session the same data rides on the intraday poll.
     """
@@ -175,7 +175,7 @@ def decide(
 ) -> str | None:
     """``intraday`` updates today's bar. ``history`` confirms completed sessions.
 
-    ``lists`` polls the watchlist / positions premarket prints (Alpaca, every 15 minutes).
+    ``lists`` polls the watchlist / positions premarket prints (Alpaca, every 5 minutes).
     ``extended`` refreshes the index quotes during premarket and after hours. ``None`` waits.
     A history catch-up wins over every poll.
     """
