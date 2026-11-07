@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
@@ -262,6 +262,19 @@ export default function Scanner({ version }: { version: string | null }) {
     [rows],
   );
 
+  // On phones the tiles are one swipeable row: keep the selected view's tile in sight (e.g. picked from the dropdown).
+  const tilesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tilesRef.current;
+    const tile = el?.querySelector<HTMLElement>(".stat-card-btn.active");
+    if (!el || !tile || el.scrollWidth <= el.clientWidth) return;
+    const box = el.getBoundingClientRect();
+    const t = tile.getBoundingClientRect();
+    if (t.left < box.left || t.right > box.right) {
+      el.scrollTo({ left: Math.max(0, el.scrollLeft + t.left - box.left - 10), behavior: "smooth" });
+    }
+  }, [leadership]);
+
   const themeChoices = useMemo<DropdownOption<string>[]>(() => themeOptions(config?.themes ?? []), [config]);
 
   const setTheme = (t: string) => {
@@ -278,7 +291,7 @@ export default function Scanner({ version }: { version: string | null }) {
           <h1>Stock Scanner</h1>
           <p className="muted">Pick a group, then narrow the list with the filters.</p>
         </div>
-        <div className="stat-cards" role="group" aria-label="Setups totals">
+        <div className="stat-cards scanner-tiles" role="group" aria-label="Setups totals" ref={tilesRef}>
           {HERO_CHIPS.map((chip) => {
             const active = leadership === chip.filter;
             return (
