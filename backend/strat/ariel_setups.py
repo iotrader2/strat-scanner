@@ -1,130 +1,154 @@
-"""RealSimpleAriel swing setups (the "Real Simple" playbook), replacing The Strat setups.
+"""Daily swing setups (the RealSimpleAriel "Real Simple" playbook) and their short mirrors.
 
-Source: https://www.tradezella.com/strategies/real-simple-strategy
+THE RULES AND EVERY NUMBER ARE IN data/setups.yaml, in plain words. This module reads that file at import;
+change a number there and detection changes with it. Keep the two in step when a rule changes.
 
-The playbook is a repeatable swing system built around institutional buying,
-sector strength and clean technical structure. The setup decision is always
-made on the **daily** chart; the entry chart is only for timing the entry
-(the playbook uses 5-minute bars — this scanner uses **15-minute** bars,
-per the owner's request — see ``ENTRY_TF``).
+Source playbook: https://www.tradezella.com/strategies/real-simple-strategy
 
-The six setups, in the order they are checked:
-
-1. **Episodic Pivot (EP)** — a large gap up, typically on earnings or news,
-   with volume significantly above the average daily volume. Entry is an
-   Opening Range Break on the entry chart, above the high of the first
-   entry bar. Stop: low of day. The EP is a *same-day* trade, so it is
-   detected on today's forming bar (``today``), not on completed bars; once
-   the gap day has closed, the second chance is the Delayed HVC.
-2. **Delayed High Volume Close (HVC)** — the second chance at an EP: enter
-   as price breaks back through the gap-day closing price on any day after.
-   Stop: low of the day the entry triggers.
-3. **Flat Base Breakout** — a horizontal consolidation over multiple weeks,
-   after a strong prior trend, with progressively smaller daily ranges.
-   Entry: above the prior day's high, which also clears the base resistance.
-   The playbook gives no stop for this one; the scanner uses the prior-day
-   low when the breakout candle is tight, else the breakout-day low.
-4. **Undercut and Rally (U&R)** — price dips below a major support level /
-   swing low, then immediately reclaims it. Entry: on the reclaim of the
-   prior low. Stop: the new swing low formed during the undercut.
-5. **Moving Average Undercut and Rally (MA U&R)** — like U&R but against a
-   key daily moving average (10/20/50-day): price moves below the average,
-   then reclaims it with strength. Entry: as price rallies back through the
-   average. Stop: low of the reclaim day.
-6. **High Tight Flag** — after a sharp 50–100% run-up, price moves sideways
-   in a tight range for 2–5 weeks, holding near the highs while volume
-   contracts. Entry: a break through the top of the tight range. Stop: low of
-   the breakout day.
-
-Each setup is either *pending* (``triggered=False``: the level is set on
-completed bars and today's session decides whether it breaks — see
-``candles.apply_live_triggers``) or *triggered* on the last completed bar.
-
-Defined risk: a setup whose stop is not below its entry is dropped. For a
-triggered setup the entry is the trigger, or the breakout day's open when the
-day gapped above it (you cannot buy below the open).
-
-Thresholds: the playbook states the patterns in words, not numbers, so the
-scanner thresholds below (gap size, volume multiples, base depth, run-up)
-are the scanner's own concrete readings of those words, chosen to be
-conservative and documented here — they are not claimed to be Ariel's.
+Each setup is either *pending* (``triggered=False``: the level is set on completed bars and today's session
+decides whether it breaks, see ``candles.apply_live_triggers``) or *triggered* on the last completed bar.
+A setup whose stop is not below its entry (short: above) is dropped.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Mapping, Optional
 
 import pandas as pd
+import yaml
 
 from .candles import Setup
 
+# Every rule's numbers live in data/setups.yaml (with the rules in plain words); this module reads them
+# at import. Percent values there are percents; here they are fractions.
+# STRAT_SETUPS_YAML points at another copy (tests use it to prove the file drives detection).
+SETUPS_YAML = Path(os.environ.get("STRAT_SETUPS_YAML") or Path(__file__).resolve().parent.parent / "data" / "setups.yaml")
+
+
+def load_config(path: Path = SETUPS_YAML) -> dict:
+    with path.open() as fh:
+        return yaml.safe_load(fh)
+
+
+CONFIG = load_config()
+_G, _EP, _HVC = CONFIG["general"], CONFIG["episodic_pivot"]["params"], CONFIG["delayed_hvc"]["params"]
+_FB, _UR = CONFIG["flat_base"]["params"], CONFIG["undercut_rally"]["params"]
+_MA, _HTF = CONFIG["ma_undercut_rally"]["params"], CONFIG["high_tight_flag"]["params"]
+
 # The timeframe the setup decision is made on, and the one used only to time the entry.
 SETUP_TF = "D"
-ENTRY_TF = "15m"
-ENTRY_BAR_MINUTES = 15
+ENTRY_BAR_MINUTES = int(_G["entry_chart_minutes"])
+ENTRY_TF = f"{ENTRY_BAR_MINUTES}m"
 
-# General playbook rules.
-RISK_PCT_MIN = 0.005
-RISK_PCT_MAX = 0.01
-PARTIAL_AFTER_DAYS = (3, 5)
-TRAIL_MA_PERIODS = (10, 20)
+# General playbook rules (shown, not enforced).
+RISK_PCT_MIN = _G["risk_pct_min"] / 100
+RISK_PCT_MAX = _G["risk_pct_max"] / 100
+PARTIAL_AFTER_DAYS = tuple(_G["partial_profit_after_days"])
+TRAIL_MA_PERIODS = tuple(_G["trail_ma_periods"])
+MIN_HISTORY_DAYS = int(_G["min_history_days"])
 
-# Scanner thresholds — the playbook's words, made concrete (see docstring).
-EP_MIN_GAP_PCT = 0.02  # gap up of at least 2% over the prior close
-EP_MIN_VOLUME_X = 1.5  # gap-day volume at least 1.5x the 20-day average (projected while the day is live)
-EP_MIN_SESSION_FRACTION = 0.1  # judge live volume only once ~40 minutes of the session have traded
-HVC_LOOKBACK_DAYS = 10  # an EP gap day counts for a delayed entry for this long
-FLAT_BASE_MIN_BARS = 15  # consolidation length, in sessions (multiple weeks)
-FLAT_BASE_MAX_DEPTH_PCT = 0.10  # base high to base low, % of the base high
-FLAT_BASE_MA_SPREAD_PCT = 0.03  # 10/20-day averages within this of each other
-FLAT_BASE_TIGHT_RANGE_PCT = 0.02  # a "tight" breakout candle: range <= 2% of price
-FLAT_BASE_PRIOR_TREND_BARS = 40  # the prior trend is measured over the ~2 months before the base
-FLAT_BASE_PRIOR_RUN_PCT = 0.20  # base low at least 20% above the low before the base
-FLAT_BASE_RESISTANCE_PCT = 0.01  # the prior-day high is within 1% of the base high
-UR_LOOKBACK_BARS = 20  # swing low is the lowest low of roughly the last month
-MA_UR_PERIODS = (20, 50, 10)  # in the order they are tried
-HTF_MIN_RUNUP_PCT = 0.50  # 50–100% run-up before the flag
-HTF_RUN_MAX_BARS = 40  # ... within about 8 weeks ("a sharp run-up")
-HTF_FLAG_MIN_BARS = 10  # flag lasts 2–5 weeks (10–25 sessions)
-HTF_FLAG_MAX_BARS = 25
-HTF_FLAG_MAX_DEPTH_PCT = 0.10  # flag holds near the highs
+# Episodic Pivot (live, today's bar).
+EP_MIN_GAP_PCT = _EP["min_gap_pct"] / 100
+EP_MIN_VOLUME_X = float(_EP["min_volume_x"])
+EP_VOLUME_AVG_DAYS = int(_EP["volume_avg_days"])
+EP_MIN_SESSION_FRACTION = _EP["min_session_pct"] / 100
+# Delayed HVC: which completed day counts as the gap day, and for how long.
+HVC_LOOKBACK_DAYS = int(_HVC["lookback_days"])
+HVC_GAP_MIN_PCT = _HVC["gap_day_min_gap_pct"] / 100
+HVC_GAP_MIN_VOLUME_X = float(_HVC["gap_day_min_volume_x"])
+HVC_GAP_CLOSE_POSITION = _HVC["gap_day_close_position_pct"] / 100
+# Flat base.
+FLAT_BASE_MIN_BARS = int(_FB["base_days"])
+FLAT_BASE_MAX_DEPTH_PCT = _FB["max_depth_pct"] / 100
+FLAT_BASE_MA_SPREAD_PCT = _FB["ma_spread_pct"] / 100
+FLAT_BASE_TIGHT_RANGE_PCT = _FB["tight_candle_pct"] / 100
+FLAT_BASE_PRIOR_TREND_BARS = int(_FB["prior_trend_days"])
+FLAT_BASE_PRIOR_RUN_PCT = _FB["prior_rise_pct"] / 100
+FLAT_BASE_RESISTANCE_PCT = _FB["resistance_pct"] / 100
+# Undercut and Rally.
+UR_LOOKBACK_BARS = int(_UR["swing_lookback_days"])
+# MA Undercut and Rally.
+MA_UR_PERIODS = tuple(int(p) for p in _MA["ma_periods"])
+MA_UR_CLOSE_POSITION = _MA["strong_close_position_pct"] / 100
+MA_UR_MIN_HISTORY = int(_MA["min_history_days"])
+# High Tight Flag.
+HTF_MIN_RUNUP_PCT = _HTF["min_runup_pct"] / 100
+HTF_RUN_MAX_BARS = int(_HTF["run_max_days"])
+HTF_FLAG_MIN_BARS = int(_HTF["flag_min_days"])
+HTF_FLAG_MAX_BARS = int(_HTF["flag_max_days"])
+HTF_FLAG_MAX_DEPTH_PCT = _HTF["max_flag_depth_pct"] / 100
+HTF_MAX_GIVEBACK = _HTF["max_giveback_pct"] / 100
 
 # Display points per setup kind. These order the setups for the trigger display
 # only — the setups do not score (leadership does).
+# Section of data/setups.yaml for each setup kind.
+_SECTION = {
+    "episodic-pivot": "episodic_pivot",
+    "delayed-hvc": "delayed_hvc",
+    "flat-base-breakout": "flat_base",
+    "undercut-rally": "undercut_rally",
+    "ma-undercut-rally": "ma_undercut_rally",
+    "high-tight-flag": "high_tight_flag",
+}
+SETUP_LABELS = {kind: str(CONFIG[sec]["name"]) for kind, sec in _SECTION.items()}
+
+
+def overview() -> dict:
+    """The Setups tab's header text and general rules from data/setups.yaml."""
+    return {
+        "how_it_works": [str(x) for x in CONFIG.get("how_it_works") or []],
+        "short_setups": str(CONFIG.get("short_setups") or "").strip(),
+        "general": dict(CONFIG.get("general") or {}),
+    }
+
+
+def describe() -> list[dict]:
+    """Each setup as data/setups.yaml documents it (rules, entry, stop, numbers), for the UI's hover text."""
+    out = []
+    for kind, sec in _SECTION.items():
+        c = CONFIG[sec]
+        out.append({
+            "kind": kind,
+            "short_kind": _SHORT_KIND[kind],
+            "name": str(c["name"]),
+            "short_name": str(c["short_name"]),
+            "rules": str(c.get("rules", "")).strip(),
+            "entry": str(c.get("entry", "")).strip(),
+            "stop": str(c.get("stop", "")).strip(),
+            "params": dict(c.get("params") or {}),
+        })
+    return out
+
+_RANK = CONFIG["display_rank"]
 SETUP_POINTS = {
-    "episodic-pivot": 23.0,
-    "high-tight-flag": 22.0,
-    "delayed-hvc": 21.0,
-    "flat-base-breakout": 20.0,
-    "undercut-rally": 18.0,
-    "ma-undercut-rally": 18.0,
+    "episodic-pivot": float(_RANK["episodic_pivot"]),
+    "high-tight-flag": float(_RANK["high_tight_flag"]),
+    "delayed-hvc": float(_RANK["delayed_hvc"]),
+    "flat-base-breakout": float(_RANK["flat_base"]),
+    "undercut-rally": float(_RANK["undercut_rally"]),
+    "ma-undercut-rally": float(_RANK["ma_undercut_rally"]),
 }
 
 # Short-side mirrors of the six setups (not in the long-only playbook; the scanner's own reading, see
 # ``find_short_setups``): long kind -> (short kind, label).
-SHORT_MIRROR = {
-    "episodic-pivot": ("gap-down-pivot", "Gap-Down Episodic Pivot"),
-    "delayed-hvc": ("delayed-hvc-short", "Delayed HVC Short"),
-    "flat-base-breakout": ("flat-base-breakdown", "Flat Base Breakdown"),
-    "undercut-rally": ("overcut-fail", "Overcut and Fail"),
-    "ma-undercut-rally": ("ma-overcut-fail", "MA Overcut and Fail"),
-    "high-tight-flag": ("low-tight-flag", "Low Tight Flag"),
+_SHORT_KIND = {
+    "episodic-pivot": "gap-down-pivot",
+    "delayed-hvc": "delayed-hvc-short",
+    "flat-base-breakout": "flat-base-breakdown",
+    "undercut-rally": "overcut-fail",
+    "ma-undercut-rally": "ma-overcut-fail",
+    "high-tight-flag": "low-tight-flag",
 }
+SHORT_MIRROR = {kind: (short, str(CONFIG[_SECTION[kind]]["short_name"])) for kind, short in _SHORT_KIND.items()}
 SHORT_KINDS = tuple(k for k, _ in SHORT_MIRROR.values())
 LONG_KINDS = tuple(SETUP_POINTS)
 SETUP_POINTS.update({SHORT_MIRROR[k][0]: v for k, v in list(SETUP_POINTS.items())})
 
 SETUP_KINDS = LONG_KINDS
 
-SETUP_LABELS = {
-    "episodic-pivot": "Episodic Pivot",
-    "delayed-hvc": "Delayed High Volume Close",
-    "flat-base-breakout": "Flat Base Breakout",
-    "undercut-rally": "Undercut and Rally",
-    "ma-undercut-rally": "Moving Average Undercut and Rally",
-    "high-tight-flag": "High Tight Flag",
-}
 
 
 @dataclass(frozen=True)
@@ -153,7 +177,7 @@ def _sma(values: pd.Series, period: int) -> pd.Series:
     return values.rolling(period, min_periods=period).mean()
 
 
-def _avg_volume(df: pd.DataFrame, end: int, lookback: int = 20) -> float:
+def _avg_volume(df: pd.DataFrame, end: int, lookback: int = EP_VOLUME_AVG_DAYS) -> float:
     """Mean volume of the ``lookback`` bars ending before position ``end`` (exclusive)."""
     window = df["volume"].iloc[max(0, end - lookback) : end].dropna()
     return float(window.mean()) if len(window) else 0.0
@@ -181,12 +205,12 @@ def _is_ep_gap_day(df: pd.DataFrame, pos: int) -> bool:
     if pos < 1 or pos >= len(df):
         return False
     bar = df.iloc[pos]
-    if _gap_pct(float(df["close"].iloc[pos - 1]), float(bar["open"])) < EP_MIN_GAP_PCT:
+    if _gap_pct(float(df["close"].iloc[pos - 1]), float(bar["open"])) < HVC_GAP_MIN_PCT:
         return False
-    if not _volume_ok(df, pos, EP_MIN_VOLUME_X):
+    if not _volume_ok(df, pos, HVC_GAP_MIN_VOLUME_X):
         return False
     span = float(bar["high"] - bar["low"])
-    if span <= 0 or float(bar["close"]) < float(bar["low"]) + 0.5 * span:
+    if span <= 0 or float(bar["close"]) < float(bar["low"]) + HVC_GAP_CLOSE_POSITION * span:
         return False
     return float(bar["close"]) > float(bar["open"])
 
@@ -207,7 +231,7 @@ def detect_episodic_pivot(
     close / volume so far); ``opening_high`` is the high of the first entry-chart bar once it has closed;
     ``session_fraction`` is how much of the regular session has passed (0–1), used to project today's volume.
     """
-    if today is None or len(df) < 21:
+    if today is None or len(df) < MIN_HISTORY_DAYS:
         return None
     prev_close = float(df["close"].iloc[-1])
     open_ = float(today["open"])
@@ -248,7 +272,7 @@ def detect_delayed_hvc(df: pd.DataFrame) -> Optional[ArielSetup]:
     Triggered when the last completed bar traded back above the close after the prior close was at or below it;
     pending when the last completed close is at or below it (today's session decides the break).
     """
-    if len(df) < 22:
+    if len(df) < MIN_HISTORY_DAYS:
         return None
     last = len(df) - 1
     for j in range(last - 1, max(0, last - HVC_LOOKBACK_DAYS) - 1, -1):  # most recent gap day first
@@ -387,14 +411,14 @@ def detect_undercut_rally(df: pd.DataFrame) -> Optional[ArielSetup]:
 
 def detect_ma_undercut_rally(df: pd.DataFrame) -> Optional[ArielSetup]:
     """The last bar reclaims, with strength, a key daily moving average it had closed below."""
-    if len(df) < 55:
+    if len(df) < MA_UR_MIN_HISTORY:
         return None
     last = len(df) - 1
     closes = df["close"]
     bar = df.iloc[last]
     span = float(bar["high"] - bar["low"])
     # "With strength": an up day closing in the upper half of its range.
-    if span <= 0 or float(bar["close"]) <= float(bar["open"]) or float(bar["close"]) < float(bar["low"]) + 0.5 * span:
+    if span <= 0 or float(bar["close"]) <= float(bar["open"]) or float(bar["close"]) < float(bar["low"]) + MA_UR_CLOSE_POSITION * span:
         return None
     for period in MA_UR_PERIODS:
         ma = _sma(closes, period)
@@ -439,7 +463,7 @@ def _high_tight_flag(df: pd.DataFrame, end: int) -> Optional[tuple[int, float, f
         flag_high, flag_low = float(flag["high"].max()), float(flag["low"].min())
         if flag_high <= 0 or (flag_high - flag_low) / flag_high > HTF_FLAG_MAX_DEPTH_PCT:
             continue
-        if float(flag["close"].min()) < 0.90 * run_high:
+        if float(flag["close"].min()) < (1 - HTF_MAX_GIVEBACK) * run_high:
             continue  # the flag gave back too much of the run
         run_vol = run["volume"].iloc[low_pos:].dropna()
         flag_vol = flag["volume"].dropna()
@@ -510,7 +534,7 @@ def find_ariel_setups(
     session_fraction: Optional[float] = None,
 ) -> list[ArielSetup]:
     """Every RealSimpleAriel setup on completed daily bars ``df``, plus a live EP from ``today``'s forming bar."""
-    if df is None or len(df) < 22:
+    if df is None or len(df) < MIN_HISTORY_DAYS:
         return []
     out: list[ArielSetup] = []
     try:
@@ -537,6 +561,11 @@ def find_ariel_setups(
 # (gap size, base depth, range tightness) carry over exactly; moving averages differ slightly (the average of
 # 1/p is not 1/average of p), so the MA trigger is re-read from the real chart. Volume is not inverted.
 
+def _drop_pct(rise: float) -> str:
+    """A rise of ``rise`` on the upside-down chart, as the drop it is on the real chart (20% -> 17%)."""
+    return f"{(1 - 1 / (1 + rise)) * 100:.0f}%"
+
+
 _SHORT_TEXT = {
     "gap-down-pivot": (
         "large gap down on heavy volume; enter below the first 15-min bar low, stop at the high of day",
@@ -547,11 +576,11 @@ _SHORT_TEXT = {
         "Enter on the break back below the gap-down day's close; stop at the high of the entry day",
     ),
     "flat-base-breakdown": (
-        "tight multi-week base after a 17%+ decline (the inverse of the long's 20% rise); enter below the prior day's low",
+        f"tight multi-week base after a {_drop_pct(FLAT_BASE_PRIOR_RUN_PCT)}+ decline; enter below the prior day's low",
         "Enter below the prior day's low (the base support)",
     ),
     "overcut-fail": (
-        "popped above the ~1-month swing high, then closed back below it; stop at the new high",
+        "popped above the swing high, then closed back below it; stop at the new high",
         "Enter on the failure back below the prior high; stop at the high made during the overcut",
     ),
     "ma-overcut-fail": (
@@ -559,7 +588,8 @@ _SHORT_TEXT = {
         "Enter as price breaks back below the moving average; stop at the high of the rejection day",
     ),
     "low-tight-flag": (
-        "a 33%+ drop within ~8 weeks, then a tight 2-5 week bounce on lighter volume; enter below the flag low",
+        f"a {_drop_pct(HTF_MIN_RUNUP_PCT)}+ drop within ~{HTF_RUN_MAX_BARS // 5} weeks, then a tight "
+        f"{HTF_FLAG_MIN_BARS // 5}-{HTF_FLAG_MAX_BARS // 5} week bounce on lighter volume; enter below the flag low",
         "Enter on the break below the bottom of the flag; stop at the high of the breakdown day",
     ),
 }
@@ -610,7 +640,7 @@ def find_short_setups(
     Stops sit above the entry; a setup whose stop is not above its entry is dropped (checked on the inverted
     chart, where it is the long rule).
     """
-    if df is None or len(df) < 22:
+    if df is None or len(df) < MIN_HISTORY_DAYS:
         return []
     try:
         inv_today = None if today is None else {

@@ -9,6 +9,7 @@ import Market from "./pages/Market";
 import Watchlist from "./pages/Watchlist";
 import Positions from "./pages/Positions";
 import Alerts from "./pages/Alerts";
+import Setups from "./pages/Setups";
 import { AlertsProvider, useAlerts } from "./components/AlertsCenter";
 import { WatchlistProvider, useWatchlist } from "./components/Watch";
 import { PositionsProvider, usePositions } from "./components/Positions";
@@ -161,6 +162,7 @@ export default function App() {
                 <NavLink to="/" end>
                   Stock Scanner
                 </NavLink>
+                <NavLink to="/setups">Setups</NavLink>
                 <WatchlistTab />
                 <AlertsTab />
                 <PositionsTab />
@@ -182,6 +184,7 @@ export default function App() {
               <Route path="/watchlist" element={<Watchlist />} />
               <Route path="/positions" element={<Positions />} />
               <Route path="/alerts" element={<Alerts />} />
+              <Route path="/setups" element={<Setups />} />
             </Routes>
           </main>
           <footer className="footer">Innovative Objects LLC - not investment advice</footer>

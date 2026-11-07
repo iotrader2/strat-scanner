@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from .alpaca import AlpacaError
 from . import alerts as alert_rules
-from . import alerts_live, alerts_store, chart15m, config, data, earnings, fetch_worker, logos, memory, quotes, trims, userdb, watch15m
+from . import alerts_live, alerts_store, ariel_setups, chart15m, config, data, earnings, fetch_worker, logos, memory, quotes, trims, userdb, watch15m
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
@@ -704,6 +704,9 @@ def get_config():
         "min_dollar_volume": config.MIN_DOLLAR_VOLUME,
         "leader_min_rs": LEADER_MIN_RS,
         "leaders_min_score": LEADERS_MIN_SCORE,
+        # The daily setups as data/setups.yaml documents them (the Setups dropdown's hover text).
+        "setups": ariel_setups.describe(),
+        "setups_overview": ariel_setups.overview(),
         "themes": [
             {"id": t.id, "name": t.name, "count": len(t.everyone)}
             for t in sorted((State.theme_map or _load_theme_map() or ThemeMap(0, [])).themes, key=lambda t: t.name)

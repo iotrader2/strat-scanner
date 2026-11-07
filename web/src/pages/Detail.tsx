@@ -239,7 +239,9 @@ export default function Detail({ version }: { version: string | null }) {
                     <span className="tf-tag">{s.tf}</span>
                     <span className="grow">
                       {s.side === "short" && <span className="side-chip short">SHORT</span>}
-                      {s.label}
+                      <Link className="setup-doc-link" to={`/setups#${s.kind}`} title="How this setup is detected">
+                        {s.label}
+                      </Link>
                       {triggerChip(s) && (
                         <span className="trig-chip" title={triggerChip(s)?.title}>
                           {triggerChip(s)?.label}
