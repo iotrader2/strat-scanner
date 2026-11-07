@@ -117,28 +117,15 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   },
 ];
 
-type HeroChipKey =
-  | "all"
-  | "leaders"
-  | "dailyBullish"
-  | "dailyBearish"
-  | "weeklyBullish"
-  | "weeklyBearish"
-  | "breakouts"
-  | "failedBreakouts"
-  | "broken";
-/** Summary tiles, in this order (the per-setup views have no tile; pick them from Setups). */
-export const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
-  { key: "all", filter: "all", label: "all names", tone: "muted" },
-  { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
-  { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
-  { key: "weeklyBullish", filter: "weekly_bullish", label: "weekly bullish", tone: "green" },
-  { key: "weeklyBearish", filter: "weekly_bearish", label: "weekly bearish", tone: "red" },
-  { key: "dailyBullish", filter: "daily_bullish", label: "daily bullish", tone: "green" },
-  { key: "dailyBearish", filter: "daily_bearish", label: "daily bearish", tone: "red" },
-  { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
-  { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
-];
+const RED_TILES = new Set<LeadershipFilter>(["broken", "daily_bearish", "weekly_bearish", "failed_breakouts"]);
+/** Summary tiles: one per Setups option, in the dropdown's order, labelled like it (lower case). */
+export const HERO_CHIPS: { filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = SETUPS_OPTIONS.map(
+  (o) => ({
+    filter: o.value,
+    label: o.label.toLowerCase().replace(" trend change", ""),
+    tone: o.value === "all" ? "muted" : RED_TILES.has(o.value) ? "red" : "green",
+  }),
+);
 /** Columns of the Failed breakouts view: when it broke out, the level, how far price is below it and when it failed. */
 const FAILED_COLUMNS: ExtraColumn[] = [
   {
@@ -262,20 +249,16 @@ export default function Scanner({ version }: { version: string | null }) {
 
   /**
    * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
-   * liquidity, theme or setup filters. Leaders / Daily setups use the widest Min RS (P50); dig in with the slider.
+   * liquidity, theme or setup filters. Leaders and the per-setup tiles use the widest Min RS (P50); dig in with the slider.
    */
   const stats = useMemo(
-    () => ({
-      all: rows.length,
-      leaders: rows.filter((r) => matchesLeadership(r, "leaders", CHIP_RS)).length,
-      dailyBullish: rows.filter((r) => matchesLeadership(r, "daily_bullish")).length,
-      dailyBearish: rows.filter((r) => matchesLeadership(r, "daily_bearish")).length,
-      weeklyBullish: rows.filter((r) => matchesLeadership(r, "weekly_bullish")).length,
-      weeklyBearish: rows.filter((r) => matchesLeadership(r, "weekly_bearish")).length,
-      breakouts: rows.filter((r) => matchesLeadership(r, "breakouts")).length,
-      failedBreakouts: rows.filter((r) => matchesLeadership(r, "failed_breakouts")).length,
-      broken: rows.filter((r) => matchesLeadership(r, "broken")).length,
-    }),
+    () =>
+      Object.fromEntries(
+        HERO_CHIPS.map((c) => [
+          c.filter,
+          c.filter === "all" ? rows.length : rows.filter((r) => matchesLeadership(r, c.filter, CHIP_RS)).length,
+        ]),
+      ) as Record<LeadershipFilter, number>,
     [rows],
   );
 
@@ -300,7 +283,7 @@ export default function Scanner({ version }: { version: string | null }) {
             const active = leadership === chip.filter;
             return (
               <button
-                key={chip.key}
+                key={chip.filter}
                 type="button"
                 className={`stat-card stat-card-btn${active ? " active" : ""}`}
                 aria-pressed={active}
@@ -311,7 +294,7 @@ export default function Scanner({ version }: { version: string | null }) {
                     chip.tone === "red" ? "red-text" : chip.tone === "green" ? "green-text" : ""
                   }`}
                 >
-                  {stats[chip.key]}
+                  {stats[chip.filter]}
                 </span>
                 <span className="stat-label">{chip.label}</span>
               </button>

@@ -43,17 +43,24 @@ describe("Candle Pattern filter", () => {
 });
 
 describe("summary tiles", () => {
-  it("are exactly the nine requested tiles, in order (no Ariel setup tiles)", () => {
+  it("match the Setups dropdown, in the same order", () => {
+    expect(HERO_CHIPS.map((c) => c.filter)).toEqual(SETUPS_OPTIONS.map((o) => o.value));
     expect(HERO_CHIPS.map((c) => c.label)).toEqual([
       "all names",
       "leaders",
-      "broken leaders",
-      "weekly bullish",
-      "weekly bearish",
+      "episodic pivot",
+      "delayed high volume close",
+      "flat base breakout",
+      "undercut and rally",
+      "ma undercut and rally",
+      "high tight flag",
       "daily bullish",
       "daily bearish",
+      "weekly bullish",
+      "weekly bearish",
       "recent breakouts",
       "failed breakouts",
+      "broken leaders",
     ]);
   });
 });
