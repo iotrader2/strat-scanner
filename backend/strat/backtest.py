@@ -685,9 +685,9 @@ def render_setups(
     test_start: str = TEST_START,
 ) -> str:
     out = [
-        "### Daily setups: leaders with a long-side daily Ariel setup\n",
+        "### Daily setups: leaders with a long-side daily setup\n",
         "Pooled over every cut-off: the forward 1M / 3M return of the names in the Daily setups view (RS >= P90, unbroken "
-        "trend, a long-side daily Ariel setup on the latest completed daily bar) minus the median liquid stock and minus QQQ, against "
+        "trend, a long-side daily setup on the latest completed daily bar) minus the median liquid stock and minus QQQ, against "
         "all Leaders without a setup and all Leaders (the same names with or without a setup).\n",
         "| Period | List | Picks / date | Fwd 1M vs median (pts) | Fwd 3M vs median (pts) | Fwd 1M vs QQQ (pts) | Fwd 3M vs QQQ (pts) | Beat QQQ 3M |",
         "|---|---|---|---|---|---|---|---|",

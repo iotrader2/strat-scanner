@@ -253,7 +253,7 @@ export default function Detail({ version }: { version: string | null }) {
                 ))}
               </ul>
             ) : (
-              <p className="muted small">No daily Ariel setup right now.</p>
+              <p className="muted small">No daily setup right now.</p>
             )}
           </div>
         </aside>

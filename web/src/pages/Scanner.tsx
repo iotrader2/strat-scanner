@@ -46,15 +46,15 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "leaders", label: "Leaders", hint: "Relative strength at the Min RS cut (default P90) or an RS line versus QQQ that made a 52-week high in the last 5 sessions, trend not broken, score above 70, highest score first. The slider can raise the cut above P90; lowering it does not add other names, and an RS-line high does not bypass a higher cut." },
   {
     value: "setups_pending",
-    label: "Daily Ariel awaiting trigger",
+    label: "Daily setup awaiting trigger",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side daily Ariel setup (set on the last completed day; the Episodic Pivot is the exception, read from today's gap and its 15-min opening range) that has not been broken yet, not even by today's high: Episodic Pivot, Delayed High Volume Close, Flat Base Breakout, Undercut and Rally, MA Undercut and Rally, or High Tight Flag. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side daily setup (set on the last completed day; the Episodic Pivot is the exception, read from today's gap and its 15-min opening range) that has not been broken yet, not even by today's high: Episodic Pivot, Delayed High Volume Close, Flat Base Breakout, Undercut and Rally, MA Undercut and Rally, or High Tight Flag. Sorted by score.",
   },
   {
     value: "setups_triggered",
-    label: "Daily Ariel already triggered",
+    label: "Daily setup already triggered",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) whose last completed daily Ariel setup has already broken the trigger, or a pending setup whose trigger (set by the last completed day) today's session has traded above (marked “triggered today”). Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) whose last completed daily setup has already broken the trigger, or a pending setup whose trigger (set by the last completed day) today's session has traded above (marked “triggered today”). Sorted by score.",
   },
   {
     value: "daily_bullish",

@@ -5,8 +5,8 @@ describe("Setups filter labels", () => {
   it("renames the filter group to Setups and drops that word from each item", () => {
     expect(SETUPS_FILTER_LABEL).toBe("Setups");
     const labels = SETUPS_OPTIONS.map((option) => option.label);
-    expect(labels).toContain("Daily Ariel awaiting trigger");
-    expect(labels).toContain("Daily Ariel already triggered");
+    expect(labels).toContain("Daily setup awaiting trigger");
+    expect(labels).toContain("Daily setup already triggered");
     expect(labels).toContain("Daily bullish trend change");
     expect(labels).toContain("Daily bearish trend change");
     expect(labels).toContain("Weekly bullish trend change");
@@ -14,9 +14,9 @@ describe("Setups filter labels", () => {
     for (const label of labels) expect(label.toLowerCase()).not.toContain("setups");
   });
 
-  it("maps the daily Ariel labels onto the existing awaiting and triggered filters", () => {
-    expect(SETUPS_OPTIONS.find((option) => option.label === "Daily Ariel awaiting trigger")?.value).toBe("setups_pending");
-    expect(SETUPS_OPTIONS.find((option) => option.label === "Daily Ariel already triggered")?.value).toBe("setups_triggered");
+  it("maps the daily setup labels onto the existing awaiting and triggered filters", () => {
+    expect(SETUPS_OPTIONS.find((option) => option.label === "Daily setup awaiting trigger")?.value).toBe("setups_pending");
+    expect(SETUPS_OPTIONS.find((option) => option.label === "Daily setup already triggered")?.value).toBe("setups_triggered");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Daily bullish trend change")?.value).toBe("daily_bullish");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Daily bearish trend change")?.value).toBe("daily_bearish");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Weekly bullish trend change")?.value).toBe("weekly_bullish");
