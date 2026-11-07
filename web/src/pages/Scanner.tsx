@@ -1,6 +1,6 @@
 import { setupHint, setupLabel } from "../setupDocs";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
 import { Dropdown, type DropdownOption } from "../components/Dropdown";
@@ -16,7 +16,9 @@ import { keepIndexEtf } from "../indexEtfs";
 import {
   detailTfFor,
   focusSetup,
+  isSetupFilter,
   leadershipUsesMinRs,
+  SETUP_FILTER_KIND,
   matchesLeadership,
   MIN_RS_RANGE,
   migrateLeadership,
@@ -250,6 +252,16 @@ export default function Scanner({ version }: { version: string | null }) {
     api.config().then(setConfig).catch(() => undefined);
   }, []);
 
+  // Links from the Setups tab ("Scan long" / "Scan short") open the scanner on that setup: /?setup=setup_htf.
+  useEffect(() => {
+    const wanted = params.get("setup");
+    if (!wanted) return;
+    if (isSetupFilter(wanted)) setLeadership(wanted);
+    const next = new URLSearchParams(params);
+    next.delete("setup");
+    setParams(next, { replace: true });
+  }, [params, setParams, setLeadership]);
+
   // Filters that no longer exist (the Continuity dropdown): drop their saved values so nothing reads them again.
   useEffect(() => clearRetiredFilters(), []);
 
@@ -379,13 +391,20 @@ export default function Scanner({ version }: { version: string | null }) {
             options={themeChoices}
             onChange={setTheme}
           />
-          <Dropdown
-            label={SETUPS_FILTER_LABEL}
-            header="Filter by setup"
-            value={leadership}
-            options={setupOptions}
-            onChange={setLeadership}
-          />
+          <div className="setups-filter">
+            <Dropdown
+              label={SETUPS_FILTER_LABEL}
+              header="Filter by setup"
+              value={leadership}
+              options={setupOptions}
+              onChange={setLeadership}
+            />
+            {isSetupFilter(leadership) && (
+              <Link className="setup-rules-link small" to={`/setups#${SETUP_FILTER_KIND[leadership]}`}>
+                Rules for this setup →
+              </Link>
+            )}
+          </div>
           <Dropdown
             label="Candle Pattern"
             header="Inside bar or hammer on the last completed weekly / daily bar"

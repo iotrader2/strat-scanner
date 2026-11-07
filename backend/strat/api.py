@@ -706,6 +706,7 @@ def get_config():
         "leaders_min_score": LEADERS_MIN_SCORE,
         # The daily setups as data/setups.yaml documents them (the Setups dropdown's hover text).
         "setups": ariel_setups.describe(),
+        "setups_overview": ariel_setups.overview(),
         "themes": [
             {"id": t.id, "name": t.name, "count": len(t.everyone)}
             for t in sorted((State.theme_map or _load_theme_map() or ThemeMap(0, [])).themes, key=lambda t: t.name)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillParams, setupHint, setupLabel, type SetupDoc } from "./setupDocs";
+import { fillParams, filterForKind, paramLabel, paramValue, ruleSteps, setupHint, setupLabel, type SetupDoc } from "./setupDocs";
 
 const flat: SetupDoc = {
   kind: "flat-base-breakout",
@@ -25,5 +25,25 @@ describe("setup docs from setups.yaml", () => {
     expect(setupLabel("short_flat_base", [flat])).toBe("Flat Base Breakdown");
     expect(setupLabel("leaders", [flat])).toBeNull();
     expect(setupHint("setup_flat_base", undefined)).toBeNull();
+  });
+});
+
+describe("Setups tab helpers", () => {
+  it("splits numbered rules into steps with the numbers filled in", () => {
+    const text = "Same-day trade:\n1. Opened at least min_gap_pct above\n   yesterday's close.\n2. Volume at least min_volume_x.";
+    expect(ruleSteps(text, { min_gap_pct: 2, min_volume_x: 1.5 })).toEqual([
+      "Same-day trade:",
+      "Opened at least 2% above yesterday's close.",
+      "Volume at least 1.5x.",
+    ]);
+  });
+
+  it("labels numbers and maps kinds to scanner options", () => {
+    expect(paramLabel("min_gap_pct")).toBe("Min gap");
+    expect(paramLabel("swing_lookback_days")).toBe("Swing lookback days");
+    expect(paramValue("ma_periods", [20, 50, 10])).toBe("20/50/10");
+    expect(filterForKind("high-tight-flag")).toBe("setup_htf");
+    expect(filterForKind("low-tight-flag")).toBe("short_ltf");
+    expect(filterForKind("nope")).toBeNull();
   });
 });

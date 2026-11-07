@@ -34,7 +34,7 @@ export function usePersisted<T>(key: string, initial: T) {
 }
 
 export const LAST_TAB_KEY = "lastTab";
-const TABS = ["/", "/market", "/themes", "/watchlist", "/positions", "/alerts"];
+const TABS = ["/", "/market", "/themes", "/setups", "/watchlist", "/positions", "/alerts"];
 
 /** Saved locations from before Sectors became Themes. */
 const LEGACY_TABS: Record<string, string> = { "/sectors": "/themes" };

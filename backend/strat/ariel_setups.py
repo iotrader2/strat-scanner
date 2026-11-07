@@ -96,6 +96,15 @@ _SECTION = {
 SETUP_LABELS = {kind: str(CONFIG[sec]["name"]) for kind, sec in _SECTION.items()}
 
 
+def overview() -> dict:
+    """The Setups tab's header text and general rules from data/setups.yaml."""
+    return {
+        "how_it_works": [str(x) for x in CONFIG.get("how_it_works") or []],
+        "short_setups": str(CONFIG.get("short_setups") or "").strip(),
+        "general": dict(CONFIG.get("general") or {}),
+    }
+
+
 def describe() -> list[dict]:
     """Each setup as data/setups.yaml documents it (rules, entry, stop, numbers), for the UI's hover text."""
     out = []

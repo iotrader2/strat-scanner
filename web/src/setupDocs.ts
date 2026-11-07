@@ -23,10 +23,10 @@ function fmtValue(key: string, v: number | number[]): string {
 }
 
 /** Rules text with every parameter name replaced by its value ("max_depth_pct" -> "10%"). */
-export function fillParams(text: string, params: SetupDoc["params"]): string {
+export function fillParams(text: string, params: SetupDoc["params"], keepLines = false): string {
   // Longest names first so "gap_day_min_gap_pct" is not cut by "min_gap_pct".
   const keys = Object.keys(params).sort((a, b) => b.length - a.length);
-  let out = text.replace(/\s+/g, " ").trim();
+  let out = keepLines ? text.trim() : text.replace(/\s+/g, " ").trim();
   for (const k of keys) out = out.split(k).join(fmtValue(k, params[k]));
   return out;
 }
@@ -57,3 +57,34 @@ export function setupLabel(filter: LeadershipFilter, docs: SetupDoc[] | undefine
   if (long) return long.name;
   return docs.find((d) => d.short_kind === kind)?.short_name ?? null;
 }
+
+export interface SetupsOverview {
+  how_it_works: string[];
+  short_setups: string;
+  general: Record<string, number | number[]>;
+}
+
+/** The Setups option (long or short) that lists ``kind``, e.g. "flat-base-breakdown" -> "short_flat_base". */
+export function filterForKind(kind: string): LeadershipFilter | null {
+  const hit = Object.entries(SETUP_FILTER_KIND).find(([, k]) => k === kind);
+  return hit ? (hit[0] as LeadershipFilter) : null;
+}
+
+/** Rule text split into numbered steps: "1. ...\n   more\n2. ..." -> ["...more", "..."]. Plain text is one step. */
+export function ruleSteps(text: string, params: SetupDoc["params"]): string[] {
+  const filled = fillParams(text, params, true);
+  const parts = filled.split(/\n(?=\s*\d+\.\s)/).map((p) => p.replace(/^\s*\d+\.\s*/, "").replace(/\s+/g, " ").trim());
+  return parts.filter(Boolean);
+}
+
+/** "min_gap_pct" -> "Min gap". */
+export function paramLabel(key: string): string {
+  const words = key
+    .replace(/_(pct|x)$/, "")
+    .split("_")
+    .map((w) => (w === "ma" ? "MA" : w))
+    .join(" ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export { fmtValue as paramValue };

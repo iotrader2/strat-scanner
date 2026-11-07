@@ -5,22 +5,19 @@
 # If you want a RULE changed (not just a number), describe it under that setup and ask; the code and
 # this file are then changed together.
 #
-# How every setup works:
-# - The setup is decided on the DAILY chart, from completed days only. The one exception is the Episodic
-#   Pivot (and its short mirror), a same-day trade read from today's forming bar.
-# - The 15-minute chart is only for timing the entry.
-# - "Pending" = the level is set and today's session decides whether it breaks. "Triggered" = it already
-#   broke (on the last completed day, or today: today's high above / low below the trigger).
-# - A setup whose stop is not on the right side of its entry is dropped (long: stop below the entry;
-#   short: stop above). The entry is the trigger, or the breakout day's open when it gapped through.
-# - Who is listed: long setups list Leaders (RS at the Min RS cut, P90 by default, trend not broken);
-#   short setups list Laggards (RS at or below 100 minus Min RS, P10 by default, trend broken).
-#   Setups never add to the score.
-#
-# SHORT SETUPS are the long setups on the chart turned upside down (every price p becomes 1/p), using the
-# SAME numbers below. On the real chart that means: a 2% gap up <-> a ~2% gap down; a 20% rise <-> a
-# ~17% decline; a 50% run-up <-> a ~33% drop; "close in the upper half" <-> "close in the lower half".
-# If you want different numbers for shorts, say so and a short section will be added here.
+# The general rules (how_it_works) and the short-side note (short_setups) are below; the Setups tab shows them.
+
+# Shown at the top of the Setups tab.
+how_it_works:
+  - The setup is decided on the daily chart, from completed days only. The exception is the Episodic Pivot (and its short mirror), a same-day trade read from today's forming bar.
+  - The 15-minute chart is only for timing the entry.
+  - Pending means the level is set and today's session decides whether it breaks. Triggered means it already broke, on the last completed day or today (long - today's high above the trigger; short - today's low below it).
+  - A setup whose stop is not on the right side of its entry is dropped (long - stop below the entry; short - stop above). The entry is the trigger, or the breakout day's open when it gapped through.
+  - Long setups list Leaders (RS at the Min RS cut, P90 by default, trend not broken). Short setups list Laggards (RS at or below 100 minus Min RS, P10 by default, trend broken). Setups never add to the score.
+short_setups: >-
+  Each short setup is its long setup on the chart turned upside down (every price p becomes 1/p), with the
+  same numbers. On the real chart a 2% gap up becomes a ~2% gap down, a 20% rise a ~17% decline, a 50% run-up
+  a ~33% drop, and "close in the upper half" becomes "close in the lower half".
 
 general:
   entry_chart_minutes: 15          # entry timing chart (the playbook uses 5; you asked for 15)
@@ -36,7 +33,7 @@ episodic_pivot:
   rules: |
     Same-day trade on TODAY's bar:
     1. Today opened at least min_gap_pct above yesterday's close.
-    2. Volume: today's volume so far, projected to a full day, is at least min_volume_x times the
+    2. Volume: today's volume so far, projected to a full day, is at least min_volume_x the
        average of the last volume_avg_days days. Only judged once min_session_pct of the session has
        traded and volume has arrived; before that it is listed with "volume not confirmed yet".
     3. Not shown once the gap day has closed (the next chance is the Delayed HVC).
@@ -54,7 +51,7 @@ delayed_hvc:
   rules: |
     1. A gap day in the last lookback_days sessions (the most recent one counts). A gap day is a
        completed day that: opened at least gap_day_min_gap_pct above the prior close; traded at least
-       gap_day_min_volume_x times the volume_avg_days-day average volume; closed above its open; and
+       gap_day_min_volume_x the volume_avg_days-day average volume; closed above its open; and
        closed in the top part of its range (at or above gap_day_close_position_pct of the way up).
     2. Since then price closed back at or below the gap day's close.
     3. Pending while the last close is at or below the gap-day close.

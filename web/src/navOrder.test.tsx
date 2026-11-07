@@ -13,6 +13,6 @@ describe("top nav", () => {
     );
     const nav = html.slice(html.indexOf("<nav>"), html.indexOf("</nav>"));
     const hrefs = [...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-    expect(hrefs).toEqual(["/market", "/themes", "/", "/watchlist", "/alerts", "/positions"]);
+    expect(hrefs).toEqual(["/market", "/themes", "/", "/setups", "/watchlist", "/alerts", "/positions"]);
   });
 });

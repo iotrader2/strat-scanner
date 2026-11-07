@@ -313,6 +313,8 @@ export interface AppConfig {
   leaders_min_score?: number;
   /** The daily setups as data/setups.yaml documents them (rules, entry, stop, numbers). */
   setups?: import("./setupDocs").SetupDoc[];
+  /** The Setups tab's general rules and short-side note from setups.yaml. */
+  setups_overview?: import("./setupDocs").SetupsOverview;
   themes: ThemeInfo[];
 }
 
