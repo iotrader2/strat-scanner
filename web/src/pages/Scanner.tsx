@@ -288,8 +288,9 @@ export default function Scanner({ version }: { version: string | null }) {
   const filtered = useMemo(() => {
     const out = liquid.filter((r) => {
       if (!matchesSymbol(r.symbol, query)) return false;
-      // ETFs view: QQQ / SPY / IWM are always listed as reference rows (they are rarely ETF leaders).
-      if (!keepIndexEtf(r, kind) && !matchesLeadership(r, leadership, minRs)) return false;
+      // ETFs view: QQQ / SPY / IWM are listed as reference rows (they are rarely ETF leaders), except under a
+      // single-setup option, where only names with that setup belong.
+      if (!keepIndexEtf(r, kind, isSetupFilter(leadership)) && !matchesLeadership(r, leadership, minRs)) return false;
       if (!matchesTheme(r, theme)) return false;
       if (kind !== "all" && r.kind !== kind) return false;
       if (!passesAtr(r, atrRange)) return false;

@@ -26,6 +26,10 @@ describe("keepIndexEtf", () => {
     expect(keepIndexEtf(xlk, "etf")).toBe(false);
   });
 
+  it("does not pin them under a single-setup option (they would show with no setup)", () => {
+    expect(keepIndexEtf(qqq, "etf", true)).toBe(false);
+  });
+
   it("does not change Stocks + ETFs or Stocks", () => {
     expect(keepIndexEtf(qqq, "all")).toBe(false);
     expect(keepIndexEtf(qqq, "stock")).toBe(false);
