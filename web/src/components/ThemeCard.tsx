@@ -18,7 +18,7 @@ function Chip({ chip }: { chip: ThemeChip }) {
     <Link
       to={`/stock/${chip.symbol}`}
       className={`member-chip ${chip.mw_green ? "green" : ""} ${chip.also ? "also" : ""} ${chip.has_setup ? "setup" : ""}`}
-      title={`${chip.name}${chip.also ? " (secondary member, not in the index)" : ""} · day ${fmtPct(chip.change_pct, 2)} · 1M ${fmtPerf(m1)} · score ${chip.score.toFixed(0)}${chip.has_setup ? " · weekly setup" : ""}`}
+      title={`${chip.name}${chip.also ? " (secondary member, not in the index)" : ""} · day ${fmtPct(chip.change_pct, 2)} · 1M ${fmtPerf(m1)} · score ${chip.score.toFixed(0)}${chip.has_setup ? " · daily setup" : ""}`}
     >
       <TickerLogo symbol={chip.symbol} size={14} />
       {chip.symbol}
@@ -61,7 +61,7 @@ export function ThemeCard({ theme, chartHeight = 240 }: { theme: ThemeCardData; 
               <b>W</b> {setup.label} · trigger <span className="accent-text">{setup.trigger.toFixed(1)}</span>
             </>
           ) : (
-            <span className="muted">No weekly setup</span>
+            <span className="muted">No daily setup</span>
           )}
         </span>
         <Link className="chip scan-theme" to={scanThemeHref(theme.id)}>

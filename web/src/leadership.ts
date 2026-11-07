@@ -1,7 +1,7 @@
 import type { ScanRow, Tf } from "./api";
 import { NO_SETUP_LABEL } from "./watchlist";
 
-/** Setups filter of the Stock Scanner (the dropdown labeled "Setups"). Leaders and the weekly Strat views use the Min RS slider; Recent breakouts, Failed breakouts, Broken leaders and the daily / weekly MACD trend changes ignore it. */
+/** Setups filter of the Stock Scanner (the dropdown labeled "Setups"). Leaders and the daily Ariel views use the Min RS slider; Recent breakouts, Failed breakouts, Broken leaders and the daily / weekly MACD trend changes ignore it. */
 export type LeadershipFilter =
   | "leaders"
   | "setups_pending"
@@ -57,10 +57,10 @@ const qualifiesAsLeader = (r: LeaderFields, minRs: number) =>
   !isBroken(r) && (isLeaderAtRs(r, minRs) || (rsLineHigh(r) && minRs <= LEADER_RS));
 /** Leaders view: that RS qualification and a score above 70. */
 const isListedLeader = (r: LeaderFields, minRs: number) => qualifiesAsLeader(r, minRs) && hasLeaderScore(r);
-/** Weekly Strat views: marked leaders with a weekly setup. They do not apply the score > 70 cut. */
+/** Daily Ariel views: marked leaders with a daily setup. They do not apply the score > 70 cut. */
 const isSetupLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && !!r.has_setup;
 
-/** True when the Min RS slider applies to this Setups option (Leaders and both weekly Strat views). */
+/** True when the Min RS slider applies to this Setups option (Leaders and both daily Ariel views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
   return filter === "leaders" || filter === "setups_pending" || filter === "setups_triggered";
 }
@@ -117,12 +117,12 @@ export function weeklyTrendBadge(
 
 /**
  * Whether a scan row passes the Stock Scanner "Setups" filter. `minRs` is the slider as a 0..1 percentile. Broken
- * trends are never listed as leaders. The weekly Strat views are Leaders that also have a long-side weekly Strat setup
- * on the last completed weekly candle (`has_setup`, from the backend's `find_long_setups`), split into awaiting trigger
- * vs already triggered. Triggered includes a break by the week in progress (`triggered_live`); the trigger level is
- * always the last completed week's. Daily bullish / bearish trend change is the daily MACD (6,20,9) histogram trigger on the most
+ * trends are never listed as leaders. The daily Ariel views are Leaders that also have a long-side daily Ariel setup
+ * on the last completed daily bar (`has_setup`, from the backend's `ariel_setups`), split into awaiting trigger
+ * vs already triggered. Triggered includes a break by today's session (`triggered_live`); the trigger level is
+ * always the last completed day's. Daily bullish / bearish trend change is the daily MACD (6,20,9) histogram trigger on the most
  * recent daily bar with the close above (bullish) or below (bearish) the 50-day SMA (`daily_trend`, gated in the
- * backend; the raw trigger the chart arrow shows is `daily_macd_trigger`); it ignores the slider and the weekly setup. Weekly
+ * backend; the raw trigger the chart arrow shows is `daily_macd_trigger`); it ignores the slider and the daily setup. Weekly
  * bullish / bearish trend change is the same trigger on the current (in-progress) weekly bar, gated on the 10-week SMA
  * (`weekly_trend`); it also ignores the slider. Recent breakouts ignores the slider:
  * it needs a tight-base breakout and RS >= P50. Broken leaders ignores the slider: any name whose trend is broken
@@ -168,7 +168,7 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
     case "p80":
       return { filter: "leaders", minRs: 80 };
     case "setups":
-      // Old combined Weekly setups option → the actionable awaiting-trigger view.
+      // Old combined Daily setups option → the actionable awaiting-trigger view.
       return { filter: "setups_pending", minRs: null };
     case "leaders":
     case "setups_pending":
@@ -204,7 +204,7 @@ export function fmtRs(rs: number | null | undefined): string {
 
 export const NO_SETUP_LEADER = "Leader · no setup";
 
-/** Label for the setup cell of a row without a weekly setup: a leader is still listed, it just has no weekly setup. */
+/** Label for the setup cell of a row without a daily setup: a leader is still listed, it just has no daily setup. */
 export function noSetupLabel(r: LeaderFields, minRs: number = LEADER_RS): string {
   return qualifiesAsLeader(r, minRs) ? NO_SETUP_LEADER : NO_SETUP_LABEL;
 }

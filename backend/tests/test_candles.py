@@ -95,78 +95,52 @@ class TestHammer:
 
 
 def _kinds(candles):
+    # The Strat long setups were removed on 2026-11-07 (replaced by the
+    # RealSimpleAriel setups in strat.ariel_setups, tested in
+    # test_ariel_setups.py). ``find_long_setups`` is kept only as a no-op so
+    # the removal is explicit; there are no Strat setup kinds left to assert.
     return {s.kind for s in find_long_setups(candles, classify_series(candles))}
 
 
-class TestSetups:
-    def test_inside_bar_trigger(self):
+class TestSetupsRemoved:
+    def test_find_long_setups_is_a_removed_no_op(self):
         candles = [Candle(95, 100, 90, 98), Candle(98, 112, 94, 110), Candle(108, 111, 100, 109)]
-        setups = find_long_setups(candles, classify_series(candles))
-        pending = next(s for s in setups if s.kind == "2-1-2-pending")
-        assert (pending.trigger, pending.triggered) == (111, False)
-
-    def test_three_one_pending(self):
-        candles = [Candle(95, 100, 90, 98), Candle(98, 105, 85, 99), Candle(99, 103, 88, 100)]
-        assert "3-1-2-pending" in _kinds(candles)
-
-    def test_two_one_two_bullish(self):
-        candles = [
-            Candle(100, 110, 90, 95),
-            Candle(95, 105, 85, 88),  # 2D
-            Candle(88, 100, 87, 98),  # 1
-            Candle(98, 104, 96, 103),  # 2U
-        ]
-        setups = find_long_setups(candles, classify_series(candles))
-        s = next(s for s in setups if s.kind == "2-1-2")
-        assert "2D-1-2U" in s.label
-        assert (s.trigger, s.triggered) == (100, True)
-
-    def test_three_one_two(self):
-        candles = [Candle(100, 105, 95, 100), Candle(100, 110, 90, 108), Candle(108, 109, 95, 100), Candle(100, 112, 99, 111)]
-        assert "3-1-2" in _kinds(candles)
-
-    def test_one_two_two_revstrat(self):
-        candles = [Candle(100, 110, 90, 100), Candle(100, 108, 92, 100), Candle(100, 104, 88, 90), Candle(90, 106, 89, 105)]
-        assert "1-2-2" in _kinds(candles)
-
-    def test_two_down_two_up_reversal(self):
-        candles = [Candle(100, 110, 90, 100), Candle(100, 112, 95, 110), Candle(110, 111, 93, 94), Candle(94, 115, 94, 114)]
-        kinds = _kinds(candles)
-        assert "2D-2U" in kinds and "1-2-2" not in kinds
-
-    def test_hammer_setup(self):
-        candles = [Candle(100, 105, 95, 96), Candle(96, 97.2, 89, 97)]
-        setups = find_long_setups(candles, classify_series(candles))
-        h = next(s for s in setups if s.kind == "hammer")
-        assert h.trigger == 97.2
-
-    def test_bearish_patterns_ignored(self):
-        candles = [Candle(100, 110, 90, 105), Candle(105, 108, 92, 100), Candle(100, 106, 85, 86)]
+        assert find_long_setups(candles, classify_series(candles)) == []
         assert _kinds(candles) == set()
 
-    def test_setups_carry_no_stop(self):
-        candles = [Candle(95, 100, 90, 98), Candle(98, 112, 94, 110), Candle(108, 111, 100, 109)]
-        for s in find_long_setups(candles, classify_series(candles)):
-            assert not hasattr(s, "stop")
-
-    def test_timeframe_state(self):
+    def test_timeframe_state_carries_no_strat_setups(self):
         st = timeframe_state("W", [Candle(95, 100, 90, 98), Candle(96, 99, 91, 97.5)])
         assert st.strat == INSIDE and st.inside and st.color == "green"
+        assert st.setups == []
+
+    def test_ariel_setups_carry_a_stop_and_15m_entry(self):
+        from strat.ariel_setups import find_ariel_setups
+
+        import pandas as pd
+
+        idx = pd.bdate_range("2026-06-01", periods=22)
+        df = pd.DataFrame(
+            {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000.0}, index=idx
+        )
+        df.iloc[-1] = (103.0, 106.0, 102.0, 105.0, 3_000_000.0)
+        setups = find_ariel_setups(df)
+        assert setups and setups[0].kind == "episodic-pivot"
+        assert setups[0].stop == 102.0 and setups[0].to_setup().entry_tf == "15m"
 
 
 def test_apply_live_triggers_marks_pending_long_setups_above_the_trigger():
     from strat.candles import Setup, TimeframeState, apply_live_triggers
 
-    def state(tf="W"):
+    def state(tf="D"):
         return TimeframeState(
             tf, "1", "2U", "green", 1, 2, 0.5, 1.5, True, False,
-            setups=[Setup("2-1-2-pending", "2-1 → 2-1-2 setup", 10.0, False), Setup("2-1-2", "2-1-2 bullish", 9.0, True, "x")],
+            setups=[Setup("episodic-pivot", "Episodic Pivot", 10.0, False), Setup("flat-base-breakout", "Flat Base Breakout", 9.0, True, "x")],
         )
 
     hit = apply_live_triggers(state(), 10.5)
     assert [(s.triggered, s.live) for s in hit.setups] == [(True, True), (True, False)]
     assert hit.setups[0].trigger == 10.0
-    assert hit.setups[0].detail == "broke 10.00 this week (high 10.50)"
+    assert hit.setups[0].detail == "broke 10.00 this day (high 10.50)"
     assert hit.setups[1].detail == "x"
     assert [s.triggered for s in apply_live_triggers(state(), 10.0).setups] == [False, True]
     assert [s.triggered for s in apply_live_triggers(state(), None).setups] == [False, True]

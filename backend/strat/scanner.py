@@ -11,6 +11,7 @@ from typing import Mapping, Optional
 import pandas as pd
 
 from . import config
+from .ariel_setups import find_ariel_setups
 from .change import (
     RS_LOOKBACK,
     STATE_LOOKBACK,
@@ -54,7 +55,6 @@ from .themes import Theme, ThemeMap, build_theme_index
 from .universe import Member
 
 TIMEFRAMES = ("M", "W", "D")
-LIVE_TRIGGER_TFS = ("W", "M")
 
 
 def candle_patterns(daily: pd.DataFrame, frames: Mapping[str, pd.DataFrame], candles: Mapping[str, list[Candle]]) -> dict:
@@ -210,13 +210,21 @@ def scan_symbol(
     states = {tf: timeframe_state(tf, candles[tf]) for tf in TIMEFRAMES}
     last = daily.iloc[-1]
     price = float(last.close)
-    # Weekly / monthly triggers stay on the last completed bar; the bar in progress only decides whether one has broken.
-    live_highs = {tf: in_progress_high(daily, frames[tf], tf, price) for tf in LIVE_TRIGGER_TFS}
-    tolerance = live_trigger_tolerance(daily)
-    for tf, high in live_highs.items():
-        # The IEX allowance only applies when today's live bar is what set the in-progress high.
-        today_sets_high = high is not None and max(float(last.high), price) >= high
-        states[tf] = apply_live_triggers(states[tf], high, tolerance if today_sets_high else 0.0)
+    # Daily Ariel setups read completed daily bars only; today's session is
+    # still forming, so it is dropped until the close. The setup decision is
+    # daily; the 15-minute chart is only for timing the entry.
+    bar_complete = daily_bar_complete(pd.Timestamp(daily.index[-1]).date())
+    completed = daily if bar_complete else daily.iloc[:-1]
+    if states.get("D") is not None:
+        states["D"] = replace(
+            states["D"], setups=[s.to_setup() for s in find_ariel_setups(completed)]
+        )
+    # A daily trigger stays on the last completed bar; the bar in progress only
+    # decides whether one has broken (today's high / the latest price).
+    if not bar_complete:
+        states["D"] = apply_live_triggers(
+            states["D"], max(float(last.high), price), live_trigger_tolerance(daily)
+        )
     # Continuity (score, badges, M+W / full flags) reads the bars in progress; the Strat state above does not.
     for tf, open_ in live_opens(daily).items():
         if states.get(tf) is not None and open_ is not None:

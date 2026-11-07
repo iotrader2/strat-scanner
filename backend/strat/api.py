@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from .alpaca import AlpacaError
 from . import alerts as alert_rules
-from . import alerts_live, alerts_store, chart5m, config, data, earnings, fetch_worker, logos, memory, quotes, trims, userdb, watch5m
+from . import alerts_live, alerts_store, chart15m, config, data, earnings, fetch_worker, logos, memory, quotes, trims, userdb, watch15m
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
@@ -130,7 +130,7 @@ def _log_rss(phase: str, **fields) -> None:
 def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = True, intraday: bool = False) -> None:
     live = intraday and live_bars_enabled()
     fetch = "child" if fetch_worker.use_child(full, with_earnings) else "in-process"
-    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch, **({"kind": "live5m"} if live else {}))
+    _log_rss("start", full=full, period=period or "", earnings=with_earnings, fetch=fetch, **({"kind": "live15m"} if live else {}))
     try:
         symbols = [m.symbol for m in _universe()]
 
@@ -142,7 +142,7 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
             from . import intraday as intraday_bars
 
             stats = intraday_bars.poll(symbols)
-            log.info("live 5m poll %s", stats)
+            log.info("live 15m poll %s", stats)
         elif fetch == "child":
             fetch_worker.fetch_in_child(full, period, with_earnings, progress)
         else:
@@ -156,7 +156,7 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
         State.error = str(exc)
     finally:
         _refresh_nasdaq_issues()
-        _refresh_watch5m()
+        _refresh_watch15m()
         State.refreshing = False
         try:
             with _scan_lock:
@@ -195,7 +195,7 @@ def _prev_close(symbol: str, day: date) -> Optional[float]:
     return float(closes.iloc[-1]) if len(closes) else None
 
 
-def _refresh_watch5m() -> None:
+def _refresh_watch15m() -> None:
     """Premarket prints and 15-minute EMAs for the watchlist + positions (Alpaca), inside the job slot.
 
     Two or three small requests per poll for a handful of symbols. Skipped for a cut-off view, when
@@ -206,12 +206,12 @@ def _refresh_watch5m() -> None:
     State.lists_dirty = False
     try:
         symbols = _list_symbols()
-        stats = watch5m.refresh(symbols, _prev_close)
-        log.info("watch5m %s", stats)
+        stats = watch15m.refresh(symbols, _prev_close)
+        log.info("watch15m %s", stats)
         if symbols:
             hub.publish({"type": "lists"})
     except Exception:
-        log.exception("watchlist 5m refresh failed")
+        log.exception("watchlist 15m refresh failed")
     _refresh_alerts()
 
 
@@ -250,18 +250,18 @@ def _refresh_alerts() -> None:
         log.exception("alerts refresh failed")
 
 
-def _run_watch5m() -> None:
+def _run_watch15m() -> None:
     try:
-        _refresh_watch5m()
+        _refresh_watch15m()
     finally:
         _release_job()
 
 
-def start_watch5m() -> bool:
+def start_watch15m() -> bool:
     """Premarket poll for the two small lists (the universe stays on its own cadence)."""
     if not _claim_job("lists"):
         return False
-    threading.Thread(target=_run_watch5m, daemon=True).start()
+    threading.Thread(target=_run_watch15m, daemon=True).start()
     return True
 
 
@@ -283,7 +283,7 @@ def _warm_earnings(wait_seconds: float = 900, poll: float = 5.0) -> None:
     finally:
         # A restart with a warm cache may not refresh prices for hours; read the Nasdaq diary once now.
         _refresh_nasdaq_issues()
-        _refresh_watch5m()
+        _refresh_watch15m()
         _release_job()
 
 
@@ -570,7 +570,7 @@ def _scheduler_loop() -> None:
         if kind == "lists":
             if session_phase(now) == "premarket":
                 last_lists = now
-            start_watch5m()
+            start_watch15m()
         elif kind == "extended":
             last_extended = now
             start_index_quotes()
@@ -606,8 +606,8 @@ def _status_body() -> dict:
         "universe_size": len(universe),
         "version": State.version,
         "computed_at": State.scan_key,
-        # Alpaca: prices from real-time IEX 5-minute bars (volume trails ~15 min on SIP). Yahoo: ~15-minute delay.
-        "delay": "5m" if live_bars_enabled() else "15m",
+        # Alpaca: prices from real-time IEX 15-minute bars (volume trails ~15 min on SIP). Yahoo: ~15-minute delay.
+        "delay": "live" if live_bars_enabled() else "15m",
         "source": "alpaca" if live_bars_enabled() else "yahoo",
         "storage": userdb.describe(),
     }
@@ -678,7 +678,7 @@ def scan(
     """Ranked scan rows. By default only the Leaders scan: relative strength at or above ``min_rs`` (a 0..1 percentile,
     default P90), or an RS line versus QQQ that made a 52-week high in the last 5 sessions, with the trend intact,
     and a score strictly above ``LEADERS_MIN_SCORE`` (70). Raising ``min_rs`` above P90 tightens the percentile cut.
-    A weekly setup is not required; names without one are labelled in the row."""
+    A daily setup is not required; names without one are labelled in the row."""
     min_price = config.MIN_PRICE if min_price is None else min_price
     min_dollar_volume = config.MIN_DOLLAR_VOLUME if min_dollar_volume is None else min_dollar_volume
     cut = LEADER_MIN_RS if min_rs is None else min_rs
@@ -733,7 +733,7 @@ def symbol_bars15m(symbol: str):
     if not live_bars_enabled():
         raise HTTPException(503, "15-minute bars need the Alpaca feed")
     try:
-        return chart5m.chart(symbol)
+        return chart15m.chart(symbol)
     except AlpacaError:
         log.warning("15-minute bars failed for %s", symbol, exc_info=True)
         raise HTTPException(502, "15-minute bars are unavailable") from None
@@ -817,13 +817,13 @@ def _watchlist_payload() -> dict:
         "symbols": symbols,
         "rows": _with_earnings([by_symbol[s] for s in symbols if s in by_symbol]),
         "missing": [s for s in symbols if s not in by_symbol],
-        "intraday": watch5m.snapshot(symbols),
+        "intraday": watch15m.snapshot(symbols),
     }
 
 
 @app.get("/api/watchlist")
 def get_watchlist():
-    """Watched names with their full scan row, whether or not they still have a weekly setup."""
+    """Watched names with their full scan row, whether or not they still have a daily setup."""
     return _watchlist_payload()
 
 
@@ -859,7 +859,7 @@ def _positions_payload() -> dict:
         "positions": [
             {**trims.annotate(p, by_trim.get(p["symbol"], [])), "row": rows.get(p["symbol"])} for p in held
         ],
-        "intraday": watch5m.snapshot([p["symbol"] for p in held]),
+        "intraday": watch15m.snapshot([p["symbol"] for p in held]),
     }
 
 
@@ -1024,12 +1024,12 @@ def _alerts_session(session: Optional[str]) -> str:
 def _alert_ema5m(symbols: list[str]) -> dict[str, dict | None]:
     """Current 15-minute 6/20 EMA for these symbols, already computed by the lists poll.
 
-    ``watch5m.snapshot`` only reads memory. It does not call Alpaca. A name that is on neither
+    ``watch15m.snapshot`` only reads memory. It does not call Alpaca. A name that is on neither
     the watchlist nor in positions has no reading.
     """
     if not symbols:
         return {}
-    snap = watch5m.snapshot(symbols)
+    snap = watch15m.snapshot(symbols)
     return {sym: snap[sym]["ema5m"] for sym in symbols}
 
 

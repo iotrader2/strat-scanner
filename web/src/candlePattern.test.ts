@@ -43,7 +43,7 @@ describe("Candle Pattern filter", () => {
 });
 
 describe("summary tiles", () => {
-  it("are exactly the nine requested tiles, in order (no weekly Strat tiles)", () => {
+  it("are exactly the nine requested tiles, in order (no Ariel setup tiles)", () => {
     expect(HERO_CHIPS.map((c) => c.label)).toEqual([
       "all names",
       "leaders",

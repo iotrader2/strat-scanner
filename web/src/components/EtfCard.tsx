@@ -56,7 +56,7 @@ export function EtfCard({
               <b>W</b> {setup.label} · trigger <span className="accent-text">{setup.trigger.toFixed(2)}</span>
             </>
           ) : (
-            <span className="muted">No weekly setup</span>
+            <span className="muted">No daily setup</span>
           )}
         </span>
       </div>

@@ -137,7 +137,7 @@ interface Props {
   pinActions?: boolean;
   /** Chart timeframe to switch the detail page to when a row is clicked; omitted keeps its sticky choice. */
   detailTf?: Tf | null;
-  /** The Min RS slider as a 0..1 percentile, used to label leaders that have no weekly setup. */
+  /** The Min RS slider as a 0..1 percentile, used to label leaders that have no daily setup. */
   minRs?: number;
   /** Sort the table starts in (default: score, highest first). */
   initialSort?: { key: string; dir: 1 | -1 };
@@ -145,7 +145,7 @@ interface Props {
   pinSymbol?: string;
   /**
    * Trading-list layout (Watchlist and Positions, via ListTable): drops the scanning-only columns,
-   * 1M / 3M / 6M returns, D · W · M continuity and Weekly setup. Score moves to sit immediately
+   * 1M / 3M / 6M returns, D · W · M continuity and Daily setup. Score moves to sit immediately
    * right of Price (the scanner keeps Score at the end). Day comes from ListTable instead.
    */
   tradingList?: boolean;
@@ -211,11 +211,11 @@ export function ScanTable({
             {scanning && header("change_pct", "Day", "num")}
             {scanning && PERF_PERIODS.map((p) => header(`perf_${p.key}`, p.label, "num perf-col"))}
             {scanning && <th>D · W · M</th>}
-            {scanning && <th>Weekly setup</th>}
+            {scanning && <th>Daily setup</th>}
             {header("avg_dollar_volume", "Avg $vol", "num")}
             {header("atr", "ATR", "num", "14-day average true range")}
             {header("atr_pct", "ATR %", "num", "14-day ATR as a percent of price")}
-            {/* Trading lists render these in ListIntradayColumns (after Day range; after the 5-minute EMAs on Positions). */}
+            {/* Trading lists render these in ListIntradayColumns (after Day range; after the 15-minute EMAs on Positions). */}
             {scanning && MA_DISTANCE_PERIODS.map((p) => header(maSortKey(p), maLabel(p), "num ma-dist-col", maTitle(p)))}
             {scanning && header("score", "Score", actions ? "num" : "num score-col")}
             {actions && <th className={pinActions ? "actions-col" : "actions-col actions-flow"}>{actionsLabel}</th>}

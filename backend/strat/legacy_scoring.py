@@ -1,5 +1,6 @@
-"""The previous Strat-first actionability score (0-100). Kept only so the leaders backtest can compare old vs new;
-the scanner ranks with ``scoring.py``."""
+"""The previous leadership score weights (0-100). Kept only so the leaders backtest can compare old vs new;
+the scanner ranks with ``scoring.py``. The setups it ranks are the daily RealSimpleAriel setups
+(see ``ariel_setups.py``), not the old Strat weekly setups."""
 
 from __future__ import annotations
 
@@ -7,30 +8,19 @@ import math
 from dataclasses import dataclass, field
 from typing import Mapping, Optional
 
+from .ariel_setups import SETUP_POINTS, SETUP_TF
 from .candles import TWO_UP, Setup, TimeframeState, continuity_color
 from .perf import MOMENTUM_WEIGHTS, PERIOD_LABELS, PERIODS, Momentum
 
 TF_NAMES = {"M": "Monthly", "W": "Weekly", "D": "Daily"}
 
-# Only weekly setups are ranked; Monthly and Daily candles are context (continuity, Monthly 2U).
-SETUP_TF = "W"
+# Only daily setups are ranked; Monthly and Weekly candles are context (continuity, Monthly 2U).
 
 CONTINUITY_POINTS = {"M": 12.0, "W": 12.0, "D": 6.0}
 FULL_CONTINUITY_BONUS = 8.0
 MONTHLY_2U_POINTS = 20.0
 
-# Pending (not yet triggered) weekly setups are the most actionable.
-SETUP_POINTS = {
-    "2-1-2-pending": 23.0,
-    "3-1-2-pending": 23.0,
-    "inside": 20.0,
-    "hammer": 18.0,
-    "2-1-2": 12.0,
-    "3-1-2": 12.0,
-    "1-2-2": 10.0,
-    "2D-2U": 9.0,
-    "hammer-triggered": 8.0,
-}
+# Pending (not yet triggered) daily setups are the most actionable; points come from ``ariel_setups.SETUP_POINTS``.
 MAX_SETUP_POINTS = 25.0
 PROXIMITY_POINTS = 15.0
 PROXIMITY_WINDOW_PCT = 5.0
@@ -42,7 +32,7 @@ PINNED_PENALTY = 0.5
 THEME_STRENGTH_POINTS = 40.0
 MOMENTUM_POINTS = 15.0
 
-# Core components shared by every kind of row (Monthly 2U, continuity, weekly setup, distance to trigger).
+# Core components shared by every kind of row (Monthly 2U, continuity, daily setup, distance to trigger).
 CORE_MAX_RAW_POINTS = (
     MONTHLY_2U_POINTS + sum(CONTINUITY_POINTS.values()) + FULL_CONTINUITY_BONUS + MAX_SETUP_POINTS + PROXIMITY_POINTS
 )
@@ -160,10 +150,10 @@ def score_symbol(
     reasons: list[str] = []
     parts: list[Component] = []
 
-    weekly = states.get(SETUP_TF)
+    daily = states.get(SETUP_TF)
     scored = [
         ScoredSetup(SETUP_TF, setup, SETUP_POINTS.get(setup.kind, 0.0))
-        for setup in (weekly.setups if weekly else [])
+        for setup in (daily.setups if daily else [])
     ]
     ordered = sorted(scored, key=lambda s: s.points, reverse=True)
     primary = _pick_primary(scored, price)
@@ -193,16 +183,16 @@ def score_symbol(
     )
 
     setup_pts = 0.0
-    setup_detail = "no weekly setup"
+    setup_detail = "no daily setup"
     if ordered:
         extra = 0.25 * sum(s.points for s in ordered[1:])
         setup_pts = min(MAX_SETUP_POINTS, ordered[0].points + extra)
         setup_detail = f"{ordered[0].setup.label} {ordered[0].points:g}"
         if extra:
-            setup_detail += f" + 25% of other weekly setups {extra:g}"
+            setup_detail += f" + 25% of other daily setups {extra:g}"
         if ordered[0].points + extra > MAX_SETUP_POINTS:
             setup_detail += f", capped at {MAX_SETUP_POINTS:g}"
-    parts.append(Component("weekly_setup", "Weekly setup", setup_pts, MAX_SETUP_POINTS, setup_detail))
+    parts.append(Component("daily_setup", "Daily setup", setup_pts, MAX_SETUP_POINTS, setup_detail))
 
     dist = None
     prox = 0.0
@@ -241,9 +231,9 @@ def score_symbol(
 
     if primary:
         reasons.append(_describe(primary, dist))
-        reasons.extend(f"Weekly {s.setup.label}" for s in ordered if s is not primary)
+        reasons.extend(f"Daily {s.setup.label}" for s in ordered if s is not primary)
     else:
-        reasons.append("No weekly setup")
+        reasons.append("No daily setup")
     if monthly_2u:
         reasons.append("Monthly 2U")
     if full:

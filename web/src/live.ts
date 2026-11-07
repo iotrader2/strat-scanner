@@ -30,6 +30,6 @@ export function liveStatus(status: Status | null, socket: SocketPhase): LiveView
     return { tone: "busy", label: n ? `Updating · ${n} symbols` : "Updating" };
   }
   const when = status.computed_at || status.last_refresh;
-  const freshness = status.delay === "5m" ? "5-min bars" : "15-min delayed";
+  const freshness = status.delay === "live" ? "15-min bars" : "15-min delayed";
   return { tone: "live", label: `${freshness} · updated ${when ? formatLocal(when) : "never"}` };
 }

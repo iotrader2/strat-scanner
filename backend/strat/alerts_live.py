@@ -1,4 +1,4 @@
-"""Pullback alerts for high-score universe stocks on 15-minute bars, run from the 5-minute lists poll (inside the job slot).
+"""Pullback alerts for high-score universe stocks on 15-minute bars, run from the 15-minute lists poll (inside the job slot).
 
 Which names: the caller passes universe stocks with a scan score of at least ``Settings.min_score``
 (highest first, at most ``max_symbols``); names with an alert still live today are always kept.
