@@ -311,6 +311,8 @@ export interface AppConfig {
   leader_min_rs: number;
   /** The Leaders scan also needs a score strictly above this (70). */
   leaders_min_score?: number;
+  /** The daily setups as data/setups.yaml documents them (rules, entry, stop, numbers). */
+  setups?: import("./setupDocs").SetupDoc[];
   themes: ThemeInfo[];
 }
 

@@ -1,3 +1,4 @@
+import { setupHint, setupLabel } from "../setupDocs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
@@ -313,6 +314,19 @@ export default function Scanner({ version }: { version: string | null }) {
     }
   }, [leadership]);
 
+  // Setup names and hover text come from data/setups.yaml (via /api/config) when loaded, so they match the code.
+  const setupOptions = useMemo(
+    () =>
+      SETUPS_OPTIONS.map((o) => ({
+        ...o,
+        label: setupLabel(o.value, config?.setups) ?? o.label,
+        hint: setupHint(o.value, config?.setups) ?? o.hint,
+      })),
+    [config],
+  );
+  const tileLabel = (f: LeadershipFilter, fallback: string) =>
+    setupLabel(f, config?.setups)?.toLowerCase().replace("moving average", "ma") ?? fallback;
+
   const themeChoices = useMemo<DropdownOption<string>[]>(() => themeOptions(config?.themes ?? []), [config]);
 
   const setTheme = (t: string) => {
@@ -347,7 +361,7 @@ export default function Scanner({ version }: { version: string | null }) {
                 >
                   {stats[chip.filter]}
                 </span>
-                <span className="stat-label">{chip.label}</span>
+                <span className="stat-label">{tileLabel(chip.filter, chip.label)}</span>
               </button>
             );
           })}
@@ -369,7 +383,7 @@ export default function Scanner({ version }: { version: string | null }) {
             label={SETUPS_FILTER_LABEL}
             header="Filter by setup"
             value={leadership}
-            options={SETUPS_OPTIONS}
+            options={setupOptions}
             onChange={setLeadership}
           />
           <Dropdown

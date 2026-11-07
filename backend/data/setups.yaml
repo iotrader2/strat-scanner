@@ -1,0 +1,150 @@
+# Daily swing setups: what the scanner looks for, in plain words, with every number it uses.
+#
+# THIS FILE IS READ BY THE CODE (backend/strat/ariel_setups.py). Change a number here and the scanner
+# changes with it at the next deploy/restart. Percentages are written as percents (2 means 2%).
+# If you want a RULE changed (not just a number), describe it under that setup and ask; the code and
+# this file are then changed together.
+#
+# How every setup works:
+# - The setup is decided on the DAILY chart, from completed days only. The one exception is the Episodic
+#   Pivot (and its short mirror), a same-day trade read from today's forming bar.
+# - The 15-minute chart is only for timing the entry.
+# - "Pending" = the level is set and today's session decides whether it breaks. "Triggered" = it already
+#   broke (on the last completed day, or today: today's high above / low below the trigger).
+# - A setup whose stop is not on the right side of its entry is dropped (long: stop below the entry;
+#   short: stop above). The entry is the trigger, or the breakout day's open when it gapped through.
+# - Who is listed: long setups list Leaders (RS at the Min RS cut, P90 by default, trend not broken);
+#   short setups list Laggards (RS at or below 100 minus Min RS, P10 by default, trend broken).
+#   Setups never add to the score.
+#
+# SHORT SETUPS are the long setups on the chart turned upside down (every price p becomes 1/p), using the
+# SAME numbers below. On the real chart that means: a 2% gap up <-> a ~2% gap down; a 20% rise <-> a
+# ~17% decline; a 50% run-up <-> a ~33% drop; "close in the upper half" <-> "close in the lower half".
+# If you want different numbers for shorts, say so and a short section will be added here.
+
+general:
+  entry_chart_minutes: 15          # entry timing chart (the playbook uses 5; you asked for 15)
+  risk_pct_min: 0.5                # typical risk per trade, % of equity (shown, not enforced)
+  risk_pct_max: 1.0
+  partial_profit_after_days: [3, 5]  # take partials into strength after 3-5 strong days (shown, not enforced)
+  trail_ma_periods: [10, 20]       # trail the rest with the rising 10/20-day average (shown, not enforced)
+  min_history_days: 22             # fewer completed days than this: no setups at all
+
+episodic_pivot:
+  name: Episodic Pivot
+  short_name: Gap-Down Episodic Pivot
+  rules: |
+    Same-day trade on TODAY's bar:
+    1. Today opened at least min_gap_pct above yesterday's close.
+    2. Volume: today's volume so far, projected to a full day, is at least min_volume_x times the
+       average of the last volume_avg_days days. Only judged once min_session_pct of the session has
+       traded and volume has arrived; before that it is listed with "volume not confirmed yet".
+    3. Not shown once the gap day has closed (the next chance is the Delayed HVC).
+  entry: Above the high of the first 15-minute bar (before 9:45 ET, the high so far).
+  stop: Low of day.
+  params:
+    min_gap_pct: 2
+    min_volume_x: 1.5
+    volume_avg_days: 20
+    min_session_pct: 10            # ~40 minutes into the session
+
+delayed_hvc:
+  name: Delayed High Volume Close
+  short_name: Delayed HVC Short
+  rules: |
+    1. A gap day in the last lookback_days sessions (the most recent one counts). A gap day is a
+       completed day that: opened at least gap_day_min_gap_pct above the prior close; traded at least
+       gap_day_min_volume_x times the volume_avg_days-day average volume; closed above its open; and
+       closed in the top part of its range (at or above gap_day_close_position_pct of the way up).
+    2. Since then price closed back at or below the gap day's close.
+    3. Pending while the last close is at or below the gap-day close.
+       Triggered when the next day trades back above it (the day after the gap day never counts).
+  entry: Break back above the gap day's close.
+  stop: Low of the day the entry triggers.
+  params:
+    lookback_days: 10
+    gap_day_min_gap_pct: 2
+    gap_day_min_volume_x: 1.5
+    gap_day_close_position_pct: 50   # 50 = upper half of the day's range
+
+flat_base:
+  name: Flat Base Breakout
+  short_name: Flat Base Breakdown
+  rules: |
+    1. Base: the last base_days completed days, no deeper than max_depth_pct (base high to base low).
+    2. Prior trend: the base low is at least prior_rise_pct above the lowest low of the
+       prior_trend_days days before the base.
+    3. Tightening: the average daily range of the last third of the base is smaller than the first third.
+    4. The 10- and 20-day averages are within ma_spread_pct of each other at the end of the base.
+    5. Pending when the last day's high is within resistance_pct of the base high.
+       Triggered when the next day trades above the prior day's high (and the base high).
+  entry: Above the prior day's high, which clears the base resistance.
+  stop: |
+    Not in the playbook; the scanner's choice: the prior day's low when the breakout candle is tight
+    (range at most tight_candle_pct of price), otherwise the breakout day's low.
+  params:
+    base_days: 15
+    max_depth_pct: 10
+    prior_trend_days: 40
+    prior_rise_pct: 20
+    ma_spread_pct: 3
+    resistance_pct: 1
+    tight_candle_pct: 2
+
+undercut_rally:
+  name: Undercut and Rally
+  short_name: Overcut and Fail
+  rules: |
+    1. Swing low: the lowest low of the swing_lookback_days days before the last two days.
+    2. Yesterday or today traded below it (the undercut), and yesterday closed at or below it.
+    3. Today closed back above it (the reclaim must be immediate: the day after the close below).
+  entry: On the reclaim of the swing low.
+  stop: The low made during the undercut.
+  params:
+    swing_lookback_days: 20
+
+ma_undercut_rally:
+  name: Moving Average Undercut and Rally
+  short_name: MA Overcut and Fail
+  rules: |
+    1. Yesterday closed below a daily moving average (tried in the order of ma_periods; the first that
+       fits is used).
+    2. Today closed back above it, and the average is not falling (today's value >= yesterday's).
+    3. "With strength": today is an up day (close above open) closing at or above
+       strong_close_position_pct of the way up its range.
+  entry: As price rallies back through the average.
+  stop: Low of the reclaim day.
+  params:
+    ma_periods: [20, 50, 10]
+    strong_close_position_pct: 50
+    min_history_days: 55
+
+high_tight_flag:
+  name: High Tight Flag
+  short_name: Low Tight Flag
+  rules: |
+    1. Flag: the last flag_min_days to flag_max_days completed days (longest that fits is used), no
+       deeper than max_flag_depth_pct, and no close in the flag more than max_giveback_pct under the
+       run-up high.
+    2. Run-up: within the run_max_days days before the flag, price rose at least min_runup_pct from its
+       lowest low to the highest high after it.
+    3. Volume contracted: the flag's average volume is below the run-up's.
+    4. Pending while price is still in the flag. Triggered when the next day trades above the flag high.
+  entry: Break above the top of the flag.
+  stop: Low of the breakout day.
+  params:
+    min_runup_pct: 50
+    run_max_days: 40               # ~8 weeks
+    flag_min_days: 10              # 2 weeks
+    flag_max_days: 25              # 5 weeks
+    max_flag_depth_pct: 10
+    max_giveback_pct: 10
+
+# Order on screen when a stock has several setups (higher first). Shorts use the same numbers.
+display_rank:
+  episodic_pivot: 23
+  high_tight_flag: 22
+  delayed_hvc: 21
+  flat_base: 20
+  undercut_rally: 18
+  ma_undercut_rally: 18

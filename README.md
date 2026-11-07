@@ -135,17 +135,19 @@ claimed to be Ariel's). A daily setup is optional for the scanner: leaders witho
 and the Trigger column shows their **nearest trigger** (the closer of the last two completed weeks' highs above price, in muted type).
 The **15-minute chart is only for timing the entry** — never for the setup decision.
 
-| Setup | Pattern (daily bars) | Entry (15-min chart) | Stop |
-| --- | --- | --- | --- |
-| Episodic Pivot | **today's** bar gaps up ≥ 2% on ≥ 1.5× 20-day volume (projected from the session so far); a same-day trade, so it is not shown once the gap day has closed | Opening Range Break above the high of the first 15-min bar (before 09:45 ET the trigger is the high so far) | low of day |
-| Delayed High Volume Close | price breaks back through a recent (≤ 10 sessions) Episodic Pivot gap-day close, any day after; pending while price is below that close | break of that close | low of entry day |
-| Flat Base Breakout | after a ≥ 20% prior trend, a horizontal base ≥ 15 sessions, ≤ 10% deep, ranges tightening, 10/20-day MAs within 3%; pending when the last bar sits at the base high | above the prior day's high, clearing base resistance | prior day's low if the breakout candle is tight, else breakout-day low (the playbook gives no stop; this is the scanner's) |
-| Undercut and Rally | price closes below a ~1-month swing low, then reclaims it the next day | on reclaim of the prior low | the new swing low formed during the undercut |
-| MA Undercut and Rally | price closes below a key daily MA (20/50/10-day), then reclaims it with strength (an up day closing in the upper half of its range) | as price rallies back through the MA | low of reclaim day |
-| High Tight Flag | a ≥ 50% run-up within ~8 weeks, then a tight 10–25 session flag holding near the highs on contracting volume; pending while in the flag | break through the top of the tight range | low of breakout day |
+**Every setup's rules and numbers are in [`backend/data/setups.yaml`](backend/data/setups.yaml)**, in plain words.
+The scanner reads that file: change a number there and detection changes at the next deploy. The Setups
+dropdown's hover text is built from it too. Rule changes (not just numbers) change the file and the code together.
+`backend/tests/test_setups_yaml.py` fails if the two drift apart.
 
-Pending setups break during today's session (today's high / the live price above the trigger). A setup whose stop is
-not below its entry (the trigger, or the breakout day's open when it gapped above) is dropped.
+Long setups: Episodic Pivot, Delayed High Volume Close, Flat Base Breakout, Undercut and Rally, Moving Average
+Undercut and Rally, High Tight Flag. Short setups are the same rules on the chart turned upside down, with the same
+numbers: Gap-Down Episodic Pivot, Delayed HVC Short, Flat Base Breakdown, Overcut and Fail, MA Overcut and Fail,
+Low Tight Flag. Long setups list Leaders; short setups list Laggards.
+
+Pending setups break during today's session (long: today's high above the trigger; short: today's low below it). A
+setup whose stop is not on the right side of its entry (the trigger, or the breakout day's open when it gapped
+through) is dropped.
 
 General rules from the same playbook: only take trades when the market and the group / sector support the direction,
 with institutional accumulation / relative strength; every setup has a defined risk; typical risk is **0.5% to 1% of
