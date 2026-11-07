@@ -339,3 +339,34 @@ def test_short_kinds_rank_like_their_long_counterparts():
 
 def test_a_rising_flat_chart_has_no_short_setups():
     assert find_short_setups(_frame(_htf_rows())) == []
+
+
+# --- Delayed HVC: near the level, and the gap has not failed -------------------------------------------------------
+
+
+def test_delayed_hvc_is_dropped_once_price_is_far_under_the_gap_close():
+    # Gap close 105, gap low 102. A close at 101.5 is over 3% under and below the gap low: the gap failed.
+    assert "delayed-hvc" not in _by_kind(_gap_then((103.0, 103.5, 101.0, 101.5, 1_000_000.0)))
+
+
+def test_delayed_hvc_needs_the_gap_low_to_hold():
+    # Back at 104 now, but a close at 101.8 since the gap went under the gap-day low 102.
+    df = _gap_then((103.0, 103.5, 101.5, 101.8, 1_000_000.0), (102.0, 104.2, 101.9, 104.0, 1_000_000.0))
+    assert "delayed-hvc" not in _by_kind(df)
+
+
+def test_delayed_hvc_more_than_max_below_under_the_level_is_not_pending(monkeypatch):
+    import strat.ariel_setups as a
+
+    # 103 is ~1.9% under 105 and above the gap low: pending at 5%, not at 1%.
+    df = _gap_then((104.0, 104.5, 102.5, 103.0, 1_000_000.0))
+    assert "delayed-hvc" in _by_kind(df)
+    monkeypatch.setattr(a, "HVC_MAX_BELOW_PCT", 0.01)
+    assert "delayed-hvc" not in _by_kind(df)
+
+
+def test_delayed_hvc_short_mirror_also_drops_a_failed_gap():
+    rows = _flat(20) + [(103.0, 106.0, 102.0, 105.0, 3_000_000.0), (103.0, 103.5, 101.0, 101.5, 1_000_000.0)]
+    assert "delayed-hvc-short" not in _shorts(_frame(_flip(rows)))
+    near = _flat(20) + [(103.0, 106.0, 102.0, 105.0, 3_000_000.0), (104.0, 104.5, 103.0, 104.0, 1_000_000.0)]
+    assert "delayed-hvc-short" in _shorts(_frame(_flip(near)))

@@ -10,9 +10,11 @@ export function isIndexEtf(r: Row): boolean {
 }
 
 /**
- * The ETFs view always lists the index ETFs as reference rows, whatever the Setups option (they are rarely
- * ETF leaders, so Leaders would hide them). The other filters (search, theme, setup, liquidity, ATR) still apply.
+ * The ETFs view lists the index ETFs as reference rows (they are rarely ETF leaders, so Leaders would hide them).
+ * Not under a single-setup option (`setupView`): there a row is only listed when it has that setup, otherwise
+ * QQQ / SPY / IWM would appear in, say, Delayed High Volume Close with no setup at all. The other filters
+ * (search, theme, liquidity, ATR) still apply.
  */
-export function keepIndexEtf(r: Row, kind: "all" | "stock" | "etf"): boolean {
-  return kind === "etf" && isIndexEtf(r);
+export function keepIndexEtf(r: Row, kind: "all" | "stock" | "etf", setupView = false): boolean {
+  return kind === "etf" && !setupView && isIndexEtf(r);
 }

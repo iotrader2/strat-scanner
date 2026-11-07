@@ -53,8 +53,10 @@ delayed_hvc:
        completed day that: opened at least gap_day_min_gap_pct above the prior close; traded at least
        gap_day_min_volume_x the volume_avg_days-day average volume; closed above its open; and
        closed in the top part of its range (at or above gap_day_close_position_pct of the way up).
-    2. Since then price closed back at or below the gap day's close.
-    3. Pending while the last close is at or below the gap-day close.
+    2. Since then price closed back at or below the gap day's close, but stayed near it: the close
+       before the break is no more than max_below_pct under the gap-day close.
+    3. The gap has not failed: no close since the gap day below the gap day's low.
+    4. Pending while the last close is at or below the gap-day close (and within max_below_pct of it).
        Triggered when the next day trades back above it (the day after the gap day never counts).
   entry: Break back above the gap day's close.
   stop: Low of the day the entry triggers.
@@ -63,6 +65,7 @@ delayed_hvc:
     gap_day_min_gap_pct: 2
     gap_day_min_volume_x: 1.5
     gap_day_close_position_pct: 50   # 50 = upper half of the day's range
+    max_below_pct: 5                 # a second chance near the level, not a gap that collapsed
 
 flat_base:
   name: Flat Base Breakout
