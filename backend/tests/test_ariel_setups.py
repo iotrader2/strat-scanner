@@ -277,3 +277,65 @@ def test_to_scored_setups_keep_the_shared_setup_shape_and_15m_entry():
     points = [SETUP_POINTS[s.kind] for s in scored]
     assert points == sorted(points, reverse=True)
     assert scored[0].kind == "episodic-pivot"
+
+
+# --- short mirrors ---------------------------------------------------------------------------------------------------
+
+from strat.ariel_setups import SHORT_KINDS, SHORT_MIRROR, find_short_setups  # noqa: E402
+
+
+def _flip(rows):
+    """The same chart upside down (p -> 10000 / p, high and low swap): a long pattern becomes its short mirror."""
+    return [(1e4 / o, 1e4 / lo, 1e4 / h, 1e4 / c, v) for o, h, lo, c, v in rows]
+
+
+def _shorts(df, **live):
+    return {s.kind: s for s in find_short_setups(df, **live)}
+
+
+@pytest.mark.parametrize(
+    "rows, long_kind",
+    [
+        (_htf_rows() + [(161.0, 166.0, 160.0, 165.0, 2_000_000.0)], "high-tight-flag"),
+        (_base_rows() + [(99.0, 102.0, 98.5, 101.5, 2_000_000.0)], "flat-base-breakout"),
+    ],
+)
+def test_every_long_pattern_upside_down_is_its_short_mirror(rows, long_kind):
+    long = _by_kind(_frame(rows))[long_kind]
+    short_kind = SHORT_MIRROR[long_kind][0]
+    short = _shorts(_frame(_flip(rows)))[short_kind]
+    assert short.side == "short" and short.to_setup().side == "short"
+    assert short.trigger == pytest.approx(1e4 / long.trigger)
+    assert short.stop == pytest.approx(1e4 / long.stop)
+    assert short.stop > short.trigger  # stop above the entry
+    assert short.triggered == long.triggered
+
+
+def test_gap_down_pivot_is_live_with_the_opening_range_low_and_high_of_day_stop():
+    today = {"open": 97.0, "high": 98.0, "low": 94.0, "close": 95.0, "volume": 1_500_000.0}
+    setup = _shorts(_frame(_flat(22)), today=today, opening_low=95.5, session_fraction=0.25)["gap-down-pivot"]
+    assert setup.trigger == pytest.approx(95.5)  # below the first 15-min bar low
+    assert setup.stop == pytest.approx(98.0)  # high of day
+    assert setup.triggered is False
+    assert "below the low of the first 15-min bar" in setup.entry_instruction
+
+
+def test_ma_overcut_fail_reads_the_real_moving_average():
+    rows = _flat(60)
+    rows.append((102.0, 106.0, 101.0, 103.0, 1_000_000.0))  # closes above the ~100.05 average
+    rows.append((100.5, 101.0, 96.5, 97.0, 2_000_000.0))  # rejected back below on a weak day
+    df = _frame(rows)
+    setup = _shorts(df)["ma-overcut-fail"]
+    assert setup.trigger == pytest.approx(float(df["close"].rolling(20).mean().iloc[-1]))
+    assert setup.stop == pytest.approx(101.0)
+    assert "20-day" in setup.label
+
+
+def test_short_kinds_rank_like_their_long_counterparts():
+    assert len(SHORT_KINDS) == 6
+    for long_kind, (short_kind, _) in SHORT_MIRROR.items():
+        assert SETUP_POINTS[short_kind] == SETUP_POINTS[long_kind]
+
+
+def test_a_rising_flat_chart_has_no_short_setups():
+    assert find_short_setups(_frame(_htf_rows())) == []

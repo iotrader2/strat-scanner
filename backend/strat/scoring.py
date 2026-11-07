@@ -196,7 +196,7 @@ def score_symbol(
     ordered = sorted(scored, key=lambda s: s.points, reverse=True)
     primary = _pick_primary(scored, price)
 
-    dist = trigger_distance_pct(price, primary.setup.trigger) if primary else None
+    dist = trigger_distance_pct(price, primary.setup.trigger, primary.setup.side) if primary else None
 
     colors = {tf: continuity_color(s) for tf, s in states.items()}  # bars in progress (live)
     green = [tf for tf in ("M", "W", "D") if colors.get(tf) == "green"]

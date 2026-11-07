@@ -96,7 +96,7 @@ def _load_theme_map() -> Optional[ThemeMap]:
         return None
 
 
-_SLIM_SETUP_KEYS = ("tf", "kind", "label", "trigger", "triggered", "live", "stop")
+_SLIM_SETUP_KEYS = ("tf", "kind", "label", "trigger", "triggered", "live", "stop", "side")
 
 
 def _slim_row(r: dict) -> dict:
@@ -106,14 +106,14 @@ def _slim_row(r: dict) -> dict:
     return out
 
 
-def _opening_highs() -> dict[str, float]:
-    """Today's 15-minute opening-range highs (the Episodic Pivot entry level), from the live Alpaca bars."""
+def _opening_ranges() -> dict[str, tuple[float, float]]:
+    """Today's 15-minute opening ranges (high, low): the Episodic Pivot entry levels, from the live Alpaca bars."""
     if not live_bars_enabled():
         return {}
     try:
         from . import intraday as intraday_bars
 
-        return intraday_bars.opening_range_highs()
+        return intraday_bars.opening_ranges()
     except Exception:  # noqa: BLE001 — a missing opening range must never break the scan
         log.exception("opening range highs failed")
         return {}
@@ -125,7 +125,9 @@ def _scan_one(member: Member, daily) -> Optional[dict]:
     bench_close = None if qqq_daily is None or qqq_daily.empty else qqq_daily["close"]
     return scan_symbol(
         member, daily, State.strengths, State.ranks, State.theme_map, State.qqq, prior=State.prior,
-        benchmark_close=bench_close, opening_high=_opening_highs().get(member.symbol),
+        benchmark_close=bench_close,
+        opening_high=_opening_ranges().get(member.symbol, (None, None))[0],
+        opening_low=_opening_ranges().get(member.symbol, (None, None))[1],
     )
 
 
@@ -470,7 +472,7 @@ def _compute_scan(key: Optional[str]) -> list[dict]:
     data.reload_daily(State.daily)
     memory.release_heap()
     State.theme_map = _load_theme_map()
-    result = scan_all(_universe(), State.daily, State.theme_map, opening_highs=_opening_highs())
+    result = scan_all(_universe(), State.daily, State.theme_map, opening_ranges=_opening_ranges())
     State.result, State.scan = result, result.rows
     State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
     State.scan_key = key

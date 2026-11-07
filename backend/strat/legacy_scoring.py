@@ -112,9 +112,10 @@ class Score:
         return bool(self.setups)
 
 
-def trigger_distance_pct(price: float, trigger: float) -> float:
-    """Percent the price must rise to reach the trigger (negative once through it)."""
-    return (trigger - price) / price * 100.0
+def trigger_distance_pct(price: float, trigger: float, side: str = "long") -> float:
+    """Percent the price must move to reach the trigger: rise for a long, fall for a short (negative once through)."""
+    move = (trigger - price) / price * 100.0
+    return -move if side == "short" else move
 
 
 def proximity_points(dist_pct: Optional[float], triggered: bool) -> float:
@@ -198,7 +199,7 @@ def score_symbol(
     prox = 0.0
     prox_detail = "no trigger"
     if primary:
-        dist = trigger_distance_pct(price, primary.setup.trigger)
+        dist = trigger_distance_pct(price, primary.setup.trigger, primary.setup.side)
         prox = proximity_points(dist, primary.setup.triggered)
         prox_detail = (
             "already triggered (half credit)"
@@ -309,7 +310,7 @@ def _pick_primary(scored: list[ScoredSetup], price: float) -> Optional[ScoredSet
         return None
 
     def rank(s: ScoredSetup) -> float:
-        dist = trigger_distance_pct(price, s.setup.trigger)
+        dist = trigger_distance_pct(price, s.setup.trigger, getattr(s.setup, "side", "long"))
         return s.points + proximity_points(dist, s.setup.triggered) + (5.0 if not s.setup.triggered else 0.0)
 
     return max(scored, key=rank)
@@ -317,6 +318,7 @@ def _pick_primary(scored: list[ScoredSetup], price: float) -> Optional[ScoredSet
 
 def _describe(s: ScoredSetup, dist: float) -> str:
     tf = TF_NAMES[s.tf]
+    short = getattr(s.setup, "side", "long") == "short"
     if s.setup.triggered or dist <= 0:
-        return f"{tf} {s.setup.label} — triggered above {s.setup.trigger:.2f}"
+        return f"{tf} {s.setup.label} — triggered {'below' if short else 'above'} {s.setup.trigger:.2f}"
     return f"{tf} {s.setup.label} — trigger {s.setup.trigger:.2f} ({dist:+.1f}% away)"

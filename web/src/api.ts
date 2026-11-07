@@ -16,6 +16,8 @@ export interface Setup {
   stop?: number | null;
   /** Chart used only to time the entry ("15m" for the Ariel setups). */
   entry_tf?: string;
+  /** "long" (enter above the trigger, stop below) or "short" (enter below, stop above). */
+  side?: "long" | "short";
 }
 
 export interface CandlePatternBar {
@@ -215,7 +217,9 @@ export interface ScanRow {
   /** Inside bar / hammer on the last completed weekly and daily bar (the Candle Pattern filter). */
   candle_patterns?: { W: CandlePatternBar | null; D: CandlePatternBar | null } | null;
   triggered: boolean | null;
-  /** True when today's session traded above the trigger (set from the last completed day). */
+  /** Side of the shown setup: "short" triggers below its level, with the stop above. */
+  setup_side?: "long" | "short" | null;
+  /** True when today's session traded through the trigger (set from the last completed day). */
   triggered_live?: boolean | null;
   trigger_distance_pct: number | null;
   /** Score reasons, starting with the setup (or "No daily setup"). */

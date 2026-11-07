@@ -4,6 +4,7 @@ import { NO_SETUP_LABEL } from "./watchlist";
 /** Setups filter of the Stock Scanner (the dropdown labeled "Setups"). Leaders and the daily Ariel views use the Min RS slider; Recent breakouts, Failed breakouts, Broken leaders and the daily / weekly MACD trend changes ignore it. */
 export type LeadershipFilter =
   | "leaders"
+  | "laggards"
   | SetupFilter
   | "daily_bullish"
   | "daily_bearish"
@@ -21,7 +22,13 @@ export type SetupFilter =
   | "setup_flat_base"
   | "setup_undercut"
   | "setup_ma_undercut"
-  | "setup_htf";
+  | "setup_htf"
+  | "short_ep"
+  | "short_hvc"
+  | "short_flat_base"
+  | "short_overcut"
+  | "short_ma_overcut"
+  | "short_ltf";
 
 /** Setups option → the backend setup kind it lists. */
 export const SETUP_FILTER_KIND: Record<SetupFilter, string> = {
@@ -31,7 +38,16 @@ export const SETUP_FILTER_KIND: Record<SetupFilter, string> = {
   setup_undercut: "undercut-rally",
   setup_ma_undercut: "ma-undercut-rally",
   setup_htf: "high-tight-flag",
+  short_ep: "gap-down-pivot",
+  short_hvc: "delayed-hvc-short",
+  short_flat_base: "flat-base-breakdown",
+  short_overcut: "overcut-fail",
+  short_ma_overcut: "ma-overcut-fail",
+  short_ltf: "low-tight-flag",
 };
+
+/** The short-side setup views (they list laggards instead of leaders). */
+export const isShortSetupFilter = (f: string): boolean => f.startsWith("short_") && f in SETUP_FILTER_KIND;
 
 export const isSetupFilter = (f: string): f is SetupFilter => f in SETUP_FILTER_KIND;
 
@@ -52,7 +68,7 @@ type LeaderFields = Pick<ScanRow, "rs"> & {
   has_setup?: boolean;
   triggered?: boolean | null;
   /** Every daily setup on the row (list rows carry them without the detail text). */
-  setups?: Pick<Setup, "kind" | "label" | "trigger" | "triggered" | "live">[];
+  setups?: Pick<Setup, "kind" | "label" | "trigger" | "triggered" | "live" | "side">[];
   daily_trend?: ScanRow["daily_trend"];
   weekly_trend?: ScanRow["weekly_trend"];
   leadership?: Pick<ScanRow["leadership"], "breakdown">;
@@ -83,10 +99,18 @@ const isListedLeader = (r: LeaderFields, minRs: number) => qualifiesAsLeader(r, 
 export const findSetup = (r: LeaderFields, kind: string) => r.setups?.find((s) => s.kind === kind);
 /** Per-setup views: marked leaders with that daily setup, pending or triggered. They do not apply the score > 70 cut. */
 const isSetupLeader = (r: LeaderFields, minRs: number, kind: string) => isLeaderAtRs(r, minRs) && !!findSetup(r, kind);
+/**
+ * Laggard, the mirror of a leader: RS at or below the bottom cut (1 - Min RS: P10 at the default P90 slider, P50 at
+ * the slider's widest) with a broken trend (below the 50-day average or 25%+ under the 6-month high).
+ */
+export const isLaggardAtRs = (r: LeaderFields, minRs: number = LEADER_RS): boolean =>
+  r.rs !== null && r.rs !== undefined && r.rs <= 1 - minRs + 1e-9 && isBroken(r);
+/** Short setup views: laggards with that short setup, pending or triggered. */
+const isSetupLaggard = (r: LeaderFields, minRs: number, kind: string) => isLaggardAtRs(r, minRs) && !!findSetup(r, kind);
 
-/** True when the Min RS slider applies to this Setups option (Leaders and the per-setup views). */
+/** True when the Min RS slider applies to this Setups option (Leaders, Laggards and the per-setup views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
-  return filter === "leaders" || isSetupFilter(filter);
+  return filter === "leaders" || filter === "laggards" || isSetupFilter(filter);
 }
 
 /**
@@ -97,13 +121,17 @@ export function focusSetup<R extends ScanRow>(r: R, filter: LeadershipFilter): R
   if (!isSetupFilter(filter)) return r;
   const s = findSetup(r, SETUP_FILTER_KIND[filter]);
   if (!s) return r;
+  // Distance the price must move to the trigger: up for a long, down for a short (negative once through).
+  const move = r.price > 0 ? ((s.trigger - r.price) / r.price) * 100 : null;
+  const dist = move === null ? r.trigger_distance_pct : s.side === "short" ? -move : move;
   return {
     ...r,
     setup: `Daily ${s.label}`,
     trigger: Math.round(s.trigger * 100) / 100,
     triggered: s.triggered,
     triggered_live: s.live ?? false,
-    trigger_distance_pct: r.price > 0 ? ((s.trigger - r.price) / r.price) * 100 : r.trigger_distance_pct,
+    setup_side: s.side ?? "long",
+    trigger_distance_pct: dist,
   };
 }
 
@@ -183,6 +211,15 @@ export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, min
     case "setup_ma_undercut":
     case "setup_htf":
       return isSetupLeader(r, minRs, SETUP_FILTER_KIND[filter]);
+    case "short_ep":
+    case "short_hvc":
+    case "short_flat_base":
+    case "short_overcut":
+    case "short_ma_overcut":
+    case "short_ltf":
+      return isSetupLaggard(r, minRs, SETUP_FILTER_KIND[filter]);
+    case "laggards":
+      return isLaggardAtRs(r, minRs);
     case "daily_bullish":
       return r.daily_trend === "bullish";
     case "daily_bearish":
@@ -224,6 +261,13 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
     case "setup_undercut":
     case "setup_ma_undercut":
     case "setup_htf":
+    case "laggards":
+    case "short_ep":
+    case "short_hvc":
+    case "short_flat_base":
+    case "short_overcut":
+    case "short_ma_overcut":
+    case "short_ltf":
     case "daily_bullish":
     case "daily_bearish":
     case "weekly_bullish":

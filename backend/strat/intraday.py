@@ -118,24 +118,25 @@ def session_bars(db_path: Path | None = None) -> dict[str, dict]:
     return out
 
 
-def opening_range_highs(
+def opening_ranges(
     minutes: int = 15, now: datetime | None = None, db_path: Path | None = None
-) -> dict[str, float]:
-    """High of today's first ``minutes`` of trading per symbol, once that opening range has closed.
+) -> dict[str, tuple[float, float]]:
+    """(high, low) of today's first ``minutes`` of trading per symbol, once that opening range has closed.
 
-    The Episodic Pivot's Opening Range Break level (the high of the first 15-minute bar), built from the stored
-    5-minute bars. Empty before the opening range has closed.
+    The Episodic Pivot's Opening Range Break levels (the high, or for a gap-down short the low, of the first
+    15-minute bar), built from the stored 5-minute bars. Empty before the opening range has closed.
     """
-    start = session_open_utc(now or datetime.now(timezone.utc))
+    clock = now or datetime.now(timezone.utc)
+    start = session_open_utc(clock)
     end = start + timedelta(minutes=minutes)
-    if (now or datetime.now(timezone.utc)).astimezone(timezone.utc) < end:
+    if clock.astimezone(timezone.utc) < end:
         return {}
     with data.connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT symbol, MAX(high) FROM intraday_bars WHERE ts >= ? AND ts < ? GROUP BY symbol",
+            "SELECT symbol, MAX(high), MIN(low) FROM intraday_bars WHERE ts >= ? AND ts < ? GROUP BY symbol",
             (_iso(start), _iso(end)),
         ).fetchall()
-    return {sym: float(h) for sym, h in rows if h is not None}
+    return {sym: (float(h), float(lo)) for sym, h, lo in rows if h is not None and lo is not None}
 
 
 def poll(
