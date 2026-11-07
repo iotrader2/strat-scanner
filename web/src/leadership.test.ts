@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { ScanRow } from "./api";
 import {
   BREAKOUT_MIN_RS,
+  SETUP_FILTER_KIND,
+  focusSetup,
   LEADER_RS,
   LEADERS_MIN_SCORE,
   MIN_RS_RANGE,
@@ -123,10 +125,9 @@ describe("matchesLeadership", () => {
     expect(pick("broken", sliderToRs(99))).toEqual([brokenLeader, brokenMid, brokenBreakout]);
   });
 
-  it("only Leaders and Weekly setups use the Min RS slider", () => {
+  it("only Leaders and Daily setups use the Min RS slider", () => {
     expect(leadershipUsesMinRs("leaders")).toBe(true);
-    expect(leadershipUsesMinRs("setups_pending")).toBe(true);
-    expect(leadershipUsesMinRs("setups_triggered")).toBe(true);
+    expect(leadershipUsesMinRs("setup_htf")).toBe(true);
     expect(leadershipUsesMinRs("breakouts")).toBe(false);
     expect(leadershipUsesMinRs("broken")).toBe(false);
     expect(leadershipUsesMinRs("daily_bullish")).toBe(false);
@@ -151,69 +152,59 @@ describe("matchesLeadership", () => {
   });
 });
 
-describe("Weekly setups", () => {
-  const pendingLeader = row(0.96, "none", null, true, false);
-  const pendingWarning = row(0.92, "warning", null, true, false);
-  const pendingMid = row(0.84, "none", null, true, false);
-  const triggeredLeader = row(0.95, "none", null, true, true);
-  const triggeredMid = row(0.83, "none", null, true, true);
-  const setupBroken = row(0.97, "broken", null, true, false);
-  const setupLaggard = row(0.3, "none", null, true, true);
-  const setupNoRs = row(null, "none", null, true, false);
-  const all = [
-    pendingLeader,
-    pendingWarning,
-    pendingMid,
-    triggeredLeader,
-    triggeredMid,
-    setupBroken,
-    setupLaggard,
-    setupNoRs,
-    leader,
-    midLeader,
-  ];
-  const pending = (minRs?: number) => all.filter((r) => matchesLeadership(r, "setups_pending", minRs));
-  const triggered = (minRs?: number) => all.filter((r) => matchesLeadership(r, "setups_triggered", minRs));
+describe("per-setup views", () => {
+  const setup = (kind: string, trigger: number, triggered = false) => ({ kind, label: kind, trigger, triggered, live: false });
+  const withSetups = (rs: number | null, breakdown: "none" | "warning" | "broken", setups: ReturnType<typeof setup>[], score = 80) => ({
+    ...row(rs, breakdown, null, setups.length > 0, setups[0]?.triggered ?? null, score),
+    setups,
+  });
+  const epLeader = withSetups(0.96, "none", [setup("episodic-pivot", 50)]);
+  const htfTriggered = withSetups(0.95, "none", [setup("high-tight-flag", 40, true)]);
+  const both = withSetups(0.93, "warning", [setup("episodic-pivot", 20), setup("flat-base-breakout", 19.5, true)]);
+  const epMid = withSetups(0.84, "none", [setup("episodic-pivot", 30)]);
+  const epBroken = withSetups(0.97, "broken", [setup("episodic-pivot", 30)]);
+  const plainLeader = withSetups(0.99, "none", []);
+  const all = [epLeader, htfTriggered, both, epMid, epBroken, plainLeader];
+  const view = (f: LeadershipFilter, minRs?: number) => all.filter((r) => matchesLeadership(r, f, minRs));
 
-  it("awaiting trigger lists leaders with a pending weekly setup", () => {
-    expect(pending()).toEqual([pendingLeader, pendingWarning]);
-    expect(pending()).not.toContain(triggeredLeader);
+  it("has one option per setup kind", () => {
+    expect(Object.values(SETUP_FILTER_KIND).sort()).toEqual(
+      ["delayed-hvc", "episodic-pivot", "flat-base-breakout", "high-tight-flag", "ma-undercut-rally", "undercut-rally"],
+    );
   });
 
-  it("triggered lists leaders whose weekly setup has already fired", () => {
-    expect(triggered()).toEqual([triggeredLeader]);
-    expect(triggered()).not.toContain(pendingLeader);
+  it("lists leaders with that setup, pending or triggered", () => {
+    expect(view("setup_ep")).toEqual([epLeader, both]);
+    expect(view("setup_htf")).toEqual([htfTriggered]);
+    expect(view("setup_flat_base")).toEqual([both]);
+    expect(view("setup_undercut")).toEqual([]);
   });
 
-  it("drops leaders that have no weekly setup", () => {
-    expect(pending()).not.toContain(leader);
-    expect(triggered(sliderToRs(50))).not.toContain(leader);
+  it("uses the Min RS slider and never lists broken trends", () => {
+    expect(view("setup_ep", sliderToRs(80))).toEqual([epLeader, both]); // below P90 still leaders-only
+    expect(view("setup_ep", sliderToRs(95))).toEqual([epLeader]);
+    expect(view("setup_ep", sliderToRs(50))).not.toContain(epBroken);
+    expect(leadershipUsesMinRs("setup_ep")).toBe(true);
   });
 
-  it("reuses the Min RS slider for both setup views", () => {
-    // Below P90 the setup views stay leaders-only too.
-    expect(pending(sliderToRs(80))).toEqual([pendingLeader, pendingWarning]);
-    expect(triggered(sliderToRs(80))).toEqual([triggeredLeader]);
-    expect(pending(sliderToRs(95))).toEqual([pendingLeader]);
-    expect(triggered(sliderToRs(50))).not.toContain(setupNoRs);
-  });
-
-  it("each setup view only lists marked leaders at the same slider position", () => {
-    for (const v of [50, 80, 90, 99]) {
-      const marked = all.filter((r) => isLeader(r) && r.rs !== null && r.rs >= sliderToRs(v));
-      for (const r of [...pending(sliderToRs(v)), ...triggered(sliderToRs(v))]) expect(marked).toContain(r);
-    }
-  });
-
-  it("the weekly setup views do not apply the Leaders score > 70 cut", () => {
-    const lowScore = row(0.97, "none", null, true, false, 65);
-    expect(matchesLeadership(lowScore, "setups_pending")).toBe(true);
+  it("does not apply the Leaders score > 70 cut", () => {
+    const lowScore = withSetups(0.97, "none", [setup("delayed-hvc", 10)], 65);
+    expect(matchesLeadership(lowScore, "setup_hvc")).toBe(true);
     expect(matchesLeadership(lowScore, "leaders")).toBe(false);
   });
 
-  it("treats a row with no has_setup field as having no setup", () => {
-    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" } }, "setups_pending")).toBe(false);
-    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" }, has_setup: true }, "setups_triggered")).toBe(false);
+  it("treats a row with no setups list as having none", () => {
+    expect(matchesLeadership({ rs: 0.99, leadership: { breakdown: "none" }, has_setup: true }, "setup_ep")).toBe(false);
+  });
+
+  it("shows the chosen setup in the row, not the top-ranked one", () => {
+    const r = { ...both, symbol: "X", price: 20, setup: "Daily episodic-pivot", trigger: 20, trigger_distance_pct: 0 } as unknown as ScanRow;
+    const focused = focusSetup(r, "setup_flat_base");
+    expect(focused.setup).toBe("Daily flat-base-breakout");
+    expect(focused.trigger).toBe(19.5);
+    expect(focused.triggered).toBe(true);
+    expect(focused.trigger_distance_pct).toBeCloseTo(-2.5);
+    expect(focusSetup(r, "leaders")).toBe(r);
   });
 });
 
@@ -290,7 +281,7 @@ describe("detail chart timeframe from the Setups option", () => {
     expect(detailTfFor("daily_bearish")).toBe("D");
     expect(detailTfFor("weekly_bullish")).toBe("W");
     expect(detailTfFor("weekly_bearish")).toBe("W");
-    for (const f of ["leaders", "setups_pending", "setups_triggered", "breakouts", "failed_breakouts", "broken", "all"] as const) {
+    for (const f of ["leaders", "setup_ep", "setup_htf", "breakouts", "failed_breakouts", "broken", "all"] as const) {
       expect(detailTfFor(f)).toBeNull();
     }
   });
@@ -384,9 +375,10 @@ describe("migrateLeadership", () => {
   it("keeps current options and falls back to Leaders", () => {
     expect(migrateLeadership("broken")).toEqual({ filter: "broken", minRs: null });
     expect(migrateLeadership("breakouts")).toEqual({ filter: "breakouts", minRs: null });
-    expect(migrateLeadership("setups")).toEqual({ filter: "setups_pending", minRs: null });
-    expect(migrateLeadership("setups_pending")).toEqual({ filter: "setups_pending", minRs: null });
-    expect(migrateLeadership("setups_triggered")).toEqual({ filter: "setups_triggered", minRs: null });
+    expect(migrateLeadership("setups")).toEqual({ filter: "leaders", minRs: null });
+    expect(migrateLeadership("setups_pending")).toEqual({ filter: "leaders", minRs: null });
+    expect(migrateLeadership("setups_triggered")).toEqual({ filter: "leaders", minRs: null });
+    expect(migrateLeadership("setup_htf")).toEqual({ filter: "setup_htf", minRs: null });
     expect(migrateLeadership("daily_bullish")).toEqual({ filter: "daily_bullish", minRs: null });
     expect(migrateLeadership("daily_bearish")).toEqual({ filter: "daily_bearish", minRs: null });
     expect(migrateLeadership(null)).toEqual({ filter: "leaders", minRs: null });

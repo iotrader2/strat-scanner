@@ -87,7 +87,7 @@ export default function Watchlist() {
           </div>
           <div className="stat-card">
             <span className="stat-value accent-text">{active}</span>
-            <span className="stat-label">with a weekly setup</span>
+            <span className="stat-label">with a daily setup</span>
           </div>
         </div>
       </section>

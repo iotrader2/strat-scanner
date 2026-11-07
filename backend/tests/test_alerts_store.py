@@ -202,21 +202,21 @@ def test_alert_symbols_are_high_score_universe_stocks():
 # ------------------------------------------------------------------ API
 
 
-def test_alerts_attach_live_5m_ema_without_fetching(db, monkeypatch):
+def test_alerts_attach_live_15m_ema_without_fetching(db, monkeypatch):
     """The alerts payload reads the lists poll's EMA memory. It does not call Alpaca."""
-    from strat import watch5m
+    from strat import watch15m
     from strat.api import State, app
 
-    watch5m.clear()
+    watch15m.clear()
     State.scan = []
     alerts_store.save_session(
         "2026-10-23", _alerts("AAA", A_ROWS) + _alerts("BBB", A_ROWS), now=OPEN + timedelta(minutes=16)
     )
-    monkeypatch.setattr(watch5m, "refresh", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetched on request")))
+    monkeypatch.setattr(watch15m, "refresh", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetched on request")))
     try:
         with TestClient(app) as c:
-            with watch5m._lock:
-                watch5m._ema["AAA"] = {
+            with watch15m._lock:
+                watch15m._ema["AAA"] = {
                     "price": 101.2,
                     "basis": "live",
                     "time": "2026-10-23T14:00:00Z",
@@ -238,7 +238,7 @@ def test_alerts_attach_live_5m_ema_without_fetching(db, monkeypatch):
         assert body["ema5m"]["BBB"] is None
         assert "ema5m" not in body["alerts"][0]
     finally:
-        watch5m.clear()
+        watch15m.clear()
         State.scan = []
 
 

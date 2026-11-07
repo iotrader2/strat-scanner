@@ -32,7 +32,7 @@ const row = {
   change_pct: -1.04,
   perf: { "1m": 18.29, "3m": 161.31, "6m": 201.53 },
   tf: {},
-  reason: "No weekly setup · Monthly 2U",
+  reason: "No daily setup · Monthly 2U",
   has_setup: false,
   setup: null,
   avg_dollar_volume: 506e6,
@@ -98,13 +98,13 @@ describe("RS chip", () => {
 });
 
 describe("Stock Scanner keeps the scanning columns", () => {
-  it("shows 1M / 3M / 6M, D · W · M and Weekly setup", () => {
+  it("shows 1M / 3M / 6M, D · W · M and Daily setup", () => {
     const html = render();
     expect(html).toContain("perf-col");
     expect(html).toContain("+161.3%");
     expect(html).toContain("D · W · M");
     expect(html).toContain("tf-badges");
-    expect(html).toContain("Weekly setup");
+    expect(html).toContain("Daily setup");
     expect(html).toContain("setup-cell");
   });
 });
@@ -137,13 +137,13 @@ describe("ListTable (Watchlist and Positions share it)", () => {
       </MemoryRouter>,
     );
 
-  it("drops 1M / 3M / 6M, D · W · M and Weekly setup", () => {
+  it("drops 1M / 3M / 6M, D · W · M and Daily setup", () => {
     const html = list();
     expect(html).not.toContain("perf-col");
     expect(html).not.toContain("+161.3%");
     expect(html).not.toContain("D · W · M");
     expect(html).not.toContain("tf-badges");
-    expect(html).not.toContain("Weekly setup");
+    expect(html).not.toContain("Daily setup");
     expect(html).not.toContain("setup-cell");
     expect(html).toContain("Atlassian Corporation");
     expect(html.match(/>Day</g)).toHaveLength(1);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtPct, type AppConfig, type ScanRow } from "../api";
 import { ScanTable, type ExtraColumn } from "../components/ScanTable";
@@ -14,6 +14,7 @@ import { matchesSymbol } from "../symbolSearch";
 import { keepIndexEtf } from "../indexEtfs";
 import {
   detailTfFor,
+  focusSetup,
   leadershipUsesMinRs,
   matchesLeadership,
   MIN_RS_RANGE,
@@ -25,7 +26,7 @@ import {
 /** User-facing name of the filter group. The persisted value stays under the "leadership" key. */
 export const SETUPS_FILTER_LABEL = "Setups";
 
-/** Widest Min RS the Leaders / Weekly setups views allow — hero chips use this, not the current slider. */
+/** Widest Min RS the Leaders / Daily setups views allow — hero chips use this, not the current slider. */
 const CHIP_RS = sliderToRs(MIN_RS_RANGE.min);
 import { RsSlider } from "../components/RsSlider";
 import {
@@ -43,18 +44,37 @@ const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Kind = "all" | "stock" | "etf";
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
+  { value: "all", label: "All names", hint: "Every stock and ETF that passes the price / dollar-volume filters, with or without a setup. Ignores the Min RS slider." },
   { value: "leaders", label: "Leaders", hint: "Relative strength at the Min RS cut (default P90) or an RS line versus QQQ that made a 52-week high in the last 5 sessions, trend not broken, score above 70, highest score first. The slider can raise the cut above P90; lowering it does not add other names, and an RS-line high does not bypass a higher cut." },
   {
-    value: "setups_pending",
-    label: "Weekly strat awaiting trigger",
-    hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side weekly Strat setup on the last completed week (the trigger is that week's high, never the week still in progress) that has not been broken yet, not even by this week's high: inside week, 2-1-2 / 3-1-2 in progress, or a hammer still below its high. Sorted by score.",
+    value: "setup_ep",
+    label: "Episodic Pivot",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a large gap up today (2%+) on heavy volume (1.5x+ the 20-day average, projected from the session so far). Entry: Opening Range Break above the high of the first 15-min bar. Stop: low of day. Same-day only. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
-    value: "setups_triggered",
-    label: "Weekly strat already triggered",
-    hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) whose last completed weekly Strat setup has already broken the trigger: 2-1-2 / 3-1-2 / 1-2-2 / 2D-2U triggered, a hammer that cleared its high, or a pending setup whose trigger (set by the last completed week) the week in progress has traded above (marked “triggered this week”). Sorted by score.",
+    value: "setup_hvc",
+    label: "Delayed High Volume Close",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a recent Episodic Pivot gap day (last 10 sessions) whose close price is back above or being retested. Entry: break back through the gap-day close. Stop: low of the entry day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_flat_base",
+    label: "Flat Base Breakout",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a tight daily base of 3+ weeks (10% deep at most, ranges shrinking) after a 20%+ prior trend. Entry: above the prior day's high, clearing the base. Stop: prior-day low on a tight breakout candle, else the breakout-day low. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_undercut",
+    label: "Undercut and Rally",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a close below the ~1-month swing low, reclaimed the next day. Entry: the reclaim of that low. Stop: the undercut low. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_ma_undercut",
+    label: "MA Undercut and Rally",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a close below the rising 20, 50 or 10-day average, then a strong reclaim (up day closing in the upper half). Entry: through the average. Stop: low of the reclaim day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_htf",
+    label: "High Tight Flag",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a 50%+ run-up within ~8 weeks, then a 2–5 week flag no more than 10% deep on lighter volume. Entry: break above the flag. Stop: low of the breakout day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
     value: "daily_bullish",
@@ -95,31 +115,17 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     label: "Broken leaders",
     hint: "Trend lost: below the 50-day average or 25%+ below the 6-month high. Same “· broken” flag as the RS chip. Ignores the Min RS slider — dig in with price, theme and the other filters.",
   },
-  { value: "all", label: "All names" },
 ];
 
-type HeroChipKey =
-  | "all"
-  | "leaders"
-  | "dailyBullish"
-  | "dailyBearish"
-  | "weeklyBullish"
-  | "weeklyBearish"
-  | "breakouts"
-  | "failedBreakouts"
-  | "broken";
-/** Summary tiles, in this order (the weekly Strat views have no tile; pick them from Setups). */
-export const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
-  { key: "all", filter: "all", label: "all names", tone: "muted" },
-  { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
-  { key: "broken", filter: "broken", label: "broken leaders", tone: "red" },
-  { key: "weeklyBullish", filter: "weekly_bullish", label: "weekly bullish", tone: "green" },
-  { key: "weeklyBearish", filter: "weekly_bearish", label: "weekly bearish", tone: "red" },
-  { key: "dailyBullish", filter: "daily_bullish", label: "daily bullish", tone: "green" },
-  { key: "dailyBearish", filter: "daily_bearish", label: "daily bearish", tone: "red" },
-  { key: "breakouts", filter: "breakouts", label: "recent breakouts", tone: "green" },
-  { key: "failedBreakouts", filter: "failed_breakouts", label: "failed breakouts", tone: "red" },
-];
+const RED_TILES = new Set<LeadershipFilter>(["broken", "daily_bearish", "weekly_bearish", "failed_breakouts"]);
+/** Summary tiles: one per Setups option, in the dropdown's order, labelled like it (lower case). */
+export const HERO_CHIPS: { filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = SETUPS_OPTIONS.map(
+  (o) => ({
+    filter: o.value,
+    label: o.label.toLowerCase().replace(" trend change", ""),
+    tone: o.value === "all" ? "muted" : RED_TILES.has(o.value) ? "red" : "green",
+  }),
+);
 /** Columns of the Failed breakouts view: when it broke out, the level, how far price is below it and when it failed. */
 const FAILED_COLUMNS: ExtraColumn[] = [
   {
@@ -238,27 +244,36 @@ export default function Scanner({ version }: { version: string | null }) {
       if (!passesAtr(r, atrRange)) return false;
       return matchesCandlePattern(r, candlePattern);
     });
-    return out;
+    return out.map((r) => focusSetup(r, leadership));
   }, [liquid, query, theme, kind, candlePattern, leadership, minRs, atrRange]);
 
   /**
    * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
-   * liquidity, theme or setup filters. Leaders / Weekly setups use the widest Min RS (P50); dig in with the slider.
+   * liquidity, theme or setup filters. Leaders and the per-setup tiles use the widest Min RS (P50); dig in with the slider.
    */
   const stats = useMemo(
-    () => ({
-      all: rows.length,
-      leaders: rows.filter((r) => matchesLeadership(r, "leaders", CHIP_RS)).length,
-      dailyBullish: rows.filter((r) => matchesLeadership(r, "daily_bullish")).length,
-      dailyBearish: rows.filter((r) => matchesLeadership(r, "daily_bearish")).length,
-      weeklyBullish: rows.filter((r) => matchesLeadership(r, "weekly_bullish")).length,
-      weeklyBearish: rows.filter((r) => matchesLeadership(r, "weekly_bearish")).length,
-      breakouts: rows.filter((r) => matchesLeadership(r, "breakouts")).length,
-      failedBreakouts: rows.filter((r) => matchesLeadership(r, "failed_breakouts")).length,
-      broken: rows.filter((r) => matchesLeadership(r, "broken")).length,
-    }),
+    () =>
+      Object.fromEntries(
+        HERO_CHIPS.map((c) => [
+          c.filter,
+          c.filter === "all" ? rows.length : rows.filter((r) => matchesLeadership(r, c.filter, CHIP_RS)).length,
+        ]),
+      ) as Record<LeadershipFilter, number>,
     [rows],
   );
+
+  // On phones the tiles are one swipeable row: keep the selected view's tile in sight (e.g. picked from the dropdown).
+  const tilesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tilesRef.current;
+    const tile = el?.querySelector<HTMLElement>(".stat-card-btn.active");
+    if (!el || !tile || el.scrollWidth <= el.clientWidth) return;
+    const box = el.getBoundingClientRect();
+    const t = tile.getBoundingClientRect();
+    if (t.left < box.left || t.right > box.right) {
+      el.scrollTo({ left: Math.max(0, el.scrollLeft + t.left - box.left - 10), behavior: "smooth" });
+    }
+  }, [leadership]);
 
   const themeChoices = useMemo<DropdownOption<string>[]>(() => themeOptions(config?.themes ?? []), [config]);
 
@@ -276,12 +291,12 @@ export default function Scanner({ version }: { version: string | null }) {
           <h1>Stock Scanner</h1>
           <p className="muted">Pick a group, then narrow the list with the filters.</p>
         </div>
-        <div className="stat-cards" role="group" aria-label="Setups totals">
+        <div className="stat-cards scanner-tiles" role="group" aria-label="Setups totals" ref={tilesRef}>
           {HERO_CHIPS.map((chip) => {
             const active = leadership === chip.filter;
             return (
               <button
-                key={chip.key}
+                key={chip.filter}
                 type="button"
                 className={`stat-card stat-card-btn${active ? " active" : ""}`}
                 aria-pressed={active}
@@ -292,7 +307,7 @@ export default function Scanner({ version }: { version: string | null }) {
                     chip.tone === "red" ? "red-text" : chip.tone === "green" ? "green-text" : ""
                   }`}
                 >
-                  {stats[chip.key]}
+                  {stats[chip.filter]}
                 </span>
                 <span className="stat-label">{chip.label}</span>
               </button>

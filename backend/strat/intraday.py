@@ -118,6 +118,26 @@ def session_bars(db_path: Path | None = None) -> dict[str, dict]:
     return out
 
 
+def opening_range_highs(
+    minutes: int = 15, now: datetime | None = None, db_path: Path | None = None
+) -> dict[str, float]:
+    """High of today's first ``minutes`` of trading per symbol, once that opening range has closed.
+
+    The Episodic Pivot's Opening Range Break level (the high of the first 15-minute bar), built from the stored
+    5-minute bars. Empty before the opening range has closed.
+    """
+    start = session_open_utc(now or datetime.now(timezone.utc))
+    end = start + timedelta(minutes=minutes)
+    if (now or datetime.now(timezone.utc)).astimezone(timezone.utc) < end:
+        return {}
+    with data.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT symbol, MAX(high) FROM intraday_bars WHERE ts >= ? AND ts < ? GROUP BY symbol",
+            (_iso(start), _iso(end)),
+        ).fetchall()
+    return {sym: float(h) for sym, h in rows if h is not None}
+
+
 def poll(
     symbols: list[str],
     now: datetime | None = None,

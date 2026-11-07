@@ -144,37 +144,79 @@ def _setup_weeks(live_highs, live_close=104.0):
     return df
 
 
+def _ep_days(today_high=104.0, today_close=104.0):
+    """Filler flat days through Wed 2026-08-05, then today (Thu 2026-08-06, still forming) gapping up +3%."""
+    rows = []
+    for day in pd.bdate_range("2026-06-01", "2026-08-05"):
+        rows.append((day, 100.0, 101.0, 99.0, 100.0, 1_000_000.0))
+    rows.append((pd.Timestamp("2026-08-06"), 103.0, today_high, 102.0, today_close, 1_000_000.0))  # today
+    idx = pd.DatetimeIndex([r[0] for r in rows])
+    return pd.DataFrame([r[1:] for r in rows], index=idx, columns=["open", "high", "low", "close", "volume"])
+
+
+OPENING_HIGH = 104.5  # the first 15-minute bar's high
+
+
 MEMBER = Member("TEST", "Test", "Industrials", "stock", "SP500")
 
 
-def test_weekly_trigger_breaks_during_the_week_in_progress():
-    row = scan_symbol(MEMBER, _setup_weeks([106.0, 107.0, 109.0], live_close=104.0))
-    # The trigger is still the completed inside week's high, never the week in progress.
-    assert row["setup"] == "Weekly 2-1 → 2-1-2 setup"
-    assert row["trigger"] == 108.0
-    # Wednesday's high traded through it, so it is triggered even though the close is back below.
+def _during_thursday_session(monkeypatch):
+    from datetime import datetime
+
+    import strat.periods as periods
+    from strat.scheduler import ET
+
+    monkeypatch.setattr(periods, "clock", lambda: datetime(2026, 8, 6, 11, 0, tzinfo=ET))
+
+
+def test_daily_trigger_breaks_during_todays_session(monkeypatch):
+    _during_thursday_session(monkeypatch)
+    row = scan_symbol(MEMBER, _ep_days(today_high=107.0, today_close=104.0), opening_high=OPENING_HIGH)
+    # The EP trigger is the opening-range high, not today's high.
+    assert row["setup"] == "Daily Episodic Pivot"
+    assert row["trigger"] == OPENING_HIGH
+    # Today's high traded through it, so it is triggered even though the price is back below.
     assert row["triggered"] is True
     assert row["triggered_live"] is True
-    assert row["trigger_distance_pct"] > 0
-    primary = next(s for s in row["setups"] if s["kind"] == "2-1-2-pending")
+    primary = next(s for s in row["setups"] if s["kind"] == "episodic-pivot")
     assert primary["live"] is True and primary["triggered"] is True
-    assert "this week" in primary["detail"]
+    assert primary["stop"] == 102.0  # low of day
+    assert "this day" in primary["detail"]
 
 
-def test_weekly_trigger_counts_the_live_price_above_it():
-    row = scan_symbol(MEMBER, _setup_weeks([106.0, 112.0], live_close=111.0))
+def test_daily_trigger_counts_the_live_price_above_it(monkeypatch):
+    _during_thursday_session(monkeypatch)
+    row = scan_symbol(MEMBER, _ep_days(today_high=104.0, today_close=107.0), opening_high=OPENING_HIGH)
     assert row["triggered"] is True
-    assert row["trigger"] == 108.0
+    assert row["trigger"] == OPENING_HIGH
     assert row["trigger_distance_pct"] < 0
 
 
-def test_weekly_setup_stays_pending_until_the_week_in_progress_breaks_it():
-    row = scan_symbol(MEMBER, _setup_weeks([106.0, 107.0, 108.0]))
+def test_daily_setup_stays_pending_until_today_breaks_it(monkeypatch):
+    _during_thursday_session(monkeypatch)
+    row = scan_symbol(MEMBER, _ep_days(today_high=OPENING_HIGH, today_close=104.0), opening_high=OPENING_HIGH)
     # Touching the trigger is not a break.
-    assert row["setup"] == "Weekly 2-1 → 2-1-2 setup"
+    assert row["setup"] == "Daily Episodic Pivot"
     assert row["triggered"] is False
     assert row["triggered_live"] is False
     assert all(not s["live"] for s in row["setups"])
+
+
+def test_delayed_hvc_live_break_takes_the_day_low_as_stop(monkeypatch):
+    """Pending Delayed HVC: below the gap-day close yesterday, broken today; stop is today's low."""
+    _during_thursday_session(monkeypatch)
+    rows = []
+    for day in pd.bdate_range("2026-06-01", "2026-08-03"):
+        rows.append((day, 100.0, 101.0, 99.0, 100.0, 1_000_000.0))
+    rows.append((pd.Timestamp("2026-08-04"), 103.0, 106.0, 102.0, 105.0, 3_000_000.0))  # EP gap day, close 105
+    rows.append((pd.Timestamp("2026-08-05"), 104.5, 104.8, 103.0, 104.0, 1_000_000.0))  # back below 105
+    rows.append((pd.Timestamp("2026-08-06"), 104.0, 106.0, 103.5, 105.5, 1_000_000.0))  # today: breaks 105
+    df = pd.DataFrame([r[1:] for r in rows], index=pd.DatetimeIndex([r[0] for r in rows]),
+                      columns=["open", "high", "low", "close", "volume"])
+    row = scan_symbol(MEMBER, df)
+    hvc = next(s for s in row["setups"] if s["kind"] == "delayed-hvc")
+    assert hvc["trigger"] == 105.0 and hvc["triggered"] is True and hvc["live"] is True
+    assert hvc["stop"] == 103.5
 
 
 def test_a_completed_week_has_no_bar_in_progress():
