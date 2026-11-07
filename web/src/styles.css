@@ -156,7 +156,8 @@ th.num { text-align: right; }
 .sector-link:hover { color: var(--accent); }
 .setup-cell { max-width: 290px; }
 .scan-table .sub { max-width: 170px; }
-.setup { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.setup { font-weight: 600; font-size: 13px; line-height: 1.35; }
+.setup .side-chip, .setup .trig-chip { display: inline-block; white-space: nowrap; }
 .setup.triggered { color: #a7f3d0; }
 .reason { max-width: 290px; }
 .trig-chip { font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: var(--green); background: rgba(34, 197, 94, 0.1); border-radius: 5px; padding: 1px 5px; margin-left: 6px; }
