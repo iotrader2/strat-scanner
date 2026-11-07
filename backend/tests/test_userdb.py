@@ -25,7 +25,7 @@ def _exercise():
     trim = data.add_trim("TEAM", 50, 230.0)
     assert trim["id"] > 0
     assert data.trimmed_shares("TEAM") == 50
-    assert data.positions() == [{"symbol": "TEAM", "entry_price": 224.0, "shares": 200, "entry_date": "2026-10-23"}]
+    assert data.positions() == [{"symbol": "TEAM", "entry_price": 224.0, "shares": 200, "entry_date": "2026-10-23", "side": "long"}]
     data.delete_trim("TEAM", trim["id"])
     data.save_extra_symbol("XYZ", "Xyz Inc", "Tech", "stock", "")
     data.save_extra_symbol("XYZ", "Xyz Inc", "Tech", "stock", "Software")

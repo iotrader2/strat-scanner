@@ -9,7 +9,10 @@ interface PositionsState {
   isHeld: (symbol: string) => boolean;
   /** Open a position (any ticker); the server drops it from the watchlist. Rejects with the server's message. */
   open: (symbol: string, entry: PositionInput) => Promise<void>;
-  update: (symbol: string, entry: { entry_price: number; shares: number | null; entry_date: string }) => Promise<void>;
+  update: (
+    symbol: string,
+    entry: { entry_price: number; shares: number | null; entry_date: string; side?: "long" | "short" },
+  ) => Promise<void>;
   close: (symbol: string) => Promise<void>;
   toWatchlist: (symbol: string) => Promise<void>;
   trim: (symbol: string, req: { shares: number; price: number }) => Promise<void>;

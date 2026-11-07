@@ -512,7 +512,7 @@ export const api = {
   unwatch: (symbol: string) => get<Watchlist>(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
   positions: () => get<Positions>("/api/positions"),
   openPosition: (req: PositionInput & { symbol: string }) => send<Positions>("/api/positions", "POST", req),
-  updatePosition: (symbol: string, req: Required<Pick<PositionInput, "entry_price" | "entry_date">> & Pick<PositionInput, "shares">) =>
+  updatePosition: (symbol: string, req: Required<Pick<PositionInput, "entry_price" | "entry_date">> & Pick<PositionInput, "shares" | "side">) =>
     send<Positions>(`/api/positions/${encodeURIComponent(symbol)}`, "PUT", req),
   closePosition: (symbol: string) => get<Positions>(`/api/positions/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
   positionToWatchlist: (symbol: string) =>
@@ -659,6 +659,7 @@ function send<T>(url: string, method: string, body: unknown): Promise<T> {
 
 /** Entry details; omitted price/date default to the last price and today on the server. */
 export interface PositionInput {
+  side?: "long" | "short";
   entry_price?: number | null;
   shares?: number | null;
   entry_date?: string | null;
@@ -673,7 +674,9 @@ export interface PositionTrim {
 
 export interface Position {
   symbol: string;
-  /** Initial buy price. Trims do not change it. */
+  /** "long" (bought) or "short" (sold short; trims are buy-to-cover). */
+  side: "long" | "short";
+  /** Initial entry price (buy price, or short-sale price). Trims do not change it. */
   entry_price: number;
   /** Shares originally bought. Null until a share count is entered. */
   shares: number | null;

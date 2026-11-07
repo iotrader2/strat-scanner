@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -771,12 +771,14 @@ class PositionRequest(BaseModel):
     entry_price: Optional[float] = Field(None, gt=0)
     shares: Optional[float] = Field(None, gt=0)
     entry_date: Optional[date] = None
+    side: Literal["long", "short"] = "long"
 
 
 class PositionUpdate(BaseModel):
     entry_price: float = Field(gt=0)
     shares: Optional[float] = Field(None, gt=0)
     entry_date: date
+    side: Optional[Literal["long", "short"]] = None  # None keeps the position's side
 
 
 class TrimRequest(BaseModel):
@@ -920,7 +922,7 @@ def add_position(req: PositionRequest):
         if row is None:
             raise HTTPException(422, f"No price for {symbol} yet; enter an entry price")
         entry_price = row["price"]
-    data.save_position(symbol, entry_price, req.shares, entry_date)
+    data.save_position(symbol, entry_price, req.shares, entry_date, side=req.side)
     data.remove_from_watchlist(symbol)
     State.lists_dirty = True
     _start_tracking(symbol, in_universe)
@@ -930,15 +932,19 @@ def add_position(req: PositionRequest):
 @app.put("/api/positions/{symbol}")
 def update_position(symbol: str, req: PositionUpdate):
     symbol = symbol.strip().upper()
-    if not any(p["symbol"] == symbol for p in data.positions()):
+    current = next((p for p in data.positions() if p["symbol"] == symbol), None)
+    if current is None:
         raise HTTPException(404, f"{symbol} is not in Positions")
+    side = req.side or current.get("side") or "long"
     sold = data.trimmed_shares(symbol)
+    if sold and side != (current.get("side") or "long"):
+        raise HTTPException(422, "Undo the trims before switching a position between long and short.")
     if sold and (req.shares is None or req.shares <= sold + 1e-9):
         raise HTTPException(
             422,
             f"Share count must stay above the {sold:g} shares already trimmed. Undo a trim to reduce it further.",
         )
-    data.save_position(symbol, req.entry_price, req.shares, _check_entry_date(req.entry_date))
+    data.save_position(symbol, req.entry_price, req.shares, _check_entry_date(req.entry_date), side=side)
     return _positions_payload()
 
 

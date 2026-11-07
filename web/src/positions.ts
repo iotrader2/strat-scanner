@@ -1,3 +1,9 @@
+/** "long" = bought; "short" = sold short (entry is the short-sale price, trims are buy-to-cover). */
+export type Side = "long" | "short";
+
+/** +1 for a long, -1 for a short: a short makes money when the price falls. */
+export const sideSign = (side: Side | undefined | null): number => (side === "short" ? -1 : 1);
+
 export interface PositionStats {
   /** Percent gain (positive) or loss (negative) from the entry price to the last price. */
   pct: number;
@@ -25,15 +31,17 @@ export function daysBetween(fromIso: string, toIso: string): number {
 }
 
 export function positionStats(
-  pos: { entry_price: number; shares: number | null; entry_date: string },
+  pos: { entry_price: number; shares: number | null; entry_date: string; side?: Side },
   last: number,
   today: string,
 ): PositionStats {
-  // Unrealized P/L stays on the original buy price. Pass remaining shares so a trim
+  // Unrealized P/L stays on the original entry price. Pass remaining shares so a trim
   // shrinks the open dollar P/L without rewriting the cost the percent is measured from.
+  // A short gains when the price falls below the entry.
+  const dir = sideSign(pos.side);
   return {
-    pct: ((last - pos.entry_price) / pos.entry_price) * 100,
-    pnl: pos.shares ? (last - pos.entry_price) * pos.shares : null,
+    pct: (dir * (last - pos.entry_price) / pos.entry_price) * 100,
+    pnl: pos.shares ? dir * (last - pos.entry_price) * pos.shares : null,
     days: Math.max(0, daysBetween(pos.entry_date, today)),
   };
 }
@@ -58,9 +66,9 @@ export function breakEven(initialShares: number, buyPrice: number, trims: TrimLo
   return (initialShares * buyPrice - proceeds) / remaining;
 }
 
-/** Realized P/L from trims = sum(trim_shares * (trim_price - initial_buy_price)). */
-export function realizedTrimPnl(buyPrice: number, trims: TrimLot[]): number {
-  return trims.reduce((sum, t) => sum + t.shares * (t.price - buyPrice), 0);
+/** Realized P/L from trims = sum(trim_shares * (trim_price - initial_buy_price)); sign flipped for a short (covers). */
+export function realizedTrimPnl(buyPrice: number, trims: TrimLot[], side: Side = "long"): number {
+  return trims.reduce((sum, t) => sum + sideSign(side) * t.shares * (t.price - buyPrice), 0);
 }
 
 export interface TrimPreview {
@@ -72,13 +80,14 @@ export interface TrimPreview {
 
 /** Live preview of one new trim on top of the lots already booked. */
 export function trimPreview(
-  pos: { entry_price: number; initial_shares: number; trims: TrimLot[] },
+  pos: { entry_price: number; initial_shares: number; trims: TrimLot[]; side?: Side },
   next: TrimLot,
 ): TrimPreview {
+  // Break-even uses the same formula for a short: the cover price at which the whole trade nets zero.
   const trims = [...pos.trims, next];
   return {
     remaining: remainingShares(pos.initial_shares, trims),
-    realized: next.shares * (next.price - pos.entry_price),
+    realized: realizedTrimPnl(pos.entry_price, [next], pos.side ?? "long"),
     breakEven: breakEven(pos.initial_shares, pos.entry_price, trims),
   };
 }
@@ -119,6 +128,7 @@ export interface TrimHistoryLine {
 
 /** Row tooltip: buy, remaining, break-even, realized P/L, and each trim. */
 export function trimHistoryTitle(pos: {
+  side?: Side;
   entry_price: number;
   shares: number | null;
   remaining_shares: number | null;
@@ -129,7 +139,7 @@ export function trimHistoryTitle(pos: {
   const bought = pos.shares === null ? "—" : `${fmtShares(pos.shares)} sh`;
   const left = pos.remaining_shares === null ? "—" : `${fmtShares(pos.remaining_shares)} sh`;
   const lines = [
-    `Buy ${bought} @ ${pos.entry_price.toFixed(2)}`,
+    `${pos.side === "short" ? "Short" : "Buy"} ${bought} @ ${pos.entry_price.toFixed(2)}`,
     `Remaining ${left} · break-even ${formatBreakEven(pos.break_even).label}`,
     `Realized trim P/L ${fmtPnl(pos.realized_pnl)}`,
   ];
@@ -146,9 +156,10 @@ export interface TrimForm {
 export type ParsedTrim = { ok: true; price: number; shares: number } | { ok: false; error: string };
 
 const CLOSE_INSTEAD = "That sells the whole position. Use Close position instead.";
+const COVER_INSTEAD = "That covers the whole short. Use Close position instead.";
 
-/** Validate the trim dialog. Selling every share still held is refused. */
-export function parseTrim(form: TrimForm, remaining: number | null): ParsedTrim {
+/** Validate the trim dialog. Selling (or, for a short, covering) every share still held is refused. */
+export function parseTrim(form: TrimForm, remaining: number | null, side: Side = "long"): ParsedTrim {
   if (remaining === null || !(remaining > 0)) {
     return { ok: false, error: "Add a share count before trimming (use Edit entry)" };
   }
@@ -160,7 +171,7 @@ export function parseTrim(form: TrimForm, remaining: number | null): ParsedTrim 
   if (!sharesText) return { ok: false, error: "Enter the shares to trim" };
   const shares = Number(sharesText);
   if (!Number.isFinite(shares) || shares <= 0) return { ok: false, error: "Shares must be greater than 0" };
-  if (shares >= remaining - 1e-9) return { ok: false, error: CLOSE_INSTEAD };
+  if (shares >= remaining - 1e-9) return { ok: false, error: side === "short" ? COVER_INSTEAD : CLOSE_INSTEAD };
   return { ok: true, price, shares };
 }
 
@@ -173,10 +184,12 @@ export interface EntryForm {
   price: string;
   shares: string;
   date: string;
+  /** Long unless set. */
+  side?: Side;
 }
 
 export type ParsedEntry =
-  | { ok: true; entry_price: number | null; shares: number | null; entry_date: string }
+  | { ok: true; entry_price: number | null; shares: number | null; entry_date: string; side: Side }
   | { ok: false; error: string };
 
 /** Validate the entry form. A blank price is allowed only when `priceOptional` (the server then uses the last price). */
@@ -197,5 +210,5 @@ export function parseEntry(form: EntryForm, today: string, priceOptional = false
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) return { ok: false, error: "Enter an entry date" };
   if (form.date > today) return { ok: false, error: "Entry date can't be in the future" };
-  return { ok: true, entry_price, shares, entry_date: form.date };
+  return { ok: true, entry_price, shares, entry_date: form.date, side: form.side ?? "long" };
 }

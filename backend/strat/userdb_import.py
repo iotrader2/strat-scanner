@@ -37,7 +37,10 @@ def rows_from_backups(positions: dict, watchlist: dict) -> dict[str, list[tuple]
         out["watchlist"].append((sym, (now + timedelta(microseconds=i)).isoformat(timespec="microseconds")))
     for i, p in enumerate(positions.get("positions") or []):
         out["positions"].append(
-            (p["symbol"], p["entry_price"], p.get("shares"), p["entry_date"], (now + timedelta(microseconds=i)).isoformat(timespec="microseconds"))
+            (
+                p["symbol"], p["entry_price"], p.get("shares"), p["entry_date"],
+                (now + timedelta(microseconds=i)).isoformat(timespec="microseconds"), p.get("side") or "long",
+            )
         )
         for t in p.get("trims") or []:
             out["position_trims"].append((p["symbol"], t["shares"], t["price"], t["trimmed_at"]))
@@ -57,7 +60,13 @@ def rows_from_sqlite(path: Path) -> dict[str, list[tuple]]:
         have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         out = {}
         for table, cols in COPY_COLUMNS.items():
-            out[table] = conn.execute(f"SELECT {', '.join(cols)} FROM {table}").fetchall() if table in have else []
+            if table not in have:
+                out[table] = []
+                continue
+            present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            # Caches made before positions.side existed: every position was a long.
+            select = ", ".join(c if c in present else "'long'" for c in cols)
+            out[table] = conn.execute(f"SELECT {select} FROM {table}").fetchall()
         return out
     finally:
         conn.close()
@@ -65,7 +74,7 @@ def rows_from_sqlite(path: Path) -> dict[str, list[tuple]]:
 
 COPY_COLUMNS = {
     "watchlist": ("symbol", "added_at"),
-    "positions": ("symbol", "entry_price", "shares", "entry_date", "added_at"),
+    "positions": ("symbol", "entry_price", "shares", "entry_date", "added_at", "side"),
     "position_trims": ("symbol", "shares", "price", "trimmed_at"),
     "extra_symbols": ("symbol", "name", "sector", "kind", "industry"),
     "alerts": None,  # filled below

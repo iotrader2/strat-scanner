@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS positions (
     entry_price REAL NOT NULL,
     shares      REAL,
     entry_date  TEXT NOT NULL,
-    added_at    TEXT NOT NULL
+    added_at    TEXT NOT NULL,
+    side        TEXT NOT NULL DEFAULT 'long'
 );
 -- Partial sells. symbol is the position id (positions.symbol). One position can have many trims.
 CREATE TABLE IF NOT EXISTS position_trims (
@@ -124,6 +125,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(extra_symbols)")}
     if "industry" not in cols:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
+    if "side" not in {r[1] for r in conn.execute("PRAGMA table_info(positions)")}:
+        conn.execute("ALTER TABLE positions ADD COLUMN side TEXT NOT NULL DEFAULT 'long'")
     # Restate the trim table for caches opened before it existed. executescript(SCHEMA)
     # already does this; repeating it here keeps the migration next to the other upgrades.
     conn.execute(
@@ -203,28 +206,41 @@ def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:
 
 
 def positions(db_path: Path | None = None) -> list[dict]:
-    """Open positions, oldest first: symbol, entry_price, shares (None when not given), entry_date."""
+    """Open positions, oldest first: symbol, entry_price, shares (None when not given), entry_date, side.
+
+    ``side`` is "long" (bought) or "short" (sold short: entry_price is the short-sale price, trims are buy-to-cover).
+    """
     def read() -> list:
         with userdb.connect(db_path) as conn:
             return conn.execute(
-                "SELECT symbol, entry_price, shares, entry_date FROM positions ORDER BY added_at, symbol"
+                "SELECT symbol, entry_price, shares, entry_date, side FROM positions ORDER BY added_at, symbol"
             ).fetchall()
 
     rows = userdb.cached("positions", read, db_path)
-    return [dict(zip(("symbol", "entry_price", "shares", "entry_date"), r)) for r in rows]
+    return [dict(zip(("symbol", "entry_price", "shares", "entry_date", "side"), r)) for r in rows]
+
+
+SIDES = ("long", "short")
 
 
 def save_position(
-    symbol: str, entry_price: float, shares: Optional[float], entry_date: str, db_path: Path | None = None
+    symbol: str,
+    entry_price: float,
+    shares: Optional[float],
+    entry_date: str,
+    db_path: Path | None = None,
+    side: str = "long",
 ) -> None:
     """Insert or update a position, keeping its original place in the list."""
+    if side not in SIDES:
+        raise ValueError(f"side must be one of {SIDES}")
     added = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with _write_lock, _writing(), userdb.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO positions(symbol, entry_price, shares, entry_date, added_at) VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO positions(symbol, entry_price, shares, entry_date, added_at, side) VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(symbol) DO UPDATE SET entry_price = excluded.entry_price, shares = excluded.shares, "
-            "entry_date = excluded.entry_date",
-            (symbol, entry_price, shares, entry_date, added),
+            "entry_date = excluded.entry_date, side = excluded.side",
+            (symbol, entry_price, shares, entry_date, added, side),
         )
 
 
@@ -270,10 +286,10 @@ def add_trim(symbol: str, shares: float, price: float, db_path: Path | None = No
     """
     when = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with _write_lock, _writing(), userdb.connect(db_path) as conn:
-        row = conn.execute("SELECT shares FROM positions WHERE symbol = ?", (symbol,)).fetchone()
+        row = conn.execute("SELECT shares, side FROM positions WHERE symbol = ?", (symbol,)).fetchone()
         if row is None:
             raise PositionMissing(symbol)
-        initial = row[0]
+        initial, side = row[0], row[1]
         if initial is None:
             raise TrimRejected("Add a share count before trimming. Use Edit entry.")
         sold = float(
@@ -282,7 +298,8 @@ def add_trim(symbol: str, shares: float, price: float, db_path: Path | None = No
         remaining = float(initial) - sold
         if shares >= remaining - 1e-9:
             raise TrimRejected(
-                f"Only {_fmt_shares(remaining)} shares remain. Selling all of them closes the position — use Close position."
+                f"Only {_fmt_shares(remaining)} shares remain. {'Covering' if side == 'short' else 'Selling'} all of them "
+                "closes the position — use Close position."
             )
         trim_id = userdb.insert_returning_id(
             conn,

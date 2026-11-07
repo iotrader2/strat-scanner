@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS positions (
     entry_price {REAL} NOT NULL,
     shares      {REAL},
     entry_date  TEXT NOT NULL,
-    added_at    TEXT NOT NULL
+    added_at    TEXT NOT NULL,
+    side        TEXT NOT NULL DEFAULT 'long'
 );
 CREATE TABLE IF NOT EXISTS position_trims (
     id         {SERIAL},
@@ -143,6 +144,8 @@ SQLITE_SCHEMA = _COMMON.format(REAL="REAL", SERIAL="INTEGER PRIMARY KEY AUTOINCR
 PG_SCHEMA = _COMMON.format(REAL="DOUBLE PRECISION", SERIAL="BIGSERIAL PRIMARY KEY") + _HISTORY.format(
     REAL="DOUBLE PRECISION", PKID="BIGINT PRIMARY KEY"
 )
+# Columns added after a Postgres schema was first created (CREATE TABLE IF NOT EXISTS skips existing tables).
+PG_SCHEMA += "\nALTER TABLE positions ADD COLUMN IF NOT EXISTS side TEXT NOT NULL DEFAULT 'long';\n"
 
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,40}$")
 
@@ -254,6 +257,8 @@ def _sqlite_migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(extra_symbols)")}
     if "industry" not in cols:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
+    if "side" not in {r[1] for r in conn.execute("PRAGMA table_info(positions)")}:
+        conn.execute("ALTER TABLE positions ADD COLUMN side TEXT NOT NULL DEFAULT 'long'")
 
 
 @contextmanager
