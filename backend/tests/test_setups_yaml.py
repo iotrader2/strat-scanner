@@ -24,6 +24,7 @@ def test_every_documented_number_is_what_the_code_uses():
     assert (a.HVC_LOOKBACK_DAYS, a.HVC_GAP_MIN_PCT, a.HVC_GAP_MIN_VOLUME_X, a.HVC_GAP_CLOSE_POSITION) == (
         hvc["lookback_days"], hvc["gap_day_min_gap_pct"] / 100, hvc["gap_day_min_volume_x"],
         hvc["gap_day_close_position_pct"] / 100)
+    assert a.HVC_MAX_BELOW_PCT == hvc["max_below_pct"] / 100
     assert (a.FLAT_BASE_MIN_BARS, a.FLAT_BASE_MAX_DEPTH_PCT, a.FLAT_BASE_PRIOR_TREND_BARS, a.FLAT_BASE_PRIOR_RUN_PCT,
             a.FLAT_BASE_MA_SPREAD_PCT, a.FLAT_BASE_RESISTANCE_PCT, a.FLAT_BASE_TIGHT_RANGE_PCT) == (
         fb["base_days"], fb["max_depth_pct"] / 100, fb["prior_trend_days"], fb["prior_rise_pct"] / 100,

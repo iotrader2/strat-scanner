@@ -60,6 +60,7 @@ HVC_LOOKBACK_DAYS = int(_HVC["lookback_days"])
 HVC_GAP_MIN_PCT = _HVC["gap_day_min_gap_pct"] / 100
 HVC_GAP_MIN_VOLUME_X = float(_HVC["gap_day_min_volume_x"])
 HVC_GAP_CLOSE_POSITION = _HVC["gap_day_close_position_pct"] / 100
+HVC_MAX_BELOW_PCT = _HVC["max_below_pct"] / 100
 # Flat base.
 FLAT_BASE_MIN_BARS = int(_FB["base_days"])
 FLAT_BASE_MAX_DEPTH_PCT = _FB["max_depth_pct"] / 100
@@ -270,7 +271,9 @@ def detect_delayed_hvc(df: pd.DataFrame) -> Optional[ArielSetup]:
     """Break back through a recent EP gap day's close.
 
     Triggered when the last completed bar traded back above the close after the prior close was at or below it;
-    pending when the last completed close is at or below it (today's session decides the break).
+    pending when the last completed close is at or below it (today's session decides the break). Either way the
+    close before the break stays within ``HVC_MAX_BELOW_PCT`` of the level, and no close since the gap day went
+    below the gap day's low (the gap failed).
     """
     if len(df) < MIN_HISTORY_DAYS:
         return None
@@ -279,11 +282,18 @@ def detect_delayed_hvc(df: pd.DataFrame) -> Optional[ArielSetup]:
         if not _is_ep_gap_day(df, j):
             continue
         level = float(df["close"].iloc[j])
+        floor = level * (1 - HVC_MAX_BELOW_PCT)
+        gap_low = float(df["low"].iloc[j])
         bar = df.iloc[last]
         prev_close = float(df["close"].iloc[last - 1])
         gap_date = _date(df, j)
-        # The day before the break must be after the gap day and have closed back at or below the level.
-        if j <= last - 2 and prev_close <= level < float(bar["high"]):
+        # The day before the break must be after the gap day and have closed back at or below the level, but near it,
+        # with no close under the gap day's low since the gap.
+        if (
+            j <= last - 2
+            and floor <= prev_close <= level < float(bar["high"])
+            and float(df["close"].iloc[j + 1 : last].min()) >= gap_low
+        ):
             return ArielSetup(
                 kind="delayed-hvc",
                 label=SETUP_LABELS["delayed-hvc"],
@@ -295,7 +305,7 @@ def detect_delayed_hvc(df: pd.DataFrame) -> Optional[ArielSetup]:
                 anchor_date=gap_date,
                 entry=_entry(level, float(bar["open"])),
             )
-        if float(bar["close"]) <= level:
+        if floor <= float(bar["close"]) <= level and float(df["close"].iloc[j + 1 : last + 1].min()) >= gap_low:
             return ArielSetup(
                 kind="delayed-hvc",
                 label=SETUP_LABELS["delayed-hvc"],
