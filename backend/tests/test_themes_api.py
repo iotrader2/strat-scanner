@@ -86,7 +86,7 @@ def test_rows_expose_one_three_and_six_month_performance(result):
 def test_universe_benchmarks_are_qqq_spy_iwm_only():
     assert [e[0] for e in MARKET_ETFS] == ["QQQ", "SPY", "IWM"]
     assert all(e[3] != "benchmark" for e in SECTOR_ETFS)
-    assert len(SECTOR_ETFS) == 24 and len(ETFS) == 27
+    assert len(SECTOR_ETFS) == 24 and len(ETFS) == 40
     symbols = {m.symbol for m in load_universe()}
     assert "DIA" not in symbols and {"QQQ", "SPY", "IWM"} <= symbols
 
@@ -198,3 +198,13 @@ def test_scan_rows_carry_theme_fields_and_exclude_theme_indexes(api_client):
     assert all(r["kind"] in ("stock", "etf") for r in rows)
     for r in rows:
         assert {"perf", "theme", "theme_name", "secondary_themes", "theme_strength"} <= set(r)
+
+
+def test_inverse_etfs_are_in_the_universe_not_the_cards():
+    from strat.universe import INVERSE_ETFS
+
+    inverse = {e[0] for e in INVERSE_ETFS}
+    assert {"MUD", "TSLQ", "AMZD", "SH", "PSQ"} <= inverse
+    assert not inverse & {e[0] for e in SECTOR_ETFS + MARKET_ETFS}
+    snapshot = {m.symbol: m for m in load_universe()}
+    assert all(snapshot[s].kind == "etf" and snapshot[s].indexes == "inverse" for s in inverse)

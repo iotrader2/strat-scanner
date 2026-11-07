@@ -243,7 +243,7 @@ export function ScanTable({
                   <TickerLogo symbol={r.symbol} size={20} />
                   {r.symbol}
                   <EarningsIcon earnings={r.earnings} />
-                  {r.kind === "etf" && (isIndexEtf(r) ? <span className="etf-chip index-chip" title="Index ETF: always listed in the ETFs view">INDEX</span> : <span className="etf-chip">ETF</span>)}
+                  {r.kind === "etf" && (isIndexEtf(r) ? <span className="etf-chip index-chip" title="Index ETF: always listed in the ETFs view">INDEX</span> : r.indexes === "inverse" ? <span className="etf-chip inverse-chip" title="1x inverse ETF: rises when the index or stock in its name falls">INVERSE</span> : <span className="etf-chip">ETF</span>)}
                   <RsChip row={r} />
                   {r.in_universe === false && <AddedChip />}
                 </div>
