@@ -225,7 +225,7 @@ export function ScanTable({
           {sorted.map((r, i) => {
             const trend = dailyTrendBadge(r.daily_trend);
             const weeklyTrend = weeklyTrendBadge(r.weekly_trend);
-            const chip = triggerChip({ triggered: r.triggered, live: r.triggered_live, trigger: r.trigger });
+            const chip = triggerChip({ triggered: r.triggered, live: r.triggered_live, trigger: r.trigger, side: r.setup_side });
             const mark = rowHighlight?.(r) ?? null;
             return (
             <tr key={r.symbol} className={mark?.className} title={mark?.title} onClick={() => {
@@ -243,7 +243,7 @@ export function ScanTable({
                   <TickerLogo symbol={r.symbol} size={20} />
                   {r.symbol}
                   <EarningsIcon earnings={r.earnings} />
-                  {r.kind === "etf" && (isIndexEtf(r) ? <span className="etf-chip index-chip" title="Index ETF: always listed in the ETFs view">INDEX</span> : <span className="etf-chip">ETF</span>)}
+                  {r.kind === "etf" && (isIndexEtf(r) ? <span className="etf-chip index-chip" title="Index ETF: always listed in the ETFs view">INDEX</span> : r.indexes === "inverse" ? <span className="etf-chip inverse-chip" title="1x inverse ETF: rises when the index or stock in its name falls">INVERSE</span> : <span className="etf-chip">ETF</span>)}
                   <RsChip row={r} />
                   {r.in_universe === false && <AddedChip />}
                 </div>
@@ -320,6 +320,7 @@ export function ScanTable({
                 {r.has_setup && r.setup ? (
                   <>
                     <div className={r.triggered ? "setup triggered" : "setup"}>
+                      {r.setup_side === "short" && <span className="side-chip short">SHORT</span>}
                       {r.setup}
                       {chip && (
                         <span className="trig-chip" title={chip.title}>

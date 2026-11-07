@@ -215,11 +215,16 @@ def refresh(
     now: Optional[datetime] = None,
     client: Optional[AlpacaClient] = None,
     settings: Optional[Settings] = None,
+    short_symbols: Iterable[str] = (),
 ) -> dict:
-    """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line."""
+    """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line.
+
+    ``short_symbols`` are checked for the short mirror (rallies into a falling EMA) instead of pullbacks.
+    """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     day = now_et(clock).date()
-    syms = list(dict.fromkeys(s for s in symbols if s))
+    short_picked = {s for s in short_symbols if s}
+    syms = list(dict.fromkeys([s for s in symbols if s] + sorted(short_picked)))
     if syms and prepare_due(clock):
         # Premarket: fetch the EMA history now, so the 6:45 pass only needs today's bars.
         client = client or AlpacaClient()
@@ -228,7 +233,7 @@ def refresh(
         return {"symbols": len(syms), "skipped": True, "inserted": []}
     # A name whose score slipped under the cut keeps being tracked while its alert is live, but only its
     # existing alert is advanced: it cannot start a new one. Rows from the old A-F rules are not tracked.
-    picked = set(syms)
+    picked = set(syms) - short_picked
     live = [
         r["symbol"] for r in alerts_store.list_alerts(session=day.isoformat())
         if r["status"] in ACTIVE and r["setup"] in SETUPS
@@ -258,6 +263,8 @@ def refresh(
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
         if sym in picked:
             found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming))
+        if sym in short_picked:
+            found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming, side="short"))
     del sip, iex
     # SIP backfill can make a touch stop reproducing an alert that already fired; still advance outcomes.
     found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, forming_by))

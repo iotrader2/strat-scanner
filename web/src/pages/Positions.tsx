@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { Position, PositionInput, ScanRow } from "../api";
 import { ActionMenu } from "../components/ActionMenu";
 import { SkeletonTable } from "../components/Loading";
-import { ConfirmModal, EntryModal, TrimModal } from "../components/Modal";
+import { ConfirmModal, EntryModal, SideToggle, TrimModal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ListTable } from "../components/ListTable";
 import type { ExtraColumn } from "../components/ScanTable";
@@ -17,6 +17,7 @@ import {
   todayIso,
   trimHistoryTitle,
   type EntryForm,
+  type Side,
 } from "../positions";
 import { queueSummary, useSymbolQueue } from "../symbolQueue";
 import { normalizeTicker } from "../watchlist";
@@ -28,6 +29,7 @@ import { normalizeTicker } from "../watchlist";
 export function AddPosition() {
   const { open, isHeld } = usePositions();
   const today = todayIso();
+  const [side, setSide] = useState<Side>("long");
   const blank: EntryForm & { symbol: string } = { symbol: "", price: "", shares: "", date: today };
   const [form, setForm] = useState(blank);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -50,7 +52,7 @@ export function AddPosition() {
       tickerRef.current?.focus();
       return;
     }
-    const parsed = parseEntry(form, today, true);
+    const parsed = parseEntry({ ...form, side }, today, true);
     if (!parsed.ok) {
       // Leave focus where it is so the bad field can be fixed.
       setNote({ ok: false, text: parsed.error });
@@ -66,6 +68,7 @@ export function AddPosition() {
   return (
     <form className="card add-symbol add-position" onSubmit={submit}>
       <label htmlFor="add-position-input">Add position</label>
+      <SideToggle value={side} onChange={setSide} />
       <input
         ref={tickerRef}
         id="add-position-input"
@@ -115,7 +118,7 @@ export default function Positions() {
 
   const stats = (r: ScanRow) => {
     const p = bySymbol.get(r.symbol);
-    // Dollar P/L uses shares still held. Percent stays versus the original buy price.
+    // Dollar P/L uses shares still held. Percent stays versus the original entry price (sign flipped for a short).
     return p ? positionStats({ ...p, shares: p.remaining_shares }, r.price, today) : null;
   };
   const totals = useMemo(() => {
@@ -137,7 +140,7 @@ export default function Positions() {
   const lead: ExtraColumn[] = [
     {
       key: "entry_price",
-      label: "Buy price",
+      label: "Entry",
       className: "num",
       ascendingFirst: true,
       sortValue: (r) => bySymbol.get(r.symbol)?.entry_price ?? null,
@@ -146,7 +149,10 @@ export default function Positions() {
         return (
           p && (
             <span title={trimHistoryTitle(p)}>
-              <div>{p.entry_price.toFixed(2)}</div>
+              <div>
+                {p.side === "short" && <span className="side-chip short" title="Short position: profits when the price falls">SHORT</span>}
+                {p.entry_price.toFixed(2)}
+              </div>
               <div className="sub muted">{fmtDate(p.entry_date)}</div>
             </span>
           )
@@ -242,8 +248,8 @@ export default function Positions() {
         <div>
           <h1>Positions</h1>
           <p className="muted">
-            Stocks you bought. Use Bought on an alert, or add a ticker below. Use the ⋯ menu to
-            edit it, trim it, send it back, or close it.
+            Your open trades, long or short. Use Bought / Shorted on an alert, or add a ticker below. Use the ⋯ menu
+            to edit it, trim or cover part of it, send it back, or close it.
           </p>
         </div>
         <div className="stat-cards">
@@ -300,7 +306,7 @@ export default function Positions() {
                 header={p.symbol}
                 actions={[
                   { label: "Edit entry…", onSelect: () => setDialog({ kind: "edit", symbol: p.symbol }) },
-                  { label: "Trim", onSelect: () => setDialog({ kind: "trim", symbol: p.symbol }) },
+                  { label: p.side === "short" ? "Cover part" : "Trim", onSelect: () => setDialog({ kind: "trim", symbol: p.symbol }) },
                   { label: "Move back to Watchlist", onSelect: () => moveBack(p) },
                   { label: "Close position…", danger: true, onSelect: () => setDialog({ kind: "close", symbol: p.symbol }) },
                 ]}
@@ -314,7 +320,8 @@ export default function Positions() {
         <EntryModal
           title="Edit position"
           symbol={live.symbol}
-          initial={{ price: live.entry_price, shares: live.shares, date: live.entry_date }}
+          initial={{ price: live.entry_price, shares: live.shares, date: live.entry_date, side: live.side }}
+          sideLocked={live.trims.length > 0 ? "Undo the trims to switch between long and short." : undefined}
           lastPrice={live.row?.price ?? null}
           submitLabel="Save"
           sharesNote={
@@ -322,7 +329,9 @@ export default function Positions() {
               ? `Original size. ${fmtShares(live.remaining_shares)} remaining after trims.`
               : undefined
           }
-          onSubmit={(v) => update(live.symbol, { entry_price: v.entry_price!, shares: v.shares, entry_date: v.entry_date })}
+          onSubmit={(v) =>
+            update(live.symbol, { entry_price: v.entry_price!, shares: v.shares, entry_date: v.entry_date, side: v.side })
+          }
           onClose={() => setDialog(null)}
         />
       )}

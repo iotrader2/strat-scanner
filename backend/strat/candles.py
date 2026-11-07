@@ -117,6 +117,8 @@ class Setup:
     live: bool = False
     stop: Optional[float] = None
     entry_tf: str = "15m"
+    # "long": enter above the trigger, stop below. "short": enter below the trigger, stop above.
+    side: str = "long"
 
 
 @dataclass
@@ -176,21 +178,32 @@ PERIOD_WORDS = {"D": "day", "W": "week", "M": "month"}
 
 
 def apply_live_triggers(
-    state: Optional[TimeframeState], live_high: Optional[float], tolerance: float = 0.0
+    state: Optional[TimeframeState],
+    live_high: Optional[float],
+    tolerance: float = 0.0,
+    live_low: Optional[float] = None,
 ) -> Optional[TimeframeState]:
     """Mark pending long setups triggered once the bar still in progress has traded above the trigger.
 
     Setups and their trigger levels come from completed bars only; the bar in progress never sets a trigger. It only
     decides whether a pending trigger has already been broken: ``live_high`` is the high of the in-progress bar
     (which includes today's session and the latest price), or None when no bar is in progress. Strictly above, like a break.
-    Only long setups exist, so there is no short-side mirror to apply. ``tolerance`` (dollars) is the
+    Short setups (``side == "short"``) break below their trigger, read from ``live_low``. ``tolerance`` (dollars) is the
     IEX allowance: a live high from the real-time IEX feed must clear the trigger by more than that.
     """
-    if state is None or live_high is None:
+    if state is None or (live_high is None and live_low is None):
         return state
     word = PERIOD_WORDS.get(state.tf, "bar")
     for setup in state.setups:
-        if not setup.triggered and live_high > setup.trigger + tolerance:
+        if setup.triggered:
+            continue
+        if setup.side == "short":
+            # Short setups break downward: strictly below the trigger (less the IEX allowance).
+            if live_low is not None and live_low < setup.trigger - tolerance:
+                setup.triggered = True
+                setup.live = True
+                setup.detail = f"broke below {setup.trigger:.2f} this {word} (low {live_low:.2f})"
+        elif live_high is not None and live_high > setup.trigger + tolerance:
             setup.triggered = True
             setup.live = True
             setup.detail = f"broke {setup.trigger:.2f} this {word} (high {live_high:.2f})"

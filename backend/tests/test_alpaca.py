@@ -349,7 +349,7 @@ def test_tolerance_only_while_alpaca_session_bar_is_live(monkeypatch):
     assert scanner.live_trigger_tolerance(daily, session) == 0.0
 
 
-def test_opening_range_high_is_the_first_15_minutes_once_closed(tmp_path, monkeypatch):
+def test_opening_range_is_the_first_15_minutes_once_closed(tmp_path, monkeypatch):
     """The Episodic Pivot's ORB level: the high of the first 15-minute bar, built from the stored 5-minute bars."""
     monkeypatch.setattr(config, "CACHE_DB", tmp_path / "c.sqlite3")
     intraday.upsert(
@@ -361,5 +361,5 @@ def test_opening_range_high_is_the_first_15_minutes_once_closed(tmp_path, monkey
         ],
         "iex",
     )
-    assert intraday.opening_range_highs(now=datetime(2026, 10, 22, 13, 44, tzinfo=UTC)) == {}  # still forming
-    assert intraday.opening_range_highs(now=datetime(2026, 10, 22, 13, 46, tzinfo=UTC)) == {"AAA": 10.8}
+    assert intraday.opening_ranges(now=datetime(2026, 10, 22, 13, 44, tzinfo=UTC)) == {}  # still forming
+    assert intraday.opening_ranges(now=datetime(2026, 10, 22, 13, 46, tzinfo=UTC)) == {"AAA": (10.8, 9.9)}

@@ -63,7 +63,7 @@ YAHOO_TO_GICS = {
 }
 OTHER_SECTOR = "Other"
 
-# (symbol, name, sector, group). group: "spdr" | "industry" | "benchmark"
+# (symbol, name, sector, group). group: "spdr" | "industry" | "benchmark" | "inverse"
 ETFS: list[tuple[str, str, str, str]] = [
     ("XLK", "Technology Select Sector SPDR", "Information Technology", "spdr"),
     ("XLF", "Financial Select Sector SPDR", "Financials", "spdr"),
@@ -93,8 +93,24 @@ ETFS: list[tuple[str, str, str, str]] = [
     ("QQQ", "Invesco QQQ (Nasdaq-100)", "Benchmark", "benchmark"),
     ("SPY", "SPDR S&P 500", "Benchmark", "benchmark"),
     ("IWM", "iShares Russell 2000", "Benchmark", "benchmark"),
+    # 1x inverse (bear) ETFs: buying one is a short on the index or stock in the name. Listed in the scanner like any
+    # ETF; not sector or market cards.
+    ("SH", "ProShares Short S&P500 (-1x SPY)", "Inverse", "inverse"),
+    ("PSQ", "ProShares Short QQQ (-1x QQQ)", "Inverse", "inverse"),
+    ("RWM", "ProShares Short Russell2000 (-1x IWM)", "Inverse", "inverse"),
+    ("DOG", "ProShares Short Dow30 (-1x DIA)", "Inverse", "inverse"),
+    ("TSLS", "Direxion Daily TSLA Bear 1X (-1x TSLA)", "Inverse", "inverse"),
+    ("TSLQ", "Tradr TSLA Bear Daily (-1x TSLA)", "Inverse", "inverse"),
+    ("NVDD", "Direxion Daily NVDA Bear 1X (-1x NVDA)", "Inverse", "inverse"),
+    ("AAPD", "Direxion Daily AAPL Bear 1X (-1x AAPL)", "Inverse", "inverse"),
+    ("AMZD", "Direxion Daily AMZN Bear 1X (-1x AMZN)", "Inverse", "inverse"),
+    ("MSFD", "Direxion Daily MSFT Bear 1X (-1x MSFT)", "Inverse", "inverse"),
+    ("GGLS", "Direxion Daily GOOGL Bear 1X (-1x GOOGL)", "Inverse", "inverse"),
+    ("METD", "Direxion Daily META Bear 1X (-1x META)", "Inverse", "inverse"),
+    ("MUD", "Direxion Daily MU Bear 1X (-1x MU)", "Inverse", "inverse"),
 ]
-SECTOR_ETFS = [e for e in ETFS if e[3] != "benchmark"]
+SECTOR_ETFS = [e for e in ETFS if e[3] not in ("benchmark", "inverse")]
+INVERSE_ETFS = [e for e in ETFS if e[3] == "inverse"]
 MARKET_ETFS = [e for e in ETFS if e[3] == "benchmark"]
 
 

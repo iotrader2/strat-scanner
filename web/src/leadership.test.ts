@@ -168,9 +168,10 @@ describe("per-setup views", () => {
   const view = (f: LeadershipFilter, minRs?: number) => all.filter((r) => matchesLeadership(r, f, minRs));
 
   it("has one option per setup kind", () => {
-    expect(Object.values(SETUP_FILTER_KIND).sort()).toEqual(
-      ["delayed-hvc", "episodic-pivot", "flat-base-breakout", "high-tight-flag", "ma-undercut-rally", "undercut-rally"],
-    );
+    expect(Object.values(SETUP_FILTER_KIND).sort()).toEqual([
+      "delayed-hvc", "delayed-hvc-short", "episodic-pivot", "flat-base-breakdown", "flat-base-breakout", "gap-down-pivot",
+      "high-tight-flag", "low-tight-flag", "ma-overcut-fail", "ma-undercut-rally", "overcut-fail", "undercut-rally",
+    ]);
   });
 
   it("lists leaders with that setup, pending or triggered", () => {
@@ -433,5 +434,35 @@ describe("formatWeight", () => {
     expect(formatWeight(32)).toBe("32%");
     expect(formatWeight(15.0)).toBe("15%");
     expect(formatWeight(35.555)).toBe("35.6%");
+  });
+});
+
+describe("laggards and short setup views", () => {
+  const short = (kind: string, trigger: number) => ({ kind, label: kind, trigger, triggered: false, live: false, side: "short" as const });
+  const lag = (rs: number, breakdown: "none" | "warning" | "broken", setups: ReturnType<typeof short>[] = []) => ({
+    ...row(rs, breakdown, null, setups.length > 0, false, 20),
+    setups,
+  });
+  const deepLaggard = lag(0.05, "broken", [short("flat-base-breakdown", 40)]);
+  const midLaggard = lag(0.4, "broken", [short("flat-base-breakdown", 40)]);
+  const weakButIntact = lag(0.05, "warning", [short("flat-base-breakdown", 40)]);
+  const all = [deepLaggard, midLaggard, weakButIntact];
+
+  it("Laggards mirror Leaders: bottom RS cut and a broken trend, no score cut", () => {
+    expect(all.filter((r) => matchesLeadership(r, "laggards"))).toEqual([deepLaggard]);
+    expect(all.filter((r) => matchesLeadership(r, "laggards", sliderToRs(50)))).toEqual([deepLaggard, midLaggard]);
+    expect(leadershipUsesMinRs("laggards")).toBe(true);
+  });
+
+  it("short setup views list laggards with that setup", () => {
+    expect(all.filter((r) => matchesLeadership(r, "short_flat_base"))).toEqual([deepLaggard]);
+    expect(all.filter((r) => matchesLeadership(r, "setup_flat_base"))).toEqual([]);
+  });
+
+  it("measures a short's distance downward", () => {
+    const r = { ...deepLaggard, symbol: "X", price: 42, setup: null, trigger: null, trigger_distance_pct: null } as unknown as ScanRow;
+    const focused = focusSetup(r, "short_flat_base");
+    expect(focused.trigger).toBe(40);
+    expect(focused.trigger_distance_pct).toBeCloseTo(((42 - 40) / 42) * 100); // must fall ~4.8%
   });
 });

@@ -11,7 +11,7 @@ from typing import Mapping, Optional
 import pandas as pd
 
 from . import config
-from .ariel_setups import find_ariel_setups
+from .ariel_setups import find_ariel_setups, find_short_setups
 from .change import (
     RS_LOOKBACK,
     STATE_LOOKBACK,
@@ -207,11 +207,12 @@ def scan_symbol(
     prior: Optional[Mapping[int, PriorRanks]] = None,
     benchmark_close: Optional[pd.Series] = None,
     opening_high: Optional[float] = None,
+    opening_low: Optional[float] = None,
 ) -> Optional[dict]:
     """Scan one symbol.
 
-    ``opening_high`` is the high of today's first 15-minute bar once it has closed (the Episodic Pivot's
-    Opening Range Break level), or None when it is not known.
+    ``opening_high`` / ``opening_low`` are the high / low of today's first 15-minute bar once it has closed (the
+    Episodic Pivot's Opening Range Break level, long / gap-down short), or None when not known.
 
     ``ranks`` supplies the peer distributions for relative strength and ``qqq`` the QQQ returns; stocks
     also get Theme strength from ``strengths`` (see ``theme_strengths``) for their primary theme in ``themes``.
@@ -240,17 +241,18 @@ def scan_symbol(
         "close": price, "volume": float(last.volume) if pd.notna(last.volume) else 0.0,
     }
     if states.get("D") is not None:
-        found = find_ariel_setups(
-            completed, today=today, opening_high=opening_high, session_fraction=session_fraction(),
-        )
+        fraction = session_fraction()
+        found = find_ariel_setups(completed, today=today, opening_high=opening_high, session_fraction=fraction)
+        found += find_short_setups(completed, today=today, opening_low=opening_low, session_fraction=fraction)
         states["D"] = replace(states["D"], setups=[s.to_setup() for s in found])
     # A daily trigger stays on the last completed bar; the bar in progress only
     # decides whether one has broken (today's high / the latest price).
     if today is not None and states.get("D") is not None:
-        states["D"] = apply_live_triggers(states["D"], today["high"], live_trigger_tolerance(daily))
+        states["D"] = apply_live_triggers(states["D"], today["high"], live_trigger_tolerance(daily), live_low=today["low"])
         for setup in states["D"].setups:
             if setup.live and setup.stop is None:
-                setup.stop = today["low"]  # "stop at the low of the day the entry triggers"
+                # "Stop at the low (short: high) of the day the entry triggers."
+                setup.stop = today["high"] if setup.side == "short" else today["low"]
     # Continuity (score, badges, M+W / full flags) reads the bars in progress; the Strat state above does not.
     for tf, open_ in live_opens(daily).items():
         if states.get(tf) is not None and open_ is not None:
@@ -417,6 +419,8 @@ def scan_symbol(
         # Candle Pattern filter: inside bar / hammer on the last completed weekly and daily bar.
         "candle_patterns": patterns,
         "triggered": primary.setup.triggered if primary else None,
+        # "long" or "short": a short setup triggers below its level and its stop sits above.
+        "setup_side": primary.setup.side if primary else None,
         # True when the break happened in the week still in progress (the trigger is still last completed week's).
         "triggered_live": primary.setup.live if primary else None,
         "trigger_distance_pct": sc.trigger_distance_pct,
@@ -451,7 +455,7 @@ def scan_all(
     themes: Optional[ThemeMap] = None,
     method: str = LEADERS,
     changes: bool = True,
-    opening_highs: Optional[Mapping[str, float]] = None,
+    opening_ranges: Optional[Mapping[str, tuple[float, float]]] = None,
 ) -> ScanResult:
     """Scan everything. Order matters: returns are ranked first (relative strength), then the themes are scored and
     ranked, and only then the stocks, whose Theme strength comes from their theme's rank. ``changes`` adds the RS change
@@ -498,7 +502,8 @@ def scan_all(
         if m.kind != "theme":
             row = scan_symbol(
                 m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method, prior, bench_close,
-                opening_high=(opening_highs or {}).get(m.symbol),
+                opening_high=(opening_ranges or {}).get(m.symbol, (None, None))[0],
+                opening_low=(opening_ranges or {}).get(m.symbol, (None, None))[1],
             )
             if row:
                 rows.append(row)

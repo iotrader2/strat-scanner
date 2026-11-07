@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -96,7 +96,7 @@ def _load_theme_map() -> Optional[ThemeMap]:
         return None
 
 
-_SLIM_SETUP_KEYS = ("tf", "kind", "label", "trigger", "triggered", "live", "stop")
+_SLIM_SETUP_KEYS = ("tf", "kind", "label", "trigger", "triggered", "live", "stop", "side")
 
 
 def _slim_row(r: dict) -> dict:
@@ -106,14 +106,14 @@ def _slim_row(r: dict) -> dict:
     return out
 
 
-def _opening_highs() -> dict[str, float]:
-    """Today's 15-minute opening-range highs (the Episodic Pivot entry level), from the live Alpaca bars."""
+def _opening_ranges() -> dict[str, tuple[float, float]]:
+    """Today's 15-minute opening ranges (high, low): the Episodic Pivot entry levels, from the live Alpaca bars."""
     if not live_bars_enabled():
         return {}
     try:
         from . import intraday as intraday_bars
 
-        return intraday_bars.opening_range_highs()
+        return intraday_bars.opening_ranges()
     except Exception:  # noqa: BLE001 — a missing opening range must never break the scan
         log.exception("opening range highs failed")
         return {}
@@ -125,7 +125,9 @@ def _scan_one(member: Member, daily) -> Optional[dict]:
     bench_close = None if qqq_daily is None or qqq_daily.empty else qqq_daily["close"]
     return scan_symbol(
         member, daily, State.strengths, State.ranks, State.theme_map, State.qqq, prior=State.prior,
-        benchmark_close=bench_close, opening_high=_opening_highs().get(member.symbol),
+        benchmark_close=bench_close,
+        opening_high=_opening_ranges().get(member.symbol, (None, None))[0],
+        opening_low=_opening_ranges().get(member.symbol, (None, None))[1],
     )
 
 
@@ -249,11 +251,30 @@ def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]
     return [r["symbol"] for r in picked[: settings.max_symbols]]
 
 
+def alert_short_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
+    """Short-side alert names: universe stocks that are laggards (RS at or below ``short_max_rs`` percentile, trend
+    broken), weakest RS first, at most ``max_short_symbols``. Empty when shorts are switched off."""
+    if not settings.shorts:
+        return []
+    cut = settings.short_max_rs / 100
+    picked = [
+        r for r in rows
+        if r.get("kind", "stock") == "stock" and r.get("in_universe", True)
+        and isinstance(r.get("rs"), (int, float)) and r["rs"] <= cut + 1e-9
+        and (r.get("leadership") or {}).get("breakdown") == "broken"
+    ]
+    picked.sort(key=lambda r: (r["rs"], r["symbol"]))
+    return [r["symbol"] for r in picked[: settings.max_short_symbols]]
+
+
 def _refresh_alerts() -> None:
     """Pullback alerts for high-score universe stocks, on the same poll. No-op outside the regular session."""
     try:
         settings = alerts_store.load_settings()
-        stats = alerts_live.refresh(alert_symbols(State.scan, settings), settings=settings)
+        stats = alerts_live.refresh(
+            alert_symbols(State.scan, settings), settings=settings,
+            short_symbols=alert_short_symbols(State.scan, settings),
+        )
         if stats.get("skipped"):
             if stats.get("prepared"):
                 log.info("alerts prepared EMA history for %s symbols", stats["prepared"])
@@ -470,7 +491,7 @@ def _compute_scan(key: Optional[str]) -> list[dict]:
     data.reload_daily(State.daily)
     memory.release_heap()
     State.theme_map = _load_theme_map()
-    result = scan_all(_universe(), State.daily, State.theme_map, opening_highs=_opening_highs())
+    result = scan_all(_universe(), State.daily, State.theme_map, opening_ranges=_opening_ranges())
     State.result, State.scan = result, result.rows
     State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
     State.scan_key = key
@@ -771,12 +792,14 @@ class PositionRequest(BaseModel):
     entry_price: Optional[float] = Field(None, gt=0)
     shares: Optional[float] = Field(None, gt=0)
     entry_date: Optional[date] = None
+    side: Literal["long", "short"] = "long"
 
 
 class PositionUpdate(BaseModel):
     entry_price: float = Field(gt=0)
     shares: Optional[float] = Field(None, gt=0)
     entry_date: date
+    side: Optional[Literal["long", "short"]] = None  # None keeps the position's side
 
 
 class TrimRequest(BaseModel):
@@ -920,7 +943,7 @@ def add_position(req: PositionRequest):
         if row is None:
             raise HTTPException(422, f"No price for {symbol} yet; enter an entry price")
         entry_price = row["price"]
-    data.save_position(symbol, entry_price, req.shares, entry_date)
+    data.save_position(symbol, entry_price, req.shares, entry_date, side=req.side)
     data.remove_from_watchlist(symbol)
     State.lists_dirty = True
     _start_tracking(symbol, in_universe)
@@ -930,15 +953,19 @@ def add_position(req: PositionRequest):
 @app.put("/api/positions/{symbol}")
 def update_position(symbol: str, req: PositionUpdate):
     symbol = symbol.strip().upper()
-    if not any(p["symbol"] == symbol for p in data.positions()):
+    current = next((p for p in data.positions() if p["symbol"] == symbol), None)
+    if current is None:
         raise HTTPException(404, f"{symbol} is not in Positions")
+    side = req.side or current.get("side") or "long"
     sold = data.trimmed_shares(symbol)
+    if sold and side != (current.get("side") or "long"):
+        raise HTTPException(422, "Undo the trims before switching a position between long and short.")
     if sold and (req.shares is None or req.shares <= sold + 1e-9):
         raise HTTPException(
             422,
             f"Share count must stay above the {sold:g} shares already trimmed. Undo a trim to reduce it further.",
         )
-    data.save_position(symbol, req.entry_price, req.shares, _check_entry_date(req.entry_date))
+    data.save_position(symbol, req.entry_price, req.shares, _check_entry_date(req.entry_date), side=side)
     return _positions_payload()
 
 

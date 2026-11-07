@@ -151,11 +151,13 @@ th.num { text-align: right; }
 .sub { font-size: 11.5px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .etf-chip { font-size: 9px; font-weight: 700; color: var(--purple); border: 1px solid rgba(167, 139, 250, 0.4); border-radius: 5px; padding: 1px 4px; }
 .etf-chip.index-chip { color: var(--accent); border-color: rgba(56, 189, 248, 0.45); }
+.etf-chip.inverse-chip { color: var(--red); border-color: rgba(244, 63, 94, 0.45); }
 .sector-link { cursor: pointer; }
 .sector-link:hover { color: var(--accent); }
 .setup-cell { max-width: 290px; }
 .scan-table .sub { max-width: 170px; }
-.setup { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.setup { font-weight: 600; font-size: 13px; line-height: 1.35; }
+.setup .side-chip, .setup .trig-chip { display: inline-block; white-space: nowrap; }
 .setup.triggered { color: #a7f3d0; }
 .reason { max-width: 290px; }
 .trig-chip { font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: var(--green); background: rgba(34, 197, 94, 0.1); border-radius: 5px; padding: 1px 5px; margin-left: 6px; }
@@ -864,3 +866,13 @@ th.num { text-align: right; }
   .alerts-table .alert-status { padding: 2px 6px; font-size: 11px; }
   .alerts-table .btn.small { padding: 4px 6px; }
 }
+
+/* Long / Short toggle and the SHORT tag on Positions. */
+.side-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex: 0 0 auto; }
+.side-btn { background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 12px; font-weight: 700; padding: 6px 12px; cursor: pointer; }
+.side-btn + .side-btn { border-left: 1px solid var(--border); }
+.side-btn.long.active { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+.side-btn.short.active { background: rgba(244, 63, 94, 0.15); color: var(--red); }
+.side-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+.side-chip { font-size: 9px; font-weight: 700; border-radius: 5px; padding: 1px 4px; margin-right: 6px; vertical-align: 1px; }
+.side-chip.short { color: var(--red); border: 1px solid rgba(244, 63, 94, 0.45); }

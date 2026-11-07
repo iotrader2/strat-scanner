@@ -47,6 +47,11 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "all", label: "All names", hint: "Every stock and ETF that passes the price / dollar-volume filters, with or without a setup. Ignores the Min RS slider." },
   { value: "leaders", label: "Leaders", hint: "Relative strength at the Min RS cut (default P90) or an RS line versus QQQ that made a 52-week high in the last 5 sessions, trend not broken, score above 70, highest score first. The slider can raise the cut above P90; lowering it does not add other names, and an RS-line high does not bypass a higher cut." },
   {
+    value: "laggards",
+    label: "Laggards",
+    hint: "The mirror of Leaders, for shorts: RS at or below the bottom cut (P10 at the default Min RS P90; widen the slider toward P50 to see more) with a broken trend (below the 50-day average or 25%+ under the 6-month high). No score cut.",
+  },
+  {
     value: "setup_ep",
     label: "Episodic Pivot",
     hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a large gap up today (2%+) on heavy volume (1.5x+ the 20-day average, projected from the session so far). Entry: Opening Range Break above the high of the first 15-min bar. Stop: low of day. Same-day only. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
@@ -75,6 +80,36 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "setup_htf",
     label: "High Tight Flag",
     hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a 50%+ run-up within ~8 weeks, then a 2–5 week flag no more than 10% deep on lighter volume. Entry: break above the flag. Stop: low of the breakout day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "short_ep",
+    label: "Gap-Down Episodic Pivot",
+    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a large gap down today (2%+) on heavy volume. Entry: break below the low of the first 15-min bar. Stop: high of day. Same-day only. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "short_hvc",
+    label: "Delayed HVC Short",
+    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a recent gap-down day (last 10 sessions) whose close price was reclaimed. Entry: break back below the gap-down day's close. Stop: high of the entry day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "short_flat_base",
+    label: "Flat Base Breakdown",
+    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a tight daily base of 3+ weeks after a 17%+ decline, ranges shrinking. Entry: below the prior day's low, through the base support. Stop: prior-day high on a tight breakdown candle, else the breakdown-day high. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "short_overcut",
+    label: "Overcut and Fail",
+    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a close above the ~1-month swing high, then a close back below it the next day. Entry: the failure below that high. Stop: the overcut high. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "short_ma_overcut",
+    label: "MA Overcut and Fail",
+    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a close above a falling 20, 50 or 10-day average, then a weak rejection back below (down day closing in the lower half). Entry: back below the average. Stop: high of the rejection day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "short_ltf",
+    label: "Low Tight Flag",
+    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a 33%+ drop within ~8 weeks, then a 2–5 week bounce no more than ~11% high on lighter volume. Entry: break below the flag. Stop: high of the breakdown day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
     value: "daily_bullish",
@@ -117,7 +152,10 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   },
 ];
 
-const RED_TILES = new Set<LeadershipFilter>(["broken", "daily_bearish", "weekly_bearish", "failed_breakouts"]);
+const RED_TILES = new Set<LeadershipFilter>([
+  "broken", "daily_bearish", "weekly_bearish", "failed_breakouts", "laggards",
+  "short_ep", "short_hvc", "short_flat_base", "short_overcut", "short_ma_overcut", "short_ltf",
+]);
 /** Summary tiles: one per Setups option, in the dropdown's order, labelled like it (lower case). */
 export const HERO_CHIPS: { filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = SETUPS_OPTIONS.map(
   (o) => ({

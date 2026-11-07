@@ -37,6 +37,14 @@ After the fill the trade is managed on completed bars: the stop, break-even afte
 One live alert per name at a time, and no new alert once ``max_attempts`` of the name's alerts have
 triggered that day. Which names are checked (universe stocks with a scan score of at least ``min_score``)
 is decided by the caller.
+
+**Short side** (``side="short"``, setups ``s120`` / ``s240`` / ``s480``) is the exact mirror, for laggards: a
+completed bar rallies up into a *falling* EMA coming from below (the bar before closed under it, this bar's
+high reaches it, the close did not go more than ``hold_pct`` over it). The sell stop is the touch bar's low -
+$0.01 and the stop the rally high + $0.01; while waiting, both follow the bars. After the fill: the stop
+above, break-even after ``breakeven_after_new_highs`` new-low bars, an exit on a close more than ``hold_pct``
+over the EMA, and the session end. For a short, ``high_reached`` holds the lowest price reached (the best
+price) and R is measured downward. When a bar touches several falling EMAs the alert is for the highest.
 """
 
 from __future__ import annotations
@@ -54,8 +62,22 @@ BAR = timedelta(minutes=BAR_MINUTES)
 SESSION_BARS = 390 // BAR_MINUTES  # bars in a full regular session
 MA_PERIODS = (120, 240, 480)
 EMA_LONG = MA_PERIODS[-1]
-SETUPS = tuple(str(p) for p in MA_PERIODS)
-SETUP_NAMES = {str(p): f"Pullback to rising {p} EMA" for p in MA_PERIODS}
+LONG_SETUPS = tuple(str(p) for p in MA_PERIODS)
+SHORT_SETUPS = tuple(f"s{p}" for p in MA_PERIODS)
+SETUPS = LONG_SETUPS + SHORT_SETUPS
+SETUP_NAMES = {
+    **{str(p): f"Pullback to rising {p} EMA" for p in MA_PERIODS},
+    **{f"s{p}": f"Short: rally to falling {p} EMA" for p in MA_PERIODS},
+}
+
+
+def setup_side(setup: str) -> str:
+    """"short" for the s120 / s240 / s480 setups, else "long"."""
+    return "short" if str(setup).startswith("s") else "long"
+
+
+def setup_period(setup: str) -> int:
+    return int(str(setup).lstrip("s"))
 ACTIVE = ("pending", "triggered")
 FINAL = ("stopped", "breakeven", "exited", "expired", "cancelled")
 TAIL_KEEP = 30  # prior-session EMA values kept per period (enough for any ``rising_bars``)
@@ -68,6 +90,10 @@ class Settings:
     # Which names: universe stocks with at least this scan score, highest first, at most this many.
     min_score: float = 70.0
     max_symbols: int = 150
+    # Short side: laggards (RS at or below this percentile, trend broken), weakest first, at most this many.
+    shorts: int = 1  # 1 = alert short setups too, 0 = longs only
+    short_max_rs: float = 10.0
+    max_short_symbols: int = 75
     # Which averages (1 = on, 0 = off).
     ma_120: int = 1
     ma_240: int = 1
@@ -103,6 +129,7 @@ class Settings:
 
 SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "min_score": (0, 100), "max_symbols": (1, 1000),
+    "shorts": (0, 1), "short_max_rs": (1, 50), "max_short_symbols": (0, 1000),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "touch_tol_pct": (0, 5), "hold_pct": (0, 5), "rising_bars": (1, TAIL_KEEP - 1), "watch_bars": (1, 26),
     "max_attempts": (1, 20), "breakeven_after_new_highs": (1, 50), "exit_close_under_ma": (0, 1),
@@ -134,7 +161,7 @@ def context_from_closes(closes: Sequence[float], session_bars: int = SESSION_BAR
 class Alert:
     symbol: str
     session: str
-    setup: str  # the EMA period, "120" / "240" / "480"
+    setup: str  # the EMA period, "120" / "240" / "480"; short side "s120" / "s240" / "s480"
     origin_bar: datetime  # the touch bar (the key)
     setup_bar: datetime  # the candle whose high + $0.01 is the buy stop (moves while waiting)
     setup_index: int
@@ -167,7 +194,15 @@ class Alert:
 
     @property
     def period(self) -> int:
-        return int(self.setup)
+        return setup_period(self.setup)
+
+    @property
+    def side(self) -> str:
+        return setup_side(self.setup)
+
+    @property
+    def short(self) -> bool:
+        return self.side == "short"
 
     @property
     def fired_at(self) -> datetime:
@@ -175,11 +210,11 @@ class Alert:
 
     @property
     def stop_pct(self) -> float:
-        return (self.trigger - self.stop) / self.trigger * 100 if self.trigger else 0.0
+        return abs(self.trigger - self.stop) / self.trigger * 100 if self.trigger else 0.0
 
     @property
     def risk(self) -> float:
-        return self.trigger - self.stop
+        return abs(self.trigger - self.stop)
 
     def record(self) -> dict:
         """Row for the alerts table (outcome and levels; bookkeeping columns are added by the store)."""
@@ -301,8 +336,36 @@ def match(f: Frame, i: int, p: int, s: Settings) -> Optional[dict]:
     return {"ma": m, "slope_pct": (mp - mb) / mb * 100}
 
 
-def touch(f: Frame, i: int, s: Settings) -> Optional[tuple[int, dict, list[int]]]:
-    """(period, levels, every period touched) for the lowest EMA bar ``i`` pulled back to and held."""
+def match_short(f: Frame, i: int, p: int, s: Settings) -> Optional[dict]:
+    """Bar ``i`` rallies up to the falling ``p`` EMA from below and is held under it. Returns the levels, or None."""
+    m, mp, mb = f.ma_at(p, i), f.ma_at(p, i - 1), f.ma_at(p, i - 1 - s.rising_bars)
+    pc = f.close_at(i - 1)
+    if m is None or mp is None or mb is None or pc is None or m <= 0:
+        return None
+    if not mp < mb:
+        return None  # not falling
+    tol = s.touch_tol_pct / 100
+    if pc >= mp * (1 - tol):
+        return None  # the bar before was not under the line: not a rally into it
+    b = f.bars[i]
+    if float(b["h"]) < m * (1 - tol):
+        return None  # did not reach it
+    if float(b["c"]) > m * (1 + s.hold_pct / 100):
+        return None  # closed through it
+    return {"ma": m, "slope_pct": (mp - mb) / mb * 100}
+
+
+def touch(f: Frame, i: int, s: Settings, side: str = "long") -> Optional[tuple[int, dict, list[int]]]:
+    """(period, levels, every period touched) for the EMA bar ``i`` came back to and was held by.
+
+    Long: the lowest rising EMA it pulled back to. Short: the highest falling EMA it rallied into.
+    """
+    if side == "short":
+        hits = [(p, x) for p in s.periods() if (x := match_short(f, i, p, s))]
+        if not hits:
+            return None
+        p, x = max(hits, key=lambda h: (h[1]["ma"], h[0]))
+        return p, x, [h[0] for h in hits]
     hits = [(p, x) for p in s.periods() if (x := match(f, i, p, s))]
     if not hits:
         return None
@@ -318,26 +381,91 @@ def _close_trade(a: Alert, price: float, at: datetime, reason: str, status: str)
     a.exit_at = at
     a.exit_reason = reason
     a.status = status
-    risk = (a.fill_price or a.trigger) - a.stop
-    a.r_multiple = (price - (a.fill_price or a.trigger)) / risk if risk > 0 else None
+    fill = a.fill_price or a.trigger
+    if a.short:
+        risk = a.stop - fill
+        a.r_multiple = (fill - price) / risk if risk > 0 else None
+    else:
+        risk = fill - a.stop
+        a.r_multiple = (price - fill) / risk if risk > 0 else None
 
 
 def _fill(a: Alert, bar: Mapping) -> None:
     a.filled = True
-    a.fill_price = max(a.trigger, float(bar["o"]))
     a.fill_at = bar["t"]
     a.status = "triggered"
     a.current_stop = a.stop
-    a.running_high = float(bar["h"])
-    a.high_reached = float(bar["h"])
+    if a.short:
+        a.fill_price = min(a.trigger, float(bar["o"]))  # a gap down through the sell stop fills at the open
+        a.running_high = a.high_reached = float(bar["l"])  # best (lowest) price so far
+    else:
+        a.fill_price = max(a.trigger, float(bar["o"]))
+        a.running_high = a.high_reached = float(bar["h"])
 
 
-def _lost(bar: Mapping, ma: Optional[float], s: Settings) -> bool:
-    return ma is not None and float(bar["c"]) < ma * (1 - s.hold_pct / 100)
+def _lost(bar: Mapping, ma: Optional[float], s: Settings, short: bool = False) -> bool:
+    if ma is None:
+        return False
+    if short:
+        return float(bar["c"]) > ma * (1 + s.hold_pct / 100)
+    return float(bar["c"]) < ma * (1 - s.hold_pct / 100)
+
+
+def _step_short(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -> None:
+    """``step`` for a short alert: every comparison mirrored."""
+    end = bar["t"] + BAR
+    if a.status == "pending":
+        a.bars_waited += 1
+        if bar["l"] <= a.trigger:
+            _fill(a, bar)
+            if bar["h"] >= a.stop:  # stop and fill in one bar: the stop counts first
+                a.stop_hit = True
+                _close_trade(a, a.stop, end, "stop", "stopped")
+            elif s.exit_close_under_ma and _lost(bar, ma, s, short=True):
+                _close_trade(a, float(bar["c"]), end, "close_over_ma", "exited")
+            return
+        if _lost(bar, ma, s, short=True):
+            a.status = "cancelled"
+            a.exit_reason = "close_over_ma"
+            a.exit_at = end
+            return
+        if a.bars_waited >= s.watch_bars:
+            a.status = "expired"
+            a.exit_at = end
+            a.exit_reason = "not_triggered"
+            return
+        # Still watching: the sell stop follows the previous candle's low, the stop the rally high.
+        a.setup_bar, a.setup_index = bar["t"], index
+        a.setup_low = float(bar["l"])
+        a.trigger = round(float(bar["l"]) - TICK, 2)
+        a.setup_high = max(a.setup_high, float(bar["h"]))
+        a.stop = a.current_stop = round(a.setup_high + TICK, 2)
+        a.details["rearmed"] = a.details.get("rearmed", 0) + 1
+        return
+    if a.status != "triggered":
+        return
+    if bar["h"] >= a.current_stop:
+        at_be = a.breakeven_at is not None and a.current_stop <= (a.fill_price or 0)
+        price = max(a.current_stop, float(bar["o"]))  # a gap through the stop fills at the open
+        a.stop_hit = True
+        _close_trade(a, price, end, "breakeven_stop" if at_be else "stop", "breakeven" if at_be else "stopped")
+        return
+    a.high_reached = min(a.high_reached or bar["l"], float(bar["l"]))
+    if bar["l"] < a.running_high:
+        a.running_high = float(bar["l"])
+        a.new_highs += 1  # new lows, for a short
+        if a.breakeven_at is None and a.new_highs >= s.breakeven_after_new_highs:
+            a.breakeven_at = end
+            a.current_stop = min(a.current_stop, a.fill_price or a.trigger)
+    if s.exit_close_under_ma and _lost(bar, ma, s, short=True):
+        _close_trade(a, float(bar["c"]), end, "close_over_ma", "exited")
 
 
 def step(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -> None:
     """Advance one active alert by one completed bar (the bars after its touch bar, in order)."""
+    if a.short:
+        _step_short(a, bar, index, ma, s)
+        return
     end = bar["t"] + BAR
     if a.status == "pending":
         a.bars_waited += 1
@@ -387,8 +515,9 @@ def step(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -
 
 
 def check_forming(a: Alert, bar: Mapping) -> None:
-    """The bar still forming has traded through the buy stop: mark the fill now (no stop or exit checks)."""
-    if a.status == "pending" and float(bar["h"]) >= a.trigger:
+    """The bar still forming has traded through the buy (short: sell) stop: mark the fill now (no stop or exit checks)."""
+    through = float(bar["l"]) <= a.trigger if a.short else float(bar["h"]) >= a.trigger
+    if a.status == "pending" and through:
         _fill(a, bar)
         a.details["fill_on_forming_bar"] = True
 
@@ -471,8 +600,11 @@ def simulate(
     settings: Optional[Settings] = None,
     skipped: Optional[list] = None,
     forming: Optional[Mapping] = None,
+    side: str = "long",
 ) -> list[Alert]:
     """Alerts for one symbol and day, oldest first, with outcomes through the last bar given.
+
+    ``side="short"`` looks for the short mirror (rallies into a falling EMA) instead of pullbacks.
 
     ``bars`` are that day's completed regular-session bars in order, starting with the opening bar.
     ``forming`` is the bar still forming (live only): it can fill a waiting alert, nothing else.
@@ -487,10 +619,11 @@ def simulate(
         for a in alerts:
             if a.status in ACTIVE and a.setup_index < i:
                 step(a, bar, i, f.ma[a.period][i], s)
-        hit = touch(f, i, s)
+        hit = touch(f, i, s, side)
         if not hit:
             continue
         period, lv, touched = hit
+        setup_key = f"s{period}" if side == "short" else str(period)
         reason = None
         if i + 1 >= ctx.session_bars:
             reason = "last bar of the session"
@@ -500,13 +633,16 @@ def simulate(
             reason = "%d attempts already" % s.max_attempts
         if reason:
             if skipped is not None:
-                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": str(period), "reason": reason})
+                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": reason})
             continue
-        stop = round(float(bar["l"]) - TICK, 2)
+        if side == "short":
+            trigger, stop = round(float(bar["l"]) - TICK, 2), round(float(bar["h"]) + TICK, 2)
+        else:
+            trigger, stop = round(float(bar["h"]) + TICK, 2), round(float(bar["l"]) - TICK, 2)
         alerts.append(
             Alert(
-                symbol=symbol, session=session, setup=str(period), origin_bar=bar["t"], setup_bar=bar["t"],
-                setup_index=i, trigger=round(float(bar["h"]) + TICK, 2), stop=stop, setup_low=float(bar["l"]),
+                symbol=symbol, session=session, setup=setup_key, origin_bar=bar["t"], setup_bar=bar["t"],
+                setup_index=i, trigger=trigger, stop=stop, setup_low=float(bar["l"]),
                 setup_high=float(bar["h"]), ref_price=float(bar["c"]), current_stop=stop,
                 details={
                     "ma": round(lv["ma"], 4),

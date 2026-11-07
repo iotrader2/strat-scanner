@@ -52,7 +52,7 @@ conservative and documented here — they are not claimed to be Ariel's.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping, Optional
 
 import pandas as pd
@@ -101,7 +101,21 @@ SETUP_POINTS = {
     "ma-undercut-rally": 18.0,
 }
 
-SETUP_KINDS = tuple(SETUP_POINTS)
+# Short-side mirrors of the six setups (not in the long-only playbook; the scanner's own reading, see
+# ``find_short_setups``): long kind -> (short kind, label).
+SHORT_MIRROR = {
+    "episodic-pivot": ("gap-down-pivot", "Gap-Down Episodic Pivot"),
+    "delayed-hvc": ("delayed-hvc-short", "Delayed HVC Short"),
+    "flat-base-breakout": ("flat-base-breakdown", "Flat Base Breakdown"),
+    "undercut-rally": ("overcut-fail", "Overcut and Fail"),
+    "ma-undercut-rally": ("ma-overcut-fail", "MA Overcut and Fail"),
+    "high-tight-flag": ("low-tight-flag", "Low Tight Flag"),
+}
+SHORT_KINDS = tuple(k for k, _ in SHORT_MIRROR.values())
+LONG_KINDS = tuple(SETUP_POINTS)
+SETUP_POINTS.update({SHORT_MIRROR[k][0]: v for k, v in list(SETUP_POINTS.items())})
+
+SETUP_KINDS = LONG_KINDS
 
 SETUP_LABELS = {
     "episodic-pivot": "Episodic Pivot",
@@ -125,11 +139,14 @@ class ArielSetup:
     detail: str = ""
     entry_instruction: str = ""
     anchor_date: Optional[str] = None  # the daily bar the setup is anchored on (YYYY-MM-DD)
-    entry: Optional[float] = None  # for a triggered setup: max(trigger, breakout-day open)
+    entry: Optional[float] = None  # for a triggered setup: max(trigger, breakout-day open) (short: min)
+    side: str = "long"  # "short" for the mirrored setups: enter below the trigger, stop above
 
     def to_setup(self) -> Setup:
-        """The scanner's shared ``Setup`` row (API shape unchanged)."""
-        return Setup(self.kind, self.label, self.trigger, self.triggered, self.detail, stop=self.stop, entry_tf=ENTRY_TF)
+        """The scanner's shared ``Setup`` row."""
+        return Setup(
+            self.kind, self.label, self.trigger, self.triggered, self.detail, stop=self.stop, entry_tf=ENTRY_TF, side=self.side
+        )
 
 
 def _sma(values: pd.Series, period: int) -> pd.Series:
@@ -510,6 +527,100 @@ def find_ariel_setups(
         if found is not None:
             out.append(found)
     return [s for s in out if has_defined_risk(s)]
+
+
+# --- short side -------------------------------------------------------------------------------------------------
+#
+# Each short setup is its long setup on the price chart turned upside down: every price p becomes 1/p (high and
+# low swap), so a gap down reads as a gap up, a 33% decline as a 50% run-up, a bounce into resistance as a dip
+# to support. The long detectors then run unchanged and their levels are mapped back (1/level). Percent rules
+# (gap size, base depth, range tightness) carry over exactly; moving averages differ slightly (the average of
+# 1/p is not 1/average of p), so the MA trigger is re-read from the real chart. Volume is not inverted.
+
+_SHORT_TEXT = {
+    "gap-down-pivot": (
+        "large gap down on heavy volume; enter below the first 15-min bar low, stop at the high of day",
+        "Opening Range Break down on the 15-min chart: enter below the low of the first 15-min bar; stop at the high of day",
+    ),
+    "delayed-hvc-short": (
+        "second chance at a gap-down day: enter as price breaks back below its close, stop at the entry-day high",
+        "Enter on the break back below the gap-down day's close; stop at the high of the entry day",
+    ),
+    "flat-base-breakdown": (
+        "tight multi-week base after a 17%+ decline (the inverse of the long's 20% rise); enter below the prior day's low",
+        "Enter below the prior day's low (the base support)",
+    ),
+    "overcut-fail": (
+        "popped above the ~1-month swing high, then closed back below it; stop at the new high",
+        "Enter on the failure back below the prior high; stop at the high made during the overcut",
+    ),
+    "ma-overcut-fail": (
+        "closed above a falling daily average, then was rejected back below it on a weak day; stop at the rejection-day high",
+        "Enter as price breaks back below the moving average; stop at the high of the rejection day",
+    ),
+    "low-tight-flag": (
+        "a 33%+ drop within ~8 weeks, then a tight 2-5 week bounce on lighter volume; enter below the flag low",
+        "Enter on the break below the bottom of the flag; stop at the high of the breakdown day",
+    ),
+}
+
+
+def _invert_bars(df: pd.DataFrame) -> pd.DataFrame:
+    out = pd.DataFrame(index=df.index)
+    out["open"] = 1.0 / df["open"]
+    out["high"] = 1.0 / df["low"]
+    out["low"] = 1.0 / df["high"]
+    out["close"] = 1.0 / df["close"]
+    out["volume"] = df["volume"]
+    return out
+
+
+def _inv(v: Optional[float]) -> Optional[float]:
+    return None if v is None or v <= 0 else 1.0 / v
+
+
+def _to_short(s: ArielSetup, df: pd.DataFrame) -> ArielSetup:
+    kind, label = SHORT_MIRROR[s.kind]
+    trigger = 1.0 / s.trigger
+    if kind == "ma-overcut-fail":
+        period = int(s.label.rsplit("(", 1)[1].split("-")[0])
+        real = df["close"].rolling(period, min_periods=period).mean().iloc[-1]
+        trigger = float(real) if pd.notna(real) else trigger
+        label = f"{label} ({period}-day)"
+    stop = _inv(s.stop)
+    detail, instruction = _SHORT_TEXT[kind]
+    if s.triggered:
+        detail = f"broke below {trigger:.2f}; {detail}"
+    elif kind == "gap-down-pivot" and "still forming" in s.detail:
+        detail = f"{detail} (opening range still forming: trigger is the low so far)"
+    return replace(
+        s, kind=kind, label=label, trigger=trigger, stop=stop, detail=detail, entry_instruction=instruction,
+        entry=_inv(s.entry), side="short",
+    )
+
+
+def find_short_setups(
+    df: pd.DataFrame,
+    today: Optional[Mapping[str, float]] = None,
+    opening_low: Optional[float] = None,
+    session_fraction: Optional[float] = None,
+) -> list[ArielSetup]:
+    """Short mirrors of the six setups on completed daily bars ``df`` (plus a live gap-down pivot from ``today``).
+
+    Stops sit above the entry; a setup whose stop is not above its entry is dropped (checked on the inverted
+    chart, where it is the long rule).
+    """
+    if df is None or len(df) < 22:
+        return []
+    try:
+        inv_today = None if today is None else {
+            "open": 1.0 / float(today["open"]), "high": 1.0 / float(today["low"]), "low": 1.0 / float(today["high"]),
+            "close": 1.0 / float(today["close"]), "volume": float(today.get("volume") or 0.0),
+        }
+        found = find_ariel_setups(_invert_bars(df), inv_today, _inv(opening_low), session_fraction)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return []
+    return [_to_short(s, df) for s in found]
 
 
 def to_scored_setups(df: pd.DataFrame, **live) -> list[Setup]:

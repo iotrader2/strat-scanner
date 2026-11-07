@@ -12,6 +12,7 @@ import {
   trimPreview,
   type EntryForm,
   type TrimForm,
+  type Side,
 } from "../positions";
 
 /** Centered panel in the dropdown style. Esc or a click on the backdrop closes it; focus returns to the opener. */
@@ -67,6 +68,28 @@ export interface EntryValues {
   entry_price: number | null;
   shares: number | null;
   entry_date: string;
+  side: Side;
+}
+
+/** Long / Short segmented control. */
+export function SideToggle({ value, onChange, disabled }: { value: Side; onChange: (side: Side) => void; disabled?: boolean }) {
+  return (
+    <div className="side-toggle" role="radiogroup" aria-label="Side">
+      {(["long", "short"] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          role="radio"
+          aria-checked={value === s}
+          className={`side-btn ${s}${value === s ? " active" : ""}`}
+          onClick={() => onChange(s)}
+          disabled={disabled}
+        >
+          {s === "long" ? "Long" : "Short"}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /** Entry price / shares / entry date form, used to move a name into Positions and to edit a position. */
@@ -79,21 +102,25 @@ export function EntryModal({
   onSubmit,
   onClose,
   sharesNote,
+  sideLocked,
 }: {
   title: string;
   symbol: string;
-  initial: { price: number | null; shares: number | null; date?: string };
+  initial: { price: number | null; shares: number | null; date?: string; side?: Side };
   lastPrice: number | null;
   submitLabel: string;
   onSubmit: (values: EntryValues) => Promise<void>;
   onClose: () => void;
   sharesNote?: string;
+  /** Why the side cannot change (e.g. trims recorded), or undefined when it can. */
+  sideLocked?: string;
 }) {
   const today = todayIso();
   const [form, setForm] = useState<EntryForm>({
     price: initial.price !== null ? String(initial.price) : "",
     shares: initial.shares !== null ? String(initial.shares) : "",
     date: initial.date ?? today,
+    side: initial.side ?? "long",
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -124,8 +151,13 @@ export function EntryModal({
           {symbol}
           {lastPrice !== null && <span className="muted small">last {lastPrice.toFixed(2)}</span>}
         </div>
+        <div className="entry-field">
+          <span className="field-label">Side</span>
+          <SideToggle value={form.side ?? "long"} onChange={(side) => setForm((f) => ({ ...f, side }))} disabled={!!sideLocked} />
+          {sideLocked && <span className="muted small">{sideLocked}</span>}
+        </div>
         <label className="entry-field">
-          <span className="field-label">Buy price</span>
+          <span className="field-label">{form.side === "short" ? "Short price" : "Buy price"}</span>
           <input className="input" inputMode="decimal" value={form.price} onChange={set("price")} autoFocus autoComplete="off" />
         </label>
         <label className="entry-field">
@@ -182,11 +214,12 @@ export function TrimModal({
     setError(null);
   };
 
-  const parsed = parseTrim(form, remaining);
+  const short = position.side === "short";
+  const parsed = parseTrim(form, remaining, position.side);
   const preview =
     parsed.ok && position.shares
       ? trimPreview(
-          { entry_price: position.entry_price, initial_shares: position.shares, trims: position.trims },
+          { entry_price: position.entry_price, initial_shares: position.shares, trims: position.trims, side: position.side },
           parsed,
         )
       : null;
@@ -228,7 +261,7 @@ export function TrimModal({
   };
 
   return (
-    <Modal title="Trim" onClose={onClose} wide>
+    <Modal title={short ? "Cover part of short" : "Trim"} onClose={onClose} wide>
       <form className="entry-form" onSubmit={submit}>
         <div className="entry-symbol">
           {position.symbol}
@@ -238,11 +271,11 @@ export function TrimModal({
           </span>
         </div>
         <label className="entry-field">
-          <span className="field-label">Trim price</span>
+          <span className="field-label">{short ? "Cover price" : "Trim price"}</span>
           <input className="input" inputMode="decimal" value={form.price} onChange={set("price")} autoFocus autoComplete="off" />
         </label>
         <label className="entry-field">
-          <span className="field-label">Shares to trim</span>
+          <span className="field-label">{short ? "Shares to cover" : "Shares to trim"}</span>
           <input className="input" inputMode="decimal" value={form.shares} onChange={set("shares")} placeholder="—" autoComplete="off" />
         </label>
         <div className="trim-preview" aria-live="polite">
@@ -279,7 +312,7 @@ export function TrimModal({
             Cancel
           </button>
           <button type="submit" className="btn primary" disabled={busy || !preview}>
-            {busy ? "Saving…" : "Trim"}
+            {busy ? "Saving…" : short ? "Cover" : "Trim"}
           </button>
         </div>
       </form>

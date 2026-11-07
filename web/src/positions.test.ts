@@ -69,6 +69,7 @@ describe("parseEntry", () => {
       entry_price: 1250.4,
       shares: null,
       entry_date: "2026-10-01",
+      side: "long",
     });
     expect(parseEntry({ price: "12", shares: "1,000", date: today }, today)).toMatchObject({ ok: true, shares: 1000 });
   });
@@ -215,5 +216,33 @@ describe("errorDetail", () => {
     expect(errorDetail({ detail: [{ msg: "Input should be greater than 0" }] })).toBe("Input should be greater than 0");
     expect(errorDetail({ nope: 1 })).toBeNull();
     expect(errorDetail(null)).toBeNull();
+  });
+});
+
+describe("short positions", () => {
+  const short = { entry_price: 100, shares: 10, entry_date: "2026-11-01", side: "short" as const };
+
+  it("gains when the price falls below the entry", () => {
+    expect(positionStats(short, 90, "2026-11-07")).toMatchObject({ pct: 10, pnl: 100 });
+    expect(positionStats(short, 110, "2026-11-07")).toMatchObject({ pct: -10, pnl: -100 });
+  });
+
+  it("treats trims as buy-to-cover", () => {
+    expect(realizedTrimPnl(100, [{ shares: 4, price: 90 }], "short")).toBe(40);
+    const p = trimPreview({ entry_price: 100, initial_shares: 10, trims: [], side: "short" }, { shares: 4, price: 90 });
+    expect(p.realized).toBe(40);
+    expect(p.remaining).toBe(6);
+    expect(p.breakEven).toBeCloseTo((10 * 100 - 4 * 90) / 6); // the cover profit lifts the short's break-even
+  });
+
+  it("refuses covering every share as a trim", () => {
+    const res = parseTrim({ price: "90", shares: "10" }, 10, "short");
+    expect(res.ok).toBe(false);
+    expect(!res.ok && res.error).toMatch(/covers the whole short/);
+  });
+
+  it("passes the side through the entry form, long by default", () => {
+    expect(parseEntry({ price: "100", shares: "", date: "2026-11-01", side: "short" }, "2026-11-07")).toMatchObject({ ok: true, side: "short" });
+    expect(parseEntry({ price: "100", shares: "", date: "2026-11-01" }, "2026-11-07")).toMatchObject({ ok: true, side: "long" });
   });
 });

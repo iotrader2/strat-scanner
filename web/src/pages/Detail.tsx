@@ -238,6 +238,7 @@ export default function Detail({ version }: { version: string | null }) {
                   <li key={i}>
                     <span className="tf-tag">{s.tf}</span>
                     <span className="grow">
+                      {s.side === "short" && <span className="side-chip short">SHORT</span>}
                       {s.label}
                       {triggerChip(s) && (
                         <span className="trig-chip" title={triggerChip(s)?.title}>

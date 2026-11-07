@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { TradeAlert } from "./api";
 import {
   SETTING_GROUPS,
+  SETUP_NAMES,
+  isShortSetup,
+  setupPeriod,
   STATUS_LABEL,
   alertDayStatus,
   fmtR,
@@ -199,5 +202,34 @@ describe("EMA level and settings", () => {
     const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "auto_archive");
     expect(item?.[1]).toMatch(/History/);
     expect(item?.[1]).toMatch(/4:05 PM/);
+  });
+});
+
+describe("short alerts", () => {
+  const a = {
+    symbol: "ZZZ", setup: "s240", trigger_price: 49.5, stop_price: 51, filled: false, top: false,
+    fired_at: "2026-11-06T15:00:00Z", fill_at: null, fill_price: null,
+  } as unknown as TradeAlert;
+
+  it("names and parses the short setups", () => {
+    expect(isShortSetup("s240") && !isShortSetup("240")).toBe(true);
+    expect(setupPeriod("s480")).toBe("480");
+    expect(SETUP_NAMES.s120).toBe("Short: rally to falling 120 EMA");
+  });
+
+  it("measures risk upward from the trigger", () => {
+    expect(riskPerShare(a)).toBeCloseTo(1.5);
+    expect(stopPct(a)).toBeCloseTo((1.5 / 49.5) * 100);
+  });
+
+  it("words the notification for a short", () => {
+    expect(notificationText(a, "").title).toBe("ZZZ short watch: 240 EMA");
+    expect(notificationText(a, "").body).toMatch(/Trigger under 49.50 \(previous 15-min low - 1c\)/);
+    expect(notificationText({ ...a, filled: true, fill_price: 49.4 }, "").title).toBe("ZZZ short triggered under 49.50");
+  });
+
+  it("lists the short-side settings", () => {
+    const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
+    expect(keys).toEqual(expect.arrayContaining(["shorts", "short_max_rs", "max_short_symbols"]));
   });
 });

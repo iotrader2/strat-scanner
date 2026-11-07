@@ -16,6 +16,8 @@ export interface Setup {
   stop?: number | null;
   /** Chart used only to time the entry ("15m" for the Ariel setups). */
   entry_tf?: string;
+  /** "long" (enter above the trigger, stop below) or "short" (enter below, stop above). */
+  side?: "long" | "short";
 }
 
 export interface CandlePatternBar {
@@ -215,7 +217,9 @@ export interface ScanRow {
   /** Inside bar / hammer on the last completed weekly and daily bar (the Candle Pattern filter). */
   candle_patterns?: { W: CandlePatternBar | null; D: CandlePatternBar | null } | null;
   triggered: boolean | null;
-  /** True when today's session traded above the trigger (set from the last completed day). */
+  /** Side of the shown setup: "short" triggers below its level, with the stop above. */
+  setup_side?: "long" | "short" | null;
+  /** True when today's session traded through the trigger (set from the last completed day). */
   triggered_live?: boolean | null;
   trigger_distance_pct: number | null;
   /** Score reasons, starting with the setup (or "No daily setup"). */
@@ -512,7 +516,7 @@ export const api = {
   unwatch: (symbol: string) => get<Watchlist>(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
   positions: () => get<Positions>("/api/positions"),
   openPosition: (req: PositionInput & { symbol: string }) => send<Positions>("/api/positions", "POST", req),
-  updatePosition: (symbol: string, req: Required<Pick<PositionInput, "entry_price" | "entry_date">> & Pick<PositionInput, "shares">) =>
+  updatePosition: (symbol: string, req: Required<Pick<PositionInput, "entry_price" | "entry_date">> & Pick<PositionInput, "shares" | "side">) =>
     send<Positions>(`/api/positions/${encodeURIComponent(symbol)}`, "PUT", req),
   closePosition: (symbol: string) => get<Positions>(`/api/positions/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
   positionToWatchlist: (symbol: string) =>
@@ -659,6 +663,7 @@ function send<T>(url: string, method: string, body: unknown): Promise<T> {
 
 /** Entry details; omitted price/date default to the last price and today on the server. */
 export interface PositionInput {
+  side?: "long" | "short";
   entry_price?: number | null;
   shares?: number | null;
   entry_date?: string | null;
@@ -673,7 +678,9 @@ export interface PositionTrim {
 
 export interface Position {
   symbol: string;
-  /** Initial buy price. Trims do not change it. */
+  /** "long" (bought) or "short" (sold short; trims are buy-to-cover). */
+  side: "long" | "short";
+  /** Initial entry price (buy price, or short-sale price). Trims do not change it. */
   entry_price: number;
   /** Shares originally bought. Null until a share count is entered. */
   shares: number | null;

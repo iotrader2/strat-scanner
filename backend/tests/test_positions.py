@@ -92,3 +92,62 @@ def test_positions_survive_restarts(client, tmp_path):
     client.post("/api/positions", json={"symbol": "AAPL", "entry_price": 240, "shares": 3})
     assert data.positions(tmp_path / "cache.sqlite3")[0]["shares"] == 3
     assert TestClient(api.app).get("/api/positions").json()["symbols"] == ["AAPL"]
+
+
+# --- short positions ---------------------------------------------------------------------------------------------
+
+
+def test_short_position_is_stored_and_defaults_to_long(client):
+    client.post("/api/positions", json={"symbol": "TDY", "entry_price": 600, "shares": 10, "entry_date": "2026-09-30"})
+    client.post(
+        "/api/positions", json={"symbol": "AAPL", "entry_price": 250, "shares": 20, "entry_date": "2026-09-30", "side": "short"}
+    )
+    sides = {p["symbol"]: p["side"] for p in _positions(client)}
+    assert sides == {"TDY": "long", "AAPL": "short"}
+    assert client.post("/api/positions", json={"symbol": "MSFT", "side": "sideways"}).status_code == 422
+
+
+def test_short_trims_are_buy_to_cover(client):
+    client.post(
+        "/api/positions", json={"symbol": "AAPL", "entry_price": 250, "shares": 20, "entry_date": "2026-09-30", "side": "short"}
+    )
+    client.post("/api/positions/AAPL/trims", json={"shares": 5, "price": 230})  # covered 5 at 230: +$100
+    (pos,) = _positions(client)
+    assert pos["realized_pnl"] == 100
+    assert pos["remaining_shares"] == 15
+    assert pos["break_even"] == (20 * 250 - 5 * 230) / 15  # ~256.67: the cover profit raises the short's break-even
+    res = client.post("/api/positions/AAPL/trims", json={"shares": 15, "price": 230})
+    assert res.status_code == 422 and "Covering all" in res.json()["detail"]
+
+
+def test_edit_keeps_side_unless_given_and_refuses_a_flip_after_trims(client):
+    client.post(
+        "/api/positions", json={"symbol": "AAPL", "entry_price": 250, "shares": 20, "entry_date": "2026-09-30", "side": "short"}
+    )
+    client.put("/api/positions/AAPL", json={"entry_price": 251, "shares": 20, "entry_date": "2026-09-30"})
+    assert _positions(client)[0]["side"] == "short"
+    client.put("/api/positions/AAPL", json={"entry_price": 251, "shares": 20, "entry_date": "2026-09-30", "side": "long"})
+    assert _positions(client)[0]["side"] == "long"
+    client.post("/api/positions/AAPL/trims", json={"shares": 5, "price": 260})
+    res = client.put("/api/positions/AAPL", json={"entry_price": 251, "shares": 20, "entry_date": "2026-09-30", "side": "short"})
+    assert res.status_code == 422
+
+
+def test_old_cache_without_side_is_migrated_to_long(tmp_path):
+    import sqlite3
+
+    from strat import userdb
+
+    path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE positions (symbol TEXT PRIMARY KEY, entry_price REAL NOT NULL, shares REAL, "
+        "entry_date TEXT NOT NULL, added_at TEXT NOT NULL)"
+    )
+    conn.execute("INSERT INTO positions VALUES ('AAPL', 250, 10, '2026-09-30', '2026-09-30T00:00:00')")
+    conn.commit()
+    conn.close()
+    userdb.bump()
+    assert data.positions(db_path=path) == [
+        {"symbol": "AAPL", "entry_price": 250, "shares": 10, "entry_date": "2026-09-30", "side": "long"}
+    ]

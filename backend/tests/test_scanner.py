@@ -1,3 +1,4 @@
+import pytest
 import pandas as pd
 
 from strat.scanner import ATR_PERIOD, average_true_range, scan_symbol
@@ -335,3 +336,17 @@ def test_live_opens_fall_back_to_the_latest_bar_before_a_new_period_has_a_sessio
     # Through Friday Oct 16 only: the latest week is the one just finished (no Monday bar yet).
     friday = df.loc[:"2026-10-16"]
     assert live_opens(friday) == {"D": 208.0, "W": 208.97, "M": 180.0}
+
+
+def test_gap_down_pivot_breaks_below_the_opening_range_low_during_the_session(monkeypatch):
+    _during_thursday_session(monkeypatch)
+    rows = [(day, 100.0, 101.0, 99.0, 100.0, 1_000_000.0) for day in pd.bdate_range("2026-06-01", "2026-08-05")]
+    rows.append((pd.Timestamp("2026-08-06"), 97.0, 98.0, 94.0, 95.0, 1_000_000.0))  # today: gaps down 3%, low 94
+    df = pd.DataFrame([r[1:] for r in rows], index=pd.DatetimeIndex([r[0] for r in rows]),
+                      columns=["open", "high", "low", "close", "volume"])
+    row = scan_symbol(MEMBER, df, opening_low=95.5)
+    short = next(s for s in row["setups"] if s["kind"] == "gap-down-pivot")
+    assert short["side"] == "short"
+    assert short["trigger"] == pytest.approx(95.5)
+    assert short["triggered"] is True and short["live"] is True  # today's low 94 broke below 95.5
+    assert "broke below" in short["detail"]

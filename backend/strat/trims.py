@@ -6,6 +6,10 @@ Trim proceeds reduce the cost left on the shares still held. That can be zero
 (the trims paid for the position) or negative (they paid more than it cost).
 
 realized P/L = sum(trim_shares * (trim_price - initial_buy_price))
+
+Short positions: the entry is the short-sale price and a trim is a buy-to-cover. The same break-even formula
+holds (it is the price at which the whole trade nets zero); realized P/L flips sign:
+sum(trim_shares * (initial_sell_price - trim_price)).
 """
 
 from __future__ import annotations
@@ -22,9 +26,10 @@ def break_even(initial_shares: float, buy_price: float, trims: list[dict]) -> fl
     return (initial_shares * buy_price - proceeds) / remaining
 
 
-def realized_pnl(buy_price: float, trims: list[dict]) -> float:
-    """Dollars booked by trims, versus the original buy price."""
-    return sum(t["shares"] * (t["price"] - buy_price) for t in trims)
+def realized_pnl(buy_price: float, trims: list[dict], side: str = "long") -> float:
+    """Dollars booked by trims, versus the original entry price (short: profit when covered lower)."""
+    sign = -1.0 if side == "short" else 1.0
+    return sum(sign * t["shares"] * (t["price"] - buy_price) for t in trims)
 
 
 def annotate(position: dict, trims: list[dict]) -> dict:
@@ -45,6 +50,6 @@ def annotate(position: dict, trims: list[dict]) -> dict:
         **position,
         "remaining_shares": remaining,
         "break_even": basis,
-        "realized_pnl": realized_pnl(buy, trims),
+        "realized_pnl": realized_pnl(buy, trims, position.get("side") or "long"),
         "trims": trims,
     }
