@@ -196,7 +196,7 @@ export default function Detail({ version }: { version: string | null }) {
             <ul className="reasons">
               {row.reason
                 .split(" · ")
-                .filter((r) => row.has_setup || !r.startsWith("No weekly"))
+                .filter((r) => row.has_setup || !r.startsWith("No daily setup"))
                 .map((r) => <li key={r}>{r}</li>)}
             </ul>
           </div>

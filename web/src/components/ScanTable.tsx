@@ -335,7 +335,7 @@ export function ScanTable({
                   <>
                     <span className={noSetupLabel(r, minRs) === NO_SETUP_LEADER ? "no-setup leader" : "no-setup"}>{noSetupLabel(r, minRs)}</span>
                     <div className="sub muted reason" title={r.reason}>
-                      {r.reason.split(" · ").filter((s) => !s.startsWith("No weekly")).join(" · ")}
+                      {r.reason.split(" · ").filter((s) => !s.startsWith("No daily setup")).join(" · ")}
                     </div>
                   </>
                 )}

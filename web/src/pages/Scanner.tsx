@@ -48,7 +48,7 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     value: "setups_pending",
     label: "Daily Ariel awaiting trigger",
     hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side daily Ariel setup on the last completed day (the trigger is that setup's level, never today's session) that has not been broken yet, not even by today's high: Episodic Pivot, Delayed High Volume Close, Flat Base Breakout, Undercut and Rally, MA Undercut and Rally, or High Tight Flag. Sorted by score.",
+      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side daily Ariel setup (set on the last completed day; the Episodic Pivot is the exception, read from today's gap and its 15-min opening range) that has not been broken yet, not even by today's high: Episodic Pivot, Delayed High Volume Close, Flat Base Breakout, Undercut and Rally, MA Undercut and Rally, or High Tight Flag. Sorted by score.",
   },
   {
     value: "setups_triggered",
