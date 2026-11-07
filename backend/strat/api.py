@@ -251,11 +251,30 @@ def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]
     return [r["symbol"] for r in picked[: settings.max_symbols]]
 
 
+def alert_short_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
+    """Short-side alert names: universe stocks that are laggards (RS at or below ``short_max_rs`` percentile, trend
+    broken), weakest RS first, at most ``max_short_symbols``. Empty when shorts are switched off."""
+    if not settings.shorts:
+        return []
+    cut = settings.short_max_rs / 100
+    picked = [
+        r for r in rows
+        if r.get("kind", "stock") == "stock" and r.get("in_universe", True)
+        and isinstance(r.get("rs"), (int, float)) and r["rs"] <= cut + 1e-9
+        and (r.get("leadership") or {}).get("breakdown") == "broken"
+    ]
+    picked.sort(key=lambda r: (r["rs"], r["symbol"]))
+    return [r["symbol"] for r in picked[: settings.max_short_symbols]]
+
+
 def _refresh_alerts() -> None:
     """Pullback alerts for high-score universe stocks, on the same poll. No-op outside the regular session."""
     try:
         settings = alerts_store.load_settings()
-        stats = alerts_live.refresh(alert_symbols(State.scan, settings), settings=settings)
+        stats = alerts_live.refresh(
+            alert_symbols(State.scan, settings), settings=settings,
+            short_symbols=alert_short_symbols(State.scan, settings),
+        )
         if stats.get("skipped"):
             if stats.get("prepared"):
                 log.info("alerts prepared EMA history for %s symbols", stats["prepared"])

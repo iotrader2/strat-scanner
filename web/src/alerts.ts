@@ -22,15 +22,27 @@ export const SETUP_NAMES: Record<string, string> = {
   "120": "Pullback to rising 120 EMA",
   "240": "Pullback to rising 240 EMA",
   "480": "Pullback to rising 480 EMA",
+  s120: "Short: rally to falling 120 EMA",
+  s240: "Short: rally to falling 240 EMA",
+  s480: "Short: rally to falling 480 EMA",
 };
 
+/** Short-side alert ("s120" / "s240" / "s480"): sell stop under the candle low, stop above the rally high. */
+export const isShortSetup = (setup: string): boolean => setup.startsWith("s");
+/** The EMA period of a long or short setup key. */
+export const setupPeriod = (setup: string): string => setup.replace(/^s/, "");
+
 /** One-line rule, shown on hover over the setup column. */
-export const SETUP_RULES: Record<string, string> = Object.fromEntries(
-  ALERT_EMAS.map((p) => [
+export const SETUP_RULES: Record<string, string> = Object.fromEntries([
+  ...ALERT_EMAS.map((p) => [
     p,
     `A high-score stock pulls back from above to the rising ${p} EMA on the 15-minute chart and holds it. Watch; the trigger is the previous 15-minute candle's high + 1c.`,
   ]),
-);
+  ...ALERT_EMAS.map((p) => [
+    `s${p}`,
+    `Short: a laggard rallies from below up to the falling ${p} EMA on the 15-minute chart and is held under it. Watch; the trigger is the previous 15-minute candle's low - 1c, the stop the rally high + 1c.`,
+  ]),
+]);
 
 const ET = "America/New_York";
 
@@ -155,14 +167,14 @@ export function statusTone(a: Pick<TradeAlert, "status" | "r_multiple">): "live"
   return r > 0 ? "good" : r < 0 ? "bad" : "flat";
 }
 
-/** Planned risk per share: trigger minus stop. */
+/** Planned risk per share: distance from the trigger to the stop (a short's stop is above). */
 export function riskPerShare(a: Pick<TradeAlert, "trigger_price" | "stop_price">): number {
-  return a.trigger_price - a.stop_price;
+  return Math.abs(a.trigger_price - a.stop_price);
 }
 
 /** Stop distance as a percent of the entry (trigger) price. */
 export function stopPct(a: Pick<TradeAlert, "trigger_price" | "stop_price">): number {
-  return a.trigger_price > 0 ? ((a.trigger_price - a.stop_price) / a.trigger_price) * 100 : 0;
+  return a.trigger_price > 0 ? (Math.abs(a.trigger_price - a.stop_price) / a.trigger_price) * 100 : 0;
 }
 
 /** R to two decimals; a scratch that rounds to 0.00 shows without a sign. */
@@ -198,15 +210,16 @@ export function triggeredAlerts(alerts: TradeAlert[], before: Map<number, string
 
 export function notificationText(a: TradeAlert, setupName: string): { title: string; body: string } {
   const name = setupName || SETUP_NAMES[a.setup] || `EMA ${a.setup}`;
+  const short = isShortSetup(a.setup);
   if (a.filled) {
     return {
-      title: `${a.symbol} triggered over ${a.trigger_price.toFixed(2)}${a.top ? " (top)" : ""}`,
+      title: `${a.symbol} ${short ? "short triggered under" : "triggered over"} ${a.trigger_price.toFixed(2)}${a.top ? " (top)" : ""}`,
       body: `${name}. Filled ${(a.fill_price ?? a.trigger_price).toFixed(2)}, stop ${a.stop_price.toFixed(2)} (${stopPct(a).toFixed(2)}%). ${phoenixTime(a.fill_at)} Phoenix.`,
     };
   }
   return {
-    title: `${a.symbol} watch: ${a.setup} EMA${a.top ? " (top)" : ""}`,
-    body: `${name}. Trigger over ${a.trigger_price.toFixed(2)} (previous 15-min high + 1c), stop ${a.stop_price.toFixed(2)} (${stopPct(a).toFixed(2)}%). ${phoenixTime(a.fired_at)} Phoenix.`,
+    title: `${a.symbol} ${short ? "short watch" : "watch"}: ${setupPeriod(a.setup)} EMA${a.top ? " (top)" : ""}`,
+    body: `${name}. ${short ? `Trigger under ${a.trigger_price.toFixed(2)} (previous 15-min low - 1c)` : `Trigger over ${a.trigger_price.toFixed(2)} (previous 15-min high + 1c)`}, stop ${a.stop_price.toFixed(2)} (${stopPct(a).toFixed(2)}%). ${phoenixTime(a.fired_at)} Phoenix.`,
   };
 }
 
@@ -253,6 +266,14 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     items: [
       ["min_score", "Universe stocks with a scan score of at least", ""],
       ["max_symbols", "Check at most (highest score first)", "names"],
+    ],
+  },
+  {
+    title: "Short side (laggards)",
+    items: [
+      ["shorts", "Alert short setups too: rallies into a falling EMA (1 = on, 0 = off)", ""],
+      ["short_max_rs", "Laggards: RS at or below percentile", "(trend broken)"],
+      ["max_short_symbols", "Check at most (weakest RS first)", "names"],
     ],
   },
   {

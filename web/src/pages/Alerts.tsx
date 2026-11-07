@@ -15,6 +15,8 @@ import {
   SETUP_RULES,
   STATUS_LABEL,
   alertDayStatus,
+  isShortSetup,
+  setupPeriod,
   fmtR,
   maText,
   maTitle,
@@ -37,7 +39,7 @@ import { usePersisted } from "../persist";
 
 /** The EMA's line color on the 15-minute chart: 120 red, 240 yellow, 480 blue. */
 function emaColor(setup: string): string | undefined {
-  const p = Number(setup) as keyof typeof INTRADAY_EMA_COLORS;
+  const p = Number(setupPeriod(setup)) as keyof typeof INTRADAY_EMA_COLORS;
   return INTRADAY_EMA_COLORS[p];
 }
 
@@ -94,17 +96,30 @@ function AlertScore({ a }: { a: TradeAlert }) {
 }
 
 function outcomeText(a: TradeAlert): string {
-  if (a.status === "pending") return `Watching: trigger over ${money(a.setup_high)} (last 15-min high)`;
+  const short = isShortSetup(a.setup);
+  const ema = `${setupPeriod(a.setup)} EMA`;
+  if (a.status === "pending") {
+    return short
+      ? `Watching: trigger under ${money(a.setup_low)} (last 15-min low)`
+      : `Watching: trigger over ${money(a.setup_high)} (last 15-min high)`;
+  }
   if (a.status === "expired") {
     if (a.exit_reason === "max_attempts") return "Expired: 2 attempts already";
     if (a.exit_reason === "session_end") return "Not triggered by the close";
     return "Not triggered in time";
   }
-  if (a.status === "cancelled") return `Closed under the ${a.setup} EMA before triggering`;
+  if (a.status === "cancelled") return `Closed ${short ? "over" : "under"} the ${ema} before triggering`;
   const parts = [`Filled ${money(a.fill_price)} at ${phoenixTime(a.fill_at)}`];
   if (a.breakeven_at) parts.push(`stop to break-even ${phoenixTime(a.breakeven_at)}`);
   if (a.exit_price != null) {
-    const why = a.exit_reason === "close_under_ma" ? `close under ${a.setup} EMA` : a.exit_reason === "session_end" ? "session end" : "stop";
+    const why =
+      a.exit_reason === "close_under_ma"
+        ? `close under ${ema}`
+        : a.exit_reason === "close_over_ma"
+          ? `close over ${ema}`
+          : a.exit_reason === "session_end"
+            ? "session end"
+            : "stop";
     parts.push(`out ${money(a.exit_price)} at ${phoenixTime(a.exit_at)} (${why})`);
   }
   return parts.join(", ");
@@ -134,12 +149,12 @@ export function AlertsTable({
             <th className="num">Score</th>
             <th>Setup</th>
             <th className="num" title="The EMA's value on the touch candle">EMA</th>
-            <th className="num" title="Previous 15-minute candle high + 1c">Trigger</th>
+            <th className="num" title="Previous 15-minute candle high + 1c (short: low - 1c)">Trigger</th>
             <th className="num">Stop</th>
             <th className="num">Stop %</th>
             <th className="num">Risk / sh</th>
             <th>Status</th>
-            <th className="num">High</th>
+            <th className="num" title="Best price since the fill: the high (short: the low)">Best</th>
             <th className="num">R</th>
             <th className="outcome-cell">What happened</th>
             <th className="bought-col" aria-label="Bought" />
@@ -172,7 +187,8 @@ export function AlertsTable({
                 <span className="setup-hover" title={SETUP_RULES[a.setup]}>
                   <span className="setup-letter">
                     <EmaDot setup={a.setup} />
-                    {a.setup}
+                    {isShortSetup(a.setup) && <span className="side-chip short">SHORT</span>}
+                    {setupPeriod(a.setup)}
                   </span>
                   <span className="muted small setup-name">{SETUP_NAMES[a.setup] ?? `Setup ${a.setup}`}</span>
                 </span>
@@ -202,7 +218,7 @@ export function AlertsTable({
                     onClick={() => onBought(a)}
                     title="Record the entry and track it on the Positions tab"
                   >
-                    Bought →
+                    {isShortSetup(a.setup) ? "Shorted →" : "Bought →"}
                   </button>
                 )}
               </td>
@@ -337,7 +353,7 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
         <EntryModal
           title="Move to Positions"
           symbol={moving.symbol}
-          initial={{ price: entryPrice(moving), shares: null }}
+          initial={{ price: entryPrice(moving), shares: null, side: isShortSetup(moving.setup) ? "short" : "long" }}
           lastPrice={entryPrice(moving)}
           submitLabel="Move to Positions"
           onSubmit={(v) => open(moving.symbol, v)}
@@ -477,7 +493,8 @@ function MetricsView() {
                     {r.setup !== "All" && (
                       <span className="setup-letter">
                         <EmaDot setup={r.setup} />
-                        {r.setup}
+                        {isShortSetup(r.setup) && <span className="side-chip short">SHORT</span>}
+                        {setupPeriod(r.setup)}
                       </span>
                     )}
                     <span className={r.setup === "All" ? "" : "setup-name"}>{r.name}</span>

@@ -42,8 +42,9 @@ def run(rows, ctx=CTX, settings=None, **kw):
 
 def test_setups_are_the_three_emas():
     assert MA_PERIODS == (120, 240, 480)
-    assert SETUPS == ("120", "240", "480")
+    assert SETUPS == ("120", "240", "480", "s120", "s240", "s480")
     assert SETUP_NAMES["240"] == "Pullback to rising 240 EMA"
+    assert SETUP_NAMES["s240"] == "Short: rally to falling 240 EMA"
 
 
 def test_touch_of_a_rising_120_is_a_watch_with_the_candle_high_as_trigger():
@@ -202,3 +203,80 @@ def test_metrics_by_ema():
     assert by["120"]["win_rate"] == 50.0 and by["120"]["total_r"] == 0.5
     assert by["240"]["fill_rate"] == 0.0
     assert by["All"]["count"] == 3 and by["480"]["count"] == 0
+
+
+
+# --- short side: the exact mirror -----------------------------------------------------------------------------------
+#
+# Reflect every price around $200 (p -> 200 - p; high and low swap). EMAs are linear, so the reflected chart's EMAs
+# are the reflected EMAs: a pullback to a rising EMA becomes a rally into a falling one, and the short engine must
+# give the same outcome with mirrored levels.
+
+C = 200.0
+
+
+def _reflect_rows(rows):
+    return [(C - o, C - l, C - h, C - c) for o, h, l, c in rows]
+
+
+def _reflect_ctx(ctx):
+    return Context(
+        ma_tail={p: [C - v for v in tail] for p, tail in ctx.ma_tail.items()},
+        prev_close=None if ctx.prev_close is None else C - ctx.prev_close,
+        session_bars=ctx.session_bars,
+    )
+
+
+_STEP = (100.2, 101.0, 100.1, 100.9)
+_SCENARIOS = {
+    "watch": ([TOUCH], CTX, Settings()),
+    "trigger": ([TOUCH, _STEP], CTX, Settings()),
+    "trigger follows the candle": ([TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)], CTX, Settings()),
+    "cancel": ([TOUCH, (100.2, 100.3, 98.0, 98.2)], CTX, Settings()),
+    "expire": ([TOUCH] + [(100.2, 100.5, 100.0, 100.3)] * 4, CTX, Settings(watch_bars=4)),
+    "break-even stop": (
+        [TOUCH, _STEP, (100.9, 101.2, 100.8, 101.1), (101.1, 101.4, 101.0, 101.3), (101.3, 101.5, 101.2, 101.4),
+         (101.4, 101.45, 100.7, 100.8)],
+        CTX, Settings(breakeven_after_new_highs=3),
+    ),
+    "exit on a close through the EMA": (
+        [(100.5, 100.8, 98.5, 100.2), _STEP, (100.9, 100.95, 98.55, 98.55)],
+        Context(ma_tail={120: rising(98.5)}, prev_close=101.0), Settings(hold_pct=0),
+    ),
+    "stop": ([TOUCH, _STEP, (100.9, 100.95, 98.9, 99.0)], CTX, Settings()),
+}
+
+
+@pytest.mark.parametrize("name", list(_SCENARIOS))
+def test_short_alerts_mirror_long_alerts(name):
+    rows, ctx, settings = _SCENARIOS[name]
+    longs = simulate("AAA", "2026-10-23", bars(rows), ctx, settings)
+    shorts = simulate("AAA", "2026-10-23", bars(_reflect_rows(rows)), _reflect_ctx(ctx), settings, side="short")
+    assert longs, "the long scenario must alert"
+    assert len(shorts) == len(longs)
+    exits = {"close_under_ma": "close_over_ma"}
+    for lo, sh in zip(longs, shorts):
+        assert sh.setup == "s" + lo.setup and sh.side == "short"
+        assert (sh.status, sh.filled) == (lo.status, lo.filled)
+        assert sh.exit_reason == exits.get(lo.exit_reason, lo.exit_reason)
+        assert sh.trigger == pytest.approx(C - lo.trigger)
+        assert sh.stop == pytest.approx(C - lo.stop)
+        if lo.filled:
+            assert sh.fill_price == pytest.approx(C - lo.fill_price)
+        if lo.r_multiple is not None:
+            assert sh.r_multiple == pytest.approx(lo.r_multiple)
+
+
+def test_a_short_rally_into_a_rising_ema_is_not_alerted():
+    assert simulate("AAA", "2026-10-23", bars(_reflect_rows([TOUCH])), CTX, Settings(), side="short") == []
+
+
+def test_short_alert_names_are_laggards_weakest_first():
+    from strat.api import alert_short_symbols
+
+    def r(sym, rs, breakdown="broken", kind="stock"):
+        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "leadership": {"breakdown": breakdown}}
+
+    rows = [r("AAA", 0.08), r("BBB", 0.02), r("CCC", 0.30), r("DDD", 0.05, "warning"), r("EEE", 0.01, kind="etf")]
+    assert alert_short_symbols(rows, Settings()) == ["BBB", "AAA"]
+    assert alert_short_symbols(rows, Settings(shorts=0)) == []
