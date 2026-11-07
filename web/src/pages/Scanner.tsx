@@ -44,6 +44,7 @@ const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 type Kind = "all" | "stock" | "etf";
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
+  { value: "all", label: "All names", hint: "Every stock and ETF that passes the price / dollar-volume filters, with or without a setup. Ignores the Min RS slider." },
   { value: "leaders", label: "Leaders", hint: "Relative strength at the Min RS cut (default P90) or an RS line versus QQQ that made a 52-week high in the last 5 sessions, trend not broken, score above 70, highest score first. The slider can raise the cut above P90; lowering it does not add other names, and an RS-line high does not bypass a higher cut." },
   {
     value: "setup_ep",
@@ -114,7 +115,6 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     label: "Broken leaders",
     hint: "Trend lost: below the 50-day average or 25%+ below the 6-month high. Same “· broken” flag as the RS chip. Ignores the Min RS slider — dig in with price, theme and the other filters.",
   },
-  { value: "all", label: "All names" },
 ];
 
 type HeroChipKey =
