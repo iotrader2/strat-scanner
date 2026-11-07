@@ -5,8 +5,9 @@ describe("Setups filter labels", () => {
   it("renames the filter group to Setups and drops that word from each item", () => {
     expect(SETUPS_FILTER_LABEL).toBe("Setups");
     const labels = SETUPS_OPTIONS.map((option) => option.label);
-    expect(labels).toContain("Daily setup awaiting trigger");
-    expect(labels).toContain("Daily setup already triggered");
+    for (const name of ["Episodic Pivot", "Delayed High Volume Close", "Flat Base Breakout", "Undercut and Rally", "MA Undercut and Rally", "High Tight Flag"]) {
+      expect(labels).toContain(name);
+    }
     expect(labels).toContain("Daily bullish trend change");
     expect(labels).toContain("Daily bearish trend change");
     expect(labels).toContain("Weekly bullish trend change");
@@ -14,9 +15,9 @@ describe("Setups filter labels", () => {
     for (const label of labels) expect(label.toLowerCase()).not.toContain("setups");
   });
 
-  it("maps the daily setup labels onto the existing awaiting and triggered filters", () => {
-    expect(SETUPS_OPTIONS.find((option) => option.label === "Daily setup awaiting trigger")?.value).toBe("setups_pending");
-    expect(SETUPS_OPTIONS.find((option) => option.label === "Daily setup already triggered")?.value).toBe("setups_triggered");
+  it("maps each setup label to its own filter and keeps the trend changes", () => {
+    expect(SETUPS_OPTIONS.find((option) => option.label === "Episodic Pivot")?.value).toBe("setup_ep");
+    expect(SETUPS_OPTIONS.find((option) => option.label === "High Tight Flag")?.value).toBe("setup_htf");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Daily bullish trend change")?.value).toBe("daily_bullish");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Daily bearish trend change")?.value).toBe("daily_bearish");
     expect(SETUPS_OPTIONS.find((option) => option.label === "Weekly bullish trend change")?.value).toBe("weekly_bullish");

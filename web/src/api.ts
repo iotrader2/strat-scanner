@@ -8,7 +8,8 @@ export interface Setup {
   label: string;
   trigger: number;
   triggered: boolean;
-  detail: string;
+  /** Absent on list rows (the scan list drops the long text; the detail page has it). */
+  detail?: string;
   /** Broken during today's session (the trigger itself is last completed day's). */
   live?: boolean;
   /** Defined-risk stop for the setup (RealSimpleAriel setups carry one). */

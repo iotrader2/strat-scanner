@@ -14,6 +14,7 @@ import { matchesSymbol } from "../symbolSearch";
 import { keepIndexEtf } from "../indexEtfs";
 import {
   detailTfFor,
+  focusSetup,
   leadershipUsesMinRs,
   matchesLeadership,
   MIN_RS_RANGE,
@@ -45,16 +46,34 @@ type Kind = "all" | "stock" | "etf";
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "leaders", label: "Leaders", hint: "Relative strength at the Min RS cut (default P90) or an RS line versus QQQ that made a 52-week high in the last 5 sessions, trend not broken, score above 70, highest score first. The slider can raise the cut above P90; lowering it does not add other names, and an RS-line high does not bypass a higher cut." },
   {
-    value: "setups_pending",
-    label: "Daily setup awaiting trigger",
-    hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a long-side daily setup (set on the last completed day; the Episodic Pivot is the exception, read from today's gap and its 15-min opening range) that has not been broken yet, not even by today's high: Episodic Pivot, Delayed High Volume Close, Flat Base Breakout, Undercut and Rally, MA Undercut and Rally, or High Tight Flag. Sorted by score.",
+    value: "setup_ep",
+    label: "Episodic Pivot",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a large gap up today (2%+) on heavy volume (1.5x+ the 20-day average, projected from the session so far). Entry: Opening Range Break above the high of the first 15-min bar. Stop: low of day. Same-day only. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
-    value: "setups_triggered",
-    label: "Daily setup already triggered",
-    hint:
-      "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) whose last completed daily setup has already broken the trigger, or a pending setup whose trigger (set by the last completed day) today's session has traded above (marked “triggered today”). Sorted by score.",
+    value: "setup_hvc",
+    label: "Delayed High Volume Close",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a recent Episodic Pivot gap day (last 10 sessions) whose close price is back above or being retested. Entry: break back through the gap-day close. Stop: low of the entry day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_flat_base",
+    label: "Flat Base Breakout",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a tight daily base of 3+ weeks (10% deep at most, ranges shrinking) after a 20%+ prior trend. Entry: above the prior day's high, clearing the base. Stop: prior-day low on a tight breakout candle, else the breakout-day low. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_undercut",
+    label: "Undercut and Rally",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a close below the ~1-month swing low, reclaimed the next day. Entry: the reclaim of that low. Stop: the undercut low. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_ma_undercut",
+    label: "MA Undercut and Rally",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a close below the rising 20, 50 or 10-day average, then a strong reclaim (up day closing in the upper half). Entry: through the average. Stop: low of the reclaim day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+  },
+  {
+    value: "setup_htf",
+    label: "High Tight Flag",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a 50%+ run-up within ~8 weeks, then a 2–5 week flag no more than 10% deep on lighter volume. Entry: break above the flag. Stop: low of the breakout day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
     value: "daily_bullish",
@@ -108,7 +127,7 @@ type HeroChipKey =
   | "breakouts"
   | "failedBreakouts"
   | "broken";
-/** Summary tiles, in this order (the daily Ariel views have no tile; pick them from Setups). */
+/** Summary tiles, in this order (the per-setup views have no tile; pick them from Setups). */
 export const HERO_CHIPS: { key: HeroChipKey; filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = [
   { key: "all", filter: "all", label: "all names", tone: "muted" },
   { key: "leaders", filter: "leaders", label: "leaders", tone: "green" },
@@ -238,7 +257,7 @@ export default function Scanner({ version }: { version: string | null }) {
       if (!passesAtr(r, atrRange)) return false;
       return matchesCandlePattern(r, candlePattern);
     });
-    return out;
+    return out.map((r) => focusSetup(r, leadership));
   }, [liquid, query, theme, kind, candlePattern, leadership, minRs, atrRange]);
 
   /**

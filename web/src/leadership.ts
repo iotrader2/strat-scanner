@@ -1,11 +1,10 @@
-import type { ScanRow, Tf } from "./api";
+import type { ScanRow, Setup, Tf } from "./api";
 import { NO_SETUP_LABEL } from "./watchlist";
 
 /** Setups filter of the Stock Scanner (the dropdown labeled "Setups"). Leaders and the daily Ariel views use the Min RS slider; Recent breakouts, Failed breakouts, Broken leaders and the daily / weekly MACD trend changes ignore it. */
 export type LeadershipFilter =
   | "leaders"
-  | "setups_pending"
-  | "setups_triggered"
+  | SetupFilter
   | "daily_bullish"
   | "daily_bearish"
   | "weekly_bullish"
@@ -14,6 +13,27 @@ export type LeadershipFilter =
   | "failed_breakouts"
   | "broken"
   | "all";
+
+/** One Setups option per daily setup (backend ``ariel_setups``), each listing leaders with that setup. */
+export type SetupFilter =
+  | "setup_ep"
+  | "setup_hvc"
+  | "setup_flat_base"
+  | "setup_undercut"
+  | "setup_ma_undercut"
+  | "setup_htf";
+
+/** Setups option → the backend setup kind it lists. */
+export const SETUP_FILTER_KIND: Record<SetupFilter, string> = {
+  setup_ep: "episodic-pivot",
+  setup_hvc: "delayed-hvc",
+  setup_flat_base: "flat-base-breakout",
+  setup_undercut: "undercut-rally",
+  setup_ma_undercut: "ma-undercut-rally",
+  setup_htf: "high-tight-flag",
+};
+
+export const isSetupFilter = (f: string): f is SetupFilter => f in SETUP_FILTER_KIND;
 
 export const LEADER_RS = 0.9;
 /** The Leaders view also needs a top score, strictly above this; matches the backend `LEADERS_MIN_SCORE`. A list filter
@@ -31,6 +51,8 @@ type LeaderFields = Pick<ScanRow, "rs"> & {
   rs_line_high?: boolean;
   has_setup?: boolean;
   triggered?: boolean | null;
+  /** Every daily setup on the row (list rows carry them without the detail text). */
+  setups?: Pick<Setup, "kind" | "label" | "trigger" | "triggered" | "live">[];
   daily_trend?: ScanRow["daily_trend"];
   weekly_trend?: ScanRow["weekly_trend"];
   leadership?: Pick<ScanRow["leadership"], "breakdown">;
@@ -57,12 +79,32 @@ const qualifiesAsLeader = (r: LeaderFields, minRs: number) =>
   !isBroken(r) && (isLeaderAtRs(r, minRs) || (rsLineHigh(r) && minRs <= LEADER_RS));
 /** Leaders view: that RS qualification and a score above 70. */
 const isListedLeader = (r: LeaderFields, minRs: number) => qualifiesAsLeader(r, minRs) && hasLeaderScore(r);
-/** Daily Ariel views: marked leaders with a daily setup. They do not apply the score > 70 cut. */
-const isSetupLeader = (r: LeaderFields, minRs: number) => isLeaderAtRs(r, minRs) && !!r.has_setup;
+/** The setup of ``kind`` on this row, if it has one. */
+export const findSetup = (r: LeaderFields, kind: string) => r.setups?.find((s) => s.kind === kind);
+/** Per-setup views: marked leaders with that daily setup, pending or triggered. They do not apply the score > 70 cut. */
+const isSetupLeader = (r: LeaderFields, minRs: number, kind: string) => isLeaderAtRs(r, minRs) && !!findSetup(r, kind);
 
-/** True when the Min RS slider applies to this Setups option (Leaders and both daily Ariel views). */
+/** True when the Min RS slider applies to this Setups option (Leaders and the per-setup views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
-  return filter === "leaders" || filter === "setups_pending" || filter === "setups_triggered";
+  return filter === "leaders" || isSetupFilter(filter);
+}
+
+/**
+ * Under a per-setup view, show that setup in the row's setup / trigger / triggered columns instead of the row's
+ * top-ranked setup (a name can have several). Other views return the row unchanged.
+ */
+export function focusSetup<R extends ScanRow>(r: R, filter: LeadershipFilter): R {
+  if (!isSetupFilter(filter)) return r;
+  const s = findSetup(r, SETUP_FILTER_KIND[filter]);
+  if (!s) return r;
+  return {
+    ...r,
+    setup: `Daily ${s.label}`,
+    trigger: Math.round(s.trigger * 100) / 100,
+    triggered: s.triggered,
+    triggered_live: s.live ?? false,
+    trigger_distance_pct: r.price > 0 ? ((s.trigger - r.price) / r.price) * 100 : r.trigger_distance_pct,
+  };
 }
 
 /** Chart timeframe the detail page opens on when a row is clicked under this Setups option: Daily for the daily trend
@@ -134,10 +176,13 @@ export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, min
   switch (filter) {
     case "leaders":
       return isListedLeader(r, minRs);
-    case "setups_pending":
-      return isSetupLeader(r, minRs) && !r.triggered;
-    case "setups_triggered":
-      return isSetupLeader(r, minRs) && r.triggered === true;
+    case "setup_ep":
+    case "setup_hvc":
+    case "setup_flat_base":
+    case "setup_undercut":
+    case "setup_ma_undercut":
+    case "setup_htf":
+      return isSetupLeader(r, minRs, SETUP_FILTER_KIND[filter]);
     case "daily_bullish":
       return r.daily_trend === "bullish";
     case "daily_bearish":
@@ -168,11 +213,17 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
     case "p80":
       return { filter: "leaders", minRs: 80 };
     case "setups":
-      // Old combined Daily setups option → the actionable awaiting-trigger view.
-      return { filter: "setups_pending", minRs: null };
-    case "leaders":
     case "setups_pending":
     case "setups_triggered":
+      // Old combined setup views (replaced by one option per setup) → Leaders.
+      return { filter: "leaders", minRs: null };
+    case "leaders":
+    case "setup_ep":
+    case "setup_hvc":
+    case "setup_flat_base":
+    case "setup_undercut":
+    case "setup_ma_undercut":
+    case "setup_htf":
     case "daily_bullish":
     case "daily_bearish":
     case "weekly_bullish":

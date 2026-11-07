@@ -37,8 +37,8 @@ describe("Candle Pattern filter", () => {
   });
 
   it("leaves the Setups dropdown alone", () => {
-    expect(SETUPS_OPTIONS.map((o) => o.value)).toContain("setups_pending");
-    expect(SETUPS_OPTIONS.map((o) => o.value)).toContain("setups_triggered");
+    expect(SETUPS_OPTIONS.map((o) => o.value)).toContain("setup_ep");
+    expect(SETUPS_OPTIONS.map((o) => o.value)).toContain("setup_htf");
   });
 });
 

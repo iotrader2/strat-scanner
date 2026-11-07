@@ -96,6 +96,16 @@ def _load_theme_map() -> Optional[ThemeMap]:
         return None
 
 
+_SLIM_SETUP_KEYS = ("tf", "kind", "label", "trigger", "triggered", "live", "stop")
+
+
+def _slim_row(r: dict) -> dict:
+    """A list row: every setup kept (the per-setup Setups views need them) but without the long detail text."""
+    out = {k: v for k, v in r.items() if k != "setups"}
+    out["setups"] = [{k: s.get(k) for k in _SLIM_SETUP_KEYS} for s in r.get("setups") or []]
+    return out
+
+
 def _opening_highs() -> dict[str, float]:
     """Today's 15-minute opening-range highs (the Episodic Pivot entry level), from the live Alpaca bars."""
     if not live_bars_enabled():
@@ -696,7 +706,7 @@ def scan(
     min_dollar_volume = config.MIN_DOLLAR_VOLUME if min_dollar_volume is None else min_dollar_volume
     cut = LEADER_MIN_RS if min_rs is None else min_rs
     rows = _with_earnings([
-        {k: v for k, v in r.items() if k != "setups"}
+        _slim_row(r)
         for r in _ensure_scan()
         if r["price"] >= min_price
         and r["avg_dollar_volume"] >= min_dollar_volume
