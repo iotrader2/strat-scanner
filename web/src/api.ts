@@ -9,8 +9,12 @@ export interface Setup {
   trigger: number;
   triggered: boolean;
   detail: string;
-  /** Broken during the week still in progress (the trigger itself is last completed week's). */
+  /** Broken during today's session (the trigger itself is last completed day's). */
   live?: boolean;
+  /** Defined-risk stop for the setup (RealSimpleAriel setups carry one). */
+  stop?: number | null;
+  /** Chart used only to time the entry ("15m" for the Ariel setups). */
+  entry_tf?: string;
 }
 
 export interface CandlePatternBar {
@@ -210,10 +214,10 @@ export interface ScanRow {
   /** Inside bar / hammer on the last completed weekly and daily bar (the Candle Pattern filter). */
   candle_patterns?: { W: CandlePatternBar | null; D: CandlePatternBar | null } | null;
   triggered: boolean | null;
-  /** True when the in-progress week traded above the trigger (set from the last completed week). */
+  /** True when today's session traded above the trigger (set from the last completed day). */
   triggered_live?: boolean | null;
   trigger_distance_pct: number | null;
-  /** For names with no weekly setup: the closest completed-week high above price. */
+  /** Score reasons, starting with the setup (or "No daily setup"). */
   reason: string;
   tf: Record<Tf, TfState | null> & Partial<Record<HigherTf, TfState | null>>;
   earnings?: Earnings | null;

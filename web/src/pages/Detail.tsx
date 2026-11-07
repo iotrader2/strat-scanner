@@ -196,7 +196,7 @@ export default function Detail({ version }: { version: string | null }) {
             <ul className="reasons">
               {row.reason
                 .split(" · ")
-                .filter((r) => row.has_setup || !r.startsWith("No weekly"))
+                .filter((r) => row.has_setup || !r.startsWith("No daily setup"))
                 .map((r) => <li key={r}>{r}</li>)}
             </ul>
           </div>
@@ -231,7 +231,7 @@ export default function Detail({ version }: { version: string | null }) {
             </table>
           </div>
           <div className="card">
-            <h3>Weekly setups</h3>
+            <h3>Daily setups</h3>
             {row.setups && row.setups.length > 0 ? (
               <ul className="setup-list">
                 {row.setups.map((s, i) => (
@@ -245,12 +245,15 @@ export default function Detail({ version }: { version: string | null }) {
                         </span>
                       )}
                     </span>
-                    <span className="accent-text">{s.trigger.toFixed(2)}</span>
+                    <span className="accent-text">
+                      {s.trigger.toFixed(2)}
+                      {s.stop != null && <span className="muted"> · stop {s.stop.toFixed(2)}</span>}
+                    </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="muted small">No weekly inside bar, hammer or bullish combo right now.</p>
+              <p className="muted small">No daily setup right now.</p>
             )}
           </div>
         </aside>

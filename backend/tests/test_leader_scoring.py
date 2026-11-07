@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from strat.candles import Candle, timeframe_state
+from strat.candles import Candle, Setup, timeframe_state
 from strat.leadership import Breakdown, Trend, qqq_excess, trend_metrics
 from strat.perf import MomentumRanks
 from strat.data import resample
@@ -45,7 +45,21 @@ INSIDE_GREEN = [Candle(90, 110, 85, 105), Candle(100, 106, 95, 104)]  # 1, green
 RED_DOWN = [Candle(90, 100, 85, 95), Candle(95, 96, 80, 82)]  # 2D, red
 
 NO_SETUP = _states(GREEN_UP, GREEN_UP, GREEN_UP)
-INSIDE_SETUP = _states(GREEN_UP, INSIDE_GREEN, GREEN_UP)
+
+
+def _with_setup(states, tf, *setups):
+    """Inject Ariel ``Setup`` objects into one timeframe state (the scanner now attaches daily Ariel setups itself)."""
+    from dataclasses import replace
+
+    return {**states, tf: replace(states[tf], setups=list(setups))}
+
+
+def _ep(trigger=106.0, stop=102.0, triggered=False):
+    return Setup("episodic-pivot", "Episodic Pivot", trigger, triggered, stop=stop)
+
+
+# A leader with a daily Episodic Pivot setup (replaces the old weekly inside setup).
+DAILY_SETUP = _with_setup(_states(GREEN_UP, GREEN_UP, GREEN_UP), "D", _ep())
 RED = _states(RED_DOWN, RED_DOWN, RED_DOWN)
 
 
@@ -147,13 +161,13 @@ class TestWeights:
 class TestLeadershipComesFirst:
     def test_a_leader_with_no_setup_beats_a_laggard_with_a_perfect_setup(self):
         leader = _score(NO_SETUP, LEADER_PERF)
-        laggard = _score(INSIDE_SETUP, LAGGARD_PERF, trend=WEAK_TREND)
+        laggard = _score(DAILY_SETUP, LAGGARD_PERF, trend=WEAK_TREND)
         assert not leader.has_setup and laggard.has_setup
         assert leader.score > laggard.score + 20
 
-    def test_a_weekly_setup_does_not_score(self):
-        # Same M/W/D colours (all green); only one has an inside-week setup. The setup is shown, not scored.
-        with_setup = _score(INSIDE_SETUP, LEADER_PERF)
+    def test_a_daily_setup_does_not_score(self):
+        # Same M/W/D colours (all green); only one has a daily Episodic Pivot setup. The setup is shown, not scored.
+        with_setup = _score(DAILY_SETUP, LEADER_PERF)
         without = _score(NO_SETUP, LEADER_PERF)
         assert with_setup.has_setup and with_setup.primary is not None and with_setup.trigger_distance_pct is not None
         assert not without.has_setup
@@ -163,7 +177,7 @@ class TestLeadershipComesFirst:
     def test_a_leader_without_a_setup_is_not_filtered_by_the_score(self):
         s = _score(NO_SETUP, LEADER_PERF)
         assert s.is_leader
-        assert "No weekly setup" in s.reasons
+        assert "No daily setup" in s.reasons
         cont = next(c for c in s.breakdown if c.key == "continuity")
         assert cont.points == 10  # M+W+D green with no setup still earns full Continuity
         # This fixture has no theme, so the lower Vs QQQ cap (30, was 45) leaves it in the 50s.
@@ -256,7 +270,7 @@ class TestBreakdownDemotion:
         assert "breakdown" not in [c.key for c in _score(NO_SETUP, LEADER_PERF).breakdown]
 
     def test_the_total_still_adds_up(self):
-        s = _score(INSIDE_SETUP, LEADER_PERF, trend_break=Breakdown("broken", ["x"]))
+        s = _score(DAILY_SETUP, LEADER_PERF, trend_break=Breakdown("broken", ["x"]))
         assert sum(c.points for c in s.breakdown) == pytest.approx(s.raw, abs=0.05)
         assert 0 <= s.score <= 100
 
@@ -411,9 +425,9 @@ class TestContinuityScore:
         assert none.detail == "no timeframe green (M/W/D not green)"
 
     def test_setup_trigger_and_monthly_2u_are_not_scored(self):
-        s = _score(INSIDE_SETUP, LEADER_PERF)
+        s = _score(DAILY_SETUP, LEADER_PERF)
         keys = {c.key for c in s.breakdown}
-        assert not {"weekly_setup", "proximity", "monthly_2u"} & keys
+        assert not {"daily_setup", "proximity", "monthly_2u"} & keys
         assert s.monthly_2u and s.has_setup  # still reported for display and filters
         assert sum(c.points for c in s.breakdown) == pytest.approx(s.raw, abs=0.01)
 
@@ -457,8 +471,8 @@ class TestContinuityReadsTheBarsInProgress:
         assert next(c for c in _score(NO_SETUP, LEADER_PERF).breakdown if c.key == "continuity").points == 10
 
     def test_setups_and_monthly_2u_stay_on_completed_bars(self):
-        live = _score(_live(INSIDE_SETUP, M="red", W="red", D="red"), LEADER_PERF)
-        done = _score(INSIDE_SETUP, LEADER_PERF)
+        live = _score(_live(DAILY_SETUP, M="red", W="red", D="red"), LEADER_PERF)
+        done = _score(DAILY_SETUP, LEADER_PERF)
         assert live.monthly_2u == done.monthly_2u
         assert [(s.tf, s.setup.kind, s.setup.trigger) for s in live.setups] == [
             (s.tf, s.setup.kind, s.setup.trigger) for s in done.setups

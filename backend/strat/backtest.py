@@ -16,8 +16,8 @@ history), then the list is measured against what happened next:
 
 Dates before ``TEST_START`` are the train period (where the weights were tuned), the rest is the test period. The
 universe is today's S&P 500 + Nasdaq-100 list (survivorship bias: names that left the indexes are missing), filtered to
-liquid stocks (price and average dollar volume at the cut-off date). The old list is names with a weekly setup, ranked
-by the old Strat-first score; the new list is the leaders-only list (RS >= P90, trend unbroken) ranked by the new score.
+liquid stocks (price and average dollar volume at the cut-off date). The old list is names with a daily setup, ranked
+by the old score weights; the new list is the leaders-only list (RS >= P90, trend unbroken) ranked by the new score.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def liquid_stocks(rows: Sequence[dict]) -> list[dict]:
 
 
 def old_list(result: ScanResult, mw_green: bool = False) -> list[dict]:
-    """What the old scanner showed: liquid stocks with a weekly setup, best old score first."""
+    """What the old scanner showed: liquid stocks with a daily setup, best old score first."""
     rows = [r for r in liquid_stocks(result.rows) if r["has_setup"] and (r["mw_green"] or not mw_green)]
     return sorted(rows, key=lambda r: (-r["score"], r["symbol"]))
 
@@ -165,7 +165,7 @@ def collect(
 ) -> dict[str, list[dict]]:
     """Scan the market as of every date: liquid stocks with their score, status and what they did next.
 
-    ``listed`` marks what the scanner shows by default: the leaders list for the new score, names with a weekly setup
+    ``listed`` marks what the scanner shows by default: the leaders list for the new score, names with a daily setup
     for the old one.
     """
     out: dict[str, list[dict]] = {}
@@ -586,12 +586,12 @@ def render_breakouts(
 
 
 # --------------------------------------------------------------------------------------------------------------------
-# Weekly setups
+# Daily setups
 # --------------------------------------------------------------------------------------------------------------------
 
 
 def is_setup_pick(row: dict, min_rs: float = 0.9) -> bool:
-    """What the scanner's Weekly setups view lists: a leader (RS at least ``min_rs``, unbroken trend) with a weekly setup."""
+    """What the scanner's Daily setups view lists: a leader (RS at least ``min_rs``, unbroken trend) with a daily Ariel setup."""
     return bool(row.get("has_setup")) and (row.get("rs") or 0) >= min_rs and row.get("status") != "broken"
 
 
@@ -685,9 +685,9 @@ def render_setups(
     test_start: str = TEST_START,
 ) -> str:
     out = [
-        "### Weekly setups: leaders with a long-side weekly Strat setup\n",
-        "Pooled over every cut-off: the forward 1M / 3M return of the names in the Weekly setups view (RS >= P90, unbroken "
-        "trend, a long-side weekly setup on the latest weekly candle) minus the median liquid stock and minus QQQ, against "
+        "### Daily setups: leaders with a long-side daily setup\n",
+        "Pooled over every cut-off: the forward 1M / 3M return of the names in the Daily setups view (RS >= P90, unbroken "
+        "trend, a long-side daily setup on the latest completed daily bar) minus the median liquid stock and minus QQQ, against "
         "all Leaders without a setup and all Leaders (the same names with or without a setup).\n",
         "| Period | List | Picks / date | Fwd 1M vs median (pts) | Fwd 3M vs median (pts) | Fwd 1M vs QQQ (pts) | Fwd 3M vs QQQ (pts) | Beat QQQ 3M |",
         "|---|---|---|---|---|---|---|---|",
@@ -699,7 +699,7 @@ def render_setups(
         "All": ordered,
     }
     lists = {
-        "Weekly setups": is_setup_pick,
+        "Daily setups": is_setup_pick,
         "Leaders, no setup": lambda r: is_leader_pick(r) and not r.get("has_setup"),
         "Leaders": is_leader_pick,
     }

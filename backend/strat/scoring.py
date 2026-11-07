@@ -1,8 +1,8 @@
 """Leadership-first score for the Stock Scanner (0-100, higher is better).
 
 Leadership comes first: relative strength of the 1M/3M/6M returns (against the peer group and against QQQ),
-theme strength and trend (price above a rising 10- and 20-day average) are 80% of the points. Strat timing is one Continuity score worth at most
-10 points: Monthly / Weekly / Daily alignment (M 4, W 4, D 1, all three +1). The weekly setup and its trigger are shown and
+theme strength and trend (price above a rising 10- and 20-day average) are 80% of the points. Timing is one Continuity score worth at most
+10 points: Monthly / Weekly / Daily alignment (M 4, W 4, D 1, all three +1). The daily Ariel setup and its trigger are shown and
 filtered on but do not score. It is never a gate, and a name with no setup still scores on its leadership. A leader that is losing its
 trend (lost moving averages, a deep drawdown from the high, 1M momentum turning negative) is demoted by a breakdown penalty.
 """
@@ -23,11 +23,10 @@ from .leadership import (
     leader_status,
     LAGGARD,
 )
+from .ariel_setups import SETUP_POINTS, SETUP_TF
 from .legacy_scoring import (
     MIN_ATR_PCT,
     PINNED_PENALTY,
-    SETUP_POINTS,
-    SETUP_TF,
     TF_NAMES,
     Component,
     ScoredSetup,
@@ -64,7 +63,7 @@ TIGHTNESS_POINTS = 5.0  # calm, contracting daily ranges
 LIQUIDITY_POINTS = 5.0
 
 # Continuity (10 of 100): Monthly / Weekly / Daily alignment only, each timeframe green (price above its open).
-# The weekly setup, the distance to its trigger and Monthly 2U are display and filter data and do not score.
+# The daily setup, the distance to its trigger and Monthly 2U are display and filter data and do not score.
 TF_GREEN_POINTS = {"M": 4.0, "W": 4.0, "D": 1.0}
 FULL_GREEN_BONUS = 1.0
 CONTINUITY_MAX = sum(TF_GREEN_POINTS.values()) + FULL_GREEN_BONUS
@@ -190,9 +189,9 @@ def score_symbol(
     parts.append(_trend_component(trend))
     parts.append(_tightness_component(tightness))
 
-    weekly = states.get(SETUP_TF)
+    daily = states.get(SETUP_TF)
     scored = [
-        ScoredSetup(SETUP_TF, setup, SETUP_POINTS.get(setup.kind, 0.0)) for setup in (weekly.setups if weekly else [])
+        ScoredSetup(SETUP_TF, setup, SETUP_POINTS.get(setup.kind, 0.0)) for setup in (daily.setups if daily else [])
     ]
     ordered = sorted(scored, key=lambda s: s.points, reverse=True)
     primary = _pick_primary(scored, price)
@@ -240,9 +239,9 @@ def score_symbol(
     reasons: list[str] = []
     if primary:
         reasons.append(_describe(primary, dist))
-        reasons.extend(f"Weekly {s.setup.label}" for s in ordered if s is not primary)
+        reasons.extend(f"Daily {s.setup.label}" for s in ordered if s is not primary)
     else:
-        reasons.append("No weekly setup")
+        reasons.append("No daily setup")
     if monthly_2u:
         reasons.append("Monthly 2U")
     if full:

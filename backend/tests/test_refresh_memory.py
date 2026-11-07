@@ -118,7 +118,7 @@ def test_intraday_polls_keep_rss_flat(tmp_path, monkeypatch, capsys):
     # the runtime without changing how many price frames the refresh retains.
     from strat.scanner import ScanResult
 
-    def cheap_scan(members, daily, themes=None, method=None, changes=True):
+    def cheap_scan(members, daily, themes=None, method=None, changes=True, opening_highs=None):
         rows = []
         for member in members:
             frame = daily.get(member.symbol)

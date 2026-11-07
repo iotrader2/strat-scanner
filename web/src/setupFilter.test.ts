@@ -7,10 +7,10 @@ describe("triggerChip", () => {
     expect(triggerChip({ triggered: null })).toBeNull();
   });
 
-  it("says when the week in progress broke the trigger", () => {
+  it("says when today's session broke the trigger", () => {
     expect(triggerChip({ triggered: true, live: true, trigger: 310.53 })).toEqual({
-      label: "triggered this week",
-      title: "This week's high traded above the trigger 310.53 (set by last completed week)",
+      label: "triggered today",
+      title: "Today's high traded above the trigger 310.53 (set by last completed day)",
     });
     expect(triggerChip({ triggered: true, live: false, trigger: 9 })?.label).toBe("triggered");
     expect(triggerChip({ triggered: true })?.label).toBe("triggered");
