@@ -495,3 +495,25 @@ def test_kell_short_mirrors():
     assert "ema-crossback-short" in _shorts(_frame(_flip(_crossback_rows())))
     drop = _shorts(_frame(_flip(_wedge_rows())))["wedge-drop"]
     assert drop.side == "short" and drop.trigger == pytest.approx(1e4 / 97.0)
+
+
+def test_undercut_rally_counts_without_a_close_above():
+    """Traded back above the swing low and closed back under it: still a trigger (no close needed)."""
+    rows = _flat(21)
+    rows[11] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)  # swing low 90
+    rows.append((94.0, 95.0, 88.0, 89.0, 1_000_000.0))  # first close under it
+    rows.append((89.0, 91.0, 87.5, 89.5, 1_000_000.0))  # back above 90 intraday, closes under
+    s = _by_kind(_frame(rows))["undercut-rally"]
+    assert (s.trigger, s.triggered) == (90.0, True)
+    assert s.stop == 87.5  # the undercut low includes the trigger day's lower low
+    short = _shorts(_frame(_flip(rows)))["overcut-fail"]
+    assert short.triggered is True and short.trigger == pytest.approx(1e4 / 90.0)
+
+
+def test_undercut_rally_needs_the_reclaim():
+    rows = _flat(21)
+    rows[11] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)
+    rows.append((94.0, 95.0, 88.0, 89.0, 1_000_000.0))
+    rows.append((89.0, 89.8, 87.5, 88.5, 1_000_000.0))  # never back above 90
+    found = _by_kind(_frame(rows)).get("undercut-rally")
+    assert found is None or found.triggered is False

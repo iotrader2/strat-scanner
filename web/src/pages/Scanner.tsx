@@ -87,12 +87,12 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   {
     value: "setup_undercut",
     label: "Undercut and Rally",
-    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a close below the ~1-month swing low, reclaimed the next day. Entry: the reclaim of that low. Stop: the undercut low. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+    hint: "Leaders (marked leader: P90+ and trend not broken; the Min RS slider can raise the cut; the Leaders score > 70 cut does not apply) with a first close just under (within 3%) the ~1-month swing low, then the next day trading back above it. No close above needed. Entry: the reclaim of that low. Stop: the undercut low. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
     value: "short_overcut",
     label: "Overcut and Fail",
-    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a close above the ~1-month swing high, then a close back below it the next day. Entry: the failure below that high. Stop: the overcut high. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
+    hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a first close just over (within ~3%) the ~1-month swing high, then the next day trading back below it. No close below needed. Entry: the failure below that high. Stop: the overcut high. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
     value: "setup_ma_undercut",

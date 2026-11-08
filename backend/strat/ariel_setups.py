@@ -414,8 +414,8 @@ def detect_flat_base_breakout(df: pd.DataFrame) -> Optional[ArielSetup]:
 
 
 def detect_undercut_rally(df: pd.DataFrame) -> Optional[ArielSetup]:
-    """The last bar reclaims a swing low that it or the bar before undercut (triggered), or the last bar closed
-    under a swing low, near it (pending: today's session decides the reclaim; the close confirms it)."""
+    """Pending: the last bar was the first close just under a swing low. Triggered: the bar after such a close
+    traded back above it (intraday is enough; no close above is needed)."""
     if len(df) < UR_LOOKBACK_BARS + 2:
         return None
     last = len(df) - 1
@@ -444,23 +444,26 @@ def _undercut_rally_pending(df: pd.DataFrame, last: int) -> Optional[ArielSetup]
 
 
 def _undercut_rally_triggered(df: pd.DataFrame, last: int) -> Optional[ArielSetup]:
-    window = df.iloc[last - UR_LOOKBACK_BARS - 1 : last - 1]
-    level = float(window["low"].min())
-    undercut_low = min(float(df["low"].iloc[last - 1]), float(df["low"].iloc[last]))
-    if undercut_low >= level:
-        return None  # no undercut of the swing low
-    if float(df["close"].iloc[last]) <= level:
-        return None  # not reclaimed yet
-    if float(df["close"].iloc[last - 1]) > level:
-        return None  # already reclaimed the day before; "immediately" means this bar
+    """Yesterday was a valid watch (first close just under the swing low) and today traded back above it.
+
+    No close above is needed: the intraday reclaim is the trigger (same as MA Undercut and Rally, at your
+    request on 2026-11-08).
+    """
+    watch = _undercut_rally_pending(df, last - 1)
+    if watch is None:
+        return None
     bar = df.iloc[last]
+    level = watch.trigger
+    if float(bar["high"]) <= level:
+        return None  # did not trade back above the swing low
+    undercut_low = min(float(watch.stop), float(bar["low"]))
     return ArielSetup(
         kind="undercut-rally",
         label=SETUP_LABELS["undercut-rally"],
         trigger=level,
         stop=undercut_low,
         triggered=True,
-        detail=f"undercut the swing low {level:.2f} to {undercut_low:.2f}, then reclaimed it; stop at the undercut low",
+        detail=f"undercut the swing low {level:.2f} to {undercut_low:.2f}, then traded back above it; stop at the undercut low",
         entry_instruction="Enter on the reclaim of the prior low; stop at the new swing low formed during the undercut",
         anchor_date=_date(df, last),
         entry=_entry(level, float(bar["open"])),
@@ -813,7 +816,7 @@ _SHORT_TEXT = {
         "Enter below the prior day's low (the base support)",
     ),
     "overcut-fail": (
-        "popped above the swing high, then closed back below it; stop at the new high",
+        "first close just over the swing high, then traded back below it (no close below needed); stop at the overcut high",
         "Enter on the failure back below the prior high; stop at the high made during the overcut",
     ),
     "ma-overcut-fail": (

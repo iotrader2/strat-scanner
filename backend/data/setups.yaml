@@ -95,13 +95,11 @@ undercut_rally:
   name: Undercut and Rally
   short_name: Overcut and Fail
   rules: |
-    1. Swing low: the lowest low of the swing_lookback_days days before the last two days.
-    2. Yesterday or today traded below it (the undercut), and yesterday closed at or below it.
-    3. Today closed back above it (the reclaim must be immediate: the day after the close below).
-    4. Watch (pending) the evening before: the last day traded below the swing low (the lowest low of the
-       swing_lookback_days days before it) and closed under it, but no more than pending_max_below_pct under.
-       During the next session it shows "triggered today" once the high crosses back above the swing low;
-       after the close it stays only if that day closed back above (rule 3), otherwise it drops.
+    1. Undercut: a day trades below the swing low (the lowest low of the swing_lookback_days days before
+       it) and closes under it for the first time, no more than pending_max_below_pct under. That evening it
+       is a watch (pending), with the trigger at the swing low.
+    2. Rally: the next day trades back above the swing low. That alone triggers it, during the session
+       ("triggered today") and after the close; it does NOT need to close back above.
   entry: On the reclaim of the swing low.
   stop: The low made during the undercut.
   params:
