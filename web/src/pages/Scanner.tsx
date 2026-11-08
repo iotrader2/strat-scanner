@@ -12,6 +12,7 @@ import { clearRetiredFilters, readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
 import { SymbolSearch } from "../components/SymbolSearch";
 import { matchesSymbol } from "../symbolSearch";
+import { KINDS, KIND_LABELS, isKind, matchesKind, type Kind } from "../scanKind";
 import { keepIndexEtf } from "../indexEtfs";
 import {
   detailTfFor,
@@ -44,7 +45,6 @@ import { matchesTheme, themeName, themeOptions } from "../themes";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
 const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
-type Kind = "all" | "stock" | "etf";
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "all", label: "All names", hint: "Every stock and ETF that passes the price / dollar-volume filters, with or without a setup. Ignores the Min RS slider." },
@@ -236,11 +236,7 @@ export const CANDLE_PATTERN_OPTIONS: DropdownOption<CandlePattern>[] = CANDLE_PA
   value,
   label: CANDLE_PATTERN_LABELS[value],
 }));
-const KIND_OPTIONS: DropdownOption<Kind>[] = [
-  { value: "all", label: "Stocks + ETFs" },
-  { value: "stock", label: "Stocks" },
-  { value: "etf", label: "ETFs" },
-];
+const KIND_OPTIONS: DropdownOption<Kind>[] = KINDS.map((value) => ({ value, label: KIND_LABELS[value] }));
 
 export default function Scanner({ version }: { version: string | null }) {
   const [params, setParams] = useSearchParams();
@@ -264,7 +260,10 @@ export default function Scanner({ version }: { version: string | null }) {
     migrateSetupFilter(readPersisted<string | null>("setup", null)),
   );
   const candlePattern: CandlePattern = isCandlePattern(storedPattern) ? storedPattern : "any";
-  const [kind, setKind] = usePersisted<Kind>("kind", "all");
+  const [storedKind, setKind] = usePersisted<Kind>("kind", "all");
+  const kind: Kind = isKind(storedKind) ? storedKind : "all";
+  // Tiles count with the current filters (type, theme, symbol, price, $ volume, ATR, candle pattern, Min RS) when on.
+  const [applyFilters, setApplyFilters] = usePersisted<boolean>("tilesApplyFilters", false);
   const [savedAtr, setAtrRange] = usePersisted<AtrRange>("atrPct", ATR_PCT_DEFAULT);
   const atrRange = useMemo(() => normalizeAtrRange(savedAtr), [savedAtr]);
   const [query, setQuery] = useState("");
@@ -306,34 +305,44 @@ export default function Scanner({ version }: { version: string | null }) {
     [rows, effPrice, effDv],
   );
 
+  /** Every filter except the Setups option (type, symbol, theme, ATR, candle pattern; liquidity is in ``liquid``). */
+  const narrowed = useMemo(
+    () =>
+      liquid.filter(
+        (r) =>
+          matchesSymbol(r.symbol, query) &&
+          matchesTheme(r, theme) &&
+          matchesKind(r, kind) &&
+          passesAtr(r, atrRange) &&
+          matchesCandlePattern(r, candlePattern),
+      ),
+    [liquid, query, theme, kind, atrRange, candlePattern],
+  );
+
   const filtered = useMemo(() => {
-    const out = liquid.filter((r) => {
-      if (!matchesSymbol(r.symbol, query)) return false;
-      // ETFs view: QQQ / SPY / IWM are listed as reference rows (they are rarely ETF leaders), except under a
-      // single-setup option, where only names with that setup belong.
-      if (!keepIndexEtf(r, kind, isSetupFilter(leadership)) && !matchesLeadership(r, leadership, minRs)) return false;
-      if (!matchesTheme(r, theme)) return false;
-      if (kind !== "all" && r.kind !== kind) return false;
-      if (!passesAtr(r, atrRange)) return false;
-      return matchesCandlePattern(r, candlePattern);
-    });
+    // ETFs view: QQQ / SPY / IWM are listed as reference rows (they are rarely ETF leaders), except under a
+    // single-setup option, where only names with that setup belong.
+    const out = narrowed.filter(
+      (r) => keepIndexEtf(r, kind, isSetupFilter(leadership)) || matchesLeadership(r, leadership, minRs),
+    );
     return out.map((r) => focusSetup(r, leadership));
-  }, [liquid, query, theme, kind, candlePattern, leadership, minRs, atrRange]);
+  }, [narrowed, kind, leadership, minRs]);
 
   /**
-   * Hero chips: full-universe totals for each Leadership category. Never apply the current dropdown, Min RS slider,
-   * liquidity, theme or setup filters. Leaders and the per-setup tiles use the widest Min RS (P50); dig in with the slider.
+   * Hero chips. "Apply filters" off: full-universe totals for each Setups option, ignoring every filter; Leaders and the
+   * per-setup tiles use the widest Min RS (P50). On: what each tile would list with the current filters (type, theme,
+   * symbol, price, $ volume, ATR, candle pattern) and the Min RS slider.
    */
-  const stats = useMemo(
-    () =>
-      Object.fromEntries(
-        HERO_CHIPS.map((c) => [
-          c.filter,
-          c.filter === "all" ? rows.length : rows.filter((r) => matchesLeadership(r, c.filter, CHIP_RS)).length,
-        ]),
-      ) as Record<LeadershipFilter, number>,
-    [rows],
-  );
+  const stats = useMemo(() => {
+    const base = applyFilters ? narrowed : rows;
+    const rs = applyFilters ? minRs : CHIP_RS;
+    return Object.fromEntries(
+      HERO_CHIPS.map((c) => [
+        c.filter,
+        c.filter === "all" ? base.length : base.filter((r) => matchesLeadership(r, c.filter, rs)).length,
+      ]),
+    ) as Record<LeadershipFilter, number>;
+  }, [applyFilters, narrowed, rows, minRs]);
 
   // On phones the tiles are one swipeable row: keep the selected view's tile in sight (e.g. picked from the dropdown).
   const tilesRef = useRef<HTMLDivElement>(null);
@@ -376,6 +385,10 @@ export default function Scanner({ version }: { version: string | null }) {
         <div>
           <h1>Stock Scanner</h1>
           <p className="muted">Pick a group, then narrow the list with the filters.</p>
+          <label className="apply-filters" title="On: each tile counts what it would list with your current filters and Min RS. Off: totals for all names.">
+            <input type="checkbox" checked={applyFilters} onChange={(e) => setApplyFilters(e.target.checked)} />
+            Apply filters
+          </label>
         </div>
         <div className="stat-cards scanner-tiles" role="group" aria-label="Setups totals" ref={tilesRef}>
           {HERO_CHIPS.map((chip) => {

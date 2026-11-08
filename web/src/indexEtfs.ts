@@ -15,6 +15,6 @@ export function isIndexEtf(r: Row): boolean {
  * QQQ / SPY / IWM would appear in, say, Delayed High Volume Close with no setup at all. The other filters
  * (search, theme, liquidity, ATR) still apply.
  */
-export function keepIndexEtf(r: Row, kind: "all" | "stock" | "etf", setupView = false): boolean {
+export function keepIndexEtf(r: Row, kind: string, setupView = false): boolean {
   return kind === "etf" && !setupView && isIndexEtf(r);
 }
