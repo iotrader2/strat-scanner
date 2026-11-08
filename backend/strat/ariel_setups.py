@@ -71,10 +71,12 @@ FLAT_BASE_PRIOR_RUN_PCT = _FB["prior_rise_pct"] / 100
 FLAT_BASE_RESISTANCE_PCT = _FB["resistance_pct"] / 100
 # Undercut and Rally.
 UR_LOOKBACK_BARS = int(_UR["swing_lookback_days"])
+UR_PENDING_MAX_BELOW = _UR["pending_max_below_pct"] / 100
 # MA Undercut and Rally.
 MA_UR_PERIODS = tuple(int(p) for p in _MA["ma_periods"])
 MA_UR_CLOSE_POSITION = _MA["strong_close_position_pct"] / 100
 MA_UR_MIN_HISTORY = int(_MA["min_history_days"])
+MA_UR_PENDING_MAX_BELOW = _MA["pending_max_below_pct"] / 100
 # High Tight Flag.
 HTF_MIN_RUNUP_PCT = _HTF["min_runup_pct"] / 100
 HTF_RUN_MAX_BARS = int(_HTF["run_max_days"])
@@ -392,10 +394,36 @@ def detect_flat_base_breakout(df: pd.DataFrame) -> Optional[ArielSetup]:
 
 
 def detect_undercut_rally(df: pd.DataFrame) -> Optional[ArielSetup]:
-    """The last bar reclaims a swing low that it or the bar before undercut."""
+    """The last bar reclaims a swing low that it or the bar before undercut (triggered), or the last bar closed
+    under a swing low, near it (pending: today's session decides the reclaim; the close confirms it)."""
     if len(df) < UR_LOOKBACK_BARS + 2:
         return None
     last = len(df) - 1
+    found = _undercut_rally_triggered(df, last)
+    return found if found is not None else _undercut_rally_pending(df, last)
+
+
+def _undercut_rally_pending(df: pd.DataFrame, last: int) -> Optional[ArielSetup]:
+    # The swing low tomorrow's reclaim would be measured against: the window before the last bar.
+    level = float(df["low"].iloc[last - UR_LOOKBACK_BARS : last].min())
+    low, close = float(df["low"].iloc[last]), float(df["close"].iloc[last])
+    if not low < level or close > level or close < level * (1 - UR_PENDING_MAX_BELOW):
+        return None  # no undercut, already back above, or too far under to be a shakeout
+    if float(df["close"].iloc[last - 1]) <= level:
+        return None  # not the first close under it: the reclaim would no longer be immediate
+    return ArielSetup(
+        kind="undercut-rally",
+        label=SETUP_LABELS["undercut-rally"],
+        trigger=level,
+        stop=low,  # the undercut low so far; a lower low today moves it down
+        triggered=False,
+        detail=f"closed under the swing low {level:.2f} (low {low:.2f}); watch for the reclaim today",
+        entry_instruction="Enter on the reclaim of the prior low; stop at the new swing low formed during the undercut",
+        anchor_date=_date(df, last),
+    )
+
+
+def _undercut_rally_triggered(df: pd.DataFrame, last: int) -> Optional[ArielSetup]:
     window = df.iloc[last - UR_LOOKBACK_BARS - 1 : last - 1]
     level = float(window["low"].min())
     undercut_low = min(float(df["low"].iloc[last - 1]), float(df["low"].iloc[last]))
@@ -420,10 +448,43 @@ def detect_undercut_rally(df: pd.DataFrame) -> Optional[ArielSetup]:
 
 
 def detect_ma_undercut_rally(df: pd.DataFrame) -> Optional[ArielSetup]:
-    """The last bar reclaims, with strength, a key daily moving average it had closed below."""
+    """The last bar reclaims, with strength, a key daily moving average it had closed below (triggered), or the
+    last bar closed just under a rising average (pending: an intraday cross shows as "triggered today"; at the
+    close the full rule, strength included, decides whether it stays)."""
     if len(df) < MA_UR_MIN_HISTORY:
         return None
     last = len(df) - 1
+    found = _ma_undercut_rally_triggered(df, last)
+    return found if found is not None else _ma_undercut_rally_pending(df, last)
+
+
+def _ma_undercut_rally_pending(df: pd.DataFrame, last: int) -> Optional[ArielSetup]:
+    closes = df["close"]
+    close = float(closes.iloc[last])
+    for period in MA_UR_PERIODS:
+        ma = _sma(closes, period)
+        prev_ma, cur_ma = ma.iloc[last - 1], ma.iloc[last]
+        if pd.isna(prev_ma) or pd.isna(cur_ma):
+            continue
+        m = float(cur_ma)
+        if close >= m or close < m * (1 - MA_UR_PENDING_MAX_BELOW):
+            continue  # not under it, or too far under for a reclaim
+        if m < float(prev_ma):
+            continue  # the average itself is falling
+        return ArielSetup(
+            kind="ma-undercut-rally",
+            label=f"{SETUP_LABELS['ma-undercut-rally']} ({period}-day)",
+            trigger=m,
+            stop=None,  # the low of the reclaim day, set when it triggers
+            triggered=False,
+            detail=f"closed under the rising {period}-day average {m:.2f}; watch for the reclaim today (strength is checked at the close)",
+            entry_instruction="Enter as price rallies back through the moving average; stop at the low of the reclaim day",
+            anchor_date=_date(df, last),
+        )
+    return None
+
+
+def _ma_undercut_rally_triggered(df: pd.DataFrame, last: int) -> Optional[ArielSetup]:
     closes = df["close"]
     bar = df.iloc[last]
     span = float(bar["high"] - bar["low"])

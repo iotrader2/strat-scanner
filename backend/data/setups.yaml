@@ -98,10 +98,15 @@ undercut_rally:
     1. Swing low: the lowest low of the swing_lookback_days days before the last two days.
     2. Yesterday or today traded below it (the undercut), and yesterday closed at or below it.
     3. Today closed back above it (the reclaim must be immediate: the day after the close below).
+    4. Watch (pending) the evening before: the last day traded below the swing low (the lowest low of the
+       swing_lookback_days days before it) and closed under it, but no more than pending_max_below_pct under.
+       During the next session it shows "triggered today" once the high crosses back above the swing low;
+       after the close it stays only if that day closed back above (rule 3), otherwise it drops.
   entry: On the reclaim of the swing low.
   stop: The low made during the undercut.
   params:
     swing_lookback_days: 20
+    pending_max_below_pct: 3
 
 ma_undercut_rally:
   name: Moving Average Undercut and Rally
@@ -112,11 +117,16 @@ ma_undercut_rally:
     2. Today closed back above it, and the average is not falling (today's value >= yesterday's).
     3. "With strength": today is an up day (close above open) closing at or above
        strong_close_position_pct of the way up its range.
+    4. Watch (pending) the evening before: the last day closed under a rising (not falling) average, no more
+       than pending_max_below_pct under it. The trigger is that day's average value. During the next session it
+       shows "triggered today" once the high crosses it (stop: that day's low); after the close it stays only if
+       rules 1-3 hold, so a weak close drops it.
   entry: As price rallies back through the average.
   stop: Low of the reclaim day.
   params:
     ma_periods: [20, 50, 10]
     strong_close_position_pct: 50
+    pending_max_below_pct: 3
     min_history_days: 55
 
 high_tight_flag:

@@ -350,3 +350,57 @@ def test_gap_down_pivot_breaks_below_the_opening_range_low_during_the_session(mo
     assert short["trigger"] == pytest.approx(95.5)
     assert short["triggered"] is True and short["live"] is True  # today's low 94 broke below 95.5
     assert "broke below" in short["detail"]
+
+
+# --- MA Undercut and Rally: watch the evening before, live cross, the close decides ------------------------------
+
+
+def _ma_days(today):
+    """A rising 20-day average (~98 on Wednesday), Wednesday 2026-08-05 closes just under it, then ``today``."""
+    days = pd.bdate_range("2026-05-11", "2026-08-04")
+    closes = [90.0 + 10.0 * k / (len(days) - 1) for k in range(len(days))]
+    rows = [(d, c, c + 1.0, c - 1.0, c, 1_000_000.0) for d, c in zip(days, closes)]
+    rows.append((pd.Timestamp("2026-08-05"), 98.5, 98.8, 96.8, 97.0, 1_000_000.0))
+    rows.append((pd.Timestamp("2026-08-06"), *today))
+    return pd.DataFrame([r[1:] for r in rows], index=pd.DatetimeIndex([r[0] for r in rows]),
+                        columns=["open", "high", "low", "close", "volume"])
+
+
+def _ma_setup(row):
+    return next((s for s in row["setups"] if s["kind"] == "ma-undercut-rally"), None)
+
+
+def test_ma_reclaim_shows_when_price_crosses_the_average_intraday(monkeypatch):
+    _during_thursday_session(monkeypatch)
+    row = scan_symbol(MEMBER, _ma_days((97.2, 99.4, 96.5, 99.0, 800_000.0)))  # crosses ~98.4 during the day
+    s = _ma_setup(row)
+    assert s is not None and s["triggered"] is True and s["live"] is True
+    assert s["stop"] == 96.5  # low of the reclaim day so far
+
+
+def test_ma_reclaim_after_the_close_drops_a_weak_day_and_keeps_a_strong_one(monkeypatch):
+    from datetime import datetime
+
+    import strat.periods as periods
+    from strat.scheduler import ET
+
+    monkeypatch.setattr(periods, "clock", lambda: datetime(2026, 8, 6, 17, 0, tzinfo=ET))
+    weak = scan_symbol(MEMBER, _ma_days((97.2, 99.4, 96.5, 97.1, 1_000_000.0)))  # crossed, closed back under
+    assert _ma_setup(weak) is None or _ma_setup(weak)["triggered"] is False  # no reclaim; at most a new watch
+    strong = scan_symbol(MEMBER, _ma_days((97.2, 99.6, 97.0, 99.4, 1_500_000.0)))  # closed above, upper half
+    s = _ma_setup(strong)
+    assert s is not None and s["triggered"] is True and s["live"] is False
+
+
+def test_undercut_rally_watch_stop_follows_a_lower_low_today(monkeypatch):
+    _during_thursday_session(monkeypatch)
+    days = pd.bdate_range("2026-06-01", "2026-08-04")
+    rows = [(d, 100.0, 101.0, 99.0, 100.0, 1_000_000.0) for d in days]
+    rows[-15] = (days[-15], 100.0, 101.0, 90.0, 100.0, 1_000_000.0)  # swing low 90
+    rows.append((pd.Timestamp("2026-08-05"), 94.0, 95.0, 88.0, 89.0, 1_000_000.0))  # first close under it
+    rows.append((pd.Timestamp("2026-08-06"), 88.5, 91.0, 87.0, 90.5, 1_000_000.0))  # lower low, then reclaims
+    df = pd.DataFrame([r[1:] for r in rows], index=pd.DatetimeIndex([r[0] for r in rows]),
+                      columns=["open", "high", "low", "close", "volume"])
+    s = next(s for s in scan_symbol(MEMBER, df)["setups"] if s["kind"] == "undercut-rally")
+    assert s["triggered"] is True and s["live"] is True
+    assert s["stop"] == 87.0  # the undercut low now includes today's 87
