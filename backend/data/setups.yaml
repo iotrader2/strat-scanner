@@ -13,7 +13,7 @@ how_it_works:
   - The 15-minute chart is only for timing the entry.
   - Pending means the level is set and today's session decides whether it breaks. Triggered means it already broke, on the last completed day or today (long - today's high above the trigger; short - today's low below it).
   - A setup whose stop is not on the right side of its entry is dropped (long - stop below the entry; short - stop above). The entry is the trigger, or the breakout day's open when it gapped through.
-  - Long setups list Leaders (RS at the Min RS cut, P90 by default, trend not broken). Short setups list Laggards (RS at or below 100 minus Min RS, P10 by default, trend broken). Setups never add to the score.
+  - Long setups list Leaders (RS at the Min RS cut, P90 by default, trend not broken). Short setups list Laggards (RS at or below 100 minus Min RS, P10 by default, trend broken). Exception - Wedge Pop / Wedge Drop come right after a decline (or a rally), so they list RS at or above P50 (Wedge Drop - at or below P50) whatever the trend and the slider, like Recent breakouts. Setups never add to the score.
 short_setups: >-
   Each short setup is its long setup on the chart turned upside down (every price p becomes 1/p), with the
   same numbers. On the real chart a 2% gap up becomes a ~2% gap down, a 20% rise a ~17% decline, a 50% run-up
@@ -150,6 +150,52 @@ high_tight_flag:
     max_flag_depth_pct: 10
     max_giveback_pct: 10
 
+ema_crossback:
+  name: EMA Crossback
+  short_name: EMA Crossback Short
+  source: Oliver Kell (price cycle). "Crossback" is price coming back to the EMAs, not the EMAs crossing.
+  rules: |
+    1. Uptrend: the 10-day EMA is above the 20-day EMA, and the 20-day EMA is higher than rising_days days ago.
+    2. A push came first: in the push_lookback_days days before the last day, a high reached at least
+       min_push_pct above the 10-day EMA (there was a move away from the averages to pull back from).
+    3. Pullback to the EMAs: the last day's low came within touch_pct of the 10- or 20-day EMA (or dipped
+       below it) and the day closed no more than hold_pct under the 20-day EMA (it held; no close below is
+       needed). The pullback is no deeper than max_pullback_pct from the push high.
+    4. Pending on the touch day; the trigger is that day's high. Triggered when the next day trades above it.
+  entry: Above the high of the day that touched the EMA (the bounce).
+  stop: The pullback low (lowest low since the push high).
+  params:
+    rising_days: 5
+    push_lookback_days: 10
+    min_push_pct: 5
+    touch_pct: 1
+    hold_pct: 1
+    max_pullback_pct: 12
+
+wedge_pop:
+  name: Wedge Pop
+  short_name: Wedge Drop
+  source: Oliver Kell (price cycle; MU walkthrough). Listed for RS at P50 or better, broken trend allowed.
+  rules: |
+    1. Prior decline: in the decline_lookback_days days before the wedge, price fell at least
+       min_decline_pct from a high to a later low.
+    2. Wedge: the last wedge_days completed days trade in a tight range (high to low at most
+       max_wedge_range_pct of the last close), with daily ranges tightening (the last third smaller than
+       the first third), the last close within ema_near_pct of the 20-day EMA, and at least one close in
+       the wedge under the 20-day EMA (price is reclaiming the averages, not already above them).
+    3. Pending while that holds; the trigger is the wedge high (short-term resistance).
+    4. Triggered when the next day trades above the wedge high and closes above both the 10- and 20-day
+       EMAs (the pop). During the session it shows "triggered today" on the break; at the close it stays
+       only if it closed above both EMAs.
+  entry: Break above the wedge high.
+  stop: Low of the pop (breakout) day.
+  params:
+    decline_lookback_days: 40
+    min_decline_pct: 15
+    wedge_days: 7
+    max_wedge_range_pct: 8
+    ema_near_pct: 3
+
 # Order on screen when a stock has several setups (higher first). Shorts use the same numbers.
 display_rank:
   episodic_pivot: 23
@@ -158,3 +204,5 @@ display_rank:
   flat_base: 20
   undercut_rally: 18
   ma_undercut_rally: 18
+  ema_crossback: 19
+  wedge_pop: 19

@@ -46,6 +46,8 @@ def test_setup_tf_is_daily_and_entry_is_15m():
         "undercut-rally",
         "ma-undercut-rally",
         "high-tight-flag",
+        "ema-crossback",
+        "wedge-pop",
     }
 
 
@@ -366,7 +368,7 @@ def test_ma_overcut_fail_reads_the_real_moving_average():
 
 
 def test_short_kinds_rank_like_their_long_counterparts():
-    assert len(SHORT_KINDS) == 6
+    assert len(SHORT_KINDS) == 8
     for long_kind, (short_kind, _) in SHORT_MIRROR.items():
         assert SETUP_POINTS[short_kind] == SETUP_POINTS[long_kind]
 
@@ -416,3 +418,69 @@ def test_short_mirrors_have_the_watch_too():
     s = _shorts(_frame(_flip(ur_rows)))["overcut-fail"]
     assert s.triggered is False
     assert s.trigger == pytest.approx(1e4 / 90.0) and s.stop == pytest.approx(1e4 / 88.0)  # stop above the trigger
+
+
+
+# --- Kell: EMA Crossback and Wedge Pop -------------------------------------------------------------------------------
+
+import numpy as np  # noqa: E402
+
+
+def _crossback_rows():
+    c = list(np.linspace(80, 100, 50)) + list(np.linspace(101, 112, 6))  # uptrend, then a push away from the EMAs
+    rows = [(x, x + 0.8, x - 0.8, x, 1_000_000.0) for x in c]
+    rows += [(x + 0.5, x + 1, x - 0.8, x, 700_000.0) for x in (110.0, 107.0, 105.0)]  # pullback to the 10-day EMA
+    return rows
+
+
+def test_ema_crossback_pending_on_the_touch_day():
+    s = _by_kind(_frame(_crossback_rows()))["ema-crossback"]
+    assert (s.trigger, s.stop, s.triggered) == (106.0, 104.2, False)
+
+
+def test_ema_crossback_triggers_above_the_touch_day_high():
+    rows = _crossback_rows() + [(105.5, 107.5, 104.8, 107.2, 1_200_000.0)]
+    s = _by_kind(_frame(rows))["ema-crossback"]
+    assert s.triggered is True and s.trigger == 106.0 and s.stop == 104.2
+
+
+def test_ema_crossback_needs_the_push_and_the_hold():
+    flat = [(100.0, 100.8, 99.2, 100.0, 1_000_000.0)] * 60  # no uptrend, no push
+    assert "ema-crossback" not in _by_kind(_frame(flat))
+    lost = _crossback_rows()
+    lost[-1] = (105.5, 106.0, 99.0, 99.5, 1_500_000.0)  # closed well under the 20-day EMA
+    assert "ema-crossback" not in _by_kind(_frame(lost))
+
+
+def _wedge_rows():
+    c = [120.0] * 30 + list(np.linspace(120, 90, 25)) + list(np.linspace(90, 95, 6))  # decline and a first bounce
+    rows = [(x, x + 1, x - 1, x, 1_000_000.0) for x in c]
+    wedge = [(95, 97, 93.5, 95.2), (95.2, 96.6, 93.8, 95.0), (95, 96.3, 94.2, 95.4), (95.4, 96.0, 94.6, 95.3),
+             (95.3, 95.9, 94.9, 95.5), (95.5, 95.8, 95.1, 95.4), (95.4, 95.7, 95.2, 95.5)]
+    return rows + [(o, h, lo, c, 800_000.0) for o, h, lo, c in wedge]
+
+
+def test_wedge_pop_pending_then_pop():
+    s = _by_kind(_frame(_wedge_rows()))["wedge-pop"]
+    assert (s.trigger, s.stop, s.triggered) == (97.0, None, False)
+    pop = _by_kind(_frame(_wedge_rows() + [(95.6, 98.5, 95.4, 98.2, 2_000_000.0)]))["wedge-pop"]
+    assert (pop.trigger, pop.stop, pop.triggered) == (97.0, 95.4, True)
+
+
+def test_wedge_pop_needs_the_close_above_the_emas():
+    # Broke the wedge high intraday but closed back at 96, under the ~96.3 20-day EMA: no pop.
+    rows = _wedge_rows() + [(95.6, 98.0, 95.4, 96.0, 2_000_000.0)]
+    found = _by_kind(_frame(rows)).get("wedge-pop")
+    assert found is None or found.triggered is False
+
+
+def test_wedge_pop_needs_a_prior_decline():
+    rows = _wedge_rows()
+    rows[:55] = [(95.0, 96.0, 94.0, 95.0, 1_000_000.0)] * 55  # no decline before the wedge
+    assert "wedge-pop" not in _by_kind(_frame(rows))
+
+
+def test_kell_short_mirrors():
+    assert "ema-crossback-short" in _shorts(_frame(_flip(_crossback_rows())))
+    drop = _shorts(_frame(_flip(_wedge_rows())))["wedge-drop"]
+    assert drop.side == "short" and drop.trigger == pytest.approx(1e4 / 97.0)

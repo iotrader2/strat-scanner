@@ -37,6 +37,7 @@ CONFIG = load_config()
 _G, _EP, _HVC = CONFIG["general"], CONFIG["episodic_pivot"]["params"], CONFIG["delayed_hvc"]["params"]
 _FB, _UR = CONFIG["flat_base"]["params"], CONFIG["undercut_rally"]["params"]
 _MA, _HTF = CONFIG["ma_undercut_rally"]["params"], CONFIG["high_tight_flag"]["params"]
+_XB, _WP = CONFIG["ema_crossback"]["params"], CONFIG["wedge_pop"]["params"]
 
 # The timeframe the setup decision is made on, and the one used only to time the entry.
 SETUP_TF = "D"
@@ -84,6 +85,19 @@ HTF_FLAG_MIN_BARS = int(_HTF["flag_min_days"])
 HTF_FLAG_MAX_BARS = int(_HTF["flag_max_days"])
 HTF_FLAG_MAX_DEPTH_PCT = _HTF["max_flag_depth_pct"] / 100
 HTF_MAX_GIVEBACK = _HTF["max_giveback_pct"] / 100
+# EMA Crossback (Kell).
+XB_RISING_DAYS = int(_XB["rising_days"])
+XB_PUSH_LOOKBACK = int(_XB["push_lookback_days"])
+XB_MIN_PUSH = _XB["min_push_pct"] / 100
+XB_TOUCH = _XB["touch_pct"] / 100
+XB_HOLD = _XB["hold_pct"] / 100
+XB_MAX_PULLBACK = _XB["max_pullback_pct"] / 100
+# Wedge Pop (Kell).
+WP_DECLINE_LOOKBACK = int(_WP["decline_lookback_days"])
+WP_MIN_DECLINE = _WP["min_decline_pct"] / 100
+WP_WEDGE_DAYS = int(_WP["wedge_days"])
+WP_MAX_RANGE = _WP["max_wedge_range_pct"] / 100
+WP_EMA_NEAR = _WP["ema_near_pct"] / 100
 
 # Display points per setup kind. These order the setups for the trigger display
 # only — the setups do not score (leadership does).
@@ -95,6 +109,8 @@ _SECTION = {
     "undercut-rally": "undercut_rally",
     "ma-undercut-rally": "ma_undercut_rally",
     "high-tight-flag": "high_tight_flag",
+    "ema-crossback": "ema_crossback",
+    "wedge-pop": "wedge_pop",
 }
 SETUP_LABELS = {kind: str(CONFIG[sec]["name"]) for kind, sec in _SECTION.items()}
 
@@ -121,6 +137,7 @@ def describe() -> list[dict]:
             "rules": str(c.get("rules", "")).strip(),
             "entry": str(c.get("entry", "")).strip(),
             "stop": str(c.get("stop", "")).strip(),
+            "source": str(c.get("source", "")).strip(),
             "params": dict(c.get("params") or {}),
         })
     return out
@@ -133,6 +150,8 @@ SETUP_POINTS = {
     "flat-base-breakout": float(_RANK["flat_base"]),
     "undercut-rally": float(_RANK["undercut_rally"]),
     "ma-undercut-rally": float(_RANK["ma_undercut_rally"]),
+    "ema-crossback": float(_RANK["ema_crossback"]),
+    "wedge-pop": float(_RANK["wedge_pop"]),
 }
 
 # Short-side mirrors of the six setups (not in the long-only playbook; the scanner's own reading, see
@@ -144,6 +163,8 @@ _SHORT_KIND = {
     "undercut-rally": "overcut-fail",
     "ma-undercut-rally": "ma-overcut-fail",
     "high-tight-flag": "low-tight-flag",
+    "ema-crossback": "ema-crossback-short",
+    "wedge-pop": "wedge-drop",
 }
 SHORT_MIRROR = {kind: (short, str(CONFIG[_SECTION[kind]]["short_name"])) for kind, short in _SHORT_KIND.items()}
 SHORT_KINDS = tuple(k for k, _ in SHORT_MIRROR.values())
@@ -581,12 +602,152 @@ def detect_high_tight_flag(df: pd.DataFrame) -> Optional[ArielSetup]:
     )
 
 
+def _ema(values: pd.Series, period: int) -> pd.Series:
+    return values.ewm(span=period, adjust=False, min_periods=period).mean()
+
+
+def _crossback_touch(df: pd.DataFrame, i: int, e10: pd.Series, e20: pd.Series) -> Optional[tuple[float, float]]:
+    """(push high, pullback low) when bar ``i`` is an EMA Crossback touch day, else None."""
+    a10, a20, a20_then = e10.iloc[i], e20.iloc[i], e20.iloc[i - XB_RISING_DAYS]
+    if pd.isna(a10) or pd.isna(a20) or pd.isna(a20_then):
+        return None
+    a10, a20 = float(a10), float(a20)
+    if not (a10 > a20 and a20 > float(a20_then)):
+        return None  # not an uptrend on the EMAs
+    push = df.iloc[i - XB_PUSH_LOOKBACK : i]
+    ext = (push["high"] / e10.iloc[i - XB_PUSH_LOOKBACK : i]).max()
+    if pd.isna(ext) or float(ext) < 1 + XB_MIN_PUSH:
+        return None  # no move away from the averages to pull back from
+    bar = df.iloc[i]
+    low, close = float(bar["low"]), float(bar["close"])
+    if low > max(a10, a20) * (1 + XB_TOUCH):
+        return None  # did not come back to the EMAs
+    if close < a20 * (1 - XB_HOLD):
+        return None  # lost the 20-day EMA
+    hi_pos = int(push["high"].to_numpy().argmax())
+    push_high = float(push["high"].iloc[hi_pos])
+    pullback_low = float(df["low"].iloc[i - XB_PUSH_LOOKBACK + hi_pos : i + 1].min())
+    if pullback_low < push_high * (1 - XB_MAX_PULLBACK):
+        return None  # too deep to be constructive
+    return push_high, pullback_low
+
+
+def detect_ema_crossback(df: pd.DataFrame) -> Optional[ArielSetup]:
+    """Kell's EMA Crossback: a pullback to the rising 10/20-day EMA that holds; enter on the bounce."""
+    if len(df) < max(30, XB_PUSH_LOOKBACK + XB_RISING_DAYS + 21):
+        return None
+    last = len(df) - 1
+    closes = df["close"]
+    e10, e20 = _ema(closes, 10), _ema(closes, 20)
+    bar = df.iloc[last]
+    # Triggered: the touch was yesterday and today traded above its high.
+    prev = _crossback_touch(df, last - 1, e10, e20)
+    if prev is not None:
+        trigger = float(df["high"].iloc[last - 1])
+        if float(bar["high"]) > trigger:
+            stop = min(prev[1], float(bar["low"]))
+            return ArielSetup(
+                kind="ema-crossback",
+                label=SETUP_LABELS["ema-crossback"],
+                trigger=trigger,
+                stop=stop,
+                triggered=True,
+                detail=f"bounced off the rising 10/20-day EMA over {trigger:.2f}; stop at the pullback low {stop:.2f}",
+                entry_instruction="Enter above the high of the day that touched the EMA; stop at the pullback low",
+                anchor_date=_date(df, last - 1),
+                entry=_entry(trigger, float(bar["open"])),
+            )
+    found = _crossback_touch(df, last, e10, e20)
+    if found is None:
+        return None
+    trigger = float(bar["high"])
+    return ArielSetup(
+        kind="ema-crossback",
+        label=SETUP_LABELS["ema-crossback"],
+        trigger=trigger,
+        stop=found[1],
+        triggered=False,
+        detail=f"pulled back to the rising 10/20-day EMA and held; enter above {trigger:.2f}",
+        entry_instruction="Enter above the high of the day that touched the EMA; stop at the pullback low",
+        anchor_date=_date(df, last),
+    )
+
+
+def _wedge(df: pd.DataFrame, end: int, e20: pd.Series) -> Optional[tuple[float, float]]:
+    """(wedge high, wedge low) when the ``WP_WEDGE_DAYS`` bars ending before ``end`` form a wedge after a decline."""
+    start = end - WP_WEDGE_DAYS
+    if start - WP_DECLINE_LOOKBACK < 0:
+        return None
+    w = df.iloc[start:end]
+    hi, lo, last_close = float(w["high"].max()), float(w["low"].min()), float(w["close"].iloc[-1])
+    if last_close <= 0 or (hi - lo) / last_close > WP_MAX_RANGE:
+        return None  # not tight
+    ranges = (w["high"] - w["low"]).to_numpy()
+    third = max(1, len(ranges) // 3)
+    if ranges[-third:].mean() >= ranges[:third].mean():
+        return None  # not tightening
+    ema20 = e20.iloc[start:end]
+    if ema20.isna().any() or abs(last_close / float(ema20.iloc[-1]) - 1) > WP_EMA_NEAR:
+        return None  # not near the averages
+    if not (w["close"] < ema20).any():
+        return None  # already above the 20-day EMA the whole time: nothing to reclaim
+    before = df.iloc[start - WP_DECLINE_LOOKBACK : start]
+    top = int(before["high"].to_numpy().argmax())
+    peak = float(before["high"].iloc[top])
+    trough = float(df["low"].iloc[start - WP_DECLINE_LOOKBACK + top : end].min())
+    if peak <= 0 or trough > peak * (1 - WP_MIN_DECLINE):
+        return None  # no real decline before the wedge
+    return hi, lo
+
+
+def detect_wedge_pop(df: pd.DataFrame) -> Optional[ArielSetup]:
+    """Kell's Wedge Pop: after a decline, a tight wedge near the 10/20-day EMAs breaks out and reclaims them."""
+    if len(df) < WP_DECLINE_LOOKBACK + WP_WEDGE_DAYS + 21:
+        return None
+    last = len(df) - 1
+    closes = df["close"]
+    e10, e20 = _ema(closes, 10), _ema(closes, 20)
+    bar = df.iloc[last]
+    found = _wedge(df, last, e20)
+    if found is not None:
+        wedge_high = found[0]
+        if float(bar["high"]) > wedge_high:
+            if float(bar["close"]) > max(float(e10.iloc[last]), float(e20.iloc[last])):
+                return ArielSetup(
+                    kind="wedge-pop",
+                    label=SETUP_LABELS["wedge-pop"],
+                    trigger=wedge_high,
+                    stop=float(bar["low"]),
+                    triggered=True,
+                    detail=f"popped out of the {WP_WEDGE_DAYS}-day wedge over {wedge_high:.2f} and closed above the 10/20-day EMAs",
+                    entry_instruction="Enter on the break above the wedge high; stop at the low of the pop day",
+                    anchor_date=_date(df, last),
+                    entry=_entry(wedge_high, float(bar["open"])),
+                )
+            return None  # broke out but closed back under the averages: no pop
+    found = _wedge(df, last + 1, e20)
+    if found is None:
+        return None
+    return ArielSetup(
+        kind="wedge-pop",
+        label=SETUP_LABELS["wedge-pop"],
+        trigger=found[0],
+        stop=None,  # the low of the pop day, set when it triggers
+        triggered=False,
+        detail=f"tight {WP_WEDGE_DAYS}-day wedge near the 10/20-day EMAs after a decline; enter above {found[0]:.2f}",
+        entry_instruction="Enter on the break above the wedge high; stop at the low of the pop day",
+        anchor_date=_date(df, last),
+    )
+
+
 _DAILY_DETECTORS = (
     detect_delayed_hvc,
     detect_flat_base_breakout,
     detect_undercut_rally,
     detect_ma_undercut_rally,
     detect_high_tight_flag,
+    detect_ema_crossback,
+    detect_wedge_pop,
 )
 
 
@@ -662,6 +823,14 @@ _SHORT_TEXT = {
         f"a {_drop_pct(HTF_MIN_RUNUP_PCT)}+ drop within ~{HTF_RUN_MAX_BARS // 5} weeks, then a tight "
         f"{HTF_FLAG_MIN_BARS // 5}-{HTF_FLAG_MAX_BARS // 5} week bounce on lighter volume; enter below the flag low",
         "Enter on the break below the bottom of the flag; stop at the high of the breakdown day",
+    ),
+    "ema-crossback-short": (
+        "bounced up to the falling 10/20-day EMA and was held under it; enter below that day's low",
+        "Enter below the low of the day that touched the EMA; stop at the bounce high",
+    ),
+    "wedge-drop": (
+        "after a rally, a tight wedge near the 10/20-day EMAs; enter on the break below the wedge low (closing under both EMAs)",
+        "Enter on the break below the wedge low; stop at the high of the drop day",
     ),
 }
 

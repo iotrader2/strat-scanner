@@ -20,6 +20,7 @@ function SetupCard({ doc }: { doc: SetupDoc }) {
           <div className="muted small">
             Short mirror: <span id={doc.short_kind}>{doc.short_name}</span>
           </div>
+          {doc.source && <div className="muted small">Source: {doc.source}</div>}
         </div>
         <div className="setup-doc-links">
           {longFilter && (

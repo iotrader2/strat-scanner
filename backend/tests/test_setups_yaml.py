@@ -36,6 +36,13 @@ def test_every_documented_number_is_what_the_code_uses():
             a.HTF_FLAG_MAX_DEPTH_PCT, a.HTF_MAX_GIVEBACK) == (
         htf["min_runup_pct"] / 100, htf["run_max_days"], htf["flag_min_days"], htf["flag_max_days"],
         htf["max_flag_depth_pct"] / 100, htf["max_giveback_pct"] / 100)
+    xb, wp = c["ema_crossback"]["params"], c["wedge_pop"]["params"]
+    assert (a.XB_RISING_DAYS, a.XB_PUSH_LOOKBACK, a.XB_MIN_PUSH, a.XB_TOUCH, a.XB_HOLD, a.XB_MAX_PULLBACK) == (
+        xb["rising_days"], xb["push_lookback_days"], xb["min_push_pct"] / 100, xb["touch_pct"] / 100,
+        xb["hold_pct"] / 100, xb["max_pullback_pct"] / 100)
+    assert (a.WP_DECLINE_LOOKBACK, a.WP_MIN_DECLINE, a.WP_WEDGE_DAYS, a.WP_MAX_RANGE, a.WP_EMA_NEAR) == (
+        wp["decline_lookback_days"], wp["min_decline_pct"] / 100, wp["wedge_days"], wp["max_wedge_range_pct"] / 100,
+        wp["ema_near_pct"] / 100)
 
 
 def test_every_parameter_is_explained_in_its_rules():

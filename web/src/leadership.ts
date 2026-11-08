@@ -28,7 +28,11 @@ export type SetupFilter =
   | "short_flat_base"
   | "short_overcut"
   | "short_ma_overcut"
-  | "short_ltf";
+  | "short_ltf"
+  | "setup_crossback"
+  | "short_crossback"
+  | "setup_wedge_pop"
+  | "short_wedge_drop";
 
 /** Setups option → the backend setup kind it lists. */
 export const SETUP_FILTER_KIND: Record<SetupFilter, string> = {
@@ -44,7 +48,17 @@ export const SETUP_FILTER_KIND: Record<SetupFilter, string> = {
   short_overcut: "overcut-fail",
   short_ma_overcut: "ma-overcut-fail",
   short_ltf: "low-tight-flag",
+  setup_crossback: "ema-crossback",
+  short_crossback: "ema-crossback-short",
+  setup_wedge_pop: "wedge-pop",
+  short_wedge_drop: "wedge-drop",
 };
+
+/**
+ * Wedge Pop / Wedge Drop come right after a decline (rally), when the trend is usually still broken (intact): they
+ * list RS at or above P50 (Wedge Drop: at or below) whatever the trend and the Min RS slider, like Recent breakouts.
+ */
+export const WEDGE_FILTERS: readonly LeadershipFilter[] = ["setup_wedge_pop", "short_wedge_drop"];
 
 /** The short-side setup views (they list laggards instead of leaders). */
 export const isShortSetupFilter = (f: string): boolean => f.startsWith("short_") && f in SETUP_FILTER_KIND;
@@ -110,7 +124,7 @@ const isSetupLaggard = (r: LeaderFields, minRs: number, kind: string) => isLagga
 
 /** True when the Min RS slider applies to this Setups option (Leaders, Laggards and the per-setup views). */
 export function leadershipUsesMinRs(filter: LeadershipFilter): boolean {
-  return filter === "leaders" || filter === "laggards" || isSetupFilter(filter);
+  return filter === "leaders" || filter === "laggards" || (isSetupFilter(filter) && !WEDGE_FILTERS.includes(filter));
 }
 
 /**
@@ -217,7 +231,14 @@ export function matchesLeadership(r: LeaderFields, filter: LeadershipFilter, min
     case "short_overcut":
     case "short_ma_overcut":
     case "short_ltf":
+    case "short_crossback":
       return isSetupLaggard(r, minRs, SETUP_FILTER_KIND[filter]);
+    case "setup_crossback":
+      return isSetupLeader(r, minRs, SETUP_FILTER_KIND[filter]);
+    case "setup_wedge_pop":
+      return rsAtLeast(r, BREAKOUT_MIN_RS) && !!findSetup(r, SETUP_FILTER_KIND[filter]);
+    case "short_wedge_drop":
+      return r.rs !== null && r.rs !== undefined && r.rs <= BREAKOUT_MIN_RS && !!findSetup(r, SETUP_FILTER_KIND[filter]);
     case "laggards":
       return isLaggardAtRs(r, minRs);
     case "daily_bullish":
@@ -268,6 +289,10 @@ export function migrateLeadership(saved: string | null | undefined): { filter: L
     case "short_overcut":
     case "short_ma_overcut":
     case "short_ltf":
+    case "setup_crossback":
+    case "short_crossback":
+    case "setup_wedge_pop":
+    case "short_wedge_drop":
     case "daily_bullish":
     case "daily_bearish":
     case "weekly_bullish":
