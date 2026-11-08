@@ -171,7 +171,8 @@ describe("per-setup views", () => {
     expect(Object.values(SETUP_FILTER_KIND).sort()).toEqual([
       "delayed-hvc", "delayed-hvc-short", "episodic-pivot", "flat-base-breakdown", "flat-base-breakout", "gap-down-pivot",
       "high-tight-flag", "low-tight-flag", "ma-overcut-fail", "ma-undercut-rally", "overcut-fail", "undercut-rally",
-    ]);
+      "ema-crossback", "ema-crossback-short", "wedge-pop", "wedge-drop",
+    ].sort());
   });
 
   it("lists leaders with that setup, pending or triggered", () => {
@@ -464,5 +465,23 @@ describe("laggards and short setup views", () => {
     const focused = focusSetup(r, "short_flat_base");
     expect(focused.trigger).toBe(40);
     expect(focused.trigger_distance_pct).toBeCloseTo(((42 - 40) / 42) * 100); // must fall ~4.8%
+  });
+});
+
+describe("Kell setups", () => {
+  const set = (kind: string) => [{ kind, label: kind, trigger: 10, triggered: false, live: false }];
+  it("Wedge Pop lists RS >= P50 whatever the trend and slider; Wedge Drop RS <= P50", () => {
+    const pop = { ...row(0.6, "broken"), setups: set("wedge-pop") };
+    const drop = { ...row(0.4, "none"), setups: set("wedge-drop") };
+    expect(matchesLeadership(pop, "setup_wedge_pop", sliderToRs(99))).toBe(true);
+    expect(matchesLeadership({ ...pop, rs: 0.4 }, "setup_wedge_pop")).toBe(false);
+    expect(matchesLeadership(drop, "short_wedge_drop")).toBe(true);
+    expect(leadershipUsesMinRs("setup_wedge_pop")).toBe(false);
+    expect(leadershipUsesMinRs("setup_crossback")).toBe(true);
+  });
+
+  it("EMA Crossback lists leaders, like the other long setups", () => {
+    expect(matchesLeadership({ ...row(0.95, "none"), setups: set("ema-crossback") }, "setup_crossback")).toBe(true);
+    expect(matchesLeadership({ ...row(0.95, "broken"), setups: set("ema-crossback") }, "setup_crossback")).toBe(false);
   });
 });

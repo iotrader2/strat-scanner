@@ -115,6 +115,26 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
     hint: "Short setup (the scanner's mirror of the long setup; not in the long-only playbook). Laggards (RS at or below the bottom cut: P10 at the default slider, up to P50 as you widen it; trend broken) with a 33%+ drop within ~8 weeks, then a 2–5 week bounce no more than ~11% high on lighter volume. Entry: break below the flag. Stop: high of the breakdown day. Pending and triggered both listed; the row shows this setup's trigger. Sorted by score.",
   },
   {
+    value: "setup_crossback",
+    label: "EMA Crossback",
+    hint: "Leaders (P90+ and trend not broken; the Min RS slider can raise the cut; no score cut) with a pullback to the rising 10/20-day EMA that held (Oliver Kell). Entry above the touch day's high, stop at the pullback low.",
+  },
+  {
+    value: "short_crossback",
+    label: "EMA Crossback Short",
+    hint: "Laggards (RS at or below the bottom cut, P10 by default; trend broken) with a bounce up to the falling 10/20-day EMA that was held under it. Entry below the touch day's low, stop at the bounce high.",
+  },
+  {
+    value: "setup_wedge_pop",
+    label: "Wedge Pop",
+    hint: "RS at P50 or better, any trend (ignores the Min RS slider): after a decline, a tight wedge near the 10/20-day EMAs breaks its high and closes above both EMAs (Oliver Kell). Stop at the pop day's low.",
+  },
+  {
+    value: "short_wedge_drop",
+    label: "Wedge Drop",
+    hint: "RS at P50 or worse, any trend (ignores the Min RS slider): after a rally, a tight wedge near the 10/20-day EMAs breaks its low and closes below both EMAs. Stop at the drop day's high.",
+  },
+  {
     value: "daily_bullish",
     label: "Daily bullish trend change",
     hint:
@@ -158,6 +178,7 @@ export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
 const RED_TILES = new Set<LeadershipFilter>([
   "broken", "daily_bearish", "weekly_bearish", "failed_breakouts", "laggards",
   "short_ep", "short_hvc", "short_flat_base", "short_overcut", "short_ma_overcut", "short_ltf",
+  "short_crossback", "short_wedge_drop",
 ]);
 /** Summary tiles: one per Setups option, in the dropdown's order, labelled like it (lower case). */
 export const HERO_CHIPS: { filter: LeadershipFilter; label: string; tone: "muted" | "green" | "red" }[] = SETUPS_OPTIONS.map(
