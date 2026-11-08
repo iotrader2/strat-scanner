@@ -75,7 +75,6 @@ UR_LOOKBACK_BARS = int(_UR["swing_lookback_days"])
 UR_PENDING_MAX_BELOW = _UR["pending_max_below_pct"] / 100
 # MA Undercut and Rally.
 MA_UR_PERIODS = tuple(int(p) for p in _MA["ma_periods"])
-MA_UR_CLOSE_POSITION = _MA["strong_close_position_pct"] / 100
 MA_UR_MIN_HISTORY = int(_MA["min_history_days"])
 MA_UR_PENDING_MAX_BELOW = _MA["pending_max_below_pct"] / 100
 # High Tight Flag.
@@ -469,9 +468,8 @@ def _undercut_rally_triggered(df: pd.DataFrame, last: int) -> Optional[ArielSetu
 
 
 def detect_ma_undercut_rally(df: pd.DataFrame) -> Optional[ArielSetup]:
-    """The last bar reclaims, with strength, a key daily moving average it had closed below (triggered), or the
-    last bar closed just under a rising average (pending: an intraday cross shows as "triggered today"; at the
-    close the full rule, strength included, decides whether it stays)."""
+    """Pending: the last bar closed just under a rising daily average. Triggered: the bar after such a close
+    traded back up through it (intraday is enough; no close above is needed)."""
     if len(df) < MA_UR_MIN_HISTORY:
         return None
     last = len(df) - 1
@@ -506,33 +504,36 @@ def _ma_undercut_rally_pending(df: pd.DataFrame, last: int) -> Optional[ArielSet
 
 
 def _ma_undercut_rally_triggered(df: pd.DataFrame, last: int) -> Optional[ArielSetup]:
+    """Yesterday was a valid watch (closed just under a rising average) and today traded back up through it.
+
+    No close above is needed: the intraday cross is the trigger (you asked for this on 2026-11-08, after APTV
+    crossed up through its average on 2026-11-04 and closed back under it).
+    """
     closes = df["close"]
     bar = df.iloc[last]
-    span = float(bar["high"] - bar["low"])
-    # "With strength": an up day closing in the upper half of its range.
-    if span <= 0 or float(bar["close"]) <= float(bar["open"]) or float(bar["close"]) < float(bar["low"]) + MA_UR_CLOSE_POSITION * span:
-        return None
     for period in MA_UR_PERIODS:
         ma = _sma(closes, period)
-        prev_ma, cur_ma = ma.iloc[last - 1], ma.iloc[last]
-        if pd.isna(prev_ma) or pd.isna(cur_ma):
+        level, before = ma.iloc[last - 1], ma.iloc[last - 2]
+        if pd.isna(level) or pd.isna(before):
             continue
-        if float(closes.iloc[last - 1]) >= float(prev_ma):
-            continue  # was not below the average
-        if float(closes.iloc[last]) <= float(cur_ma):
-            continue  # has not reclaimed it
-        if float(cur_ma) < float(prev_ma):
-            continue  # the average itself is still falling
+        level = float(level)
+        prev_close = float(closes.iloc[last - 1])
+        if prev_close >= level or prev_close < level * (1 - MA_UR_PENDING_MAX_BELOW):
+            continue  # yesterday was not just under the average
+        if level < float(before):
+            continue  # the average was falling
+        if float(bar["high"]) <= level:
+            continue  # today did not trade back through it
         return ArielSetup(
             kind="ma-undercut-rally",
             label=f"{SETUP_LABELS['ma-undercut-rally']} ({period}-day)",
-            trigger=float(cur_ma),
+            trigger=level,
             stop=float(bar["low"]),
             triggered=True,
-            detail=f"reclaimed the {period}-day average at {float(cur_ma):.2f}; stop at the reclaim-day low",
+            detail=f"traded back up through the {period}-day average {level:.2f}; stop at the reclaim-day low",
             entry_instruction="Enter as price rallies back through the moving average; stop at the low of the reclaim day",
             anchor_date=_date(df, last),
-            entry=_entry(float(cur_ma), float(bar["open"])),
+            entry=_entry(level, float(bar["open"])),
         )
     return None
 
@@ -816,7 +817,7 @@ _SHORT_TEXT = {
         "Enter on the failure back below the prior high; stop at the high made during the overcut",
     ),
     "ma-overcut-fail": (
-        "closed above a falling daily average, then was rejected back below it on a weak day; stop at the rejection-day high",
+        "closed just over a falling daily average, then traded back down through it (no close below needed); stop at that day's high",
         "Enter as price breaks back below the moving average; stop at the high of the rejection day",
     ),
     "low-tight-flag": (
@@ -854,7 +855,8 @@ def _to_short(s: ArielSetup, df: pd.DataFrame) -> ArielSetup:
     trigger = 1.0 / s.trigger
     if kind == "ma-overcut-fail":
         period = int(s.label.rsplit("(", 1)[1].split("-")[0])
-        real = df["close"].rolling(period, min_periods=period).mean().iloc[-1]
+        # The triggered form uses the watch day's (yesterday's) average; the pending form today's.
+        real = df["close"].rolling(period, min_periods=period).mean().iloc[-2 if s.triggered else -1]
         trigger = float(real) if pd.notna(real) else trigger
         label = f"{label} ({period}-day)"
     stop = _inv(s.stop)

@@ -30,8 +30,8 @@ def test_every_documented_number_is_what_the_code_uses():
         fb["base_days"], fb["max_depth_pct"] / 100, fb["prior_trend_days"], fb["prior_rise_pct"] / 100,
         fb["ma_spread_pct"] / 100, fb["resistance_pct"] / 100, fb["tight_candle_pct"] / 100)
     assert a.UR_LOOKBACK_BARS == ur["swing_lookback_days"]
-    assert (list(a.MA_UR_PERIODS), a.MA_UR_CLOSE_POSITION, a.MA_UR_MIN_HISTORY) == (
-        ma["ma_periods"], ma["strong_close_position_pct"] / 100, ma["min_history_days"])
+    assert (list(a.MA_UR_PERIODS), a.MA_UR_MIN_HISTORY, a.MA_UR_PENDING_MAX_BELOW) == (
+        ma["ma_periods"], ma["min_history_days"], ma["pending_max_below_pct"] / 100)
     assert (a.HTF_MIN_RUNUP_PCT, a.HTF_RUN_MAX_BARS, a.HTF_FLAG_MIN_BARS, a.HTF_FLAG_MAX_BARS,
             a.HTF_FLAG_MAX_DEPTH_PCT, a.HTF_MAX_GIVEBACK) == (
         htf["min_runup_pct"] / 100, htf["run_max_days"], htf["flag_min_days"], htf["flag_max_days"],

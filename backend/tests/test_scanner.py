@@ -378,7 +378,7 @@ def test_ma_reclaim_shows_when_price_crosses_the_average_intraday(monkeypatch):
     assert s["stop"] == 96.5  # low of the reclaim day so far
 
 
-def test_ma_reclaim_after_the_close_drops_a_weak_day_and_keeps_a_strong_one(monkeypatch):
+def test_ma_reclaim_after_the_close_keeps_a_cross_whatever_the_close(monkeypatch):
     from datetime import datetime
 
     import strat.periods as periods
@@ -386,7 +386,8 @@ def test_ma_reclaim_after_the_close_drops_a_weak_day_and_keeps_a_strong_one(monk
 
     monkeypatch.setattr(periods, "clock", lambda: datetime(2026, 8, 6, 17, 0, tzinfo=ET))
     weak = scan_symbol(MEMBER, _ma_days((97.2, 99.4, 96.5, 97.1, 1_000_000.0)))  # crossed, closed back under
-    assert _ma_setup(weak) is None or _ma_setup(weak)["triggered"] is False  # no reclaim; at most a new watch
+    s = _ma_setup(weak)
+    assert s is not None and s["triggered"] is True  # the intraday cross is enough (APTV 2026-11-04)
     strong = scan_symbol(MEMBER, _ma_days((97.2, 99.6, 97.0, 99.4, 1_500_000.0)))  # closed above, upper half
     s = _ma_setup(strong)
     assert s is not None and s["triggered"] is True and s["live"] is False

@@ -112,20 +112,15 @@ ma_undercut_rally:
   name: Moving Average Undercut and Rally
   short_name: MA Overcut and Fail
   rules: |
-    1. Yesterday closed below a daily moving average (tried in the order of ma_periods; the first that
-       fits is used).
-    2. Today closed back above it, and the average is not falling (today's value >= yesterday's).
-    3. "With strength": today is an up day (close above open) closing at or above
-       strong_close_position_pct of the way up its range.
-    4. Watch (pending) the evening before: the last day closed under a rising (not falling) average, no more
-       than pending_max_below_pct under it. The trigger is that day's average value. During the next session it
-       shows "triggered today" once the high crosses it (stop: that day's low); after the close it stays only if
-       rules 1-3 hold, so a weak close drops it.
+    1. Undercut: a day closes under a daily moving average that is not falling (tried in the order of
+       ma_periods; the first that fits is used), no more than pending_max_below_pct under it. That evening
+       it is a watch (pending), with the trigger at that day's average value.
+    2. Rally: the next day trades back up through that level. That alone triggers it, during the session
+       ("triggered today") and after the close; it does NOT need to close back above the average.
   entry: As price rallies back through the average.
   stop: Low of the reclaim day.
   params:
     ma_periods: [20, 50, 10]
-    strong_close_position_pct: 50
     pending_max_below_pct: 3
     min_history_days: 55
 
