@@ -38,6 +38,7 @@ vi.mock("lightweight-charts", () => ({
         return { setData: (data: Series["data"]) => { entry.data = data; } };
       },
       priceScale: () => ({ applyOptions: () => {} }),
+      subscribeCrosshairMove: () => {},
       timeScale: () => ({
         setVisibleLogicalRange: (range: { from: number; to: number }) => {
           chart.range = range;
