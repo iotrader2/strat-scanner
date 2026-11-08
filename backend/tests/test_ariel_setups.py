@@ -228,22 +228,33 @@ def test_ma_undercut_rally_watch_skips_a_falling_average():
 # --- MA Undercut and Rally ------------------------------------------------------------------------------
 
 
+def _ma_rows():
+    rows = _ramp(60, 90.0, 100.0)  # rising 20-day average around 98
+    rows.append((98.5, 98.8, 96.8, 97.0, 1_000_000.0))  # closes just under it: the watch day
+    return rows
+
+
 def test_ma_undercut_rally_reclaim_and_stop():
-    rows = _flat(60)
-    rows.append((96.0, 97.0, 94.0, 95.0, 1_000_000.0))  # closes below the ~99.8 average
-    rows.append((99.0, 103.0, 98.5, 102.5, 2_000_000.0))  # reclaims it with strength
-    setup = _by_kind(_frame(rows))["ma-undercut-rally"]
-    assert setup.trigger == pytest.approx(99.9, abs=0.1)
-    assert setup.stop == 98.5
+    rows = _ma_rows() + [(97.2, 99.6, 97.0, 99.4, 1_500_000.0)]  # trades back up through it
+    df = _frame(rows)
+    setup = _by_kind(df)["ma-undercut-rally"]
+    assert setup.trigger == pytest.approx(float(df["close"].rolling(20).mean().iloc[-2]))  # the watch day's average
+    assert setup.stop == 97.0
     assert setup.triggered is True
     assert "20-day" in setup.label
 
 
-def test_ma_reclaim_without_strength_is_not_a_setup():
-    rows = _flat(60)
-    rows.append((96.0, 97.0, 94.0, 95.0, 1_000_000.0))
-    rows.append((103.0, 104.0, 98.5, 100.0, 1_000_000.0))  # closes red, low in its range
-    assert "ma-undercut-rally" not in _by_kind(_frame(rows))
+def test_ma_reclaim_counts_without_a_close_above():
+    """APTV 2026-11-04: crossed up through the average and closed back under it. That is a trigger."""
+    rows = _ma_rows() + [(97.2, 99.4, 96.5, 97.1, 1_000_000.0)]
+    setup = _by_kind(_frame(rows))["ma-undercut-rally"]
+    assert setup.triggered is True and setup.stop == 96.5
+
+
+def test_ma_reclaim_needs_the_cross():
+    rows = _ma_rows() + [(97.2, 97.9, 96.5, 97.5, 1_000_000.0)]  # stayed under the ~98 average all day
+    found = _by_kind(_frame(rows)).get("ma-undercut-rally")
+    assert found is None or found.triggered is False  # at most a new watch
 
 
 # --- High Tight Flag ------------------------------------------------------------------------------------
@@ -357,13 +368,13 @@ def test_gap_down_pivot_is_live_with_the_opening_range_low_and_high_of_day_stop(
 
 
 def test_ma_overcut_fail_reads_the_real_moving_average():
-    rows = _flat(60)
-    rows.append((102.0, 106.0, 101.0, 103.0, 1_000_000.0))  # closes above the ~100.05 average
-    rows.append((100.5, 101.0, 96.5, 97.0, 2_000_000.0))  # rejected back below on a weak day
-    df = _frame(rows)
+    rows = _ma_rows() + [(97.2, 99.4, 96.5, 97.1, 1_000_000.0)]
+    df = _frame(_flip(rows))
     setup = _shorts(df)["ma-overcut-fail"]
-    assert setup.trigger == pytest.approx(float(df["close"].rolling(20).mean().iloc[-1]))
-    assert setup.stop == pytest.approx(101.0)
+    # Upside down: closed just over a falling average, then traded back down through it (no close below needed).
+    assert setup.triggered is True and setup.side == "short"
+    assert setup.trigger == pytest.approx(float(df["close"].rolling(20).mean().iloc[-2]))
+    assert setup.stop == pytest.approx(1e4 / 96.5)
     assert "20-day" in setup.label
 
 
@@ -484,3 +495,25 @@ def test_kell_short_mirrors():
     assert "ema-crossback-short" in _shorts(_frame(_flip(_crossback_rows())))
     drop = _shorts(_frame(_flip(_wedge_rows())))["wedge-drop"]
     assert drop.side == "short" and drop.trigger == pytest.approx(1e4 / 97.0)
+
+
+def test_undercut_rally_counts_without_a_close_above():
+    """Traded back above the swing low and closed back under it: still a trigger (no close needed)."""
+    rows = _flat(21)
+    rows[11] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)  # swing low 90
+    rows.append((94.0, 95.0, 88.0, 89.0, 1_000_000.0))  # first close under it
+    rows.append((89.0, 91.0, 87.5, 89.5, 1_000_000.0))  # back above 90 intraday, closes under
+    s = _by_kind(_frame(rows))["undercut-rally"]
+    assert (s.trigger, s.triggered) == (90.0, True)
+    assert s.stop == 87.5  # the undercut low includes the trigger day's lower low
+    short = _shorts(_frame(_flip(rows)))["overcut-fail"]
+    assert short.triggered is True and short.trigger == pytest.approx(1e4 / 90.0)
+
+
+def test_undercut_rally_needs_the_reclaim():
+    rows = _flat(21)
+    rows[11] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)
+    rows.append((94.0, 95.0, 88.0, 89.0, 1_000_000.0))
+    rows.append((89.0, 89.8, 87.5, 88.5, 1_000_000.0))  # never back above 90
+    found = _by_kind(_frame(rows)).get("undercut-rally")
+    assert found is None or found.triggered is False
