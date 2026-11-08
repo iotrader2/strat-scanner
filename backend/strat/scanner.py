@@ -253,6 +253,9 @@ def scan_symbol(
             if setup.live and setup.stop is None:
                 # "Stop at the low (short: high) of the day the entry triggers."
                 setup.stop = today["high"] if setup.side == "short" else today["low"]
+            elif setup.live and setup.kind in ("undercut-rally", "overcut-fail"):
+                # "Stop at the new swing low made during the undercut": today can extend it (short: the high).
+                setup.stop = max(setup.stop, today["high"]) if setup.side == "short" else min(setup.stop, today["low"])
     # Continuity (score, badges, M+W / full flags) reads the bars in progress; the Strat state above does not.
     for tf, open_ in live_opens(daily).items():
         if states.get(tf) is not None and open_ is not None:

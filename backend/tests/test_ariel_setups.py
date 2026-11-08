@@ -181,12 +181,46 @@ def test_undercut_rally_reclaim_and_stop():
     assert (setup.trigger, setup.stop, setup.triggered) == (90.0, 88.0, True)
 
 
-def test_undercut_without_reclaim_is_not_a_setup():
+def test_undercut_without_reclaim_is_not_triggered():
     rows = _flat(20)
     rows[10] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)
     rows.append((94.0, 95.0, 88.0, 89.0, 1_000_000.0))
     rows.append((86.0, 89.0, 85.0, 87.0, 1_000_000.0))
+    found = _by_kind(_frame(rows)).get("undercut-rally")
+    # No reclaim of 90. Yesterday's 88 low is now the swing low and today is the first close under it: a watch.
+    assert found is not None and found.triggered is False and found.trigger == 88.0
+
+
+def test_undercut_rally_watch_the_evening_before():
+    rows = _flat(21)
+    rows[11] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)  # swing low 90
+    rows.append((94.0, 95.0, 88.0, 89.0, 1_000_000.0))  # first close under it, 1.1% under
+    setup = _by_kind(_frame(rows))["undercut-rally"]
+    assert (setup.trigger, setup.stop, setup.triggered) == (90.0, 88.0, False)
+
+
+def test_undercut_rally_watch_needs_to_stay_near_the_swing_low():
+    rows = _flat(21)
+    rows[11] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)
+    rows.append((92.0, 92.5, 84.0, 85.0, 1_000_000.0))  # 5.6% under: a breakdown, not a shakeout
     assert "undercut-rally" not in _by_kind(_frame(rows))
+
+
+def test_ma_undercut_rally_watch_the_evening_before():
+    rows = _ramp(60, 90.0, 100.0)  # rising 20-day average around 98
+    rows.append((98.5, 98.8, 96.8, 97.0, 1_000_000.0))  # closes just under it
+    df = _frame(rows)
+    setup = _by_kind(df)["ma-undercut-rally"]
+    ma20 = float(df["close"].rolling(20).mean().iloc[-1])
+    assert setup.triggered is False and setup.stop is None
+    assert setup.trigger == pytest.approx(ma20)
+    assert "20-day" in setup.label
+
+
+def test_ma_undercut_rally_watch_skips_a_falling_average():
+    rows = _ramp(60, 110.0, 100.0)  # falling averages
+    rows.append((99.5, 99.8, 98.0, 98.2, 1_000_000.0))
+    assert "ma-undercut-rally" not in _by_kind(_frame(rows))
 
 
 # --- MA Undercut and Rally ------------------------------------------------------------------------------
@@ -370,3 +404,15 @@ def test_delayed_hvc_short_mirror_also_drops_a_failed_gap():
     assert "delayed-hvc-short" not in _shorts(_frame(_flip(rows)))
     near = _flat(20) + [(103.0, 106.0, 102.0, 105.0, 3_000_000.0), (104.0, 104.5, 103.0, 104.0, 1_000_000.0)]
     assert "delayed-hvc-short" in _shorts(_frame(_flip(near)))
+
+
+def test_short_mirrors_have_the_watch_too():
+    ma_rows = _ramp(60, 90.0, 100.0) + [(98.5, 98.8, 96.8, 97.0, 1_000_000.0)]
+    s = _shorts(_frame(_flip(ma_rows)))["ma-overcut-fail"]
+    assert s.triggered is False and s.side == "short"
+    ur_rows = _flat(21)
+    ur_rows[11] = (100.0, 101.0, 90.0, 100.0, 1_000_000.0)
+    ur_rows.append((94.0, 95.0, 88.0, 89.0, 1_000_000.0))
+    s = _shorts(_frame(_flip(ur_rows)))["overcut-fail"]
+    assert s.triggered is False
+    assert s.trigger == pytest.approx(1e4 / 90.0) and s.stop == pytest.approx(1e4 / 88.0)  # stop above the trigger
