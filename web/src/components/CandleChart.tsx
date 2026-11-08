@@ -25,6 +25,7 @@ import {
   macdTriggerMarker,
 } from "../macd";
 import { CHART_AVERAGES, MA_LEGEND_TITLE, sma } from "../movingAverage";
+import { renderOhlc, type OhlcBar } from "../chartOhlc";
 
 interface Props {
   candles: ChartCandle[];
@@ -37,6 +38,7 @@ interface Props {
 
 export function CandleChart({ candles, height = 420, visibleBars = 60, compact = false, averages }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const ohlcRef = useRef<HTMLDivElement>(null);
   const lines = useMemo(
     () => (averages ?? CHART_AVERAGES).filter((average) => candles.length >= average.period + 1),
     [averages, candles],
@@ -191,6 +193,16 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
     }
     createSeriesMarkers(series, markers);
 
+    // O / H / L / C of the candle under the crosshair; the latest candle otherwise.
+    const latest = candles[candles.length - 1];
+    const showLatest = () => renderOhlc(ohlcRef.current, latest, String(latest.time));
+    showLatest();
+    chart.subscribeCrosshairMove((param) => {
+      const bar = param.time !== undefined ? (param.seriesData.get(series) as OhlcBar | undefined) : undefined;
+      if (bar && "open" in bar) renderOhlc(ohlcRef.current, bar, String(param.time));
+      else showLatest();
+    });
+
     const visible = Math.min(candles.length, visibleBars);
     chart.timeScale().setVisibleLogicalRange({ from: candles.length - visible - 0.5, to: candles.length + (compact ? 1 : 4) });
 
@@ -230,7 +242,10 @@ export function CandleChart({ candles, height = 420, visibleBars = 60, compact =
           )}
         </div>
       )}
-      <div ref={ref} className="chart" style={{ height }} />
+      <div className="chart-frame">
+        <div ref={ref} className="chart" style={{ height }} />
+        {!compact && <div ref={ohlcRef} className="ohlc-readout" aria-live="off" />}
+      </div>
     </div>
   );
 }

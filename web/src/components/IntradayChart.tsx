@@ -21,6 +21,7 @@ import {
   intradayPlot,
   intradaySessionNote,
 } from "../intradayChart";
+import { renderOhlc, type OhlcBar } from "../chartOhlc";
 
 interface Props {
   bars: IntradayBar[];
@@ -46,6 +47,7 @@ export function IntradayChart({
   seedSessions = 63,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const ohlcRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -125,6 +127,20 @@ export function IntradayChart({
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     volume.setData(plot.volume.map((bar) => ({ time: bar.time as Time, value: bar.value, color: bar.color })));
 
+    // O / H / L / C of the candle under the crosshair (with its clock time); the latest candle otherwise.
+    const when = (time: Time) => {
+      const real = realTime(time);
+      return real ? `${formatIntradayTime(real, true)} ET` : undefined;
+    };
+    const last = plot.candles[plot.candles.length - 1];
+    const showLatest = () => renderOhlc(ohlcRef.current, last, last ? when(last.time as Time) : undefined);
+    showLatest();
+    chart.subscribeCrosshairMove((param) => {
+      const bar = param.time !== undefined ? (param.seriesData.get(candles) as OhlcBar | undefined) : undefined;
+      if (bar && "open" in bar && param.time !== undefined) renderOhlc(ohlcRef.current, bar, when(param.time));
+      else showLatest();
+    });
+
     const visible = Math.min(bars.length, visibleBars);
     chart.timeScale().setVisibleLogicalRange({ from: bars.length - visible - 0.5, to: bars.length + 4 });
 
@@ -149,7 +165,10 @@ export function IntradayChart({
         </span>
         <span className="intraday-note">{intradaySessionNote(displaySessions)}</span>
       </div>
-      <div ref={ref} className="chart" style={{ height }} />
+      <div className="chart-frame">
+        <div ref={ref} className="chart" style={{ height }} />
+        <div ref={ohlcRef} className="ohlc-readout" aria-live="off" />
+      </div>
     </div>
   );
 }
