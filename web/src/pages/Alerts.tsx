@@ -149,6 +149,7 @@ export function AlertsTable({
             <th>Ticker</th>
             <th className="num">Score</th>
             <th className="num" title="Relative strength percentile, as on the Stock Scanner">RS</th>
+            <th>Side</th>
             <th title="The daily setup(s) that put this name on the alert list">Daily setup</th>
             <th title="Industry, and its rank among stock industries by median RS (1 = strongest)">Industry</th>
             <th>Entry</th>
@@ -159,7 +160,8 @@ export function AlertsTable({
             <th className="num">Risk / sh</th>
             <th>Status</th>
             <th className="num" title="Best price since the fill: the high (short: the low)">Best</th>
-            <th className="num">R</th>
+            <th className="num" title="Open trades (triggered, not stopped or exited): R at the last price">Open R</th>
+            <th className="num" title="Closed trades: R at the exit">R</th>
             <th className="outcome-cell">What happened</th>
             <th className="bought-col" aria-label="Bought" />
             <th className="actions-col" aria-label="Acknowledge" />
@@ -188,6 +190,11 @@ export function AlertsTable({
                 <AlertScore a={a} />
               </td>
               <td className="num">{fmtRs(a.rs)}</td>
+              <td>
+                <span className={`side-chip ${isShortSetup(a.setup) ? "short" : "long"}`}>
+                  {isShortSetup(a.setup) ? "SHORT" : "LONG"}
+                </span>
+              </td>
               <td className="daily-setup-cell">
                 {a.details?.daily_setups?.length ? a.details.daily_setups.join(", ") : <span className="muted">—</span>}
               </td>
@@ -209,7 +216,6 @@ export function AlertsTable({
                 <span className="setup-hover" title={SETUP_RULES[a.setup]}>
                   <span className="setup-letter">
                     <EmaDot setup={a.setup} />
-                    {isShortSetup(a.setup) && <span className="side-chip short">SHORT</span>}
                     {setupPeriod(a.setup)}
                   </span>
                   <span className="muted small setup-name">{SETUP_NAMES[a.setup] ?? `Setup ${a.setup}`}</span>
@@ -226,6 +232,12 @@ export function AlertsTable({
                 <StatusPill a={a} />
               </td>
               <td className="num">{money(a.high_reached)}</td>
+              <td
+                className={`num open-r ${rTone(a.open_r)}`}
+                title={a.open_r != null && a.price != null ? `At ${money(a.price)}` : undefined}
+              >
+                {fmtR(a.open_r)}
+              </td>
               <td className={`num ${rTone(a.r_multiple)}`}>
                 {fmtR(a.r_multiple)}
               </td>

@@ -1151,8 +1151,14 @@ def _attach_scores(rows: list[dict]) -> list[dict]:
         scan = by_symbol.get(row["symbol"])
         industry = None if scan is None else scan.get("industry")
         rank = ranks.get(str(industry)) if industry else None
+        price = None if scan is None else scan.get("price")
+        r_now = alert_rules.open_r(row, price if isinstance(price, (int, float)) else None)
         attached.append({
             **row,
+            "side": alert_rules.setup_side(str(row.get("setup"))),
+            # Last price on the scan (refreshed every poll) and the open trade's R at that price.
+            "price": price,
+            "open_r": None if r_now is None else round(r_now, 3),
             "rs": None if scan is None else scan.get("rs"),
             "industry": industry,
             "industry_rank": rank[0] if rank else None,

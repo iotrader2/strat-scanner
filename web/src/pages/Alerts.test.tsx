@@ -28,11 +28,11 @@ describe("AlertsTable", () => {
   );
 
   it("has the spec columns, with Score after Ticker and Bought before Acknowledge", () => {
-    for (const h of ["Watch", "Ticker", "Score", "RS", "Daily setup", "Industry", "Entry", "EMA", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
+    for (const h of ["Watch", "Ticker", "Score", "RS", "Side", "Daily setup", "Industry", "Entry", "EMA", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
     const head = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
     const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
     expect(labels.slice(labels.indexOf("Ticker"), labels.indexOf("Trigger") + 1)).toEqual([
-      "Ticker", "Score", "RS", "Daily setup", "Industry", "Entry", "EMA", "Trigger",
+      "Ticker", "Score", "RS", "Side", "Daily setup", "Industry", "Entry", "EMA", "Trigger",
     ]);
     const bought = labels.indexOf("");
     expect(head).toContain('aria-label="Bought"');
@@ -40,6 +40,27 @@ describe("AlertsTable", () => {
     expect(html).toContain("Bought →");
     expect(html).toContain('class="bought-col"');
     expect(html).not.toMatch(/class="[^"]*bought-col[^"]*actions-col/);
+  });
+
+  it("shows the side in its own column and the open R of a triggered trade", () => {
+    const view = renderToStaticMarkup(
+      <MemoryRouter>
+        <AlertsTable
+          alerts={[
+            sample({ id: 1, status: "triggered", filled: true, fill_price: 101.01, open_r: 1.234, price: 102.4 }),
+            sample({ id: 2, symbol: "MU", setup: "s240", status: "triggered", filled: true, fill_price: 99.0, open_r: -0.5 }),
+          ]}
+          flashing={new Set()}
+          onAck={() => undefined}
+          onBought={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+    expect(view).toContain('class="side-chip long">LONG<');
+    expect(view).toContain('class="side-chip short">SHORT<');
+    expect(view).toContain(">+1.23R<");
+    expect(view).toContain(">-0.50R<");
+    expect(view).toContain('title="At 102.40"');
   });
 
   it("shows RS, the daily setup and the industry with its rank", () => {
@@ -123,7 +144,7 @@ describe("AlertsTable", () => {
         />
       </MemoryRouter>,
     );
-    for (const h of ["Watch", "Ticker", "Score", "RS", "Daily setup", "Industry", "Entry", "Trigger", "Stop", "Status", "What happened"]) {
+    for (const h of ["Watch", "Ticker", "Score", "RS", "Side", "Daily setup", "Industry", "Entry", "Trigger", "Open R", "Stop", "Status", "What happened"]) {
       expect(archived).toContain(`>${h}</th>`);
     }
     expect(archived).toContain('aria-label="Bought"');

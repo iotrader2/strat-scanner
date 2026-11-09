@@ -664,6 +664,23 @@ def simulate(
     return alerts
 
 
+def open_r(row: Mapping, price: Optional[float]) -> Optional[float]:
+    """Current R of a filled trade still open (status ``triggered``) at ``price``; None otherwise.
+
+    1R is the fill minus the stop at the fill (short: the stop minus the fill), the same R a closed trade gets.
+    """
+    if row.get("status") != "triggered" or not row.get("filled") or price is None:
+        return None
+    fill, stop = row.get("fill_price"), row.get("stop_price")
+    if fill is None or stop is None:
+        return None
+    if setup_side(str(row.get("setup"))) == "short":
+        risk = float(stop) - float(fill)
+        return (float(fill) - float(price)) / risk if risk > 0 else None
+    risk = float(fill) - float(stop)
+    return (float(price) - float(fill)) / risk if risk > 0 else None
+
+
 def mark_top(rows: list[dict], top_names: int) -> set[str]:
     """First ``top_names`` distinct symbols of the day, by fire time (then symbol)."""
     names: list[str] = []

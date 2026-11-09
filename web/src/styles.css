@@ -879,6 +879,8 @@ th.num { text-align: right; }
 .side-btn:disabled { cursor: not-allowed; opacity: 0.6; }
 .side-chip { font-size: 9px; font-weight: 700; border-radius: 5px; padding: 1px 4px; margin-right: 6px; vertical-align: 1px; }
 .side-chip.short { color: var(--red); border: 1px solid rgba(244, 63, 94, 0.45); }
+.side-chip.long { color: var(--green); border: 1px solid rgba(34, 197, 94, 0.45); }
+.alerts-table .open-r { font-weight: 700; }
 
 /* Setups tab */
 .setup-jump { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
