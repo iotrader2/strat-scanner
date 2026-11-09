@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   api,
   type AlertHistoryPayload,
+  type AlertStatus,
   type AlertMetricsPayload,
   type AlertSettings,
   type AlertSettingsPayload,
@@ -115,6 +116,11 @@ const SIDE_OPTIONS: { value: AlertFilters["side"]; label: string }[] = [
   { value: "short", label: "Short" },
 ];
 
+const STATUS_OPTIONS: { value: AlertFilters["status"]; label: string }[] = [
+  { value: "all", label: "All" },
+  ...(Object.entries(STATUS_LABEL) as [AlertStatus, string][]).map(([value, label]) => ({ value, label })),
+];
+
 /** Score and RS range sliders plus a Long / Short toggle, shared by the live and history tables. */
 export function AlertFilterBar({
   filters,
@@ -160,6 +166,22 @@ export function AlertFilterBar({
               className={filters.side === o.value ? "active" : ""}
               aria-pressed={filters.side === o.value}
               onClick={() => onChange({ ...filters, side: o.value })}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="field alert-status-filter">
+        <span className="slider-head">Status</span>
+        <div className="seg" role="group" aria-label="Status">
+          {STATUS_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={filters.status === o.value ? "active" : ""}
+              aria-pressed={filters.status === o.value}
+              onClick={() => onChange({ ...filters, status: o.value })}
             >
               {o.label}
             </button>

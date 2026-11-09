@@ -268,6 +268,21 @@ describe("alert filters", () => {
     expect(alertFiltersActive({ ...DEFAULT_ALERT_FILTERS, rs: [0, 99] })).toBe(true);
   });
 
+  it("filters by status", () => {
+    const withStatus = [
+      sample({ id: 1, status: "pending" }),
+      sample({ id: 2, status: "triggered", filled: true }),
+      sample({ id: 3, status: "stopped", filled: true }),
+    ];
+    const by = (status: typeof DEFAULT_ALERT_FILTERS.status) =>
+      filterAlerts(withStatus, { ...DEFAULT_ALERT_FILTERS, status }).map((a) => a.id);
+    expect(by("all")).toEqual([1, 2, 3]);
+    expect(by("triggered")).toEqual([2]);
+    expect(by("pending")).toEqual([1]);
+    expect(by("expired")).toEqual([]);
+    expect(alertFiltersActive({ ...DEFAULT_ALERT_FILTERS, status: "stopped" })).toBe(true);
+  });
+
   it("searches the ticker, any case", () => {
     expect(ids(DEFAULT_ALERT_FILTERS, "nv")).toEqual([1]);
     expect(ids(DEFAULT_ALERT_FILTERS, " M ")).toEqual([3]);
@@ -276,11 +291,13 @@ describe("alert filters", () => {
 
   it("resets saved filters that are missing or malformed", () => {
     expect(normalizeAlertFilters(null)).toEqual(DEFAULT_ALERT_FILTERS);
-    expect(normalizeAlertFilters({ score: [80, 20], rs: [10, 90], side: "sideways" })).toEqual({
+    expect(normalizeAlertFilters({ score: [80, 20], rs: [10, 90], side: "sideways", status: "lost" })).toEqual({
       score: [0, 100],
       rs: [10, 90],
       side: "all",
+      status: "all",
     });
+    expect(normalizeAlertFilters({ status: "triggered" }).status).toBe("triggered");
   });
 
   it("colours RS on the score cuts", () => {

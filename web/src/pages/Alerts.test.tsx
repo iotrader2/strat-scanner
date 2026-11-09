@@ -182,6 +182,11 @@ describe("AlertFilterBar", () => {
     const html = bar();
     expect(html).toContain('id="alert-ticker-search"');
     for (const b of [">All<", ">Long<", ">Short<"]) expect(html).toContain(b);
+    expect(html).toContain('aria-label="Status"');
+    for (const b of [">Watch<", ">Triggered<", ">Stopped<", ">Break-even<", ">Exited<", ">Expired<", ">Cancelled<"]) {
+      expect(html).toContain(b);
+    }
+    expect(html.match(/>All</g)?.length).toBe(2); // one All per button group
     expect(html).toContain('aria-label="Min Score"');
     expect(html).toContain('aria-label="Max RS"');
     expect(html).toContain(">9 alerts<");
