@@ -82,8 +82,8 @@ def test_acknowledge(db):
 
 def test_settings_round_trip_and_validation(db):
     assert alerts_store.load_settings() == Settings()
-    s = alerts_store.save_settings({"hold_pct": 0.5, "top_names": 4, "min_score": 80})
-    assert s.hold_pct == 0.5 and s.top_names == 4 and s.min_score == 80
+    s = alerts_store.save_settings({"hold_pct": 0.5, "top_names": 4, "max_symbols": 80})
+    assert s.hold_pct == 0.5 and s.top_names == 4 and s.max_symbols == 80
     assert alerts_store.load_settings().top_names == 4
     with pytest.raises(alerts_store.SettingsError):
         alerts_store.save_settings({"nope": 1})
@@ -147,6 +147,21 @@ def _rising_history(days=7, start=90.0, step=0.01):
     return rows
 
 
+def test_refresh_keeps_the_daily_setup_on_the_alert(db):
+    alerts_live.clear()
+    history = _rising_history()
+    ctx = alerts.context_from_closes(alerts_live.regular_closes(history, OPEN.date()))
+    ma, last = ctx.ma_tail[120][-1], ctx.prev_close
+    touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
+    client = FakeClient({"AAA": history}, {"AAA": [touch]})
+    labels = {"AAA": {"long": ["Flat Base Breakout"], "short": []}}
+    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, daily_setups=labels)
+    assert stats["alerts"] == 1
+    row = alerts_store.list_alerts()[0]
+    assert row["setup"] == "120" and row["details"]["daily_setups"] == ["Flat Base Breakout"]
+    alerts_live.clear()
+
+
 def test_refresh_end_to_end(db):
     alerts_live.clear()
     history = _rising_history()
@@ -182,21 +197,27 @@ def test_forming_bar_is_the_next_slot_only():
     assert alerts_live.forming_bar(iex, day, 1, OPEN + timedelta(minutes=31)) is None
 
 
-def test_alert_symbols_are_high_score_universe_stocks():
-    from strat.api import alert_symbols
+def test_alert_symbols_are_names_with_a_long_daily_setup():
+    from strat.api import alert_daily_labels, alert_symbols
 
+    long_d = {"tf": "D", "kind": "flat-base", "label": "Flat Base Breakout", "side": "long"}
+    short_d = {"tf": "D", "kind": "flat-base-short", "label": "Flat Base Breakdown", "side": "short"}
     rows = [
-        {"symbol": "AAA", "kind": "stock", "in_universe": True, "score": 91},
-        {"symbol": "BBB", "kind": "stock", "in_universe": True, "score": 69.9},
-        {"symbol": "CCC", "kind": "etf", "in_universe": True, "score": 95},
-        {"symbol": "DDD", "kind": "stock", "in_universe": False, "score": 99},
-        {"symbol": "EEE", "kind": "stock", "in_universe": True, "score": 75},
-        {"symbol": "theme-x", "kind": "theme", "score": 99},
-        {"symbol": "FFF", "kind": "stock", "in_universe": True, "score": None},
+        {"symbol": "AAA", "kind": "stock", "in_universe": True, "score": 91, "setups": [long_d]},
+        {"symbol": "BBB", "kind": "stock", "in_universe": True, "score": 40, "setups": [long_d]},  # any score
+        {"symbol": "CCC", "kind": "etf", "in_universe": True, "score": 95, "setups": [long_d]},
+        {"symbol": "DDD", "kind": "stock", "in_universe": False, "score": 99, "setups": [short_d]},  # short only
+        {"symbol": "EEE", "kind": "stock", "in_universe": True, "score": 75, "setups": []},  # no daily setup
+        {"symbol": "theme-x", "kind": "theme", "score": 99, "setups": [long_d]},
+        {"symbol": "FFF", "kind": "stock", "in_universe": False, "score": None, "setups": [long_d]},
+        {"symbol": "GGG", "kind": "stock", "in_universe": True, "score": 99, "setups": [{**long_d, "tf": "W"}]},
     ]
-    assert alert_symbols(rows, Settings()) == ["AAA", "EEE"]
-    assert alert_symbols(rows, Settings(max_symbols=1)) == ["AAA"]
-    assert alert_symbols(rows, Settings(min_score=60)) == ["AAA", "EEE", "BBB"]
+    assert alert_symbols(rows, Settings()) == ["CCC", "AAA", "BBB", "FFF"]
+    assert alert_symbols(rows, Settings(max_symbols=1)) == ["CCC"]
+    labels = alert_daily_labels(rows)
+    assert labels["AAA"] == {"long": ["Flat Base Breakout"], "short": []}
+    assert labels["DDD"] == {"long": [], "short": ["Flat Base Breakdown"]}
+    assert "EEE" not in labels and "theme-x" not in labels and "GGG" not in labels
 
 
 # ------------------------------------------------------------------ API

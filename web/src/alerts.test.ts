@@ -189,7 +189,7 @@ describe("EMA level and settings", () => {
   it("has the score cut, the three EMAs and the watch length in settings", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
     expect(keys).toEqual(
-      expect.arrayContaining(["min_score", "max_symbols", "ma_120", "ma_240", "ma_480", "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars"]),
+      expect.arrayContaining(["max_symbols", "ma_120", "ma_240", "ma_480", "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars"]),
     );
     expect(keys).not.toContain("d_hold20");
   });
@@ -230,6 +230,8 @@ describe("short alerts", () => {
 
   it("lists the short-side settings", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
-    expect(keys).toEqual(expect.arrayContaining(["shorts", "short_max_rs", "max_short_symbols"]));
+    expect(keys).toEqual(expect.arrayContaining(["shorts", "max_short_symbols"]));
+    expect(keys).not.toContain("min_score");
+    expect(keys).not.toContain("short_max_rs");
   });
 });

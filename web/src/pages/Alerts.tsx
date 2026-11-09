@@ -191,6 +191,9 @@ export function AlertsTable({
                     {setupPeriod(a.setup)}
                   </span>
                   <span className="muted small setup-name">{SETUP_NAMES[a.setup] ?? `Setup ${a.setup}`}</span>
+                  {a.details?.daily_setups?.length ? (
+                    <span className="muted small setup-name daily-setup">Daily: {a.details.daily_setups.join(", ")}</span>
+                  ) : null}
                 </span>
               </td>
               <td className="num" title={maTitle(a)}>
@@ -333,10 +336,11 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
             <>No alerts today. {emptyLead}</>
           ) : (
             <>
-              No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover universe stocks with a high{" "}
-              <Link className="sector-link" to="/">scan score</Link>
+              No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover every name with a{" "}
+              <Link className="sector-link" to="/">daily setup</Link>
               {view.universe != null ? ` (${view.universe} names right now)` : ""} during the regular session. A watch shows up a
-              few minutes after a 15-minute candle touches a rising 120, 240 or 480 EMA.
+              few minutes after a 15-minute candle pulls back to a rising 120, 240 or 480 EMA (long setups) or rallies into a
+              falling one (short setups).
               {today?.last_run?.at && <> Last check {phoenixTime(today.last_run.at)} Phoenix.</>}
             </>
           )}
@@ -642,10 +646,11 @@ export default function Alerts() {
         <div>
           <h1>Alerts</h1>
           <p className="muted">
-            High-score universe stocks pulling back to a rising 120 (red), 240 (yellow) or 480 (blue) EMA on the 15-minute
-            chart, regular session only. When a candle touches one of them and holds, you get a watch alert. It triggers when
-            price trades 1c over the previous 15-minute candle's high, with a stop 1c under the pullback low, and is tracked
-            until it fills, stops, exits or expires. Times are Phoenix.
+            Entries for any daily setup, timed on the 15-minute chart: a long daily setup pulling back to a rising 120 (red),
+            240 (yellow) or 480 (blue) EMA, or a short daily setup rallying up into a falling one (resistance). Regular session
+            only. When a candle touches one of them and holds, you get a watch alert. A long triggers when price trades 1c over
+            the previous 15-minute candle's high, with a stop 1c under the pullback low (a short: 1c under the low, stop 1c
+            over the rally high), and is tracked until it fills, stops, exits or expires. Times are Phoenix.
           </p>
           <AlertDayBanner status={day} />
         </div>

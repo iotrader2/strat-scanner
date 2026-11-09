@@ -1,7 +1,9 @@
-"""Pullback alerts for high-score universe stocks on 15-minute bars, run from the 5-minute lists poll (inside the job slot).
+"""15-minute EMA entries for names with a daily setup, run from the 5-minute lists poll (inside the job slot).
 
-Which names: the caller passes universe stocks with a scan score of at least ``Settings.min_score``
-(highest first, at most ``max_symbols``); names with an alert still live today are always kept.
+Which names: the caller passes every stock / ETF with a long daily setup (checked for a pullback to a rising
+120 / 240 / 480 EMA, highest score first, at most ``max_symbols``) and every one with a short daily setup
+(checked for a rally into a falling EMA, at most ``max_short_symbols``); names with an alert still live today are
+always kept.
 
 Per poll, two Alpaca requests for those names: today's SIP bars (from the open up to the 15-minute SIP
 cutoff) and today's IEX bars from the open. Each completed regular-session bar takes its prices from SIP
@@ -216,10 +218,13 @@ def refresh(
     client: Optional[AlpacaClient] = None,
     settings: Optional[Settings] = None,
     short_symbols: Iterable[str] = (),
+    daily_setups: Optional[Mapping[str, Mapping[str, list]]] = None,
 ) -> dict:
     """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line.
 
     ``short_symbols`` are checked for the short mirror (rallies into a falling EMA) instead of pullbacks.
+    ``daily_setups`` (symbol -> {"long": [labels], "short": [labels]}) names the daily setups behind each name;
+    they are kept on the alert's details as ``daily_setups``.
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     day = now_et(clock).date()
@@ -231,7 +236,7 @@ def refresh(
         return {"symbols": len(syms), "skipped": True, "inserted": [], "prepared": ensure_profiles(client, syms, day)}
     if not due(clock):
         return {"symbols": len(syms), "skipped": True, "inserted": []}
-    # A name whose score slipped under the cut keeps being tracked while its alert is live, but only its
+    # A name whose daily setup went away keeps being tracked while its alert is live, but only its
     # existing alert is advanced: it cannot start a new one. Rows from the old A-F rules are not tracked.
     picked = set(syms) - short_picked
     live = [
@@ -261,10 +266,14 @@ def refresh(
         ctx = context_for(sym, len(bars) if session_over else SESSION_BARS)
         forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock)
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
-        if sym in picked:
-            found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming))
-        if sym in short_picked:
-            found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming, side="short"))
+        labels = (daily_setups or {}).get(sym) or {}
+        for side, wanted in (("long", sym in picked), ("short", sym in short_picked)):
+            if not wanted:
+                continue
+            for a in simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming, side=side):
+                if labels.get(side):
+                    a.details["daily_setups"] = list(labels[side])
+                found.append(a)
     del sip, iex
     # SIP backfill can make a touch stop reproducing an alert that already fired; still advance outcomes.
     found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, forming_by))

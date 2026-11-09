@@ -1,4 +1,9 @@
-"""Intraday pullback alerts on 15-minute bars: a high-score stock pulls back to a rising 120 / 240 / 480 EMA.
+"""Intraday entries for daily setups on 15-minute bars: a pullback to a rising 120 / 240 / 480 EMA (long), or a
+rally into a falling one (short).
+
+The setup decision is daily: the caller checks only names with a daily setup on the scanner (``alert_symbols`` /
+``alert_short_symbols`` in ``api``): a long daily setup is checked for the long pullback, a short daily setup for the
+short rally. The 15-minute EMAs only time the entry.
 
 Everything here is pure: :func:`simulate` takes one symbol's completed regular-session bars for one
 day plus a little context and returns the alerts that day would have produced, each with its outcome
@@ -35,10 +40,9 @@ After the fill the trade is managed on completed bars: the stop, break-even afte
 (``exit_close_under_ma``), and the session end.
 
 One live alert per name at a time, and no new alert once ``max_attempts`` of the name's alerts have
-triggered that day. Which names are checked (universe stocks with a scan score of at least ``min_score``)
-is decided by the caller.
+triggered that day. Which names are checked (any name with a daily setup on that side) is decided by the caller.
 
-**Short side** (``side="short"``, setups ``s120`` / ``s240`` / ``s480``) is the exact mirror, for laggards: a
+**Short side** (``side="short"``, setups ``s120`` / ``s240`` / ``s480``) is the exact mirror, for short daily setups: a
 completed bar rallies up into a *falling* EMA coming from below (the bar before closed under it, this bar's
 high reaches it, the close did not go more than ``hold_pct`` over it). The sell stop is the touch bar's low -
 $0.01 and the stop the rally high + $0.01; while waiting, both follow the bars. After the fill: the stop
@@ -87,12 +91,10 @@ TAIL_KEEP = 30  # prior-session EMA values kept per period (enough for any ``ris
 class Settings:
     """Adjustable rule values. Percentages are in percent (0.5 means 0.5%)."""
 
-    # Which names: universe stocks with at least this scan score, highest first, at most this many.
-    min_score: float = 70.0
+    # Which names: any stock or ETF with a long daily setup, highest scan score first, at most this many.
     max_symbols: int = 150
-    # Short side: laggards (RS at or below this percentile, trend broken), weakest first, at most this many.
+    # Short side: any stock or ETF with a short daily setup, weakest RS first, at most this many.
     shorts: int = 1  # 1 = alert short setups too, 0 = longs only
-    short_max_rs: float = 10.0
     max_short_symbols: int = 75
     # Which averages (1 = on, 0 = off).
     ma_120: int = 1
@@ -128,8 +130,8 @@ class Settings:
 
 
 SETTING_LIMITS: dict[str, tuple[float, float]] = {
-    "min_score": (0, 100), "max_symbols": (1, 1000),
-    "shorts": (0, 1), "short_max_rs": (1, 50), "max_short_symbols": (0, 1000),
+    "max_symbols": (1, 1000),
+    "shorts": (0, 1), "max_short_symbols": (0, 1000),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "touch_tol_pct": (0, 5), "hold_pct": (0, 5), "rising_bars": (1, TAIL_KEEP - 1), "watch_bars": (1, 26),
     "max_attempts": (1, 20), "breakeven_after_new_highs": (1, 50), "exit_close_under_ma": (0, 1),

@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from datetime import date
-from typing import Literal, Optional
+from typing import Literal, Mapping, Optional
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -240,40 +240,64 @@ def _refresh_watch15m() -> None:
     _refresh_alerts()
 
 
-def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
-    """Universe stocks with a scan score of at least ``min_score``, highest score first, at most ``max_symbols``."""
-    picked = [
-        r for r in rows
-        if r.get("kind", "stock") == "stock" and r.get("in_universe", True)
-        and isinstance(r.get("score"), (int, float)) and r["score"] >= settings.min_score
+def daily_setups(row: Mapping, side: str) -> list[dict]:
+    """The row's daily setups on ``side`` ("long" / "short"), as the scanner lists them."""
+    return [
+        s for s in row.get("setups") or []
+        if s.get("tf") == "D" and (s.get("side") or "long") == side
     ]
-    picked.sort(key=lambda r: (-r["score"], r["symbol"]))
+
+
+def _alertable(row: Mapping) -> bool:
+    """Stocks and ETFs (watchlist and off-universe names included); theme indexes cannot be traded."""
+    return row.get("kind", "stock") in ("stock", "etf")
+
+
+def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
+    """Long-side alert names: any stock or ETF with a long daily setup, highest scan score first, at most ``max_symbols``.
+
+    The setup decision is daily; the 15-minute pullback to a rising 120 / 240 / 480 EMA only times the entry.
+    """
+    picked = [r for r in rows if _alertable(r) and daily_setups(r, "long")]
+    picked.sort(key=lambda r: (-(r["score"] if isinstance(r.get("score"), (int, float)) else -1e9), r["symbol"]))
     return [r["symbol"] for r in picked[: settings.max_symbols]]
 
 
 def alert_short_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
-    """Short-side alert names: universe stocks that are laggards (RS at or below ``short_max_rs`` percentile, trend
-    broken), weakest RS first, at most ``max_short_symbols``. Empty when shorts are switched off."""
+    """Short-side alert names: any stock or ETF with a short daily setup, weakest RS first, at most
+    ``max_short_symbols``. The entry is a 15-minute rally into a falling EMA. Empty when shorts are switched off."""
     if not settings.shorts:
         return []
-    cut = settings.short_max_rs / 100
-    picked = [
-        r for r in rows
-        if r.get("kind", "stock") == "stock" and r.get("in_universe", True)
-        and isinstance(r.get("rs"), (int, float)) and r["rs"] <= cut + 1e-9
-        and (r.get("leadership") or {}).get("breakdown") == "broken"
-    ]
-    picked.sort(key=lambda r: (r["rs"], r["symbol"]))
+    picked = [r for r in rows if _alertable(r) and daily_setups(r, "short")]
+    picked.sort(key=lambda r: (r["rs"] if isinstance(r.get("rs"), (int, float)) else 1e9, r["symbol"]))
     return [r["symbol"] for r in picked[: settings.max_short_symbols]]
 
 
+def _alert_name_count() -> int:
+    settings = alerts_store.load_settings()
+    return len(set(alert_symbols(State.scan, settings)) | set(alert_short_symbols(State.scan, settings)))
+
+
+def alert_daily_labels(rows: list[dict]) -> dict[str, dict[str, list[str]]]:
+    """symbol -> {"long": [labels], "short": [labels]}: the daily setups behind each alert name (kept on the alert)."""
+    out: dict[str, dict[str, list[str]]] = {}
+    for r in rows:
+        if not _alertable(r):
+            continue
+        sides = {side: [str(s.get("label") or s.get("kind")) for s in daily_setups(r, side)] for side in ("long", "short")}
+        if sides["long"] or sides["short"]:
+            out[r["symbol"]] = sides
+    return out
+
+
 def _refresh_alerts() -> None:
-    """Pullback alerts for high-score universe stocks, on the same poll. No-op outside the regular session."""
+    """15-minute EMA entries for names with a daily setup, on the same poll. No-op outside the regular session."""
     try:
         settings = alerts_store.load_settings()
         stats = alerts_live.refresh(
             alert_symbols(State.scan, settings), settings=settings,
             short_symbols=alert_short_symbols(State.scan, settings),
+            daily_setups=alert_daily_labels(State.scan),
         )
         if stats.get("skipped"):
             if stats.get("prepared"):
@@ -1122,8 +1146,8 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
         "unread": alerts_store.unread_count(),
         "last_run": alerts_live.last_run(),
         "watchlist": data.watchlist(),
-        # Names the next poll checks: universe stocks at or over the score cut.
-        "universe": len(alert_symbols(State.scan, alerts_store.load_settings())),
+        # Names the next poll checks: every name with a long (or, shorts on, a short) daily setup.
+        "universe": _alert_name_count(),
         "setups": alert_rules.SETUP_NAMES,
         # One small reading per symbol, not a copy on every alert row.
         "ema5m": _alert_ema5m(symbols),
