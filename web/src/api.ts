@@ -550,7 +550,7 @@ export const api = {
 };
 
 /** The EMA the stock pulled back to on the 15-minute chart. */
-export type AlertSetup = "120" | "240" | "480";
+export type AlertSetup = "120" | "240" | "480" | "s120" | "s240" | "s480";
 export type AlertStatus = "pending" | "triggered" | "stopped" | "breakeven" | "exited" | "expired" | "cancelled";
 
 /** One setup alert and what happened after it. Times are UTC ISO; the UI shows them in Phoenix time. */
@@ -604,6 +604,12 @@ export interface TradeAlert {
   score_raw?: number | null;
   score_max_raw?: number | null;
   score_breakdown?: ScoreComponent[];
+  /** "long" or "short" (from the setup key). */
+  side?: "long" | "short";
+  /** Last price on the scan. */
+  price?: number | null;
+  /** R of a triggered trade that is still open, at the last price (1R = fill minus the stop at the fill). */
+  open_r?: number | null;
   /** Relative strength percentile (0-1) from the scan, as the Stock Scanner shows it. Null off the scan. */
   rs?: number | null;
   /** Yahoo industry, and its rank among stock industries by median RS (1 = strongest) out of ``industry_total``. */

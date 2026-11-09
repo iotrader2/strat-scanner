@@ -26,7 +26,13 @@ import {
   statusTone,
   stopPct,
   todayEmptyLead,
+  DEFAULT_ALERT_FILTERS,
+  alertFiltersActive,
+  filterAlerts,
+  normalizeAlertFilters,
+  rsLevel,
   type AlertDayStatus,
+  type AlertFilters,
 } from "../alerts";
 import { useAlerts } from "../components/AlertsCenter";
 import { EntryModal } from "../components/Modal";
@@ -37,6 +43,7 @@ import { TickerLogo } from "../components/TickerLogo";
 import { INTRADAY_EMA_COLORS } from "../intradayChart";
 import { usePersisted } from "../persist";
 import { fmtRs } from "../leadership";
+import { RangeSlider } from "../components/RangeSlider";
 
 /** The EMA's line color on the 15-minute chart: 120 red, 240 yellow, 480 blue. */
 function emaColor(setup: string): string | undefined {
@@ -96,6 +103,105 @@ function AlertScore({ a }: { a: TradeAlert }) {
   return <ScorePill score={a.score} row={row} />;
 }
 
+/** RS percentile as a pill, coloured on the same cuts as the score pill. */
+export function RsPill({ rs }: { rs: number | null | undefined }) {
+  if (rs == null) return <span className="muted">—</span>;
+  return <span className={`score-pill ${rsLevel(rs)}`}>{fmtRs(rs)}</span>;
+}
+
+const SIDE_OPTIONS: { value: AlertFilters["side"]; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "long", label: "Long" },
+  { value: "short", label: "Short" },
+];
+
+/** Score and RS range sliders plus a Long / Short toggle, shared by the live and history tables. */
+export function AlertFilterBar({
+  filters,
+  onChange,
+  ticker,
+  onTicker,
+  shown,
+  total,
+}: {
+  filters: AlertFilters;
+  onChange: (f: AlertFilters) => void;
+  ticker: string;
+  onTicker: (q: string) => void;
+  shown: number;
+  total: number;
+}) {
+  const active = alertFiltersActive(filters) || ticker.trim() !== "";
+  return (
+    <div className="card alert-filters filter-sliders">
+      <div className="field alert-ticker-filter">
+        <label className="slider-head" htmlFor="alert-ticker-search">
+          Ticker
+        </label>
+        <input
+          id="alert-ticker-search"
+          className="input"
+          type="search"
+          placeholder="Search, e.g. MRNA"
+          value={ticker}
+          onChange={(e) => onTicker(e.target.value.toUpperCase())}
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+        />
+      </div>
+      <div className="field alert-side-filter">
+        <span className="slider-head">Side</span>
+        <div className="seg" role="group" aria-label="Side">
+          {SIDE_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={filters.side === o.value ? "active" : ""}
+              aria-pressed={filters.side === o.value}
+              onClick={() => onChange({ ...filters, side: o.value })}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <RangeSlider label="Score" min={0} max={100} value={filters.score} onChange={(score) => onChange({ ...filters, score })} />
+      <RangeSlider
+        label="RS"
+        min={0}
+        max={100}
+        format={(v) => `P${v}`}
+        value={filters.rs}
+        onChange={(rs) => onChange({ ...filters, rs })}
+      />
+      <div className="alert-filter-meta">
+        <span className="muted small">
+          {active ? `${shown} of ${total} shown` : `${total} alerts`}
+        </span>
+        {active && (
+          <button
+            type="button"
+            className="btn small ghost"
+            onClick={() => {
+              onChange(DEFAULT_ALERT_FILTERS);
+              onTicker("");
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Persisted alert filters (one setting for the live and history tables). */
+function useAlertFilters() {
+  const [raw, setRaw] = usePersisted<AlertFilters>("alertFilters", DEFAULT_ALERT_FILTERS);
+  return [normalizeAlertFilters(raw), setRaw] as const;
+}
+
 function outcomeText(a: TradeAlert): string {
   const short = isShortSetup(a.setup);
   const ema = `${setupPeriod(a.setup)} EMA`;
@@ -149,6 +255,7 @@ export function AlertsTable({
             <th>Ticker</th>
             <th className="num">Score</th>
             <th className="num" title="Relative strength percentile, as on the Stock Scanner">RS</th>
+            <th>Side</th>
             <th title="The daily setup(s) that put this name on the alert list">Daily setup</th>
             <th title="Industry, and its rank among stock industries by median RS (1 = strongest)">Industry</th>
             <th>Entry</th>
@@ -159,7 +266,8 @@ export function AlertsTable({
             <th className="num">Risk / sh</th>
             <th>Status</th>
             <th className="num" title="Best price since the fill: the high (short: the low)">Best</th>
-            <th className="num">R</th>
+            <th className="num" title="Open trades (triggered, not stopped or exited): R at the last price">Open R</th>
+            <th className="num" title="Closed trades: R at the exit">R</th>
             <th className="outcome-cell">What happened</th>
             <th className="bought-col" aria-label="Bought" />
             <th className="actions-col" aria-label="Acknowledge" />
@@ -187,7 +295,14 @@ export function AlertsTable({
               <td className="num">
                 <AlertScore a={a} />
               </td>
-              <td className="num">{fmtRs(a.rs)}</td>
+              <td className="num">
+                <RsPill rs={a.rs} />
+              </td>
+              <td>
+                <span className={`side-chip ${isShortSetup(a.setup) ? "short" : "long"}`}>
+                  {isShortSetup(a.setup) ? "SHORT" : "LONG"}
+                </span>
+              </td>
               <td className="daily-setup-cell">
                 {a.details?.daily_setups?.length ? a.details.daily_setups.join(", ") : <span className="muted">—</span>}
               </td>
@@ -209,7 +324,6 @@ export function AlertsTable({
                 <span className="setup-hover" title={SETUP_RULES[a.setup]}>
                   <span className="setup-letter">
                     <EmaDot setup={a.setup} />
-                    {isShortSetup(a.setup) && <span className="side-chip short">SHORT</span>}
                     {setupPeriod(a.setup)}
                   </span>
                   <span className="muted small setup-name">{SETUP_NAMES[a.setup] ?? `Setup ${a.setup}`}</span>
@@ -226,6 +340,12 @@ export function AlertsTable({
                 <StatusPill a={a} />
               </td>
               <td className="num">{money(a.high_reached)}</td>
+              <td
+                className={`num open-r ${rTone(a.open_r)}`}
+                title={a.open_r != null && a.price != null ? `At ${money(a.price)}` : undefined}
+              >
+                {fmtR(a.open_r)}
+              </td>
               <td className={`num ${rTone(a.r_multiple)}`}>
                 {fmtR(a.r_multiple)}
               </td>
@@ -309,6 +429,9 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
     },
     [acknowledge, session],
   );
+  const [filters, setFilters] = useAlertFilters();
+  const [ticker, setTicker] = useState("");
+  const shownAlerts = useMemo(() => filterAlerts(view?.alerts ?? [], filters, ticker), [view, filters, ticker]);
   const unreadHere = (view?.alerts ?? []).filter((a) => !a.acknowledged).length;
   const filled = (view?.alerts ?? []).filter((a) => a.filled).length;
   const emptyLead = session === "today" ? todayEmptyLead(day) : null;
@@ -365,12 +488,19 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
           )}
         </div>
       ) : (
-        <AlertsTable
-          alerts={view.alerts}
-          flashing={flashing}
-          onAck={(id) => ack([id])}
-          onBought={setMoving}
-        />
+        <>
+          <AlertFilterBar filters={filters} onChange={setFilters} ticker={ticker} onTicker={setTicker} shown={shownAlerts.length} total={view.alerts.length} />
+          {shownAlerts.length === 0 ? (
+            <div className="card empty-state">No alerts match the filters.</div>
+          ) : (
+            <AlertsTable
+              alerts={shownAlerts}
+              flashing={flashing}
+              onAck={(id) => ack([id])}
+              onBought={setMoving}
+            />
+          )}
+        </>
       )}
       {moving && (
         <EntryModal
@@ -411,6 +541,9 @@ function HistoryView() {
   }, [date]);
 
   const alerts = data?.alerts ?? [];
+  const [filters, setFilters] = useAlertFilters();
+  const [ticker, setTicker] = useState("");
+  const shownAlerts = useMemo(() => filterAlerts(alerts, filters, ticker), [alerts, filters, ticker]);
   return (
     <>
       <div className="table-meta alerts-toolbar">
@@ -439,13 +572,20 @@ function HistoryView() {
       ) : alerts.length === 0 ? (
         <div className="card empty-state">No archived alerts{data.date ? ` on ${data.date}` : ""}.</div>
       ) : (
-        <AlertsTable
-          alerts={alerts}
-          flashing={new Set()}
-          onAck={() => undefined}
-          onBought={() => undefined}
-          readOnly
-        />
+        <>
+          <AlertFilterBar filters={filters} onChange={setFilters} ticker={ticker} onTicker={setTicker} shown={shownAlerts.length} total={alerts.length} />
+          {shownAlerts.length === 0 ? (
+            <div className="card empty-state">No archived alerts match the filters.</div>
+          ) : (
+            <AlertsTable
+              alerts={shownAlerts}
+              flashing={new Set()}
+              onAck={() => undefined}
+              onBought={() => undefined}
+              readOnly
+            />
+          )}
+        </>
       )}
     </>
   );

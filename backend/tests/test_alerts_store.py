@@ -277,7 +277,7 @@ def test_alerts_api(db):
     assert missing["score"] is None and missing["score_breakdown"] == []
     State.scan = [{
         "symbol": "AAA", "score": 88.4, "score_raw": 60.0, "score_max_raw": 72, "kind": "stock", "rs": 0.93,
-        "industry": "Semiconductors",
+        "industry": "Semiconductors", "price": 101.4,
         "score_breakdown": [{"key": "rs", "label": "Relative strength", "points": 18, "max_points": 24, "weight_pct": 33, "detail": "Top decile", "sub_weights": []}],
     }]
     try:
@@ -287,6 +287,8 @@ def test_alerts_api(db):
     assert body["session"] == "2026-10-23" and len(body["alerts"]) == 1 and body["unread"] == 1
     assert body["alerts"][0]["score"] == 88.4 and body["alerts"][0]["rs"] == 0.93
     assert body["alerts"][0]["industry"] == "Semiconductors"
+    assert body["alerts"][0]["side"] == "long" and body["alerts"][0]["price"] == 101.4
+    assert body["alerts"][0]["open_r"] is None  # still a watch: no open R
     assert (body["alerts"][0]["industry_rank"], body["alerts"][0]["industry_total"]) == (1, 1)
     assert body["alerts"][0]["score_breakdown"][0]["key"] == "rs"
     assert body["sessions"] == ["2026-10-23"]

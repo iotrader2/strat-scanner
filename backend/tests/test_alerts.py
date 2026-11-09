@@ -298,3 +298,16 @@ def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     assert alert_short_symbols(rows, Settings()) == ["EEE", "BBB", "AAA", "CCC"]
     assert alert_short_symbols(rows, Settings(max_short_symbols=2)) == ["EEE", "BBB"]
     assert alert_short_symbols(rows, Settings(shorts=0)) == []
+
+
+def test_open_r_is_for_triggered_trades_still_open():
+    from strat.alerts import open_r
+
+    long_row = {"setup": "120", "status": "triggered", "filled": 1, "fill_price": 101.0, "stop_price": 100.0}
+    assert open_r(long_row, 102.5) == pytest.approx(1.5)
+    assert open_r(long_row, 100.5) == pytest.approx(-0.5)
+    assert open_r(long_row, None) is None
+    assert open_r({**long_row, "status": "stopped"}, 102.5) is None  # closed: its R is the exit R
+    assert open_r({**long_row, "status": "pending", "filled": 0}, 102.5) is None
+    short_row = {"setup": "s240", "status": "triggered", "filled": 1, "fill_price": 50.0, "stop_price": 51.0}
+    assert open_r(short_row, 48.0) == pytest.approx(2.0)

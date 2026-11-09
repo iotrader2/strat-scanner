@@ -653,7 +653,9 @@ There is no score or RS cut, and names do not have to be on the watchlist. An al
 side: the daily setups behind it are kept on the alert (`details.daily_setups`), and the live table lists only
 alerts that have one. Columns: Watch, Ticker, Score, RS (percentile, as on the scanner), Daily setup, Industry with
 its rank (stock industries ranked by the median RS of their members, 1 = strongest), Entry (the EMA), EMA, Trigger,
-Stop, and the outcome. A name whose daily setup goes away
+Stop, and the outcome. Above the live and history tables: a ticker search, Long / Short buttons and Score and RS
+range sliders (RS as a percentile, coloured on the score pill's cuts). The sliders and side are remembered in the
+browser; a narrowed range hides names without a score or RS. A name whose daily setup goes away
 keeps being tracked while its alert is still live, but cannot start a new one. Regular session only (09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time); nothing can fire
 until the opening 15-minute candle has formed (09:45 ET). No other setups are alerted.
 

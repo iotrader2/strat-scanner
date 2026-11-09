@@ -308,3 +308,62 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     ],
   },
 ];
+
+/** Alerts table filters: score and RS ranges (0-100, RS as a percentile) and the side. Full ranges filter nothing. */
+export interface AlertFilters {
+  score: [number, number];
+  rs: [number, number];
+  side: "all" | "long" | "short";
+}
+
+export const DEFAULT_ALERT_FILTERS: AlertFilters = { score: [0, 100], rs: [0, 100], side: "all" };
+
+/** Saved filters, with anything missing or malformed reset to the default. */
+export function normalizeAlertFilters(raw: unknown): AlertFilters {
+  const f = (raw ?? {}) as Partial<AlertFilters>;
+  const range = (v: unknown): [number, number] => {
+    if (!Array.isArray(v) || v.length !== 2) return [0, 100];
+    const lo = Math.max(0, Math.min(100, Number(v[0])));
+    const hi = Math.max(0, Math.min(100, Number(v[1])));
+    return Number.isFinite(lo) && Number.isFinite(hi) && lo <= hi ? [lo, hi] : [0, 100];
+  };
+  return {
+    score: range(f.score),
+    rs: range(f.rs),
+    side: f.side === "long" || f.side === "short" ? f.side : "all",
+  };
+}
+
+export function alertFiltersActive(f: AlertFilters): boolean {
+  return f.side !== "all" || f.score[0] > 0 || f.score[1] < 100 || f.rs[0] > 0 || f.rs[1] < 100;
+}
+
+function inRange(v: number | null | undefined, [lo, hi]: [number, number]): boolean {
+  if (lo <= 0 && hi >= 100) return true;
+  return v != null && v >= lo && v <= hi;
+}
+
+/**
+ * Alerts that pass the filters and whose ticker contains ``ticker`` (any case). A narrowed score or RS range drops names with no score / RS (off the scan).
+ * RS is compared as a whole percentile (0.934 → 93), the same number the RS column shows.
+ */
+export function filterAlerts<T extends Pick<TradeAlert, "symbol" | "setup" | "score" | "rs">>(
+  alerts: T[],
+  f: AlertFilters,
+  ticker = "",
+): T[] {
+  const q = ticker.trim().toUpperCase();
+  return alerts.filter((a) => {
+    if (q && !a.symbol.toUpperCase().includes(q)) return false;
+    if (f.side === "long" && isShortSetup(a.setup)) return false;
+    if (f.side === "short" && !isShortSetup(a.setup)) return false;
+    if (!inRange(a.score, f.score)) return false;
+    return inRange(a.rs == null ? null : Math.round(a.rs * 100), f.rs);
+  });
+}
+
+/** Pill tone for an RS percentile, on the same cuts as the score pill: ≥ P70 green, ≥ P50 blue, else red. */
+export function rsLevel(rs: number): "hi" | "mid" | "lo" {
+  const p = Math.round(rs * 100);
+  return p >= 70 ? "hi" : p >= 50 ? "mid" : "lo";
+}
