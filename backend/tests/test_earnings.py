@@ -221,7 +221,7 @@ def test_alert_rows_use_the_same_earnings_window(tmp_path, monkeypatch):
     monkeypatch.setattr(
         api.alerts_store,
         "list_alerts",
-        lambda **_k: [{"symbol": s, "id": i} for i, s in enumerate(["SOON", "TSLA", "XLE", "AAPL", "ZZZNOTASTOCK"])],
+        lambda **_k: [{"symbol": s, "id": i, "details": {"daily_setups": ["Flat Base Breakout"]}} for i, s in enumerate(["SOON", "TSLA", "XLE", "AAPL", "ZZZNOTASTOCK"])],
     )
     monkeypatch.setattr(api.alerts_store, "sessions", lambda: [])
     monkeypatch.setattr(api.alerts_store, "unread_count", lambda: 0)

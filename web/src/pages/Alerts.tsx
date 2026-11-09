@@ -36,6 +36,7 @@ import { EarningsIcon } from "../components/EarningsIcon";
 import { TickerLogo } from "../components/TickerLogo";
 import { INTRADAY_EMA_COLORS } from "../intradayChart";
 import { usePersisted } from "../persist";
+import { fmtRs } from "../leadership";
 
 /** The EMA's line color on the 15-minute chart: 120 red, 240 yellow, 480 blue. */
 function emaColor(setup: string): string | undefined {
@@ -147,7 +148,10 @@ export function AlertsTable({
             <th title="When the 15-minute candle that touched the EMA closed">Watch</th>
             <th>Ticker</th>
             <th className="num">Score</th>
-            <th>Setup</th>
+            <th className="num" title="Relative strength percentile, as on the Stock Scanner">RS</th>
+            <th title="The daily setup(s) that put this name on the alert list">Daily setup</th>
+            <th title="Industry, and its rank among stock industries by median RS (1 = strongest)">Industry</th>
+            <th>Entry</th>
             <th className="num" title="The EMA's value on the touch candle">EMA</th>
             <th className="num" title="Previous 15-minute candle high + 1c (short: low - 1c)">Trigger</th>
             <th className="num">Stop</th>
@@ -183,6 +187,24 @@ export function AlertsTable({
               <td className="num">
                 <AlertScore a={a} />
               </td>
+              <td className="num">{fmtRs(a.rs)}</td>
+              <td className="daily-setup-cell">
+                {a.details?.daily_setups?.length ? a.details.daily_setups.join(", ") : <span className="muted">—</span>}
+              </td>
+              <td className="industry-cell">
+                {a.industry ? (
+                  <>
+                    <span className="industry-name">{a.industry}</span>
+                    {a.industry_rank != null && (
+                      <span className="muted small industry-rank" title={`Rank ${a.industry_rank} of ${a.industry_total} industries by median RS`}>
+                        #{a.industry_rank}/{a.industry_total}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="muted">—</span>
+                )}
+              </td>
               <td>
                 <span className="setup-hover" title={SETUP_RULES[a.setup]}>
                   <span className="setup-letter">
@@ -191,9 +213,6 @@ export function AlertsTable({
                     {setupPeriod(a.setup)}
                   </span>
                   <span className="muted small setup-name">{SETUP_NAMES[a.setup] ?? `Setup ${a.setup}`}</span>
-                  {a.details?.daily_setups?.length ? (
-                    <span className="muted small setup-name daily-setup">Daily: {a.details.daily_setups.join(", ")}</span>
-                  ) : null}
                 </span>
               </td>
               <td className="num" title={maTitle(a)}>

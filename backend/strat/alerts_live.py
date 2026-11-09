@@ -252,7 +252,12 @@ def refresh(
     prepared = ensure_profiles(client, syms, day)
     cutoff = sip_cutoff(clock)
     open_, close_ = _at(day, OPEN), _at(day, CLOSE)
-    sip, _ = client.bars(syms, BARS, open_, end=min(cutoff, close_) - timedelta(seconds=1), feed="sip", adjustment="raw")
+    # Until 10:15 ET no completed 15-minute SIP bar of today exists yet (the cutoff is at or before the open):
+    # asking anyway sends an end before the start, which Alpaca rejects, and the 09:45 / 10:00 passes failed.
+    if cutoff > open_:
+        sip, _ = client.bars(syms, BARS, open_, end=min(cutoff, close_) - timedelta(seconds=1), feed="sip", adjustment="raw")
+    else:
+        sip = {}
     iex, _ = client.bars(syms, BARS, open_, end=min(clock, close_), feed="iex", adjustment="raw")
     session_over = clock >= close_ + BAR
     found: list[Alert] = []
@@ -268,7 +273,8 @@ def refresh(
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
         labels = (daily_setups or {}).get(sym) or {}
         for side, wanted in (("long", sym in picked), ("short", sym in short_picked)):
-            if not wanted:
+            # A new alert needs a daily setup on that side (when the caller says which names have one).
+            if not wanted or (daily_setups is not None and not labels.get(side)):
                 continue
             for a in simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming, side=side):
                 if labels.get(side):

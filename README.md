@@ -649,8 +649,11 @@ chart). The setup decision is daily; the 15-minute EMAs only time the entry:
 - a **short daily setup** is checked for a **rally up into a falling EMA** (the EMA as resistance), weakest RS first,
   at most `max_short_symbols` (default 75); `shorts = 0` turns the short side off.
 
-There is no score or RS cut, and names do not have to be on the watchlist. The daily setups behind a name are kept
-on the alert (`details.daily_setups`) and shown under the setup in the table. A name whose daily setup goes away
+There is no score or RS cut, and names do not have to be on the watchlist. An alert needs a daily setup on its
+side: the daily setups behind it are kept on the alert (`details.daily_setups`), and the live table lists only
+alerts that have one. Columns: Watch, Ticker, Score, RS (percentile, as on the scanner), Daily setup, Industry with
+its rank (stock industries ranked by the median RS of their members, 1 = strongest), Entry (the EMA), EMA, Trigger,
+Stop, and the outcome. A name whose daily setup goes away
 keeps being tracked while its alert is still live, but cannot start a new one. Regular session only (09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time); nothing can fire
 until the opening 15-minute candle has formed (09:45 ET). No other setups are alerted.
 
@@ -660,7 +663,8 @@ Each alert has two steps, and each chimes / notifies:
    `rising_bars` (4) candles earlier, the candle before closed above it, this candle's low reaches it
    (within `touch_tol_pct`) and it does not close more than `hold_pct` (0.3%) under it. When one candle
    touches several EMAs the alert is for the lowest one it held.
-2. **Trigger.** Price trades over the previous 15-minute candle's high + 1c. While waiting, each candle
+2. **Trigger.** Price trades over the previous 15-minute candle's high + 1c (short: under its low - 1c). The fill is
+   always that price, even when a candle opens through it. While waiting, each candle
    that does not take it out moves the buy stop to its own high + 1c and the stop to the pullback low - 1c.
    The watch is cancelled on a close more than `hold_pct` under the EMA and expires after `watch_bars` (4)
    candles. The 5-minute poll also checks the candle still forming (IEX, real time), so a trigger shows up

@@ -64,6 +64,17 @@ def test_next_candle_over_the_high_triggers():
     assert a.fill_price == 100.81 and a.fill_at == OPEN + timedelta(minutes=15)
 
 
+def test_a_gap_over_the_trigger_still_fills_at_the_candle_high_plus_a_cent():
+    [a] = run([TOUCH, (101.3, 101.6, 101.2, 101.5)])
+    assert a.status == "triggered" and a.fill_price == 100.81 == a.trigger
+
+
+def test_a_short_gap_under_the_trigger_still_fills_at_the_candle_low_minus_a_cent():
+    ctx = Context(ma_tail={120: list(reversed(rising(100.91)))}, prev_close=99.0)  # falling, price under it
+    [a] = run([(99.5, 100.9, 99.2, 99.8), (98.7, 98.8, 98.5, 98.6)], ctx, side="short")
+    assert a.status == "triggered" and a.trigger == 99.19 and a.fill_price == 99.19
+
+
 def test_a_falling_ema_is_not_alerted():
     ctx = Context(ma_tail={120: list(reversed(rising(99.18)))}, prev_close=101.0)
     assert run([TOUCH], ctx) == []

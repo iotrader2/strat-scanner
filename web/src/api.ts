@@ -604,6 +604,12 @@ export interface TradeAlert {
   score_raw?: number | null;
   score_max_raw?: number | null;
   score_breakdown?: ScoreComponent[];
+  /** Relative strength percentile (0-1) from the scan, as the Stock Scanner shows it. Null off the scan. */
+  rs?: number | null;
+  /** Yahoo industry, and its rank among stock industries by median RS (1 = strongest) out of ``industry_total``. */
+  industry?: string | null;
+  industry_rank?: number | null;
+  industry_total?: number | null;
   /** Present when this stock reports inside the earnings warning window. Same object as a scan row. */
   earnings?: Earnings | null;
 }
