@@ -595,6 +595,8 @@ export interface TradeAlert {
     rearmed?: number;
     /** Filled while the candle was still forming (caught by the poll before it closed). */
     fill_on_forming_bar?: boolean;
+    /** The daily setups (scanner labels) on this side that put the name on the alert list. */
+    daily_setups?: string[];
   };
   acknowledged: boolean;
   /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
@@ -622,7 +624,7 @@ export interface AlertsPayload {
   unread: number;
   last_run: { at?: string; alerts?: number; symbols?: number };
   watchlist: string[];
-  /** How many universe stocks are at or over the score cut (the names the poll checks). */
+  /** How many names have a daily setup (long, or short with shorts on): the names the poll checks. */
   universe?: number;
   setups: Record<AlertSetup, string>;
   /**

@@ -189,8 +189,8 @@ def test_advance_stored_rewalks_from_the_stored_levels():
 
 
 def test_old_setting_keys_are_ignored():
-    s = Settings.from_mapping({"bunched_pct": 0.7, "min_score": 80, "watch_bars": 6})
-    assert s.min_score == 80 and s.watch_bars == 6 and not hasattr(s, "bunched_pct")
+    s = Settings.from_mapping({"bunched_pct": 0.7, "min_score": 80, "max_symbols": 80, "watch_bars": 6})
+    assert s.max_symbols == 80 and s.watch_bars == 6 and not hasattr(s, "bunched_pct") and not hasattr(s, "min_score")
 
 
 def test_metrics_by_ema():
@@ -271,12 +271,19 @@ def test_a_short_rally_into_a_rising_ema_is_not_alerted():
     assert simulate("AAA", "2026-10-23", bars(_reflect_rows([TOUCH])), CTX, Settings(), side="short") == []
 
 
-def test_short_alert_names_are_laggards_weakest_first():
+def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     from strat.api import alert_short_symbols
 
-    def r(sym, rs, breakdown="broken", kind="stock"):
-        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "leadership": {"breakdown": breakdown}}
+    short_d = {"tf": "D", "kind": "flat-base-short", "label": "Flat Base Breakdown", "side": "short"}
+    long_d = {"tf": "D", "kind": "flat-base", "label": "Flat Base Breakout", "side": "long"}
 
-    rows = [r("AAA", 0.08), r("BBB", 0.02), r("CCC", 0.30), r("DDD", 0.05, "warning"), r("EEE", 0.01, kind="etf")]
-    assert alert_short_symbols(rows, Settings()) == ["BBB", "AAA"]
+    def r(sym, rs, setups, kind="stock"):
+        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups}
+
+    rows = [
+        r("AAA", 0.08, [short_d]), r("BBB", 0.02, [short_d]), r("CCC", 0.90, [short_d]),  # any RS
+        r("DDD", 0.05, [long_d]), r("EEE", 0.01, [short_d], kind="etf"), r("FFF", 0.01, [short_d], kind="theme"),
+    ]
+    assert alert_short_symbols(rows, Settings()) == ["EEE", "BBB", "AAA", "CCC"]
+    assert alert_short_symbols(rows, Settings(max_short_symbols=2)) == ["EEE", "BBB"]
     assert alert_short_symbols(rows, Settings(shorts=0)) == []

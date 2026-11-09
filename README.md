@@ -640,11 +640,18 @@ Not investment advice. Yahoo Finance data is unofficial and can be delayed or in
 
 ## Alerts tab
 
-Pullbacks to a **rising 120, 240 or 480 EMA on the 15-minute chart** (red / yellow / blue on the chart)
-for **high-score universe stocks**: universe stocks (not ETFs, not off-universe names) with a scan score of
-at least `min_score` (default 70), highest score first, at most `max_symbols` (default 150). They do not
-have to be on the watchlist. A name whose alert is still live keeps being tracked even if its score drops
-under the cut. Regular session only (09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time); nothing can fire
+Entries for **any daily setup**, timed on the **15-minute chart's 120, 240 or 480 EMA** (red / yellow / blue on the
+chart). The setup decision is daily; the 15-minute EMAs only time the entry:
+
+- a **long daily setup** (any stock or ETF, universe, watchlist or off-universe, with a long setup on the daily
+  chart, pending or triggered) is checked for a **pullback to a rising EMA**, highest scan score first, at most
+  `max_symbols` (default 150);
+- a **short daily setup** is checked for a **rally up into a falling EMA** (the EMA as resistance), weakest RS first,
+  at most `max_short_symbols` (default 75); `shorts = 0` turns the short side off.
+
+There is no score or RS cut, and names do not have to be on the watchlist. The daily setups behind a name are kept
+on the alert (`details.daily_setups`) and shown under the setup in the table. A name whose daily setup goes away
+keeps being tracked while its alert is still live, but cannot start a new one. Regular session only (09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time); nothing can fire
 until the opening 15-minute candle has formed (09:45 ET). No other setups are alerted.
 
 Each alert has two steps, and each chimes / notifies:

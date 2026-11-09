@@ -36,11 +36,11 @@ export const setupPeriod = (setup: string): string => setup.replace(/^s/, "");
 export const SETUP_RULES: Record<string, string> = Object.fromEntries([
   ...ALERT_EMAS.map((p) => [
     p,
-    `A high-score stock pulls back from above to the rising ${p} EMA on the 15-minute chart and holds it. Watch; the trigger is the previous 15-minute candle's high + 1c.`,
+    `A name with a long daily setup pulls back from above to the rising ${p} EMA on the 15-minute chart and holds it. Watch; the trigger is the previous 15-minute candle's high + 1c.`,
   ]),
   ...ALERT_EMAS.map((p) => [
     `s${p}`,
-    `Short: a laggard rallies from below up to the falling ${p} EMA on the 15-minute chart and is held under it. Watch; the trigger is the previous 15-minute candle's low - 1c, the stop the rally high + 1c.`,
+    `Short: a name with a short daily setup rallies from below up into the falling ${p} EMA (resistance) on the 15-minute chart and is held under it. Watch; the trigger is the previous 15-minute candle's low - 1c, the stop the rally high + 1c.`,
   ]),
 ]);
 
@@ -262,17 +262,15 @@ export function maTitle(a: Pick<TradeAlert, "setup" | "details">): string {
 /** Human labels and grouping for the settings form. */
 export const SETTING_GROUPS: { title: string; items: [key: string, label: string, unit?: string][] }[] = [
   {
-    title: "Which stocks",
+    title: "Which names (any daily setup)",
     items: [
-      ["min_score", "Universe stocks with a scan score of at least", ""],
-      ["max_symbols", "Check at most (highest score first)", "names"],
+      ["max_symbols", "Long daily setups: check at most (highest score first)", "names"],
     ],
   },
   {
-    title: "Short side (laggards)",
+    title: "Short side (short daily setups)",
     items: [
-      ["shorts", "Alert short setups too: rallies into a falling EMA (1 = on, 0 = off)", ""],
-      ["short_max_rs", "Laggards: RS at or below percentile", "(trend broken)"],
+      ["shorts", "Alert short daily setups too: rallies into a falling EMA (1 = on, 0 = off)", ""],
       ["max_short_symbols", "Check at most (weakest RS first)", "names"],
     ],
   },
