@@ -30,7 +30,7 @@ An alert has two steps.
    touch bar's high + $0.01 and the stop is the pullback low - $0.01.
 
 2. **Trigger** (status ``triggered``). A later bar trades over the previous 15-minute candle's high +
-   $0.01. While the alert waits, each completed bar that does not trigger moves the buy stop to its own
+   $0.01; the fill is always that price (a gap over it does not move the entry). While the alert waits, each completed bar that does not trigger moves the buy stop to its own
    high + $0.01 and the stop to the lowest low so far - $0.01. The watch is cancelled when a bar closes
    more than ``hold_pct`` under the EMA, and expires after ``watch_bars`` bars without a trigger. The live
    poll also checks the forming bar, so a trigger shows up within a poll instead of after the candle closes.
@@ -397,11 +397,12 @@ def _fill(a: Alert, bar: Mapping) -> None:
     a.fill_at = bar["t"]
     a.status = "triggered"
     a.current_stop = a.stop
+    # The entry is always the trigger: the previous 15-minute candle's high + $0.01 (short: low - $0.01),
+    # even when the bar opens through it.
+    a.fill_price = a.trigger
     if a.short:
-        a.fill_price = min(a.trigger, float(bar["o"]))  # a gap down through the sell stop fills at the open
         a.running_high = a.high_reached = float(bar["l"])  # best (lowest) price so far
     else:
-        a.fill_price = max(a.trigger, float(bar["o"]))
         a.running_high = a.high_reached = float(bar["h"])
 
 

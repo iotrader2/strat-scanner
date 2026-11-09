@@ -27,8 +27,12 @@ def _bars(rows):
 CTX = Context(ma_tail={120: [99.0 + 0.01 * k for k in range(10)]}, prev_close=101.0)
 
 
-def _alerts(symbol, rows):
-    return simulate(symbol, "2026-10-23", _bars(rows), CTX)
+def _alerts(symbol, rows, daily=("Flat Base Breakout",)):
+    found = simulate(symbol, "2026-10-23", _bars(rows), CTX)
+    for a in found:
+        if daily:
+            a.details["daily_setups"] = list(daily)
+    return found
 
 
 # A pullback to the rising 120 EMA (it ended the prior session at 99.09) on the opening bar.
@@ -272,7 +276,8 @@ def test_alerts_api(db):
     missing = c.get("/api/alerts", params={"session": "2026-10-23"}).json()["alerts"][0]
     assert missing["score"] is None and missing["score_breakdown"] == []
     State.scan = [{
-        "symbol": "AAA", "score": 88.4, "score_raw": 60.0, "score_max_raw": 72,
+        "symbol": "AAA", "score": 88.4, "score_raw": 60.0, "score_max_raw": 72, "kind": "stock", "rs": 0.93,
+        "industry": "Semiconductors",
         "score_breakdown": [{"key": "rs", "label": "Relative strength", "points": 18, "max_points": 24, "weight_pct": 33, "detail": "Top decile", "sub_weights": []}],
     }]
     try:
@@ -280,7 +285,9 @@ def test_alerts_api(db):
     finally:
         State.scan = []
     assert body["session"] == "2026-10-23" and len(body["alerts"]) == 1 and body["unread"] == 1
-    assert body["alerts"][0]["score"] == 88.4
+    assert body["alerts"][0]["score"] == 88.4 and body["alerts"][0]["rs"] == 0.93
+    assert body["alerts"][0]["industry"] == "Semiconductors"
+    assert (body["alerts"][0]["industry_rank"], body["alerts"][0]["industry_total"]) == (1, 1)
     assert body["alerts"][0]["score_breakdown"][0]["key"] == "rs"
     assert body["sessions"] == ["2026-10-23"]
     assert c.post("/api/alerts/ack", json={"ids": None}).json()["unread"] == 0
@@ -352,3 +359,59 @@ def test_a_name_off_the_list_only_advances_its_alert_and_never_starts_one(db):
     stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=31), client=client)
     assert stats["symbols"] == 1 and stats["inserted"] == []
     assert sorted(r["setup"] for r in alerts_store.list_alerts()) == ["120", "D"]
+
+
+def test_alerts_without_a_daily_setup_are_not_listed(db):
+    from strat.api import State, app
+
+    alerts_store.save_session("2026-10-23", _alerts("AAA", A_ROWS, daily=()), now=OPEN + timedelta(minutes=16))
+    State.scan = []
+    assert TestClient(app).get("/api/alerts", params={"session": "2026-10-23"}).json()["alerts"] == []
+
+
+def test_industry_ranks_by_median_rs():
+    from strat.api import industry_ranks
+
+    def r(sym, ind, rs, kind="stock"):
+        return {"symbol": sym, "industry": ind, "rs": rs, "kind": kind}
+
+    rows = [
+        r("A", "Chips", 0.9), r("B", "Chips", 0.5), r("C", "Chips", 0.8),  # median 0.8
+        r("D", "Banks", 0.95), r("E", "Banks", 0.1),  # median 0.525
+        r("F", "Software", 0.85),
+        r("G", "Chips", 0.01, kind="etf"), r("H", None, 0.99), r("I", "Banks", None),
+    ]
+    assert industry_ranks(rows) == {"Software": (1, 3), "Chips": (2, 3), "Banks": (3, 3)}
+
+
+def test_refresh_needs_a_daily_setup_for_a_new_alert(db):
+    alerts_live.clear()
+    history = _rising_history()
+    ctx = alerts.context_from_closes(alerts_live.regular_closes(history, OPEN.date()))
+    ma, last = ctx.ma_tail[120][-1], ctx.prev_close
+    touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
+    client = FakeClient({"AAA": history}, {"AAA": [touch]})
+    labels = {"AAA": {"long": [], "short": ["Flat Base Breakdown"]}}  # only a short setup: no long alert
+    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, daily_setups=labels)
+    assert stats["alerts"] == 0
+    alerts_live.clear()
+
+
+def test_first_passes_after_the_open_do_not_ask_for_sip_bars(db):
+    """At 09:45 and 10:00 ET no completed SIP bar of today exists; the request would end before it starts."""
+    alerts_live.clear()
+    history = _rising_history()
+    ctx = alerts.context_from_closes(alerts_live.regular_closes(history, OPEN.date()))
+    ma, last = ctx.ma_tail[120][-1], ctx.prev_close
+    touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
+
+    class Strict(FakeClient):
+        def bars(self, symbols, tf, start, end=None, feed=None, adjustment="raw"):
+            assert end is None or end >= start, "end before start"
+            return super().bars(symbols, tf, start, end, feed, adjustment)
+
+    client = Strict({"AAA": history}, {"AAA": [touch]})
+    now = OPEN + timedelta(minutes=15, seconds=10)
+    stats = alerts_live.refresh(["AAA"], now=now, client=client)
+    assert stats["alerts"] == 1 and not stats["inserted"][0]["late"]
+    alerts_live.clear()

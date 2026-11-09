@@ -10,7 +10,10 @@ describe("AlertsTable", () => {
     <MemoryRouter>
       <AlertsTable
         alerts={[
-          sample({ id: 7, score: 91 }),
+          sample({
+            id: 7, score: 91, rs: 0.934, industry: "Semiconductors", industry_rank: 3, industry_total: 120,
+            details: { ...sample({}).details, daily_setups: ["Flat Base Breakout"] },
+          }),
           sample({
             id: 8, symbol: "MU", setup: "240", top: false, acknowledged: true, status: "exited", filled: true, fill_price: 101.01,
             fill_at: "2026-10-23T13:40:00Z", exit_price: 103.25, exit_at: "2026-10-23T15:00:00Z", exit_reason: "close_under_ma",
@@ -25,11 +28,11 @@ describe("AlertsTable", () => {
   );
 
   it("has the spec columns, with Score after Ticker and Bought before Acknowledge", () => {
-    for (const h of ["Watch", "Ticker", "Score", "Setup", "EMA", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
+    for (const h of ["Watch", "Ticker", "Score", "RS", "Daily setup", "Industry", "Entry", "EMA", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
     const head = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
     const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
     expect(labels.slice(labels.indexOf("Ticker"), labels.indexOf("Trigger") + 1)).toEqual([
-      "Ticker", "Score", "Setup", "EMA", "Trigger",
+      "Ticker", "Score", "RS", "Daily setup", "Industry", "Entry", "EMA", "Trigger",
     ]);
     const bought = labels.indexOf("");
     expect(head).toContain('aria-label="Bought"');
@@ -37,6 +40,13 @@ describe("AlertsTable", () => {
     expect(html).toContain("Bought →");
     expect(html).toContain('class="bought-col"');
     expect(html).not.toMatch(/class="[^"]*bought-col[^"]*actions-col/);
+  });
+
+  it("shows RS, the daily setup and the industry with its rank", () => {
+    expect(html).toContain(">P93<");
+    expect(html).toContain('<td class="daily-setup-cell">Flat Base Breakout</td>');
+    expect(html).toContain(">Semiconductors<");
+    expect(html).toContain(">#3/120<");
   });
 
   it("shows the scanner score pill, or a dash when the name has no score", () => {
@@ -113,7 +123,7 @@ describe("AlertsTable", () => {
         />
       </MemoryRouter>,
     );
-    for (const h of ["Watch", "Ticker", "Score", "Setup", "Trigger", "Stop", "Status", "What happened"]) {
+    for (const h of ["Watch", "Ticker", "Score", "RS", "Daily setup", "Industry", "Entry", "Trigger", "Stop", "Status", "What happened"]) {
       expect(archived).toContain(`>${h}</th>`);
     }
     expect(archived).toContain('aria-label="Bought"');

@@ -1118,14 +1118,45 @@ def _decorate_alerts(rows: list[dict]) -> tuple[list[dict], list[str]]:
     return [{**row, "earnings": flags.get(row["symbol"])} for row in rows], symbols
 
 
+def industry_ranks(rows: list[dict]) -> dict[str, tuple[int, int]]:
+    """Industry -> (rank, total): stock industries ranked by the median RS percentile of their members (1 = strongest).
+
+    Industries are the Yahoo industries the scanner shows; ties go by name. Members without RS are left out.
+    """
+    groups: dict[str, list[float]] = {}
+    for r in rows:
+        ind, rs = r.get("industry"), r.get("rs")
+        if r.get("kind", "stock") == "stock" and ind and isinstance(rs, (int, float)):
+            groups.setdefault(str(ind), []).append(float(rs))
+    medians = {}
+    for ind, values in groups.items():
+        values.sort()
+        n = len(values)
+        medians[ind] = values[n // 2] if n % 2 else (values[n // 2 - 1] + values[n // 2]) / 2
+    ranked = sorted(medians, key=lambda ind: (-medians[ind], ind))
+    return {ind: (i, len(ranked)) for i, ind in enumerate(ranked, start=1)}
+
+
+def _has_daily_setup(row: Mapping) -> bool:
+    details = row.get("details")
+    return isinstance(details, dict) and bool(details.get("daily_setups"))
+
+
 def _attach_scores(rows: list[dict]) -> list[dict]:
-    """The scanner score for each alert's symbol, the same number the Stock Scanner shows."""
+    """The scanner score, RS and industry (with its rank) for each alert's symbol, as the Stock Scanner shows them."""
     by_symbol = {r["symbol"]: r for r in State.scan if r.get("symbol")}
+    ranks = industry_ranks(State.scan) if rows else {}
     attached = []
     for row in rows:
         scan = by_symbol.get(row["symbol"])
+        industry = None if scan is None else scan.get("industry")
+        rank = ranks.get(str(industry)) if industry else None
         attached.append({
             **row,
+            "rs": None if scan is None else scan.get("rs"),
+            "industry": industry,
+            "industry_rank": rank[0] if rank else None,
+            "industry_total": rank[1] if rank else None,
             "score": None if scan is None else scan.get("score"),
             "score_raw": None if scan is None else scan.get("score_raw"),
             "score_max_raw": None if scan is None else scan.get("score_max_raw"),
@@ -1138,7 +1169,9 @@ def _attach_scores(rows: list[dict]) -> list[dict]:
 def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
     """One session's alerts (default today, Eastern date), newest first, plus the sessions that have any."""
     day = _alerts_session(session)
-    rows, symbols = _decorate_alerts(alerts_store.list_alerts(session=day, symbol=symbol))
+    # Only alerts that came from a daily setup (rows from the older score / laggard rules are left off).
+    found = [r for r in alerts_store.list_alerts(session=day, symbol=symbol) if _has_daily_setup(r)]
+    rows, symbols = _decorate_alerts(found)
     return {
         "session": day,
         "alerts": rows,
