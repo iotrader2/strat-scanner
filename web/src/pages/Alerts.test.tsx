@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import { alertDayStatus } from "../alerts";
 import { sample } from "../alerts.test";
-import { AlertDayBanner, AlertsTable } from "./Alerts";
+import { DEFAULT_ALERT_FILTERS, alertDayStatus } from "../alerts";
+import { AlertDayBanner, AlertFilterBar, AlertsTable, RsPill } from "./Alerts";
 
 describe("AlertsTable", () => {
   const html = renderToStaticMarkup(
@@ -64,7 +64,7 @@ describe("AlertsTable", () => {
   });
 
   it("shows RS, the daily setup and the industry with its rank", () => {
-    expect(html).toContain(">P93<");
+    expect(html).toContain('<span class="score-pill hi">P93</span>');
     expect(html).toContain('<td class="daily-setup-cell">Flat Base Breakout</td>');
     expect(html).toContain(">Semiconductors<");
     expect(html).toContain(">#3/120<");
@@ -168,5 +168,36 @@ describe("Alert day window", () => {
     expect(html).toContain('class="alert-day done"');
     expect(html).toContain("Alerts are done for the day.");
     expect(html).toContain("The session was 6:45 AM – 1:00 PM Phoenix.");
+  });
+});
+
+
+describe("AlertFilterBar", () => {
+  const bar = (filters = DEFAULT_ALERT_FILTERS, ticker = "") =>
+    renderToStaticMarkup(
+      <AlertFilterBar filters={filters} onChange={() => undefined} ticker={ticker} onTicker={() => undefined} shown={3} total={9} />,
+    );
+
+  it("has the ticker search, side buttons and the score / RS sliders", () => {
+    const html = bar();
+    expect(html).toContain('id="alert-ticker-search"');
+    for (const b of [">All<", ">Long<", ">Short<"]) expect(html).toContain(b);
+    expect(html).toContain('aria-label="Min Score"');
+    expect(html).toContain('aria-label="Max RS"');
+    expect(html).toContain(">9 alerts<");
+    expect(html).not.toContain("Clear filters");
+  });
+
+  it("shows the count and a clear button once something filters", () => {
+    expect(bar({ ...DEFAULT_ALERT_FILTERS, side: "short" })).toContain(">3 of 9 shown<");
+    expect(bar(DEFAULT_ALERT_FILTERS, "MU")).toContain("Clear filters");
+    expect(bar({ ...DEFAULT_ALERT_FILTERS, rs: [10, 90] })).toContain("P10 – P90");
+  });
+});
+
+describe("RsPill", () => {
+  it("colours RS like the score pill", () => {
+    expect(renderToStaticMarkup(<RsPill rs={0.12} />)).toBe('<span class="score-pill lo">P12</span>');
+    expect(renderToStaticMarkup(<RsPill rs={null} />)).toContain("—");
   });
 });

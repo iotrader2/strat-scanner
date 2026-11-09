@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { TradeAlert } from "./api";
 import {
+  DEFAULT_ALERT_FILTERS,
+  alertFiltersActive,
+  filterAlerts,
+  normalizeAlertFilters,
+  rsLevel,
   SETTING_GROUPS,
   SETUP_NAMES,
   isShortSetup,
@@ -233,5 +238,52 @@ describe("short alerts", () => {
     expect(keys).toEqual(expect.arrayContaining(["shorts", "max_short_symbols"]));
     expect(keys).not.toContain("min_score");
     expect(keys).not.toContain("short_max_rs");
+  });
+});
+
+
+describe("alert filters", () => {
+  const rows = [
+    sample({ id: 1, symbol: "NVDA", setup: "120", score: 91, rs: 0.97 }),
+    sample({ id: 2, symbol: "PCG", setup: "s480", score: 8, rs: 0.04 }),
+    sample({ id: 3, symbol: "MU", setup: "240", score: 55, rs: 0.6 }),
+    sample({ id: 4, symbol: "ZZZ", setup: "s120", score: null, rs: null }),
+  ];
+  const ids = (f = DEFAULT_ALERT_FILTERS, q = "") => filterAlerts(rows, f, q).map((a) => a.id);
+
+  it("passes everything by default, including names off the scan", () => {
+    expect(ids()).toEqual([1, 2, 3, 4]);
+    expect(alertFiltersActive(DEFAULT_ALERT_FILTERS)).toBe(false);
+  });
+
+  it("filters by side", () => {
+    expect(ids({ ...DEFAULT_ALERT_FILTERS, side: "long" })).toEqual([1, 3]);
+    expect(ids({ ...DEFAULT_ALERT_FILTERS, side: "short" })).toEqual([2, 4]);
+  });
+
+  it("filters by score and RS ranges; a narrowed range drops names without a value", () => {
+    expect(ids({ ...DEFAULT_ALERT_FILTERS, score: [50, 100] })).toEqual([1, 3]);
+    expect(ids({ ...DEFAULT_ALERT_FILTERS, rs: [0, 10] })).toEqual([2]);
+    expect(ids({ ...DEFAULT_ALERT_FILTERS, rs: [60, 60] })).toEqual([3]);
+    expect(alertFiltersActive({ ...DEFAULT_ALERT_FILTERS, rs: [0, 99] })).toBe(true);
+  });
+
+  it("searches the ticker, any case", () => {
+    expect(ids(DEFAULT_ALERT_FILTERS, "nv")).toEqual([1]);
+    expect(ids(DEFAULT_ALERT_FILTERS, " M ")).toEqual([3]);
+    expect(ids(DEFAULT_ALERT_FILTERS, "QQQ")).toEqual([]);
+  });
+
+  it("resets saved filters that are missing or malformed", () => {
+    expect(normalizeAlertFilters(null)).toEqual(DEFAULT_ALERT_FILTERS);
+    expect(normalizeAlertFilters({ score: [80, 20], rs: [10, 90], side: "sideways" })).toEqual({
+      score: [0, 100],
+      rs: [10, 90],
+      side: "all",
+    });
+  });
+
+  it("colours RS on the score cuts", () => {
+    expect([rsLevel(0.93), rsLevel(0.7), rsLevel(0.55), rsLevel(0.49)]).toEqual(["hi", "hi", "mid", "lo"]);
   });
 });
