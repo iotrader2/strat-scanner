@@ -314,9 +314,10 @@ export interface AlertFilters {
   score: [number, number];
   rs: [number, number];
   side: "all" | "long" | "short";
+  status: "all" | AlertStatus;
 }
 
-export const DEFAULT_ALERT_FILTERS: AlertFilters = { score: [0, 100], rs: [0, 100], side: "all" };
+export const DEFAULT_ALERT_FILTERS: AlertFilters = { score: [0, 100], rs: [0, 100], side: "all", status: "all" };
 
 /** Saved filters, with anything missing or malformed reset to the default. */
 export function normalizeAlertFilters(raw: unknown): AlertFilters {
@@ -331,11 +332,12 @@ export function normalizeAlertFilters(raw: unknown): AlertFilters {
     score: range(f.score),
     rs: range(f.rs),
     side: f.side === "long" || f.side === "short" ? f.side : "all",
+    status: typeof f.status === "string" && f.status in STATUS_LABEL ? (f.status as AlertStatus) : "all",
   };
 }
 
 export function alertFiltersActive(f: AlertFilters): boolean {
-  return f.side !== "all" || f.score[0] > 0 || f.score[1] < 100 || f.rs[0] > 0 || f.rs[1] < 100;
+  return f.side !== "all" || f.status !== "all" || f.score[0] > 0 || f.score[1] < 100 || f.rs[0] > 0 || f.rs[1] < 100;
 }
 
 function inRange(v: number | null | undefined, [lo, hi]: [number, number]): boolean {
@@ -347,7 +349,7 @@ function inRange(v: number | null | undefined, [lo, hi]: [number, number]): bool
  * Alerts that pass the filters and whose ticker contains ``ticker`` (any case). A narrowed score or RS range drops names with no score / RS (off the scan).
  * RS is compared as a whole percentile (0.934 → 93), the same number the RS column shows.
  */
-export function filterAlerts<T extends Pick<TradeAlert, "symbol" | "setup" | "score" | "rs">>(
+export function filterAlerts<T extends Pick<TradeAlert, "symbol" | "setup" | "score" | "rs" | "status">>(
   alerts: T[],
   f: AlertFilters,
   ticker = "",
@@ -357,6 +359,7 @@ export function filterAlerts<T extends Pick<TradeAlert, "symbol" | "setup" | "sc
     if (q && !a.symbol.toUpperCase().includes(q)) return false;
     if (f.side === "long" && isShortSetup(a.setup)) return false;
     if (f.side === "short" && !isShortSetup(a.setup)) return false;
+    if (f.status !== "all" && a.status !== f.status) return false;
     if (!inRange(a.score, f.score)) return false;
     return inRange(a.rs == null ? null : Math.round(a.rs * 100), f.rs);
   });
