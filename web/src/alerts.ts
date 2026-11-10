@@ -1,4 +1,4 @@
-import type { AlertStatus, TradeAlert } from "./api";
+import type { AlertStatus, DailySetupRef, TradeAlert } from "./api";
 
 /** Market times are shown in the user's zone (Arizona, no daylight saving). */
 export const ALERT_TZ = "America/Phoenix";
@@ -26,6 +26,15 @@ export const SETUP_NAMES: Record<string, string> = {
   s240: "Short: rally to falling 240 EMA",
   s480: "Short: rally to falling 480 EMA",
 };
+
+/** Labels for the Daily setup column. A stored object uses its friendly label; an older row stored the label itself. */
+export function dailySetupText(setups: ReadonlyArray<string | Partial<DailySetupRef>> | null | undefined): string {
+  if (!setups?.length) return "";
+  return setups
+    .map((setup) => (typeof setup === "string" ? setup : setup.label || setup.kind || ""))
+    .filter(Boolean)
+    .join(", ");
+}
 
 /** Short-side alert ("s120" / "s240" / "s480"): sell stop under the candle low, stop above the rally high. */
 export const isShortSetup = (setup: string): boolean => setup.startsWith("s");

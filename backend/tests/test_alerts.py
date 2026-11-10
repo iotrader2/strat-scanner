@@ -233,16 +233,46 @@ def test_old_setting_keys_are_ignored():
     assert s.max_symbols == 80 and s.watch_bars == 6 and not hasattr(s, "bunched_pct") and not hasattr(s, "min_score")
 
 
-def test_metrics_by_ema():
-    rows = [
-        {"setup": "120", "filled": True, "r_multiple": 1.5},
-        {"setup": "120", "filled": True, "r_multiple": -1.0},
-        {"setup": "240", "filled": False, "r_multiple": None},
-    ]
-    by = {m["setup"]: m for m in metrics(rows)}
-    assert by["120"]["win_rate"] == 50.0 and by["120"]["total_r"] == 0.5
-    assert by["240"]["fill_rate"] == 0.0
-    assert by["All"]["count"] == 3 and by["480"]["count"] == 0
+def test_metrics_group_by_daily_setup_and_count_an_alert_under_each():
+    both = {
+        "filled": True,
+        "r_multiple": 1.5,
+        "details": {"daily_setups": [
+            {"kind": "episodic-pivot", "label": "Episodic Pivot", "side": "long"},
+            {"kind": "flat-base-breakout", "label": "Flat Base Breakout", "side": "long"},
+        ]},
+    }
+    lost = {
+        "filled": True,
+        "r_multiple": -1.0,
+        "details": {"daily_setups": [{"kind": "flat-base-breakout", "label": "Flat Base Breakout", "side": "long"}]},
+    }
+    waiting = {"filled": False, "r_multiple": None, "details": {"daily_setups": ["Delayed High Volume Close"]}}
+    short10 = {
+        "filled": True,
+        "r_multiple": 2.0,
+        "details": {"daily_setups": [{"kind": "ma-overcut-fail", "label": "MA Overcut and Fail (10-day)", "side": "short", "period": 10}]},
+    }
+    short20 = {
+        "filled": True,
+        "r_multiple": -1.0,
+        "details": {"daily_setups": [{"kind": "ma-overcut-fail", "label": "MA Overcut and Fail (20-day)", "side": "short", "period": 20}]},
+    }
+    old = {"filled": False, "r_multiple": None, "details": {}}
+    by = {m["setup"]: m for m in metrics([both, lost, waiting, short10, short20, old])}
+    assert by["episodic-pivot"]["count"] == 1 and by["episodic-pivot"]["name"] == "Episodic Pivot"
+    assert by["episodic-pivot"]["side"] == "long"
+    # The alert that also has an episodic pivot is counted here too, and once in All.
+    assert by["flat-base-breakout"]["count"] == 2 and by["flat-base-breakout"]["total_r"] == 0.5
+    assert by["flat-base-breakout"]["win_rate"] == 50.0
+    assert by["delayed-hvc"]["count"] == 1 and by["delayed-hvc"]["fill_rate"] == 0.0
+    assert by["ma-overcut-fail:10"]["name"] == "MA Overcut and Fail (10-day)" and by["ma-overcut-fail:10"]["side"] == "short"
+    assert by["ma-overcut-fail:20"]["total_r"] == -1.0
+    assert "ma-overcut-fail" not in by
+    assert by["unknown"]["count"] == 1 and by["unknown"]["name"] == "Unknown"
+    assert by["All"]["count"] == 6 and by["All"]["side"] is None
+    assert by["All"]["total_r"] == 1.5
+    assert [m["setup"] for m in metrics([])] == ["All"]
 
 
 

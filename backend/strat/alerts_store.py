@@ -303,6 +303,20 @@ def list_history(
     return [_history_row(r) for r in userdb.cached(("alert_history", sql, bound), read, db_path)]
 
 
+def clear_history(db_path: Optional[Path] = None) -> dict:
+    """Delete every live alert and every archived alert, including ones still watching.
+
+    Pending, filled, and closed rows all go, so the Alerts list and the metrics start empty.
+    Watchlist, positions, trims, extra symbols, alert settings, and user_meta are not touched.
+    """
+    with _lock, _writing(), userdb.connect(db_path) as conn:
+        live = int(conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0])
+        archived = int(conn.execute("SELECT COUNT(*) FROM alerts_history").fetchone()[0])
+        conn.execute("DELETE FROM alerts")
+        conn.execute("DELETE FROM alerts_history")
+    return {"alerts": live, "alerts_history": archived}
+
+
 def history_dates(db_path: Optional[Path] = None) -> list[str]:
     """Trading dates that have archived alerts, newest first."""
 

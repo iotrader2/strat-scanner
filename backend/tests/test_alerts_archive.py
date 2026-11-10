@@ -7,7 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from strat import alerts_live, alerts_store, api, config, userdb
+from strat import alerts_live, alerts_store, api, config, data, userdb
+from strat.stage import COOKIE_NAME, cookie_value
 from strat.alerts import Context, simulate
 
 OPEN = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)  # 09:30 EDT, Friday
@@ -178,7 +179,7 @@ def test_history_endpoint_is_read_only_and_live_shape_stays(db):
     assert older["alerts"][0]["symbol"] == "BBB" and older["alerts"][0]["id"] != default["alerts"][0]["id"]
     assert empty["date"] == "2026-10-21" and empty["alerts"] == []
     assert c.get("/api/alerts/history", params={"date": "Friday"}).status_code == 422
-    assert {r["setup"]: r["count"] for r in metrics["rows"]}["120"] == 2
+    assert {r["setup"]: r["count"] for r in metrics["rows"]}["unknown"] == 2
     assert metrics["symbols"] == ["AAA", "BBB"]
 
 
@@ -423,3 +424,55 @@ def test_history_table_keeps_the_original_id_on_both_backends():
     assert "INTEGER PRIMARY KEY" in sqlite_history
     assert "BIGSERIAL" not in pg_history
     assert "BIGINT PRIMARY KEY" in pg_history
+
+
+def test_clear_history_deletes_live_and_archived_alerts_and_leaves_the_rest(db):
+    data.add_to_watchlist("KEEP")
+    data.save_position("TEAM", 10.0, 5, "2026-11-01")
+    data.add_trim("TEAM", 1, 11.0)
+    data.save_extra_symbol("XYZ", "Xyz", "Tech", "stock", "Software")
+    alerts_store.save_settings({"hold_pct": 0.55})
+    with userdb.connect() as conn:
+        conn.execute("INSERT INTO user_meta(key, value) VALUES ('watchlist_session', '2026-11-10')")
+    _save("OLD", "2026-10-23")
+    _save(
+        "LIVE", "2026-11-10",
+        when=datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc),
+        start=datetime(2026, 11, 10, 14, 30, tzinfo=timezone.utc),
+    )
+    alerts_store.archive_alerts(date(2026, 10, 23), now=datetime(2026, 10, 23, 21, 5, tzinfo=timezone.utc))
+    assert [r["symbol"] for r in alerts_store.list_alerts()] == ["LIVE"]
+    assert alerts_store.history_dates() == ["2026-10-23"]
+
+    body = TestClient(api.app).post("/api/alerts/history/clear").json()
+    assert body == {"cleared": {"alerts": 1, "alerts_history": 1}}
+    assert alerts_store.list_alerts() == []
+    assert alerts_store.history_dates() == []
+    assert alerts_store.list_history(start="2020-01-01", end="2030-01-01") == []
+    again = TestClient(api.app).post("/api/alerts/history/clear").json()
+    assert again == {"cleared": {"alerts": 0, "alerts_history": 0}}
+
+    assert data.watchlist() == ["KEEP"]
+    assert data.positions()[0]["symbol"] == "TEAM"
+    assert data.trimmed_shares("TEAM") == 1
+    assert data.extra_symbols()[0]["symbol"] == "XYZ"
+    assert alerts_store.load_settings().hold_pct == 0.55
+    with userdb.connect() as conn:
+        kept = conn.execute("SELECT value FROM user_meta WHERE key = 'watchlist_session'").fetchone()[0]
+    assert kept == "2026-11-10"
+
+
+def test_clear_history_is_behind_the_stage_gate(db, monkeypatch):
+    monkeypatch.setenv("STAGE_TOKEN", "stage-secret-token")
+    monkeypatch.delenv("STAGE_USER", raising=False)
+    monkeypatch.delenv("STAGE_PASS", raising=False)
+    _save("LIVE", "2026-11-10", when=datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc), start=datetime(2026, 11, 10, 14, 30, tzinfo=timezone.utc))
+    client = TestClient(api.app)
+    blocked = client.post("/api/alerts/history/clear")
+    assert blocked.status_code == 404
+    assert blocked.text == "Not Found"
+    assert len(alerts_store.list_alerts()) == 1
+    client.cookies.set(COOKIE_NAME, cookie_value("stage-secret-token"))
+    body = client.post("/api/alerts/history/clear").json()
+    assert body == {"cleared": {"alerts": 1, "alerts_history": 0}}
+    assert alerts_store.list_alerts() == []

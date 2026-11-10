@@ -160,11 +160,11 @@ def test_refresh_keeps_the_daily_setup_on_the_alert(db):
     ma, last = ctx.ma_tail[120][-1], ctx.prev_close
     touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
     client = FakeClient({"AAA": history}, {"AAA": [touch]})
-    labels = {"AAA": {"long": ["Flat Base Breakout"], "short": []}}
+    labels = {"AAA": {"long": [{"kind": "flat-base-breakout", "label": "Flat Base Breakout", "side": "long"}], "short": []}}
     stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, daily_setups=labels)
     assert stats["alerts"] == 1
     row = alerts_store.list_alerts()[0]
-    assert row["setup"] == "120" and row["details"]["daily_setups"] == ["Flat Base Breakout"]
+    assert row["setup"] == "120" and row["details"]["daily_setups"] == labels["AAA"]["long"]
     alerts_live.clear()
 
 
@@ -222,10 +222,16 @@ def test_alert_symbols_are_names_with_a_long_daily_setup():
     assert alert_symbols(rows, Settings(theme_gate=0, max_symbols=1)) == ["CCC"]
     assert alert_symbols(rows, Settings()) == []  # the theme gate is on, and none of these rows has a theme
     labels = alert_daily_labels(rows, Settings(theme_gate=0, short_flat=1))
-    assert labels["AAA"] == {"long": ["Flat Base Breakout"], "short": []}
+    assert labels["AAA"] == {"long": [{"kind": "flat-base", "label": "Flat Base Breakout", "side": "long"}], "short": []}
     assert "DDD" not in labels  # kind "flat-base-short" is not a short setup the toggles know
     real_short = {**short_d, "kind": "flat-base-breakdown"}
-    assert alert_daily_labels([{"symbol": "DDD", "kind": "stock", "setups": [real_short]}], Settings(short_flat=1))["DDD"]["short"] == ["Flat Base Breakdown"]
+    assert alert_daily_labels([{"symbol": "DDD", "kind": "stock", "setups": [real_short]}], Settings(short_flat=1))["DDD"]["short"] == [
+        {"kind": "flat-base-breakdown", "label": "Flat Base Breakdown", "side": "short"}
+    ]
+    ma = {"tf": "D", "kind": "ma-overcut-fail", "label": "MA Overcut and Fail (10-day)", "side": "short"}
+    assert alert_daily_labels([{"symbol": "MA", "kind": "stock", "setups": [ma]}], Settings(short_ma10=1))["MA"]["short"] == [
+        {"kind": "ma-overcut-fail", "label": "MA Overcut and Fail (10-day)", "side": "short", "period": 10}
+    ]
     assert "EEE" not in labels and "theme-x" not in labels and "GGG" not in labels
 
 
@@ -299,7 +305,7 @@ def test_alerts_api(db):
     assert body["sessions"] == ["2026-10-23"]
     assert c.post("/api/alerts/ack", json={"ids": None}).json()["unread"] == 0
     m = c.get("/api/alerts/metrics", params={"start": "2026-10-01", "end": "2026-10-31"}).json()
-    assert {r["setup"]: r["count"] for r in m["rows"]}["120"] == 1
+    assert {r["setup"]: r["count"] for r in m["rows"]}["flat-base-breakout"] == 1
     assert c.get("/api/alerts/metrics", params={"symbol": "ZZZ"}).json()["rows"][-1]["count"] == 0
     s = c.put("/api/alerts/settings", json={"hold_pct": 0.6}).json()
     assert s["settings"]["hold_pct"] == 0.6 and s["defaults"]["hold_pct"] == 0.3

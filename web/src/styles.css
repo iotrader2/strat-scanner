@@ -763,7 +763,7 @@ th.num { text-align: right; }
    Alerts tab
    --------------------------------------------------------------------------------------------------------------- */
 .count-badge.alert-badge { background: var(--yellow); color: #1a1405; }
-.alerts-tabs { margin: 0 0 12px; }
+.alerts-tabs { margin: 0 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .alert-day { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-width: 720px; }
 .alert-day-headline { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .alert-day.open .alert-day-headline { color: var(--accent); }

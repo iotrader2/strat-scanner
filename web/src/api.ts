@@ -536,6 +536,9 @@ export const api = {
     get<AlertHistoryPayload>(`/api/alerts/history${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   /** Acknowledge alerts; no ids acknowledges every unread one. */
   ackAlerts: (ids?: number[]) => send<{ acknowledged: number; unread: number }>("/api/alerts/ack", "POST", { ids: ids ?? null }),
+  /** Delete every live and archived alert. Watchlist, positions, and rule settings stay. */
+  clearAlertHistory: () =>
+    send<{ cleared: { alerts: number; alerts_history: number } }>("/api/alerts/history/clear", "POST", {}),
   alertMetrics: (q: { start?: string; end?: string; symbol?: string }) => {
     const params = new URLSearchParams();
     if (q.start) params.set("start", q.start);
@@ -595,8 +598,8 @@ export interface TradeAlert {
     rearmed?: number;
     /** Filled while the candle was still forming (caught by the poll before it closed). */
     fill_on_forming_bar?: boolean;
-    /** The daily setups (scanner labels) on this side that put the name on the alert list. */
-    daily_setups?: string[];
+    /** Daily setups that put the name on the alert list. Older rows stored the label as a string. */
+    daily_setups?: Array<string | DailySetupRef>;
   };
   acknowledged: boolean;
   /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
@@ -646,9 +649,19 @@ export interface AlertsPayload {
   ema5m: Record<string, Ema5m | null>;
 }
 
+/** One scanner daily setup stored on an alert. `period` is the 10/20/50-day average, when the setup has one. */
+export interface DailySetupRef {
+  kind: string;
+  label: string;
+  side?: "long" | "short";
+  period?: number;
+}
+
 export interface AlertMetricRow {
-  setup: AlertSetup | "All";
+  /** Daily-setup key (`episodic-pivot`, `ma-overcut-fail:10`), `unknown`, or `All`. */
+  setup: string;
   name: string;
+  side: "long" | "short" | null;
   count: number;
   filled: number;
   closed: number;

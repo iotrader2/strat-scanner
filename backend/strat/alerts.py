@@ -758,27 +758,157 @@ def mark_top(rows: list[dict], top_names: int) -> set[str]:
     return set(names[:top_names])
 
 
+_MA_SETUP_KINDS = ("ma-undercut-rally", "ma-overcut-fail")
+
+
+def _ma_period(kind: str, label: str, explicit: Any = None) -> Optional[int]:
+    """10 / 20 / 50 on a moving-average undercut or overcut, from the stored period or the label."""
+    if kind not in _MA_SETUP_KINDS:
+        return None
+    if explicit is not None and str(explicit).isdigit():
+        return int(explicit)
+    if "(" in label and "-day" in label:
+        chunk = label.rsplit("(", 1)[-1].split("-", 1)[0]
+        if chunk.isdigit():
+            return int(chunk)
+    return None
+
+
+def daily_setup_ref(setup: Mapping) -> dict:
+    """One scanner daily setup as stored on an alert: kind, friendly label, side, and the MA period when it has one."""
+    kind = str(setup.get("kind") or "")
+    label = str(setup.get("label") or kind)
+    side = "short" if setup.get("side") == "short" else "long"
+    ref = {"kind": kind, "label": label, "side": side}
+    period = _ma_period(kind, label, setup.get("period"))
+    if period is not None:
+        ref["period"] = period
+    return ref
+
+
+def _daily_catalog() -> tuple[list[tuple[str, str, str]], dict[str, tuple[str, str]]]:
+    """Display order of (key, friendly name, side), and friendly name -> (key, side)."""
+    from .ariel_setups import LONG_KINDS, MA_UR_PERIODS, SETUP_LABELS, SHORT_MIRROR
+
+    rows: list[tuple[str, str, str]] = []
+    by_label: dict[str, tuple[str, str]] = {}
+
+    def add(key: str, name: str, side: str) -> None:
+        rows.append((key, name, side))
+        by_label[name] = (key, side)
+
+    for kind in LONG_KINDS:
+        if kind == "ma-undercut-rally":
+            base = SETUP_LABELS[kind]
+            for period in sorted(MA_UR_PERIODS):
+                add(f"{kind}:{period}", f"{base} ({period}-day)", "long")
+        else:
+            add(kind, SETUP_LABELS[kind], "long")
+    for kind in LONG_KINDS:
+        short_kind, short_name = SHORT_MIRROR[kind]
+        if short_kind == "ma-overcut-fail":
+            for period in sorted(MA_UR_PERIODS):
+                add(f"{short_kind}:{period}", f"{short_name} ({period}-day)", "short")
+        else:
+            add(short_kind, short_name, "short")
+    return rows, by_label
+
+
+def _row_details(row: Mapping) -> dict:
+    raw = row.get("details")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or "{}")
+        except ValueError:
+            raw = {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def daily_setup_attributions(row: Mapping) -> list[tuple[str, str, Optional[str]]]:
+    """Daily setups this alert counts under: ``(key, friendly name, side)``.
+
+    A name can qualify on several daily setups, and the alert counts under each of them.
+    The same setup is not counted twice on one alert. A row with nothing stored counts once as unknown.
+    A plain label from an older row is matched to its setup when the name is one we know.
+    """
+    catalog, by_label = _daily_catalog()
+    known = {key: (name, side) for key, name, side in catalog}
+    raw = _row_details(row).get("daily_setups")
+    if not isinstance(raw, list) or not raw:
+        return [("unknown", "Unknown", None)]
+    out: list[tuple[str, str, Optional[str]]] = []
+    seen: set[str] = set()
+    for item in raw:
+        side: Optional[str]
+        if isinstance(item, str):
+            hit = by_label.get(item)
+            if hit:
+                key, side = hit
+                name = known[key][0]
+            else:
+                key, name, side = f"label:{item}", item, None
+        elif isinstance(item, dict) and item.get("kind"):
+            kind = str(item["kind"])
+            label = str(item.get("label") or "")
+            period = _ma_period(kind, label, item.get("period"))
+            key = f"{kind}:{period}" if period else kind
+            stored_side = item.get("side")
+            side = stored_side if stored_side in ("long", "short") else known.get(key, (None, None))[1]
+            name = known.get(key, (label or kind, side))[0]
+        else:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((key, name, side))
+    return out or [("unknown", "Unknown", None)]
+
+
+def _metric_row(setup: str, name: str, side: Optional[str], group: Sequence[Mapping]) -> dict:
+    filled = [r for r in group if r.get("filled")]
+    closed = [r for r in filled if r.get("r_multiple") is not None]
+    wins = [r for r in closed if round(r["r_multiple"], 2) > 0]  # a 1-cent scratch is not a win
+    total = sum(r["r_multiple"] for r in closed)
+    return {
+        "setup": setup,
+        "name": name,
+        "side": side,
+        "count": len(group),
+        "filled": len(filled),
+        "closed": len(closed),
+        "open": len(filled) - len(closed),
+        "fill_rate": round(len(filled) / len(group) * 100, 1) if group else None,
+        "win_rate": round(len(wins) / len(closed) * 100, 1) if closed else None,
+        "avg_r": round(total / len(closed), 2) if closed else None,
+        "total_r": round(total, 2) if closed else None,
+    }
+
+
 def metrics(rows: Sequence[Mapping]) -> list[dict]:
-    """Per setup: count, fill rate, win rate, average R, total R. Wins / R use closed filled trades (win: R > 0.00)."""
+    """Per daily setup: count, fill rate, win rate, average R, total R.
+
+    Wins and R use closed filled trades (a win is R rounded to 2 decimals above 0). An alert is listed
+    under every daily setup that qualified the name. ``All`` counts each alert once.
+    """
+    catalog, _ = _daily_catalog()
+    buckets: dict[str, list[Mapping]] = {}
+    labels = {key: (name, side) for key, name, side in catalog}
+    order = [key for key, _, _ in catalog]
+    for row in rows:
+        for key, name, side in daily_setup_attributions(row):
+            buckets.setdefault(key, []).append(row)
+            labels.setdefault(key, (name, side))
+            if key not in order:
+                order.append(key)
     out = []
-    for setup in SETUPS + ("All",):
-        group = [r for r in rows if setup == "All" or r["setup"] == setup]
-        filled = [r for r in group if r["filled"]]
-        closed = [r for r in filled if r["r_multiple"] is not None]
-        wins = [r for r in closed if round(r["r_multiple"], 2) > 0]  # a 1-cent scratch is not a win
-        total = sum(r["r_multiple"] for r in closed)
-        out.append(
-            {
-                "setup": setup,
-                "name": SETUP_NAMES.get(setup, "All setups"),
-                "count": len(group),
-                "filled": len(filled),
-                "closed": len(closed),
-                "open": len(filled) - len(closed),
-                "fill_rate": round(len(filled) / len(group) * 100, 1) if group else None,
-                "win_rate": round(len(wins) / len(closed) * 100, 1) if closed else None,
-                "avg_r": round(total / len(closed), 2) if closed else None,
-                "total_r": round(total, 2) if closed else None,
-            }
-        )
+    for key in order:
+        group = buckets.get(key) or []
+        if not group:
+            continue
+        name, side = labels[key]
+        out.append(_metric_row(key, name, side, group))
+    # Unknown sits just above the total, after the named setups.
+    if any(r["setup"] == "unknown" for r in out):
+        out = [r for r in out if r["setup"] != "unknown"] + [r for r in out if r["setup"] == "unknown"]
+    out.append(_metric_row("All", "All setups", None, list(rows)))
     return out

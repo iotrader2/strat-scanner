@@ -340,15 +340,19 @@ def _alert_name_count() -> int:
     return len(set(alert_symbols(State.scan, settings)) | set(alert_short_symbols(State.scan, settings)))
 
 
-def alert_daily_labels(rows: list[dict], settings: Optional[alert_rules.Settings] = None) -> dict[str, dict[str, list[str]]]:
-    """symbol -> {"long": [labels], "short": [labels]} for the setups the rules will alert (kept on the alert)."""
+def alert_daily_labels(rows: list[dict], settings: Optional[alert_rules.Settings] = None) -> dict[str, dict[str, list[dict]]]:
+    """symbol -> {"long": [setup refs], "short": [setup refs]} for the setups the rules will alert.
+
+    Each ref is ``{kind, label, side}`` plus ``period`` for a 10/20/50-day moving-average setup.
+    The live poll stores that list on the alert so metrics can group by daily setup.
+    """
     settings = settings or alert_rules.Settings()
-    out: dict[str, dict[str, list[str]]] = {}
+    out: dict[str, dict[str, list[dict]]] = {}
     for r in rows:
         if not _alertable(r):
             continue
         sides = {
-            side: [str(s.get("label") or s.get("kind")) for s in qualifying_setups(r, side, settings)]
+            side: [alert_rules.daily_setup_ref(s) for s in qualifying_setups(r, side, settings)]
             for side in ("long", "short")
         }
         if sides["long"] or sides["short"]:
@@ -1287,6 +1291,14 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
         # One small reading per symbol, not a copy on every alert row.
         "ema5m": _alert_ema5m(symbols),
     }
+
+
+@app.post("/api/alerts/history/clear")
+def clear_alert_history():
+    """Delete every live and archived alert. The stage gate covers this route the same way as the rest of the API."""
+    cleared = alerts_store.clear_history()
+    hub.publish({"type": "alerts", "new": []})
+    return {"cleared": cleared}
 
 
 @app.get("/api/alerts/history")

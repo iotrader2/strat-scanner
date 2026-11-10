@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { sample } from "../alerts.test";
 import { DEFAULT_ALERT_FILTERS, alertDayStatus } from "../alerts";
-import { AlertDayBanner, AlertFilterBar, AlertsTable, RsPill } from "./Alerts";
+import { AlertDayBanner, AlertFilterBar, AlertsTable, MetricsTable, RsPill } from "./Alerts";
 
 describe("AlertsTable", () => {
   const html = renderToStaticMarkup(
@@ -150,6 +150,31 @@ describe("AlertsTable", () => {
     expect(archived).toContain('aria-label="Bought"');
     expect(archived).not.toContain("Bought →");
     expect(archived).not.toContain(">Acknowledge</span>");
+  });
+});
+
+describe("MetricsTable", () => {
+  it("lists daily setups with a side, and counts All once", () => {
+    const html = renderToStaticMarkup(
+      <MetricsTable
+        rows={[
+          { setup: "episodic-pivot", name: "Episodic Pivot", side: "long", count: 2, filled: 1, closed: 1, open: 0, fill_rate: 50, win_rate: 100, avg_r: 1.5, total_r: 1.5 },
+          { setup: "ma-overcut-fail:10", name: "MA Overcut and Fail (10-day)", side: "short", count: 1, filled: 1, closed: 1, open: 0, fill_rate: 100, win_rate: 0, avg_r: -1, total_r: -1 },
+          { setup: "unknown", name: "Unknown", side: null, count: 1, filled: 0, closed: 0, open: 0, fill_rate: 0, win_rate: null, avg_r: null, total_r: null },
+          { setup: "All", name: "All setups", side: null, count: 3, filled: 2, closed: 2, open: 0, fill_rate: 66.7, win_rate: 50, avg_r: 0.25, total_r: 0.5 },
+        ]}
+      />,
+    );
+    expect(html).toContain(">Daily setup</th>");
+    expect(html).toContain("Episodic Pivot");
+    expect(html).toContain('class="side-chip long">LONG<');
+    expect(html).toContain("MA Overcut and Fail (10-day)");
+    expect(html).toContain('class="side-chip short">SHORT<');
+    expect(html).toContain(">Unknown<");
+    expect(html).toContain('class="total-row"');
+    expect(html).toContain("All setups");
+    expect(html).not.toContain("ema-dot");
+    expect(html).not.toContain("Metrics by EMA");
   });
 });
 

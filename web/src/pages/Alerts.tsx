@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   api,
   type AlertHistoryPayload,
+  type AlertMetricRow,
   type AlertStatus,
   type AlertMetricsPayload,
   type AlertSettings,
@@ -16,6 +17,7 @@ import {
   SETUP_RULES,
   STATUS_LABEL,
   alertDayStatus,
+  dailySetupText,
   isShortSetup,
   setupPeriod,
   fmtR,
@@ -36,7 +38,7 @@ import {
   type AlertFilters,
 } from "../alerts";
 import { useAlerts } from "../components/AlertsCenter";
-import { EntryModal } from "../components/Modal";
+import { EntryModal, Modal } from "../components/Modal";
 import { usePositions } from "../components/Positions";
 import { ScorePill } from "../components/ScoreBreakdown";
 import { EarningsIcon } from "../components/EarningsIcon";
@@ -326,7 +328,7 @@ export function AlertsTable({
                 </span>
               </td>
               <td className="daily-setup-cell">
-                {a.details?.daily_setups?.length ? a.details.daily_setups.join(", ") : <span className="muted">—</span>}
+                {dailySetupText(a.details?.daily_setups) || <span className="muted">—</span>}
               </td>
               <td className="industry-cell">
                 {a.industry ? (
@@ -539,7 +541,7 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
   );
 }
 
-function HistoryView() {
+function HistoryView({ revision }: { revision: number }) {
   const [date, setDate] = useState("");
   const [data, setData] = useState<AlertHistoryPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -560,7 +562,7 @@ function HistoryView() {
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [date, revision]);
 
   const alerts = data?.alerts ?? [];
   const [filters, setFilters] = useAlertFilters();
@@ -613,7 +615,48 @@ function HistoryView() {
   );
 }
 
-function MetricsView() {
+export function MetricsTable({ rows }: { rows: AlertMetricRow[] }) {
+  const pct = (v: number | null) => (v == null ? "—" : `${v.toFixed(1)}%`);
+  return (
+    <div className="card table-card">
+      <table className="scan-table metrics-table">
+        <thead>
+          <tr>
+            <th>Daily setup</th>
+            <th className="num">Alerts</th>
+            <th className="num">Filled</th>
+            <th className="num">Fill rate</th>
+            <th className="num">Closed</th>
+            <th className="num">Win rate</th>
+            <th className="num">Avg R</th>
+            <th className="num">Total R</th>
+            <th className="num">Open</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.setup} className={r.setup === "All" ? "total-row" : ""}>
+              <td>
+                {r.side && <span className={`side-chip ${r.side}`}>{r.side === "short" ? "SHORT" : "LONG"}</span>}
+                <span className={r.setup === "All" ? "" : "setup-name"}>{r.name}</span>
+              </td>
+              <td className="num">{r.count}</td>
+              <td className="num">{r.filled}</td>
+              <td className="num">{pct(r.fill_rate)}</td>
+              <td className="num">{r.closed}</td>
+              <td className="num">{pct(r.win_rate)}</td>
+              <td className={`num ${rTone(r.avg_r)}`}>{fmtR(r.avg_r)}</td>
+              <td className={`num ${rTone(r.total_r)}`}>{fmtR(r.total_r)}</td>
+              <td className="num">{r.open}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MetricsView({ revision }: { revision: number }) {
   const [start, setStart] = usePersisted<string>("alertsMetricsStart", "");
   const [end, setEnd] = usePersisted<string>("alertsMetricsEnd", "");
   const [symbol, setSymbol] = usePersisted<string>("alertsMetricsSymbol", "");
@@ -628,9 +671,8 @@ function MetricsView() {
         setError(null);
       })
       .catch((e) => setError(String(e)));
-  }, [start, end, symbol]);
+  }, [start, end, symbol, revision]);
 
-  const pct = (v: number | null) => (v == null ? "—" : `${v.toFixed(1)}%`);
   return (
     <>
       <div className="table-meta metrics-filters">
@@ -652,52 +694,13 @@ function MetricsView() {
             </button>
           )}
         </div>
-        <span className="muted small">Win rate and R count filled trades that have closed. 1R = entry minus the original stop.</span>
+        <span className="muted small">
+          Win rate and R count filled trades that have closed. 1R = entry minus the original stop.
+          An alert with several daily setups is counted under each of them. All counts each alert once.
+        </span>
       </div>
       {error && <div className="banner error">{error}</div>}
-      <div className="card table-card">
-        <table className="scan-table metrics-table">
-          <thead>
-            <tr>
-              <th>Setup</th>
-              <th className="num">Alerts</th>
-              <th className="num">Filled</th>
-              <th className="num">Fill rate</th>
-              <th className="num">Closed</th>
-              <th className="num">Win rate</th>
-              <th className="num">Avg R</th>
-              <th className="num">Total R</th>
-              <th className="num">Open</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(data?.rows ?? []).map((r) => (
-              <tr key={r.setup} className={r.setup === "All" ? "total-row" : ""}>
-                <td>
-                  <span className={SETUP_RULES[r.setup] ? "setup-hover" : undefined} title={SETUP_RULES[r.setup]}>
-                    {r.setup !== "All" && (
-                      <span className="setup-letter">
-                        <EmaDot setup={r.setup} />
-                        {isShortSetup(r.setup) && <span className="side-chip short">SHORT</span>}
-                        {setupPeriod(r.setup)}
-                      </span>
-                    )}
-                    <span className={r.setup === "All" ? "" : "setup-name"}>{r.name}</span>
-                  </span>
-                </td>
-                <td className="num">{r.count}</td>
-                <td className="num">{r.filled}</td>
-                <td className="num">{pct(r.fill_rate)}</td>
-                <td className="num">{r.closed}</td>
-                <td className="num">{pct(r.win_rate)}</td>
-                <td className={`num ${rTone(r.avg_r)}`}>{fmtR(r.avg_r)}</td>
-                <td className={`num ${rTone(r.total_r)}`}>{fmtR(r.total_r)}</td>
-                <td className="num">{r.open}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <MetricsTable rows={data?.rows ?? []} />
     </>
   );
 }
@@ -805,9 +808,13 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
 
 export default function Alerts() {
   const [view, setView] = usePersisted<"alerts" | "history" | "metrics">("alertsView", "alerts");
-  const { today, unread } = useAlerts();
+  const { today, unread, reload } = useAlerts();
   const [now, setNow] = useState(() => new Date());
   const [windowSettings, setWindowSettings] = useState<AlertSettings | undefined>(undefined);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
   const fired = today?.alerts.length ?? 0;
   const triggered = (today?.alerts ?? []).filter((a) => a.filled).length;
   const top = new Set((today?.alerts ?? []).filter((a) => a.top).map((a) => a.symbol)).size;
@@ -820,6 +827,21 @@ export default function Alerts() {
     const id = window.setInterval(() => setNow(new Date()), 15_000);
     return () => window.clearInterval(id);
   }, []);
+
+  const clearHistory = async () => {
+    setClearing(true);
+    setClearError(null);
+    try {
+      await api.clearAlertHistory();
+      setRevision((n) => n + 1);
+      reload();
+      setConfirmClear(false);
+    } catch (e) {
+      setClearError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClearing(false);
+    }
+  };
 
   return (
     <div className="page alerts-page">
@@ -862,11 +884,31 @@ export default function Alerts() {
             History
           </button>
           <button type="button" role="tab" aria-selected={view === "metrics"} className={view === "metrics" ? "active" : ""} onClick={() => setView("metrics")}>
-            Metrics by EMA
+            Metrics by setup
           </button>
         </div>
+        <button type="button" className="btn small danger" onClick={() => { setClearError(null); setConfirmClear(true); }}>
+          Clear history
+        </button>
       </div>
-      {view === "history" ? <HistoryView /> : view === "alerts" ? <AlertsView day={day} /> : <MetricsView />}
+      {confirmClear && (
+        <Modal title="Clear alert history?" onClose={() => { if (!clearing) setConfirmClear(false); }} wide>
+          <p className="confirm-text">
+            This deletes every alert outcome: today's live alerts, including ones still watching or filled, and every
+            archived day. Metrics go back to empty. Your watchlist, positions, and rule settings stay.
+          </p>
+          {clearError && <p className="red-text small">{clearError}</p>}
+          <div className="modal-actions">
+            <button type="button" className="btn ghost" disabled={clearing} onClick={() => setConfirmClear(false)}>
+              Cancel
+            </button>
+            <button type="button" className="btn danger" disabled={clearing} onClick={clearHistory}>
+              {clearing ? "Clearing…" : "Clear history"}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {view === "history" ? <HistoryView revision={revision} /> : view === "alerts" ? <AlertsView day={day} /> : <MetricsView revision={revision} />}
       <SettingsPanel onSettings={setWindowSettings} />
     </div>
   );

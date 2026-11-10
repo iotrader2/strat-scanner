@@ -222,8 +222,9 @@ def refresh(
     """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line.
 
     ``short_symbols`` are checked for the short mirror (rallies into a falling EMA) instead of pullbacks.
-    ``daily_setups`` (symbol -> {"long": [labels], "short": [labels]}) names the daily setups behind each name;
-    they are kept on the alert's details as ``daily_setups``.
+    ``daily_setups`` (symbol -> {"long": [refs], "short": [refs]}) names the daily setups behind each name.
+    Each ref is ``{kind, label, side}`` (and ``period`` for a 10/20/50-day average). They are kept on the
+    alert's details as ``daily_setups``. A name on several setups keeps every one of them.
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     day = now_et(clock).date()
