@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import type { ScanRow } from "../api";
 import { SkeletonTable } from "../components/Loading";
 import { ListTable } from "../components/ListTable";
+import type { ExtraColumn } from "../components/ScanTable";
 import { useWatchlist } from "../components/Watch";
 import { queueSummary, useSymbolQueue } from "../symbolQueue";
-import { normalizeTicker, watchedRows } from "../watchlist";
+import { normalizeTicker, watchSetupGroups, watchedRows, type WatchSetupGroup } from "../watchlist";
 
 /** Add-any-ticker box. Enter queues the ticker, clears the field and keeps focus, so SPY ⏎ QQQ ⏎ works without clicking back. */
 export function AddSymbol() {
@@ -65,6 +67,39 @@ export function AddSymbol() {
   );
 }
 
+export function WatchSetupCell({ setups }: { setups: ScanRow["watch_setups"] }) {
+  const groups = watchSetupGroups(setups);
+  if (!groups.length) return <span className="muted">—</span>;
+  return (
+    <span className="watch-setups">
+      {groups.map((group) => (
+        <WatchSetupLine key={group.side} group={group} />
+      ))}
+    </span>
+  );
+}
+
+function WatchSetupLine({ group }: { group: WatchSetupGroup }) {
+  return (
+    <span className="watch-setup">
+      <span className={`side-chip ${group.side}`}>{group.side === "short" ? "SHORT" : "LONG"}</span>
+      {group.text}
+    </span>
+  );
+}
+
+const SETUP_COLUMN: ExtraColumn = {
+  key: "setup",
+  label: "Setup",
+  title: "Daily setups that qualified this name for alerts. A dash is a name you added that does not currently qualify.",
+  ascendingFirst: true,
+  sortValue: (row) => {
+    const groups = watchSetupGroups(row.watch_setups);
+    return groups.length ? groups.map((group) => `${group.side} ${group.text}`).join(" ") : null;
+  },
+  render: (row) => <WatchSetupCell setups={row.watch_setups} />,
+};
+
 export default function Watchlist() {
   const { symbols, data, error } = useWatchlist();
   const rows = useMemo(() => watchedRows(data?.rows ?? [], symbols), [data, symbols]);
@@ -77,7 +112,9 @@ export default function Watchlist() {
         <div>
           <h1>Watchlist</h1>
           <p className="muted">
-            Stocks you&apos;re watching. They stay until you take them off. When you buy one, use Bought on Alerts.
+            Stocks you&apos;re watching. They stay until you take them off. Setup is the daily setup that put an
+            auto-added name on the list. A dash is a name you added that does not currently qualify. When you buy
+            one, use Bought on Alerts.
           </p>
         </div>
         <div className="stat-cards">
@@ -110,7 +147,7 @@ export default function Watchlist() {
       ) : data === null ? (
         <SkeletonTable rows={5} cols={13} label="Loading watchlist…" />
       ) : (
-        <ListTable rows={rows} intraday={data?.intraday} />
+        <ListTable rows={rows} intraday={data?.intraday} extraColumns={[SETUP_COLUMN]} />
       )}
     </div>
   );

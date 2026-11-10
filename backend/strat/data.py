@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS watchlist (
     symbol   TEXT PRIMARY KEY,
     added_at TEXT NOT NULL,
-    source   TEXT NOT NULL DEFAULT 'manual'
+    source   TEXT NOT NULL DEFAULT 'manual',
+    setups   TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS positions (
     symbol      TEXT PRIMARY KEY,
@@ -130,6 +132,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE positions ADD COLUMN side TEXT NOT NULL DEFAULT 'long'")
     if "source" not in {r[1] for r in conn.execute("PRAGMA table_info(watchlist)")}:
         conn.execute("ALTER TABLE watchlist ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+    if "setups" not in {r[1] for r in conn.execute("PRAGMA table_info(watchlist)")}:
+        conn.execute("ALTER TABLE watchlist ADD COLUMN setups TEXT NOT NULL DEFAULT '[]'")
     # Restate the trim table for caches opened before it existed. executescript(SCHEMA)
     # already does this; repeating it here keeps the migration next to the other upgrades.
     conn.execute(
@@ -200,6 +204,32 @@ def watchlist(db_path: Path | None = None) -> list[str]:
 WATCH_MANUAL = "manual"
 WATCH_ALERT = "alert"
 _WATCHLIST_SESSION = "watchlist_session"
+_EMPTY_SETUPS = "[]"
+
+
+def _setups_blob(refs: list | None) -> str:
+    """JSON for the daily setups stored on a watchlist row. Stable key order so a refresh can see a real change."""
+    clean = []
+    for ref in refs or []:
+        if not isinstance(ref, dict) or not ref.get("kind"):
+            continue
+        item = {
+            "kind": str(ref["kind"]),
+            "label": str(ref.get("label") or ref["kind"]),
+            "side": "short" if ref.get("side") == "short" else "long",
+        }
+        if ref.get("period") is not None and str(ref["period"]).isdigit():
+            item["period"] = int(ref["period"])
+        clean.append(item)
+    return json.dumps(clean, separators=(",", ":"), sort_keys=True)
+
+
+def _parse_setups(raw: str | None) -> list:
+    try:
+        parsed = json.loads(raw or _EMPTY_SETUPS)
+    except ValueError:
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def add_to_watchlist(symbol: str, db_path: Path | None = None, *, source: str = WATCH_MANUAL) -> None:
@@ -231,22 +261,42 @@ def watch_sources(db_path: Path | None = None) -> dict[str, str]:
     return {sym: src for sym, src in userdb.cached("watch_sources", read, db_path)}
 
 
+def watch_setups(db_path: Path | None = None) -> dict[str, list]:
+    """symbol -> daily setups stored when the name qualified for alerts. Empty means none (a dash in the table)."""
+
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute("SELECT symbol, setups FROM watchlist").fetchall()
+
+    return {sym: _parse_setups(raw) for sym, raw in userdb.cached("watch_setups", read, db_path)}
+
+
 def sync_alert_watchlist(
-    symbols: list[str], *, include_manual: bool = False, now: datetime | None = None, db_path: Path | None = None
+    symbols: list[str],
+    *,
+    setups: dict[str, list] | None = None,
+    include_manual: bool = False,
+    now: datetime | None = None,
+    db_path: Path | None = None,
 ) -> dict:
     """Reset this trading day's watchlist, then add ``symbols`` as alert names.
 
     The reset runs only on the first call of an Eastern weekday, and it runs before the inserts
     in that same call. Later calls the same day only add names that are not already listed.
-    Weekends do nothing. ``include_manual`` also clears names the user added; otherwise those stay.
+    ``setups`` (symbol -> daily-setup refs) is written on the new rows and refreshed on every row
+    already listed: a name in ``symbols`` keeps that day's setups, and every other name is cleared
+    so a hand-added name that does not qualify shows a dash. Weekends do nothing.
+    ``include_manual`` also clears names the user added; otherwise those stay.
     """
     from .scheduler import session_date
 
     day = session_date(now or datetime.now(timezone.utc))
     if day is None:
-        return {"reset": False, "added": [], "session": None}
+        return {"reset": False, "added": [], "session": None, "setups_changed": 0}
     session = day.isoformat()
     wanted = list(dict.fromkeys(symbols))
+    wanted_set = set(wanted)
+    blobs = {sym: _setups_blob((setups or {}).get(sym)) for sym in wanted}
     with _write_lock, _writing(), userdb.connect(db_path) as conn:
         row = conn.execute("SELECT value FROM user_meta WHERE key = ?", (_WATCHLIST_SESSION,)).fetchone()
         reset = row is None or row[0] != session
@@ -267,11 +317,18 @@ def sync_alert_watchlist(
                 continue
             stamp = (added_at + timedelta(microseconds=i)).isoformat(timespec="microseconds")
             conn.execute(
-                "INSERT INTO watchlist(symbol, added_at, source) VALUES (?, ?, ?) ON CONFLICT(symbol) DO NOTHING",
-                (sym, stamp, WATCH_ALERT),
+                "INSERT INTO watchlist(symbol, added_at, source, setups) VALUES (?, ?, ?, ?) ON CONFLICT(symbol) DO NOTHING",
+                (sym, stamp, WATCH_ALERT, blobs[sym]),
             )
             added.append(sym)
-    return {"reset": reset, "added": added, "session": session}
+        setups_changed = 0
+        for sym, raw in conn.execute("SELECT symbol, setups FROM watchlist").fetchall():
+            blob = blobs[sym] if sym in wanted_set else _EMPTY_SETUPS
+            if (raw or _EMPTY_SETUPS) == blob:
+                continue
+            conn.execute("UPDATE watchlist SET setups = ? WHERE symbol = ?", (blob, sym))
+            setups_changed += 1
+    return {"reset": reset, "added": added, "session": session, "setups_changed": setups_changed}
 
 
 def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:
