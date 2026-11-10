@@ -451,3 +451,30 @@ def test_open_r_is_for_triggered_trades_still_open():
     assert open_r({**long_row, "status": "pending", "filled": 0}, 102.5) is None
     short_row = {"setup": "s240", "status": "triggered", "filled": 1, "fill_price": 50.0, "stop_price": 51.0}
     assert open_r(short_row, 48.0) == pytest.approx(2.0)
+
+
+def test_no_alert_or_entry_after_the_10am_arizona_cutoff():
+    from strat.alerts import trade_cutoff
+
+    # Arizona has no daylight saving: 10:00 MST is noon EST in winter and 1 PM EDT in summer.
+    assert trade_cutoff(datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)) == datetime(2026, 11, 10, 17, 0, tzinfo=timezone.utc)
+    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 17, 0, tzinfo=timezone.utc)
+
+    cutoff = datetime(2026, 10, 23, 17, 0, tzinfo=timezone.utc)
+    go = (100.2, 101.0, 100.1, 100.9)
+    # A touch bar that closes exactly at the cutoff still alerts and can fill on the forming bar before it.
+    [a] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, Settings())
+    assert a.status == "pending"
+    # ...but a bar that starts at the cutoff cannot fill it: the watch expires at the cutoff.
+    [b] = simulate("AAA", "2026-10-23", bars([TOUCH, go], start=cutoff - timedelta(minutes=15)), CTX, Settings())
+    assert b.status == "expired" and b.exit_reason == "trade_window" and not b.filled and b.exit_at == cutoff
+    forming = {"t": cutoff, "o": 100.3, "h": 100.9, "l": 100.2, "c": 100.85, "v": 10.0}
+    [c] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, Settings(), forming=forming)
+    assert c.status == "pending" and not c.filled
+    # A touch at or after the cutoff is not alerted.
+    skipped = []
+    assert simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff), CTX, Settings(), skipped=skipped) == []
+    assert skipped[0]["reason"] == "after the 10:00 AZ trade cutoff"
+    # A trade filled before the cutoff is still managed after it.
+    [d] = simulate("AAA", "2026-10-23", bars([TOUCH, go, (100.9, 101.1, 99.5, 99.6)], start=cutoff - timedelta(minutes=30)), CTX, Settings())
+    assert d.filled and d.status == "stopped"

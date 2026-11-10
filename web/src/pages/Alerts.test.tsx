@@ -248,6 +248,7 @@ describe("Alert liquidity sliders", () => {
     expect(html).toContain(">Any<");
     expect(html).toContain("0%");
     expect(html).toContain("12%+");
-    expect(html).toContain("Names you added to the watchlist yourself are not filtered.");
+    expect(html).toContain("needs an ATR above 3% to be added or to");
+    expect(html).toContain("the sliders do not apply to names you added.");
   });
 });
