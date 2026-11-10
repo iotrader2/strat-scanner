@@ -446,6 +446,13 @@ def apply_order(a: "Alert", high: float, low: float, s: Settings) -> bool:
     return abs(trigger - stop) / trigger * 100 <= s.max_stop_pct + 0.05
 
 
+def _note_feed(a: "Alert", bar: Mapping) -> None:
+    """Remember which feed priced the candle the working order sits on (sip, yahoo, or iex)."""
+    src = bar.get("src")
+    if src in ("sip", "yahoo", "iex"):
+        a.details["bar_feed"] = src
+
+
 def _rearm(a: "Alert", bar: Mapping, index: int, s: Settings, end: datetime) -> bool:
     """Move the working order onto ``bar``. False cancels the watch because the new stop is too wide."""
     a.setup_bar, a.setup_index = bar["t"], index
@@ -455,6 +462,7 @@ def _rearm(a: "Alert", bar: Mapping, index: int, s: Settings, end: datetime) -> 
         a.exit_at = end
         return False
     a.details["rearmed"] = a.details.get("rearmed", 0) + 1
+    _note_feed(a, bar)
     return True
 
 
@@ -724,6 +732,7 @@ def simulate(
             if skipped is not None:
                 skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": "stop wider than the max"})
             continue
+        _note_feed(alert, bar)
         alerts.append(alert)
     if len(f.bars) >= ctx.session_bars:
         for a in alerts:
