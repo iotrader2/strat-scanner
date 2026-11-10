@@ -67,6 +67,20 @@ def archive_through(now: datetime) -> date:
     return local.date() - timedelta(days=1)
 
 
+def session_date(now: datetime) -> date | None:
+    """Eastern date when ``now`` falls on a weekday, else None.
+
+    This is the trading day the watchlist belongs to. The app has no holiday calendar, so a
+    weekday holiday is treated like any other weekday. Phoenix is always UTC-7, so 4:00 AM
+    New York is 2:00 AM Phoenix while New York is on standard time and 1:00 AM Phoenix while
+    New York is on daylight time.
+    """
+    local = now_et(now)
+    if local.weekday() >= 5:
+        return None
+    return local.date()
+
+
 def previous_weekday(now: datetime) -> date:
     """The weekday before ``now``'s Eastern date. Monday goes back to Friday."""
     day = now_et(now).date() - timedelta(days=1)

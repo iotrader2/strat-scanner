@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 CREATE TABLE IF NOT EXISTS watchlist (
     symbol   TEXT PRIMARY KEY,
-    added_at TEXT NOT NULL
+    added_at TEXT NOT NULL,
+    source   TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE TABLE IF NOT EXISTS positions (
     symbol      TEXT PRIMARY KEY,
@@ -127,6 +128,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
     if "side" not in {r[1] for r in conn.execute("PRAGMA table_info(positions)")}:
         conn.execute("ALTER TABLE positions ADD COLUMN side TEXT NOT NULL DEFAULT 'long'")
+    if "source" not in {r[1] for r in conn.execute("PRAGMA table_info(watchlist)")}:
+        conn.execute("ALTER TABLE watchlist ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
     # Restate the trim table for caches opened before it existed. executescript(SCHEMA)
     # already does this; repeating it here keeps the migration next to the other upgrades.
     conn.execute(
@@ -194,10 +197,81 @@ def watchlist(db_path: Path | None = None) -> list[str]:
     return list(userdb.cached("watchlist", read, db_path))
 
 
-def add_to_watchlist(symbol: str, db_path: Path | None = None) -> None:
+WATCH_MANUAL = "manual"
+WATCH_ALERT = "alert"
+_WATCHLIST_SESSION = "watchlist_session"
+
+
+def add_to_watchlist(symbol: str, db_path: Path | None = None, *, source: str = WATCH_MANUAL) -> None:
+    """Add ``symbol``. A manual add keeps the name across the morning reset; an alert add does not replace one."""
+    if source not in (WATCH_MANUAL, WATCH_ALERT):
+        raise ValueError(f"source must be {WATCH_MANUAL!r} or {WATCH_ALERT!r}")
     added = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with _write_lock, _writing(), userdb.connect(db_path) as conn:
-        conn.execute("INSERT INTO watchlist(symbol, added_at) VALUES (?, ?) ON CONFLICT(symbol) DO NOTHING", (symbol, added))
+        if source == WATCH_MANUAL:
+            conn.execute(
+                "INSERT INTO watchlist(symbol, added_at, source) VALUES (?, ?, ?) "
+                "ON CONFLICT(symbol) DO UPDATE SET source = ?",
+                (symbol, added, WATCH_MANUAL, WATCH_MANUAL),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO watchlist(symbol, added_at, source) VALUES (?, ?, ?) ON CONFLICT(symbol) DO NOTHING",
+                (symbol, added, WATCH_ALERT),
+            )
+
+
+def watch_sources(db_path: Path | None = None) -> dict[str, str]:
+    """symbol -> ``manual`` or ``alert``."""
+
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute("SELECT symbol, source FROM watchlist").fetchall()
+
+    return {sym: src for sym, src in userdb.cached("watch_sources", read, db_path)}
+
+
+def sync_alert_watchlist(
+    symbols: list[str], *, include_manual: bool = False, now: datetime | None = None, db_path: Path | None = None
+) -> dict:
+    """Reset this trading day's watchlist, then add ``symbols`` as alert names.
+
+    The reset runs only on the first call of an Eastern weekday, and it runs before the inserts
+    in that same call. Later calls the same day only add names that are not already listed.
+    Weekends do nothing. ``include_manual`` also clears names the user added; otherwise those stay.
+    """
+    from .scheduler import session_date
+
+    day = session_date(now or datetime.now(timezone.utc))
+    if day is None:
+        return {"reset": False, "added": [], "session": None}
+    session = day.isoformat()
+    wanted = list(dict.fromkeys(symbols))
+    with _write_lock, _writing(), userdb.connect(db_path) as conn:
+        row = conn.execute("SELECT value FROM user_meta WHERE key = ?", (_WATCHLIST_SESSION,)).fetchone()
+        reset = row is None or row[0] != session
+        if reset:
+            if include_manual:
+                conn.execute("DELETE FROM watchlist")
+            else:
+                conn.execute("DELETE FROM watchlist WHERE source = ?", (WATCH_ALERT,))
+            conn.execute(
+                "INSERT INTO user_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (_WATCHLIST_SESSION, session),
+            )
+        have = {r[0] for r in conn.execute("SELECT symbol FROM watchlist").fetchall()}
+        added_at = datetime.now(timezone.utc)
+        added = []
+        for i, sym in enumerate(wanted):
+            if sym in have:
+                continue
+            stamp = (added_at + timedelta(microseconds=i)).isoformat(timespec="microseconds")
+            conn.execute(
+                "INSERT INTO watchlist(symbol, added_at, source) VALUES (?, ?, ?) ON CONFLICT(symbol) DO NOTHING",
+                (sym, stamp, WATCH_ALERT),
+            )
+            added.append(sym)
+    return {"reset": reset, "added": added, "session": session}
 
 
 def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:

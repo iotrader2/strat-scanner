@@ -268,6 +268,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["theme_gate", "Theme gate (1 = on, 0 = off): longs in a top theme, shorts in a bottom theme", ""],
       ["theme_top_pct", "Theme band", "% of themes (25 = the top or bottom quartile)"],
       ["long_pending_only", "Longs: only a daily setup that has not broken yet (1 = on, 0 = off)", ""],
+      ["reset_manual", "Morning watchlist reset also clears names you added (1 = on, 0 = off). Alert names are always cleared.", ""],
     ],
   },
   {
