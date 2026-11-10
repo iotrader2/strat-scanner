@@ -275,6 +275,15 @@ def test_metrics_group_by_daily_setup_and_count_an_alert_under_each():
     assert [m["setup"] for m in metrics([])] == ["All"]
 
 
+def test_a_watchlist_tag_is_its_own_metrics_row():
+    row = {"filled": True, "r_multiple": 1.0, "details": {"daily_setups": [
+        {"kind": "watchlist", "label": "Watchlist", "side": "long"},
+    ]}}
+    by = {m["setup"]: m for m in metrics([row])}
+    assert by["watchlist"]["name"] == "Watchlist" and by["watchlist"]["side"] == "long"
+    assert by["watchlist"]["count"] == 1 and by["All"]["count"] == 1
+
+
 
 # --- short side: the exact mirror -----------------------------------------------------------------------------------
 #

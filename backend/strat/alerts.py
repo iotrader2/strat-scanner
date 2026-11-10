@@ -115,6 +115,10 @@ class Settings:
     long_pending_only: int = 0
     # 1 = the morning watchlist reset also removes names you added yourself. 0 = keep those.
     reset_manual: int = 0
+    # 1 = also check names you added to the watchlist, long side, even with no daily setup and
+    # outside the theme gate. They do not count toward max_symbols. A name that already qualifies
+    # as a short stays a short.
+    alert_manual_watchlist: int = 1
     # Short daily setups (1 = on, 0 = off). The two that lost, and the thin ones, start off.
     # MA Overcut and Fail at 10 and 20 days made R and start on.
     short_hvc: int = 0
@@ -166,7 +170,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "shorts": (0, 1), "max_short_symbols": (0, 1000),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
-    "long_pending_only": (0, 1), "reset_manual": (0, 1),
+    "long_pending_only": (0, 1), "reset_manual": (0, 1), "alert_manual_watchlist": (0, 1),
     "short_hvc": (0, 1), "short_crossback": (0, 1),
     "short_ma10": (0, 1), "short_ma20": (0, 1), "short_ma50": (0, 1),
     "short_overcut": (0, 1), "short_wedge": (0, 1), "short_flat": (0, 1),
@@ -774,6 +778,10 @@ def _ma_period(kind: str, label: str, explicit: Any = None) -> Optional[int]:
     return None
 
 
+# Stored on an alert that was checked because the user added the name, not because it qualified.
+WATCHLIST_SETUP = {"kind": "watchlist", "label": "Watchlist", "side": "long"}
+
+
 def daily_setup_ref(setup: Mapping) -> dict:
     """One scanner daily setup as stored on an alert: kind, friendly label, side, and the MA period when it has one."""
     kind = str(setup.get("kind") or "")
@@ -811,6 +819,7 @@ def _daily_catalog() -> tuple[list[tuple[str, str, str]], dict[str, tuple[str, s
                 add(f"{short_kind}:{period}", f"{short_name} ({period}-day)", "short")
         else:
             add(short_kind, short_name, "short")
+    add(WATCHLIST_SETUP["kind"], WATCHLIST_SETUP["label"], WATCHLIST_SETUP["side"])
     return rows, by_label
 
 
