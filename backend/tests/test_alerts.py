@@ -453,14 +453,14 @@ def test_open_r_is_for_triggered_trades_still_open():
     assert open_r(short_row, 48.0) == pytest.approx(2.0)
 
 
-def test_no_alert_or_entry_after_the_10am_arizona_cutoff():
+def test_no_alert_or_entry_after_noon_eastern():
     from strat.alerts import trade_cutoff
 
-    # Arizona has no daylight saving: 10:00 MST is noon EST in winter and 1 PM EDT in summer.
+    # Noon ET year-round: 17:00 UTC under EST, 16:00 UTC under EDT.
     assert trade_cutoff(datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)) == datetime(2026, 11, 10, 17, 0, tzinfo=timezone.utc)
-    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 17, 0, tzinfo=timezone.utc)
+    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)
 
-    cutoff = datetime(2026, 10, 23, 17, 0, tzinfo=timezone.utc)
+    cutoff = datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)
     go = (100.2, 101.0, 100.1, 100.9)
     # A touch bar that closes exactly at the cutoff still alerts and can fill on the forming bar before it.
     [a] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, Settings())
@@ -474,7 +474,7 @@ def test_no_alert_or_entry_after_the_10am_arizona_cutoff():
     # A touch at or after the cutoff is not alerted.
     skipped = []
     assert simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff), CTX, Settings(), skipped=skipped) == []
-    assert skipped[0]["reason"] == "after the 10:00 AZ trade cutoff"
+    assert skipped[0]["reason"] == "after the 12:00 ET trade cutoff"
     # A trade filled before the cutoff is still managed after it.
     [d] = simulate("AAA", "2026-10-23", bars([TOUCH, go, (100.9, 101.1, 99.5, 99.6)], start=cutoff - timedelta(minutes=30)), CTX, Settings())
     assert d.filled and d.status == "stopped"
