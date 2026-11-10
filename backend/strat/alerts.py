@@ -26,13 +26,15 @@ An alert has two steps.
    * this bar's low reaches the EMA (within ``touch_tol_pct``);
    * this bar did not close more than ``hold_pct`` under the EMA.
 
-   When one bar touches more than one EMA, the alert is for the lowest one it held. The buy stop is the
-   touch bar's high + $0.01 and the stop is the pullback low - $0.01.
+   When one bar touches more than one EMA, the alert is for the lowest one it held. The buy is the
+   touch bar's high + $0.01. The stop depends on ``stop_mode``: the pullback low so far - $0.01
+   (``0``), that candle's low - $0.01 (``1``), or ``fixed_stop_pct`` under the buy (``2``, the default).
+   An order wider than ``max_stop_pct`` is not armed.
 
 2. **Trigger** (status ``triggered``). A later bar trades over the previous 15-minute candle's high +
-   $0.01; the fill is always that price (a gap over it does not move the entry). While the alert waits, each completed bar that does not trigger moves the buy stop to its own
-   high + $0.01 and the stop to the lowest low so far - $0.01. The watch is cancelled when a bar closes
-   more than ``hold_pct`` under the EMA, and expires after ``watch_bars`` bars without a trigger. The live
+   $0.01; the fill is always that price (a gap over it does not move the entry). While the alert waits, each completed bar that does not trigger moves the buy to its own
+   high + $0.01 and moves the stop with it (lowest low so far, that candle only, or the fixed percent). The watch is cancelled when a bar closes
+   more than ``hold_pct`` under the EMA, when the new stop would be wider than ``max_stop_pct``, and expires after ``watch_bars`` bars without a trigger. The live
    poll also checks the forming bar, so a trigger shows up within a poll instead of after the candle closes.
 
 After the fill the trade is managed on completed bars: the stop, break-even after
@@ -44,8 +46,8 @@ triggered that day. Which names are checked (any name with a daily setup on that
 
 **Short side** (``side="short"``, setups ``s120`` / ``s240`` / ``s480``) is the exact mirror, for short daily setups: a
 completed bar rallies up into a *falling* EMA coming from below (the bar before closed under it, this bar's
-high reaches it, the close did not go more than ``hold_pct`` over it). The sell stop is the touch bar's low -
-$0.01 and the stop the rally high + $0.01; while waiting, both follow the bars. After the fill: the stop
+high reaches it, the close did not go more than ``hold_pct`` over it). The sell is the touch bar's low -
+$0.01 and the stop follows ``stop_mode`` (rally high so far, that candle's high, or the fixed percent over the sell). After the fill: the stop
 above, break-even after ``breakeven_after_new_highs`` new-low bars, an exit on a close more than ``hold_pct``
 over the EMA, and the session end. For a short, ``high_reached`` holds the lowest price reached (the best
 price) and R is measured downward. When a bar touches several falling EMAs the alert is for the highest.
@@ -91,15 +93,38 @@ TAIL_KEEP = 30  # prior-session EMA values kept per period (enough for any ``ris
 class Settings:
     """Adjustable rule values. Percentages are in percent (0.5 means 0.5%)."""
 
-    # Which names: any stock or ETF with a long daily setup, highest scan score first, at most this many.
+    # Which names: a stock or ETF with a daily setup, highest scan score first, at most this many.
     max_symbols: int = 150
-    # Short side: any stock or ETF with a short daily setup, weakest RS first, at most this many.
+    # 1 = longs only in a top-ranked theme, shorts only in a bottom-ranked theme.
+    theme_gate: int = 1
+    theme_top_pct: float = 25.0  # top this percent for longs, bottom this percent for shorts
+    # Short side: a stock or ETF with an allowed short daily setup, weakest RS first, at most this many.
     shorts: int = 1  # 1 = alert short setups too, 0 = longs only
     max_short_symbols: int = 75
-    # Which averages (1 = on, 0 = off).
+    # Which averages (1 = on, 0 = off). The 120 EMA was the only one that made R in the
+    # Oct 27–Nov 9 2026 replay; 240 and 480 stay available but start off.
     ma_120: int = 1
-    ma_240: int = 1
-    ma_480: int = 1
+    ma_240: int = 0
+    ma_480: int = 0
+    # 0 = lowest low since the touch. 1 = the candle that owns the buy. 2 = fixed percent.
+    # 2 is the default: a 1% stop made the most R for theme-gated longs in that replay (+24.5 R) and stays inside 2%.
+    stop_mode: int = 2
+    fixed_stop_pct: float = 1.0
+    max_stop_pct: float = 2.0  # do not arm an order wider than this
+    # 1 = a long name needs a daily setup that has not broken yet.
+    long_pending_only: int = 0
+    # Short daily setups (1 = on, 0 = off). The two that lost, and the thin ones, start off.
+    # MA Overcut and Fail at 10 and 20 days made R and start on.
+    short_hvc: int = 0
+    short_crossback: int = 0
+    short_ma10: int = 1
+    short_ma20: int = 1
+    short_ma50: int = 0
+    short_overcut: int = 0
+    short_wedge: int = 0
+    short_flat: int = 0
+    short_flag: int = 0
+    short_gap: int = 0
     touch_tol_pct: float = 0.1  # a low this close above the EMA counts as a touch
     hold_pct: float = 0.3  # a close more than this under the EMA has lost it
     rising_bars: int = 4  # rising = higher than this many bars earlier (4 bars = 1 hour)
@@ -129,10 +154,21 @@ class Settings:
         return [p for p in MA_PERIODS if getattr(self, f"ma_{p}", 0)]
 
 
+STOP_WIDEN = 0
+STOP_CANDLE = 1
+STOP_FIXED = 2
+
 SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "max_symbols": (1, 1000),
+    "theme_gate": (0, 1), "theme_top_pct": (1, 50),
     "shorts": (0, 1), "max_short_symbols": (0, 1000),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
+    "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
+    "long_pending_only": (0, 1),
+    "short_hvc": (0, 1), "short_crossback": (0, 1),
+    "short_ma10": (0, 1), "short_ma20": (0, 1), "short_ma50": (0, 1),
+    "short_overcut": (0, 1), "short_wedge": (0, 1), "short_flat": (0, 1),
+    "short_flag": (0, 1), "short_gap": (0, 1),
     "touch_tol_pct": (0, 5), "hold_pct": (0, 5), "rising_bars": (1, TAIL_KEEP - 1), "watch_bars": (1, 26),
     "max_attempts": (1, 20), "breakeven_after_new_highs": (1, 50), "exit_close_under_ma": (0, 1),
     "top_names": (0, 50), "earnings_window_days": (0, 30), "auto_archive": (0, 1),
@@ -375,6 +411,47 @@ def touch(f: Frame, i: int, s: Settings, side: str = "long") -> Optional[tuple[i
     return p, x, [h[0] for h in hits]
 
 
+# --------------------------------------------------------------------------------------------- order levels
+
+
+def apply_order(a: "Alert", high: float, low: float, s: Settings) -> bool:
+    """Point the working order at this candle. False when the stop is past ``max_stop_pct`` or on the wrong side.
+
+    The buy (short: the sell) is always this candle's extreme plus one cent. The stop is the lowest low since
+    the touch, this candle only, or ``fixed_stop_pct`` away from the order, depending on ``stop_mode``.
+    """
+    high, low = float(high), float(low)
+    if a.short:
+        trigger = round(low - TICK, 2)
+        extreme = high if s.stop_mode in (STOP_CANDLE, STOP_FIXED) else max(a.setup_high, high)
+        a.setup_high, a.setup_low = extreme, low
+        stop = round(trigger * (1 + s.fixed_stop_pct / 100), 2) if s.stop_mode == STOP_FIXED else round(extreme + TICK, 2)
+        wrong_side = stop <= trigger
+    else:
+        trigger = round(high + TICK, 2)
+        extreme = low if s.stop_mode in (STOP_CANDLE, STOP_FIXED) else min(a.setup_low, low)
+        a.setup_low, a.setup_high = extreme, high
+        stop = round(trigger * (1 - s.fixed_stop_pct / 100), 2) if s.stop_mode == STOP_FIXED else round(extreme - TICK, 2)
+        wrong_side = stop >= trigger
+    if trigger <= 0 or stop <= 0 or wrong_side:
+        return False
+    a.trigger = trigger
+    a.stop = a.current_stop = stop
+    return abs(trigger - stop) / trigger * 100 <= s.max_stop_pct + 0.05
+
+
+def _rearm(a: "Alert", bar: Mapping, index: int, s: Settings, end: datetime) -> bool:
+    """Move the working order onto ``bar``. False cancels the watch because the new stop is too wide."""
+    a.setup_bar, a.setup_index = bar["t"], index
+    if not apply_order(a, float(bar["h"]), float(bar["l"]), s):
+        a.status = "cancelled"
+        a.exit_reason = "stop_too_wide"
+        a.exit_at = end
+        return False
+    a.details["rearmed"] = a.details.get("rearmed", 0) + 1
+    return True
+
+
 # --------------------------------------------------------------------------------------------- outcomes
 
 
@@ -437,13 +514,7 @@ def _step_short(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Sett
             a.exit_at = end
             a.exit_reason = "not_triggered"
             return
-        # Still watching: the sell stop follows the previous candle's low, the stop the rally high.
-        a.setup_bar, a.setup_index = bar["t"], index
-        a.setup_low = float(bar["l"])
-        a.trigger = round(float(bar["l"]) - TICK, 2)
-        a.setup_high = max(a.setup_high, float(bar["h"]))
-        a.stop = a.current_stop = round(a.setup_high + TICK, 2)
-        a.details["rearmed"] = a.details.get("rearmed", 0) + 1
+        _rearm(a, bar, index, s, end)
         return
     if a.status != "triggered":
         return
@@ -490,13 +561,7 @@ def step(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -
             a.exit_at = end
             a.exit_reason = "not_triggered"
             return
-        # Still watching: the buy stop follows the previous candle, the stop the pullback low.
-        a.setup_bar, a.setup_index = bar["t"], index
-        a.setup_high = float(bar["h"])
-        a.trigger = round(float(bar["h"]) + TICK, 2)
-        a.setup_low = min(a.setup_low, float(bar["l"]))
-        a.stop = a.current_stop = round(a.setup_low - TICK, 2)
-        a.details["rearmed"] = a.details.get("rearmed", 0) + 1
+        _rearm(a, bar, index, s, end)
         return
     if a.status != "triggered":
         return
@@ -638,23 +703,22 @@ def simulate(
             if skipped is not None:
                 skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": reason})
             continue
-        if side == "short":
-            trigger, stop = round(float(bar["l"]) - TICK, 2), round(float(bar["h"]) + TICK, 2)
-        else:
-            trigger, stop = round(float(bar["h"]) + TICK, 2), round(float(bar["l"]) - TICK, 2)
-        alerts.append(
-            Alert(
-                symbol=symbol, session=session, setup=setup_key, origin_bar=bar["t"], setup_bar=bar["t"],
-                setup_index=i, trigger=trigger, stop=stop, setup_low=float(bar["l"]),
-                setup_high=float(bar["h"]), ref_price=float(bar["c"]), current_stop=stop,
-                details={
-                    "ma": round(lv["ma"], 4),
-                    "ma_slope_pct": round(lv["slope_pct"], 3),
-                    "touched": touched,
-                    "ma_values": {str(p): (None if f.ma[p][i] is None else round(f.ma[p][i], 4)) for p in MA_PERIODS},
-                },
-            )
+        alert = Alert(
+            symbol=symbol, session=session, setup=setup_key, origin_bar=bar["t"], setup_bar=bar["t"],
+            setup_index=i, trigger=0.0, stop=0.0, setup_low=float(bar["l"]),
+            setup_high=float(bar["h"]), ref_price=float(bar["c"]), current_stop=0.0,
+            details={
+                "ma": round(lv["ma"], 4),
+                "ma_slope_pct": round(lv["slope_pct"], 3),
+                "touched": touched,
+                "ma_values": {str(p): (None if f.ma[p][i] is None else round(f.ma[p][i], 4)) for p in MA_PERIODS},
+            },
         )
+        if not apply_order(alert, float(bar["h"]), float(bar["l"]), s):
+            if skipped is not None:
+                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": "stop wider than the max"})
+            continue
+        alerts.append(alert)
     if len(f.bars) >= ctx.session_bars:
         for a in alerts:
             finish_session(a, f.bars[-1])

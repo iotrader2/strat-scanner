@@ -36,11 +36,11 @@ export const setupPeriod = (setup: string): string => setup.replace(/^s/, "");
 export const SETUP_RULES: Record<string, string> = Object.fromEntries([
   ...ALERT_EMAS.map((p) => [
     p,
-    `A name with a long daily setup pulls back from above to the rising ${p} EMA on the 15-minute chart and holds it. Watch; the trigger is the previous 15-minute candle's high + 1c.`,
+    `A name with a long daily setup pulls back from above to the rising ${p} EMA on the 15-minute chart and holds it. Watch; the trigger is the previous 15-minute candle's high + 1c. The stop follows the stop rule (lowest low, this candle, or a fixed percent).`,
   ]),
   ...ALERT_EMAS.map((p) => [
     `s${p}`,
-    `Short: a name with a short daily setup rallies from below up into the falling ${p} EMA (resistance) on the 15-minute chart and is held under it. Watch; the trigger is the previous 15-minute candle's low - 1c, the stop the rally high + 1c.`,
+    `Short: a name with a short daily setup rallies from below up into the falling ${p} EMA (resistance) on the 15-minute chart and is held under it. Watch; the trigger is the previous 15-minute candle's low - 1c. The stop follows the stop rule.`,
   ]),
 ]);
 
@@ -262,16 +262,29 @@ export function maTitle(a: Pick<TradeAlert, "setup" | "details">): string {
 /** Human labels and grouping for the settings form. */
 export const SETTING_GROUPS: { title: string; items: [key: string, label: string, unit?: string][] }[] = [
   {
-    title: "Which names (any daily setup)",
+    title: "Which names",
     items: [
       ["max_symbols", "Long daily setups: check at most (highest score first)", "names"],
+      ["theme_gate", "Theme gate (1 = on, 0 = off): longs in a top theme, shorts in a bottom theme", ""],
+      ["theme_top_pct", "Theme band", "% of themes (25 = the top or bottom quartile)"],
+      ["long_pending_only", "Longs: only a daily setup that has not broken yet (1 = on, 0 = off)", ""],
     ],
   },
   {
-    title: "Short side (short daily setups)",
+    title: "Short side",
     items: [
       ["shorts", "Alert short daily setups too: rallies into a falling EMA (1 = on, 0 = off)", ""],
       ["max_short_symbols", "Check at most (weakest RS first)", "names"],
+      ["short_ma10", "MA Overcut and Fail, 10-day (1 = on, 0 = off)", ""],
+      ["short_ma20", "MA Overcut and Fail, 20-day (1 = on, 0 = off)", ""],
+      ["short_ma50", "MA Overcut and Fail, 50-day (1 = on, 0 = off)", ""],
+      ["short_hvc", "Delayed HVC Short (1 = on, 0 = off)", ""],
+      ["short_crossback", "EMA Crossback Short (1 = on, 0 = off)", ""],
+      ["short_overcut", "Overcut and Fail (1 = on, 0 = off)", ""],
+      ["short_wedge", "Wedge Drop (1 = on, 0 = off)", ""],
+      ["short_flat", "Flat Base Breakdown (1 = on, 0 = off)", ""],
+      ["short_flag", "Low Tight Flag (1 = on, 0 = off)", ""],
+      ["short_gap", "Gap-Down Episodic Pivot (1 = on, 0 = off)", ""],
     ],
   },
   {
@@ -283,6 +296,14 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["touch_tol_pct", "Touch: low within", "% over the EMA"],
       ["hold_pct", "Lost the EMA: a close more than", "% under it"],
       ["rising_bars", "Rising: higher than", "candles earlier"],
+    ],
+  },
+  {
+    title: "Stop",
+    items: [
+      ["stop_mode", "Stop mode: 0 = lowest low since the touch, 1 = this 15-minute candle only, 2 = fixed percent", ""],
+      ["fixed_stop_pct", "Fixed stop", "% of the buy (shorts: of the sell)"],
+      ["max_stop_pct", "Skip an order whose stop is wider than", "%"],
     ],
   },
   {

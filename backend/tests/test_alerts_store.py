@@ -95,6 +95,8 @@ def test_settings_round_trip_and_validation(db):
         alerts_store.save_settings({"hold_pct": 99})
     with pytest.raises(alerts_store.SettingsError):
         alerts_store.save_settings({"ma_120": 0, "ma_240": 0, "ma_480": 0})
+    with pytest.raises(alerts_store.SettingsError):
+        alerts_store.save_settings({"stop_mode": 2, "fixed_stop_pct": 3, "max_stop_pct": 2})
     assert alerts_store.reset_settings() == Settings()
 
 
@@ -216,11 +218,14 @@ def test_alert_symbols_are_names_with_a_long_daily_setup():
         {"symbol": "FFF", "kind": "stock", "in_universe": False, "score": None, "setups": [long_d]},
         {"symbol": "GGG", "kind": "stock", "in_universe": True, "score": 99, "setups": [{**long_d, "tf": "W"}]},
     ]
-    assert alert_symbols(rows, Settings()) == ["CCC", "AAA", "BBB", "FFF"]
-    assert alert_symbols(rows, Settings(max_symbols=1)) == ["CCC"]
-    labels = alert_daily_labels(rows)
+    assert alert_symbols(rows, Settings(theme_gate=0)) == ["CCC", "AAA", "BBB", "FFF"]
+    assert alert_symbols(rows, Settings(theme_gate=0, max_symbols=1)) == ["CCC"]
+    assert alert_symbols(rows, Settings()) == []  # the theme gate is on, and none of these rows has a theme
+    labels = alert_daily_labels(rows, Settings(theme_gate=0, short_flat=1))
     assert labels["AAA"] == {"long": ["Flat Base Breakout"], "short": []}
-    assert labels["DDD"] == {"long": [], "short": ["Flat Base Breakdown"]}
+    assert "DDD" not in labels  # kind "flat-base-short" is not a short setup the toggles know
+    real_short = {**short_d, "kind": "flat-base-breakdown"}
+    assert alert_daily_labels([{"symbol": "DDD", "kind": "stock", "setups": [real_short]}], Settings(short_flat=1))["DDD"]["short"] == ["Flat Base Breakdown"]
     assert "EEE" not in labels and "theme-x" not in labels and "GGG" not in labels
 
 

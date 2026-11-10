@@ -51,7 +51,7 @@ def test_touch_of_a_rising_120_is_a_watch_with_the_candle_high_as_trigger():
     [a] = run([TOUCH])
     assert a.setup == "120" and a.status == "pending" and not a.filled
     assert a.trigger == 100.81  # touch candle high + 1c
-    assert a.stop == 99.09  # pullback low - 1c
+    assert a.stop == 99.80  # default stop: 1% under the buy
     assert a.fired_at == OPEN + timedelta(minutes=15)
     assert a.details["ma"] == pytest.approx(99.09 + 2 / 121 * (100.2 - 99.09), abs=1e-4)
     assert a.details["touched"] == [120]
@@ -97,25 +97,54 @@ def test_a_low_that_stays_above_the_ema_is_not_a_touch():
 
 def test_the_lowest_ema_held_is_the_alert():
     ctx = Context(ma_tail={120: rising(100.0), 240: rising(99.0)}, prev_close=101.0)
-    [a] = run([(100.6, 100.7, 98.95, 100.3)], ctx)
+    [a] = run([(100.6, 100.7, 98.95, 100.3)], ctx, settings=Settings(ma_240=1, ma_480=1))
     assert a.setup == "240" and a.details["touched"] == [120, 240]
 
 
 def test_a_turned_off_ema_is_skipped():
     s = Settings(ma_120=0)
     assert run([TOUCH], settings=s) == []
-    assert Settings().periods() == [120, 240, 480]
+    assert Settings().periods() == [120]
 
 
 def test_trigger_follows_the_previous_candle_while_waiting():
     rows = [TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)]
-    [a] = run(rows)
+    [a] = run(rows, settings=Settings(stop_mode=0))
     assert a.status == "triggered"
     # Bar 1 did not take out 100.81; its own high (100.60) + 1c became the buy stop, filled on bar 2.
     assert a.fill_price == 100.61 and a.fill_at == OPEN + timedelta(minutes=30)
     assert a.stop == 99.04  # the lower pullback low on bar 1
     assert a.setup_bar == OPEN + timedelta(minutes=15) and a.setup_high == 100.6
     assert a.fired_at == OPEN + timedelta(minutes=15)  # the watch time never moves
+
+
+def test_the_fixed_stop_walks_with_the_buy_and_stays_one_percent():
+    rows = [TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)]
+    [a] = run(rows)
+    assert a.fill_price == 100.61
+    assert a.stop == round(100.61 * 0.99, 2)
+
+
+def test_the_one_candle_stop_is_that_candle_only():
+    rows = [TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)]
+    [wide] = run(rows, settings=Settings(stop_mode=0))
+    [candle] = run(rows, settings=Settings(stop_mode=1))
+    assert wide.stop == 99.04  # touch low 99.10 and bar-1 low 99.05
+    assert candle.stop == 99.04  # the signal candle's own low is the lower one here
+    # A later candle with a higher low tightens the one-candle stop and leaves the widening stop down at the touch.
+    higher = [TOUCH, (100.2, 100.4, 99.8, 100.3), (100.3, 100.5, 100.0, 100.45)]
+    [wide2] = run(higher, settings=Settings(stop_mode=0))
+    [candle2] = run(higher, settings=Settings(stop_mode=1))
+    assert wide2.fill_price == candle2.fill_price == 100.41
+    assert wide2.stop == 99.09
+    assert candle2.stop == 99.79
+
+
+def test_a_stop_wider_than_the_max_is_not_armed():
+    skipped = []
+    # The touch candle is about 1.7% wide, so a 1% cap skips it. A later tight pullback can still alert.
+    assert run([TOUCH], settings=Settings(stop_mode=1, max_stop_pct=1), skipped=skipped) == []
+    assert skipped[0]["reason"] == "stop wider than the max"
 
 
 def test_a_close_under_the_ema_cancels_the_watch():
@@ -152,9 +181,9 @@ def test_a_close_under_the_ema_exits_an_open_trade():
     ctx = Context(ma_tail={120: rising(98.5)}, prev_close=101.0)
     rows = [(100.5, 100.8, 98.5, 100.2), (100.2, 101.0, 100.1, 100.9), (100.9, 100.95, 98.55, 98.55)]
     # The last bar's low stays over the stop (98.49) but it closes under the EMA (~98.57).
-    [a] = run(rows, ctx, settings=Settings(hold_pct=0))
+    [a] = run(rows, ctx, settings=Settings(hold_pct=0, stop_mode=0, max_stop_pct=5))
     assert a.status == "exited" and a.exit_reason == "close_under_ma" and a.exit_price == 98.55
-    [b] = run(rows, ctx, settings=Settings(hold_pct=0, exit_close_under_ma=0))
+    [b] = run(rows, ctx, settings=Settings(hold_pct=0, exit_close_under_ma=0, stop_mode=0, max_stop_pct=5))
     assert b.status == "triggered"
 
 
@@ -240,21 +269,21 @@ def _reflect_ctx(ctx):
 
 _STEP = (100.2, 101.0, 100.1, 100.9)
 _SCENARIOS = {
-    "watch": ([TOUCH], CTX, Settings()),
-    "trigger": ([TOUCH, _STEP], CTX, Settings()),
-    "trigger follows the candle": ([TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)], CTX, Settings()),
-    "cancel": ([TOUCH, (100.2, 100.3, 98.0, 98.2)], CTX, Settings()),
-    "expire": ([TOUCH] + [(100.2, 100.5, 100.0, 100.3)] * 4, CTX, Settings(watch_bars=4)),
+    "watch": ([TOUCH], CTX, Settings(stop_mode=0)),
+    "trigger": ([TOUCH, _STEP], CTX, Settings(stop_mode=0)),
+    "trigger follows the candle": ([TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)], CTX, Settings(stop_mode=0)),
+    "cancel": ([TOUCH, (100.2, 100.3, 98.0, 98.2)], CTX, Settings(stop_mode=0)),
+    "expire": ([TOUCH] + [(100.2, 100.5, 100.0, 100.3)] * 4, CTX, Settings(stop_mode=0, watch_bars=4)),
     "break-even stop": (
         [TOUCH, _STEP, (100.9, 101.2, 100.8, 101.1), (101.1, 101.4, 101.0, 101.3), (101.3, 101.5, 101.2, 101.4),
          (101.4, 101.45, 100.7, 100.8)],
-        CTX, Settings(breakeven_after_new_highs=3),
+        CTX, Settings(stop_mode=0, breakeven_after_new_highs=3),
     ),
     "exit on a close through the EMA": (
         [(100.5, 100.8, 98.5, 100.2), _STEP, (100.9, 100.95, 98.55, 98.55)],
-        Context(ma_tail={120: rising(98.5)}, prev_close=101.0), Settings(hold_pct=0),
+        Context(ma_tail={120: rising(98.5)}, prev_close=101.0), Settings(stop_mode=0, hold_pct=0, max_stop_pct=5),
     ),
-    "stop": ([TOUCH, _STEP, (100.9, 100.95, 98.9, 99.0)], CTX, Settings()),
+    "stop": ([TOUCH, _STEP, (100.9, 100.95, 98.9, 99.0)], CTX, Settings(stop_mode=0)),
 }
 
 
@@ -285,8 +314,10 @@ def test_a_short_rally_into_a_rising_ema_is_not_alerted():
 def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     from strat.api import alert_short_symbols
 
-    short_d = {"tf": "D", "kind": "flat-base-short", "label": "Flat Base Breakdown", "side": "short"}
-    long_d = {"tf": "D", "kind": "flat-base", "label": "Flat Base Breakout", "side": "long"}
+    short_d = {"tf": "D", "kind": "ma-overcut-fail", "label": "MA Overcut and Fail (20-day)", "side": "short"}
+    long_d = {"tf": "D", "kind": "flat-base-breakout", "label": "Flat Base Breakout", "side": "long"}
+    off = {"tf": "D", "kind": "ema-crossback-short", "label": "EMA Crossback Short", "side": "short"}
+    open_gate = Settings(theme_gate=0)
 
     def r(sym, rs, setups, kind="stock"):
         return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups}
@@ -294,10 +325,37 @@ def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     rows = [
         r("AAA", 0.08, [short_d]), r("BBB", 0.02, [short_d]), r("CCC", 0.90, [short_d]),  # any RS
         r("DDD", 0.05, [long_d]), r("EEE", 0.01, [short_d], kind="etf"), r("FFF", 0.01, [short_d], kind="theme"),
+        r("GGG", 0.01, [off]),
     ]
-    assert alert_short_symbols(rows, Settings()) == ["EEE", "BBB", "AAA", "CCC"]
-    assert alert_short_symbols(rows, Settings(max_short_symbols=2)) == ["EEE", "BBB"]
-    assert alert_short_symbols(rows, Settings(shorts=0)) == []
+    assert alert_short_symbols(rows, open_gate) == ["EEE", "BBB", "AAA", "CCC"]
+    assert alert_short_symbols(rows, Settings(theme_gate=0, max_short_symbols=2)) == ["EEE", "BBB"]
+    assert alert_short_symbols(rows, Settings(theme_gate=0, shorts=0)) == []
+    assert alert_short_symbols(rows, Settings(theme_gate=0, short_ma20=0)) == []
+
+
+def test_the_theme_gate_keeps_the_outer_band_and_pending_is_optional():
+    from strat.api import alert_short_symbols, alert_symbols
+
+    long_d = {"tf": "D", "kind": "ema-crossback", "label": "EMA Crossback", "side": "long", "triggered": False}
+    short_d = {"tf": "D", "kind": "ma-overcut-fail", "label": "MA Overcut and Fail (10-day)", "side": "short"}
+
+    def r(sym, rank, setups, score=80, rs=0.5):
+        return {
+            "symbol": sym, "kind": "stock", "score": score, "rs": rs, "setups": setups,
+            "theme_strength": {"rank": rank, "total": 4},
+        }
+
+    rows = [
+        r("TOP", 1, [long_d], score=10), r("MID", 2, [long_d], score=99),
+        r("BOT", 4, [short_d], rs=0.2), r("NO", 3, [short_d], rs=0.01),
+    ]
+    # 25% of 4 themes is 1 slot. Longs: rank 1. Shorts: rank 4.
+    assert alert_symbols(rows, Settings()) == ["TOP"]
+    assert alert_short_symbols(rows, Settings()) == ["BOT"]
+    assert alert_symbols(rows, Settings(theme_top_pct=50)) == ["MID", "TOP"]
+    triggered = {**long_d, "triggered": True}
+    assert alert_symbols([r("TOP", 1, [triggered])], Settings(long_pending_only=1)) == []
+    assert alert_symbols([r("TOP", 1, [triggered])], Settings()) == ["TOP"]
 
 
 def test_open_r_is_for_triggered_trades_still_open():

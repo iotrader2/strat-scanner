@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 import threading
 import time
@@ -253,22 +254,83 @@ def _alertable(row: Mapping) -> bool:
     return row.get("kind", "stock") in ("stock", "etf")
 
 
-def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
-    """Long-side alert names: any stock or ETF with a long daily setup, highest scan score first, at most ``max_symbols``.
+def theme_in_band(row: Mapping, side: str, settings: alert_rules.Settings) -> bool:
+    """True when the theme gate is off, or the name's primary theme is in the top band (long) or bottom band (short).
 
-    The setup decision is daily; the 15-minute pullback to a rising 120 / 240 / 480 EMA only times the entry.
+    A name with no theme is out while the gate is on. ``theme_top_pct`` of 25 is the top or bottom quartile.
     """
-    picked = [r for r in rows if _alertable(r) and daily_setups(r, "long")]
+    if not settings.theme_gate:
+        return True
+    strength = row.get("theme_strength") or {}
+    rank, total = strength.get("rank"), strength.get("total")
+    if not isinstance(rank, int) or not isinstance(total, int) or total <= 0:
+        return False
+    slots = max(1, math.ceil(total * float(settings.theme_top_pct) / 100.0))
+    if side == "long":
+        return rank <= slots
+    return rank > total - slots
+
+
+def short_setup_on(setup: Mapping, settings: alert_rules.Settings) -> bool:
+    """Whether this short daily setup is one of the toggles that are on."""
+    kind = str(setup.get("kind") or "")
+    if kind == "ma-overcut-fail":
+        label = str(setup.get("label") or "")
+        if "10-day" in label:
+            return bool(settings.short_ma10)
+        if "20-day" in label:
+            return bool(settings.short_ma20)
+        if "50-day" in label:
+            return bool(settings.short_ma50)
+        return False
+    key = {
+        "delayed-hvc-short": "short_hvc",
+        "ema-crossback-short": "short_crossback",
+        "overcut-fail": "short_overcut",
+        "wedge-drop": "short_wedge",
+        "flat-base-breakdown": "short_flat",
+        "low-tight-flag": "short_flag",
+        "gap-down-pivot": "short_gap",
+    }.get(kind)
+    return bool(getattr(settings, key)) if key else False
+
+
+def qualifying_setups(row: Mapping, side: str, settings: alert_rules.Settings) -> list[dict]:
+    """Daily setups on ``side`` that the current rule settings will actually alert."""
+    found = daily_setups(row, side)
+    if side == "short":
+        return [s for s in found if short_setup_on(s, settings)]
+    if settings.long_pending_only:
+        return [s for s in found if not s.get("triggered")]
+    return found
+
+
+def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
+    """Long-side alert names: a stock or ETF with a qualifying long daily setup, highest score first.
+
+    With the theme gate on, the name's primary theme has to sit in the top ``theme_top_pct`` of themes.
+    At most ``max_symbols``. The 15-minute EMA only times the entry.
+    """
+    picked = [
+        r for r in rows
+        if _alertable(r) and qualifying_setups(r, "long", settings) and theme_in_band(r, "long", settings)
+    ]
     picked.sort(key=lambda r: (-(r["score"] if isinstance(r.get("score"), (int, float)) else -1e9), r["symbol"]))
     return [r["symbol"] for r in picked[: settings.max_symbols]]
 
 
 def alert_short_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]:
-    """Short-side alert names: any stock or ETF with a short daily setup, weakest RS first, at most
-    ``max_short_symbols``. The entry is a 15-minute rally into a falling EMA. Empty when shorts are switched off."""
+    """Short-side alert names: a stock or ETF with an allowed short daily setup, weakest RS first.
+
+    With the theme gate on, the primary theme has to sit in the bottom ``theme_top_pct`` of themes.
+    At most ``max_short_symbols``. Empty when shorts are switched off.
+    """
     if not settings.shorts:
         return []
-    picked = [r for r in rows if _alertable(r) and daily_setups(r, "short")]
+    picked = [
+        r for r in rows
+        if _alertable(r) and qualifying_setups(r, "short", settings) and theme_in_band(r, "short", settings)
+    ]
     picked.sort(key=lambda r: (r["rs"] if isinstance(r.get("rs"), (int, float)) else 1e9, r["symbol"]))
     return [r["symbol"] for r in picked[: settings.max_short_symbols]]
 
@@ -278,13 +340,17 @@ def _alert_name_count() -> int:
     return len(set(alert_symbols(State.scan, settings)) | set(alert_short_symbols(State.scan, settings)))
 
 
-def alert_daily_labels(rows: list[dict]) -> dict[str, dict[str, list[str]]]:
-    """symbol -> {"long": [labels], "short": [labels]}: the daily setups behind each alert name (kept on the alert)."""
+def alert_daily_labels(rows: list[dict], settings: Optional[alert_rules.Settings] = None) -> dict[str, dict[str, list[str]]]:
+    """symbol -> {"long": [labels], "short": [labels]} for the setups the rules will alert (kept on the alert)."""
+    settings = settings or alert_rules.Settings()
     out: dict[str, dict[str, list[str]]] = {}
     for r in rows:
         if not _alertable(r):
             continue
-        sides = {side: [str(s.get("label") or s.get("kind")) for s in daily_setups(r, side)] for side in ("long", "short")}
+        sides = {
+            side: [str(s.get("label") or s.get("kind")) for s in qualifying_setups(r, side, settings)]
+            for side in ("long", "short")
+        }
         if sides["long"] or sides["short"]:
             out[r["symbol"]] = sides
     return out
@@ -297,7 +363,7 @@ def _refresh_alerts() -> None:
         stats = alerts_live.refresh(
             alert_symbols(State.scan, settings), settings=settings,
             short_symbols=alert_short_symbols(State.scan, settings),
-            daily_setups=alert_daily_labels(State.scan),
+            daily_setups=alert_daily_labels(State.scan, settings),
         )
         if stats.get("skipped"):
             if stats.get("prepared"):
