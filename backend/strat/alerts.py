@@ -117,7 +117,8 @@ class Settings:
     reset_manual: int = 0
     # 1 = also check names you added to the watchlist, long side, even with no daily setup and
     # outside the theme gate. They do not count toward max_symbols. A name that already qualifies
-    # as a short stays a short. Those names are also exempt from the dollar-volume and ATR filters.
+    # as a short stays a short. Those names are exempt from the dollar-volume and ATR slider filters,
+    # but not from the hard ATR floor (MIN_ALERT_ATR_PCT).
     alert_manual_watchlist: int = 1
     # Daily-scan gates, applied before the name caps. Same scale as the scanner sliders.
     # $10M is the left end. ATR 0–12 means the full range ("Any"): no ATR cut, and 12 is "12%+".
@@ -169,12 +170,25 @@ class Settings:
         return self.atr_pct_min <= 0 and self.atr_pct_max >= 12
 
 
+# Hard floor: a name needs a 14-day ATR above this percent of price to go on the auto watchlist or to
+# alert at all, manual watchlist names included. At or below it (or with no ATR yet) there is no alert.
+MIN_ALERT_ATR_PCT = 3.0
+
+
+def above_atr_floor(row: Optional[Mapping]) -> bool:
+    """True when the row's ATR % is strictly above ``MIN_ALERT_ATR_PCT``."""
+    atr = row.get("atr_pct") if row else None
+    return isinstance(atr, (int, float)) and float(atr) > MIN_ALERT_ATR_PCT
+
+
 def passes_name_screen(row: Mapping, settings: Settings) -> bool:
     """Daily-scan dollar volume and ATR % gates. Manual watchlist names are not run through this.
 
-    ATR at 0–12 (the slider's "Any") keeps every name, including one with no ATR yet.
-    A tighter range drops a name with no ATR %. 12%+ means no upper limit.
+    Every name must first be above the hard ATR floor (> ``MIN_ALERT_ATR_PCT``).
+    The slider at 0–12 ("Any") adds no further ATR cut; a tighter range narrows it. 12%+ means no upper limit.
     """
+    if not above_atr_floor(row):
+        return False
     volume = row.get("avg_dollar_volume")
     if not isinstance(volume, (int, float)) or float(volume) < float(settings.min_avg_dollar_volume):
         return False

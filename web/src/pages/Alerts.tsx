@@ -797,7 +797,8 @@ export function AlertLiquidityFilters({
       </div>
       <p className="muted small slider-note">
         Uses each name&apos;s average dollar volume and ATR % from the daily scan, before the name caps.
-        Names you added to the watchlist yourself are not filtered.
+        Every name, including ones you added to the watchlist yourself, needs an ATR above 3% to be added or to
+        alert; the sliders do not apply to names you added.
       </p>
     </div>
   );

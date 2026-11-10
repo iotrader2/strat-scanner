@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import logging
 
 from . import alerts_live
-from .alerts import Settings, mark_top, metrics, simulate
+from .alerts import MIN_ALERT_ATR_PCT, Settings, mark_top, metrics, simulate
 from .yahoo_15m import fetch_yahoo_15m
 
 log = logging.getLogger(__name__)
@@ -112,8 +112,9 @@ def main(argv=None) -> int:
     settings = Settings()
     atr = "Any" if settings.atr_filter_off() else f"{settings.atr_pct_min:g}–{settings.atr_pct_max:g}%"
     print(
-        f"name screen: avg $ volume >= {settings.min_avg_dollar_volume:,.0f}, ATR % {atr}. "
-        "Names you added to the watchlist are not screened. This replay checks the symbols you passed."
+        f"name screen: ATR % > {MIN_ALERT_ATR_PCT:g} (always), avg $ volume >= {settings.min_avg_dollar_volume:,.0f}, "
+        f"ATR % {atr}. Names you added to the watchlist skip the sliders but not the ATR floor. "
+        "This replay checks the symbols you passed."
     )
     results = []
     for d in days:

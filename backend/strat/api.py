@@ -340,7 +340,10 @@ def alert_short_symbols(rows: list[dict], settings: alert_rules.Settings) -> lis
 
 
 def _manual_alert_names(rows: list[dict]) -> list[str]:
-    """Stocks and ETFs the user added or starred, oldest first. Auto-added names and themes are left out."""
+    """Stocks and ETFs the user added or starred, oldest first, with ATR % above the hard floor.
+
+    Auto-added names and themes are left out.
+    """
     manual = {sym for sym, src in data.watch_sources().items() if src == data.WATCH_MANUAL}
     if not manual:
         return []
@@ -360,7 +363,11 @@ def _manual_alert_names(rows: list[dict]) -> list[str]:
             kind = universe_kind.get(sym)
         return kind in ("stock", "etf")
 
-    return [sym for sym in data.watchlist() if sym in manual and alertable(sym)]
+    # Manual names skip the slider filters but not the hard ATR floor: no scan row or ATR % <= the floor, no alert.
+    return [
+        sym for sym in data.watchlist()
+        if sym in manual and alertable(sym) and alert_rules.above_atr_floor(by_scan.get(sym))
+    ]
 
 
 def alert_refresh_inputs(rows: list[dict], settings: alert_rules.Settings) -> tuple[list[str], list[str], dict]:
