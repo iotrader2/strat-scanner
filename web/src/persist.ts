@@ -2,25 +2,44 @@ import { useEffect, useState } from "react";
 
 const PREFIX = "strat:";
 
-export function readPersisted<T>(key: string, fallback: T, storage: Storage = localStorage): T {
+/** localStorage when the page has it. Missing or blocked storage (tests, private mode) is skipped. */
+function pageStorage(): Storage | null {
   try {
-    const raw = storage.getItem(PREFIX + key);
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function readPersisted<T>(key: string, fallback: T, storage?: Storage): T {
+  const box = storage ?? pageStorage();
+  if (!box) return fallback;
+  try {
+    const raw = box.getItem(PREFIX + key);
     return raw === null ? fallback : (JSON.parse(raw) as T);
   } catch {
     return fallback;
   }
 }
 
-export function writePersisted<T>(key: string, value: T, storage: Storage = localStorage): void {
-  storage.setItem(PREFIX + key, JSON.stringify(value));
+export function writePersisted<T>(key: string, value: T, storage?: Storage): void {
+  const box = storage ?? pageStorage();
+  if (!box) return;
+  try {
+    box.setItem(PREFIX + key, JSON.stringify(value));
+  } catch {
+    // Quota or a locked-down browser: the in-memory value still applies for this visit.
+  }
 }
 
 /** Saved keys of Stock Scanner filters that were removed. Nothing reads them; they are cleared on load. */
 export const RETIRED_FILTER_KEYS = ["continuityFilter", "continuity"] as const;
 
-export function clearRetiredFilters(storage: Storage = localStorage): void {
+export function clearRetiredFilters(storage?: Storage): void {
+  const box = storage ?? pageStorage();
+  if (!box) return;
   try {
-    for (const key of RETIRED_FILTER_KEYS) storage.removeItem(PREFIX + key);
+    for (const key of RETIRED_FILTER_KEYS) box.removeItem(PREFIX + key);
   } catch {
     // Storage unavailable (private mode, quota): nothing to clear.
   }
@@ -29,7 +48,9 @@ export function clearRetiredFilters(storage: Storage = localStorage): void {
 /** useState backed by localStorage, so the value survives navigation and full page reloads. */
 export function usePersisted<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(() => readPersisted(key, initial));
-  useEffect(() => writePersisted(key, value), [key, value]);
+  useEffect(() => {
+    writePersisted(key, value);
+  }, [key, value]);
   return [value, setValue] as const;
 }
 

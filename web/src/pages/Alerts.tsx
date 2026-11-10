@@ -17,9 +17,17 @@ import {
   SETUP_RULES,
   STATUS_LABEL,
   alertDayStatus,
+  ALERT_SORT_KEYS,
+  METRIC_SORT_KEYS,
+  alertSortValue,
   dailySetupText,
+  happenedText,
   isShortSetup,
+  normalizeColumnSort,
   setupPeriod,
+  type ColumnSort,
+  sortByColumn,
+  toggleColumnSort,
   fmtR,
   maText,
   maTitle,
@@ -230,34 +238,32 @@ function useAlertFilters() {
   return [normalizeAlertFilters(raw), setRaw] as const;
 }
 
-function outcomeText(a: TradeAlert): string {
-  const short = isShortSetup(a.setup);
-  const ema = `${setupPeriod(a.setup)} EMA`;
-  if (a.status === "pending") {
-    return short
-      ? `Watching: trigger under ${money(a.setup_low)} (last 15-min low)`
-      : `Watching: trigger over ${money(a.setup_high)} (last 15-min high)`;
-  }
-  if (a.status === "expired") {
-    if (a.exit_reason === "max_attempts") return "Expired: 2 attempts already";
-    if (a.exit_reason === "session_end") return "Not triggered by the close";
-    return "Not triggered in time";
-  }
-  if (a.status === "cancelled") return `Closed ${short ? "over" : "under"} the ${ema} before triggering`;
-  const parts = [`Filled ${money(a.fill_price)} at ${phoenixTime(a.fill_at)}`];
-  if (a.breakeven_at) parts.push(`stop to break-even ${phoenixTime(a.breakeven_at)}`);
-  if (a.exit_price != null) {
-    const why =
-      a.exit_reason === "close_under_ma"
-        ? `close under ${ema}`
-        : a.exit_reason === "close_over_ma"
-          ? `close over ${ema}`
-          : a.exit_reason === "session_end"
-            ? "session end"
-            : "stop";
-    parts.push(`out ${money(a.exit_price)} at ${phoenixTime(a.exit_at)} (${why})`);
-  }
-  return parts.join(", ");
+function SortableTh({
+  label,
+  title,
+  className,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  title?: string;
+  className?: string;
+  active: boolean;
+  dir: 1 | -1;
+  onClick: () => void;
+}) {
+  return (
+    <th
+      className={`sortable${className ? ` ${className}` : ""}${active ? " active" : ""}`}
+      title={title}
+      aria-sort={active ? (dir === 1 ? "ascending" : "descending") : "none"}
+      onClick={onClick}
+    >
+      {label}
+      {active ? (dir === 1 ? "\u00a0▲" : "\u00a0▼") : ""}
+    </th>
+  );
 }
 
 export function AlertsTable({
@@ -266,6 +272,7 @@ export function AlertsTable({
   onAck,
   onBought,
   readOnly = false,
+  sortStorageKey = "alertsTableSort",
 }: {
   alerts: TradeAlert[];
   flashing: Set<number>;
@@ -273,36 +280,52 @@ export function AlertsTable({
   onBought: (alert: TradeAlert) => void;
   /** History rows keep the same columns and do not acknowledge or record a buy. */
   readOnly?: boolean;
+  /** localStorage key so the live table and history remember their sorts separately. */
+  sortStorageKey?: string;
 }) {
+  const [stored, setStored] = usePersisted<ColumnSort | null>(sortStorageKey, null);
+  const sort = normalizeColumnSort(stored, ALERT_SORT_KEYS);
+  const ordered = useMemo(() => sortByColumn(alerts, sort, alertSortValue), [alerts, sort]);
+  const header = (key: (typeof ALERT_SORT_KEYS)[number], label: string, className?: string, title?: string) => (
+    <SortableTh
+      key={key}
+      label={label}
+      title={title}
+      className={className}
+      active={sort?.key === key}
+      dir={sort?.dir ?? 1}
+      onClick={() => setStored(toggleColumnSort(sort, key))}
+    />
+  );
   return (
     <div className="card table-card">
       <table className="scan-table alerts-table">
         <thead>
           <tr>
-            <th title="When the 15-minute candle that touched the EMA closed">Watch</th>
-            <th>Ticker</th>
-            <th className="num">Score</th>
-            <th className="num" title="Relative strength percentile, as on the Stock Scanner">RS</th>
-            <th>Side</th>
-            <th title="The daily setup(s) that put this name on the alert list">Daily setup</th>
-            <th title="Industry, and its rank among stock industries by median RS (1 = strongest)">Industry</th>
-            <th>Entry</th>
-            <th className="num" title="The EMA's value on the touch candle">EMA</th>
-            <th className="num" title="Previous 15-minute candle high + 1c (short: low - 1c)">Trigger</th>
-            <th className="num">Stop</th>
-            <th className="num">Stop %</th>
-            <th className="num">Risk / sh</th>
-            <th>Status</th>
-            <th className="num" title="Best price since the fill: the high (short: the low)">Best</th>
-            <th className="num" title="Open trades (triggered, not stopped or exited): R at the last price">Open R</th>
-            <th className="num" title="Closed trades: R at the exit">R</th>
-            <th className="outcome-cell">What happened</th>
+            {header("fired_at", "Watch", undefined, "When the 15-minute candle that touched the EMA closed")}
+            {header("symbol", "Ticker")}
+            {header("score", "Score", "num")}
+            {header("rs", "RS", "num", "Relative strength percentile, as on the Stock Scanner")}
+            {header("side", "Side")}
+            {header("daily_setup", "Daily setup", undefined, "The daily setup(s) that put this name on the alert list")}
+            {header("industry", "Industry", undefined, "Industry, and its rank among stock industries by median RS (1 = strongest)")}
+            {header("entry", "Entry")}
+            {header("ema", "EMA", "num", "The EMA's value on the touch candle")}
+            {header("trigger", "Trigger", "num", "Previous 15-minute candle high + 1c (short: low - 1c)")}
+            {header("stop", "Stop", "num")}
+            {header("stop_pct", "Stop %", "num")}
+            {header("risk", "Risk / sh", "num")}
+            {header("status", "Status")}
+            {header("best", "Best", "num", "Best price since the fill: the high (short: the low)")}
+            {header("open_r", "Open R", "num", "Open trades (triggered, not stopped or exited): R at the last price")}
+            {header("r", "R", "num", "Closed trades: R at the exit. Highest first.")}
+            {header("outcome", "What happened", "outcome-cell")}
             <th className="bought-col" aria-label="Bought" />
             <th className="actions-col" aria-label="Acknowledge" />
           </tr>
         </thead>
         <tbody>
-          {alerts.map((a) => (
+          {ordered.map((a) => (
             <tr
               key={a.id}
               className={`alert-row ${a.acknowledged ? "read" : "unread"} ${flashing.has(a.id) ? "flash" : ""}`}
@@ -377,7 +400,7 @@ export function AlertsTable({
               <td className={`num ${rTone(a.r_multiple)}`}>
                 {fmtR(a.r_multiple)}
               </td>
-              <td className="muted small outcome-cell">{outcomeText(a)}</td>
+              <td className="muted small outcome-cell">{happenedText(a)}</td>
               <td className="bought-col">
                 {readOnly ? (
                   <span className="muted small">—</span>
@@ -611,6 +634,7 @@ function HistoryView({ revision }: { revision: number }) {
               onAck={() => undefined}
               onBought={() => undefined}
               readOnly
+              sortStorageKey="alertsHistorySort"
             />
           )}
         </>
@@ -619,26 +643,64 @@ function HistoryView({ revision }: { revision: number }) {
   );
 }
 
+function metricSortValue(row: AlertMetricRow, key: string): number | string | null {
+  switch (key) {
+    case "name":
+      return row.name || null;
+    case "count":
+      return row.count;
+    case "filled":
+      return row.filled;
+    case "fill_rate":
+      return row.fill_rate;
+    case "closed":
+      return row.closed;
+    case "win_rate":
+      return row.win_rate;
+    case "avg_r":
+      return row.avg_r;
+    case "total_r":
+      return row.total_r;
+    case "open":
+      return row.open;
+    default:
+      return null;
+  }
+}
+
 export function MetricsTable({ rows }: { rows: AlertMetricRow[] }) {
   const pct = (v: number | null) => (v == null ? "—" : `${v.toFixed(1)}%`);
+  const [stored, setStored] = usePersisted<ColumnSort | null>("alertsMetricsSort", null);
+  const sort = normalizeColumnSort(stored, METRIC_SORT_KEYS);
+  const ordered = useMemo(() => sortByColumn(rows, sort, metricSortValue), [rows, sort]);
+  const header = (key: (typeof METRIC_SORT_KEYS)[number], label: string, className?: string) => (
+    <SortableTh
+      key={key}
+      label={label}
+      className={className}
+      active={sort?.key === key}
+      dir={sort?.dir ?? 1}
+      onClick={() => setStored(toggleColumnSort(sort, key))}
+    />
+  );
   return (
     <div className="card table-card">
       <table className="scan-table metrics-table">
         <thead>
           <tr>
-            <th>Daily setup</th>
-            <th className="num">Alerts</th>
-            <th className="num">Filled</th>
-            <th className="num">Fill rate</th>
-            <th className="num">Closed</th>
-            <th className="num">Win rate</th>
-            <th className="num">Avg R</th>
-            <th className="num">Total R</th>
-            <th className="num">Open</th>
+            {header("name", "Daily setup")}
+            {header("count", "Alerts", "num")}
+            {header("filled", "Filled", "num")}
+            {header("fill_rate", "Fill rate", "num")}
+            {header("closed", "Closed", "num")}
+            {header("win_rate", "Win rate", "num")}
+            {header("avg_r", "Avg R", "num")}
+            {header("total_r", "Total R", "num")}
+            {header("open", "Open", "num")}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {ordered.map((r) => (
             <tr key={r.setup} className={r.setup === "All" ? "total-row" : ""}>
               <td>
                 {r.side && <span className={`side-chip ${r.side}`}>{r.side === "short" ? "SHORT" : "LONG"}</span>}
