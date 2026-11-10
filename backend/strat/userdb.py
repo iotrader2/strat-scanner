@@ -32,7 +32,12 @@ TABLES = ("watchlist", "positions", "position_trims", "extra_symbols", "alerts",
 _COMMON = """
 CREATE TABLE IF NOT EXISTS watchlist (
     symbol   TEXT PRIMARY KEY,
-    added_at TEXT NOT NULL
+    added_at TEXT NOT NULL,
+    source   TEXT NOT NULL DEFAULT 'manual'
+);
+CREATE TABLE IF NOT EXISTS user_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS positions (
     symbol      TEXT PRIMARY KEY,
@@ -145,7 +150,10 @@ PG_SCHEMA = _COMMON.format(REAL="DOUBLE PRECISION", SERIAL="BIGSERIAL PRIMARY KE
     REAL="DOUBLE PRECISION", PKID="BIGINT PRIMARY KEY"
 )
 # Columns added after a Postgres schema was first created (CREATE TABLE IF NOT EXISTS skips existing tables).
-PG_SCHEMA += "\nALTER TABLE positions ADD COLUMN IF NOT EXISTS side TEXT NOT NULL DEFAULT 'long';\n"
+PG_SCHEMA += """
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS side TEXT NOT NULL DEFAULT 'long';
+ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+"""
 
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,40}$")
 
@@ -259,6 +267,8 @@ def _sqlite_migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE extra_symbols ADD COLUMN industry TEXT NOT NULL DEFAULT ''")
     if "side" not in {r[1] for r in conn.execute("PRAGMA table_info(positions)")}:
         conn.execute("ALTER TABLE positions ADD COLUMN side TEXT NOT NULL DEFAULT 'long'")
+    if "source" not in {r[1] for r in conn.execute("PRAGMA table_info(watchlist)")}:
+        conn.execute("ALTER TABLE watchlist ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
 
 
 @contextmanager

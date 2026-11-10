@@ -113,6 +113,8 @@ class Settings:
     max_stop_pct: float = 2.0  # do not arm an order wider than this
     # 1 = a long name needs a daily setup that has not broken yet.
     long_pending_only: int = 0
+    # 1 = the morning watchlist reset also removes names you added yourself. 0 = keep those.
+    reset_manual: int = 0
     # Short daily setups (1 = on, 0 = off). The two that lost, and the thin ones, start off.
     # MA Overcut and Fail at 10 and 20 days made R and start on.
     short_hvc: int = 0
@@ -164,7 +166,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "shorts": (0, 1), "max_short_symbols": (0, 1000),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
-    "long_pending_only": (0, 1),
+    "long_pending_only": (0, 1), "reset_manual": (0, 1),
     "short_hvc": (0, 1), "short_crossback": (0, 1),
     "short_ma10": (0, 1), "short_ma20": (0, 1), "short_ma50": (0, 1),
     "short_overcut": (0, 1), "short_wedge": (0, 1), "short_flat": (0, 1),

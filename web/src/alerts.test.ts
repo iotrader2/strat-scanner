@@ -195,7 +195,7 @@ describe("EMA level and settings", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
     expect(keys).toEqual(
       expect.arrayContaining([
-        "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "stop_mode", "fixed_stop_pct", "max_stop_pct",
+        "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "reset_manual", "stop_mode", "fixed_stop_pct", "max_stop_pct",
         "short_hvc", "short_crossback", "short_ma10", "short_ma20", "ma_120", "ma_240", "ma_480",
         "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars",
       ]),

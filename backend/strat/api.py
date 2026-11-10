@@ -356,10 +356,38 @@ def alert_daily_labels(rows: list[dict], settings: Optional[alert_rules.Settings
     return out
 
 
+def _sync_alert_watchlist(settings: alert_rules.Settings) -> None:
+    """Clear the day's auto watchlist, then add the names that qualify for alerts.
+
+    Runs on the premarket lists poll and on every later refresh. The clear happens once per
+    Eastern weekday, and it happens before the adds in that same call. Weekends are left alone.
+    A scan that has not finished yet does not clear anything.
+    """
+    if config.AS_OF or State.scan_key is None:
+        return
+    names = list(dict.fromkeys([
+        *alert_symbols(State.scan, settings),
+        *alert_short_symbols(State.scan, settings),
+    ]))
+    try:
+        changed = data.sync_alert_watchlist(names, include_manual=bool(settings.reset_manual))
+    except Exception:
+        log.exception("alert watchlist sync failed")
+        return
+    if changed["reset"] or changed["added"]:
+        State.lists_dirty = True
+        hub.publish({"type": "lists"})
+        log.info(
+            "watchlist session=%s reset=%s added=%s",
+            changed["session"], changed["reset"], len(changed["added"]),
+        )
+
+
 def _refresh_alerts() -> None:
     """15-minute EMA entries for names with a daily setup, on the same poll. No-op outside the regular session."""
     try:
         settings = alerts_store.load_settings()
+        _sync_alert_watchlist(settings)
         stats = alerts_live.refresh(
             alert_symbols(State.scan, settings), settings=settings,
             short_symbols=alert_short_symbols(State.scan, settings),
@@ -971,6 +999,8 @@ def add_watch(req: WatchRequest):
     """Add any ticker. Symbols outside the universe are validated and downloaded via yfinance first."""
     symbol, in_universe = _resolve_symbol(req.symbol)
     if symbol in data.watchlist():
+        # A star on a name the alerts added keeps it when the morning reset clears alert names.
+        data.add_to_watchlist(symbol)
         return _watchlist_payload()
     if not in_universe and symbol not in data.tracked_symbols():
         _fetch_off_universe(symbol)
