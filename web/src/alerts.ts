@@ -278,6 +278,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["theme_top_pct", "Theme band", "% of themes (25 = the top or bottom quartile)"],
       ["long_pending_only", "Longs: only a daily setup that has not broken yet (1 = on, 0 = off)", ""],
       ["reset_manual", "Morning watchlist reset also clears names you added (1 = on, 0 = off). Alert names are always cleared.", ""],
+      ["alert_manual_watchlist", "Also alert names you added yourself, long side, even with no daily setup (1 = on, 0 = off). They do not count toward the name cap.", ""],
     ],
   },
   {

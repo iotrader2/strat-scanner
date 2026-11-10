@@ -397,6 +397,39 @@ def test_industry_ranks_by_median_rs():
     assert industry_ranks(rows) == {"Software": (1, 3), "Chips": (2, 3), "Banks": (3, 3)}
 
 
+def test_a_manual_watchlist_name_is_alerted_and_its_history_is_fetched(db):
+    """Off-universe manual names are on the check list, so the EMA history request includes them."""
+    from strat import data
+    from strat.api import alert_refresh_inputs
+
+    alerts_live.clear()
+    data.add_to_watchlist("SOFI")
+    data.save_extra_symbol("SOFI", "SoFi", "Financials", "stock", "Banks")
+    history = _rising_history()
+    ctx = alerts.context_from_closes(alerts_live.regular_closes(history, OPEN.date()))
+    ma, last = ctx.ma_tail[120][-1], ctx.prev_close
+    touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
+    seen: list[list[str]] = []
+
+    class Recording(FakeClient):
+        def bars(self, symbols, tf, start, end=None, feed=None, adjustment="raw"):
+            seen.append(list(symbols))
+            return super().bars(symbols, tf, start, end, feed, adjustment)
+
+    client = Recording({"SOFI": history}, {"SOFI": [touch]})
+    longs, shorts, labels = alert_refresh_inputs([], Settings())
+    stats = alerts_live.refresh(
+        longs, now=OPEN + timedelta(minutes=16), client=client, settings=Settings(),
+        short_symbols=shorts, daily_setups=labels,
+    )
+    assert stats["alerts"] == 1
+    assert any("SOFI" in batch for batch in seen)
+    row = alerts_store.list_alerts()[0]
+    assert row["symbol"] == "SOFI" and row["setup"] == "120"
+    assert row["details"]["daily_setups"] == [{"kind": "watchlist", "label": "Watchlist", "side": "long"}]
+    alerts_live.clear()
+
+
 def test_refresh_needs_a_daily_setup_for_a_new_alert(db):
     alerts_live.clear()
     history = _rising_history()

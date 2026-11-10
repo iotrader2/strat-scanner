@@ -1,8 +1,8 @@
 """15-minute EMA entries for names with a daily setup, run from the 5-minute lists poll (inside the job slot).
 
-Which names: the caller passes the names ``alert_symbols`` / ``alert_short_symbols`` chose (theme band,
-allowed short setups, pending gate, then the score / RS caps). Each turned-on EMA is checked. Names with an
-alert still live today are always kept.
+Which names: the caller passes the names to check (the capped qualifying lists, plus manual watchlist
+names when that setting is on). Each turned-on EMA is checked. Names with an alert still live today
+are always kept. The same symbol list is what ``ensure_profiles`` prepares, including off-universe tickers.
 
 Per poll, two Alpaca requests for those names: today's SIP bars (from the open up to the 15-minute SIP
 cutoff) and today's IEX bars from the open. Each completed regular-session bar takes its prices from SIP

@@ -140,6 +140,82 @@ def test_sync_stores_setups_and_refreshes_them(db):
     assert data.watch_setups()["CCC"] == [cross]
 
 
+def _stock(symbol, score=50, rs=0.5, setups=(), rank=None, total=4, kind="stock"):
+    row = {"symbol": symbol, "kind": kind, "score": score, "rs": rs, "setups": list(setups)}
+    if rank is not None:
+        row["theme_strength"] = {"rank": rank, "total": total}
+    return row
+
+
+_LONG = {"tf": "D", "kind": "ema-crossback", "label": "EMA Crossback", "side": "long", "triggered": False}
+_SHORT = {"tf": "D", "kind": "flat-base-breakdown", "label": "Flat Base Breakdown", "side": "short", "triggered": False}
+
+
+def test_a_manual_name_with_no_setup_is_checked_long(db):
+    data.add_to_watchlist("MINE")
+    data.sync_alert_watchlist(["STAR"], include_manual=False, now=MONDAY)
+    data.add_to_watchlist("STAR")  # starred: the user kept an auto-added name
+    data.add_to_watchlist("THEME")
+    longs, shorts, labels = api.alert_refresh_inputs(
+        [_stock("MINE"), _stock("STAR"), _stock("THEME", kind="theme")],
+        Settings(theme_gate=0),
+    )
+    assert longs == ["MINE", "STAR"]
+    assert shorts == []
+    assert labels["MINE"]["long"] == [{"kind": "watchlist", "label": "Watchlist", "side": "long"}]
+    assert labels["STAR"]["long"] == labels["MINE"]["long"]
+
+
+def test_a_manual_name_that_qualifies_short_stays_short(db):
+    data.add_to_watchlist("ZZZ")
+    scan = [_stock("ZZZ", score=10, rs=0.05, setups=[_SHORT], rank=4)]
+    longs, shorts, labels = api.alert_refresh_inputs(scan, Settings(short_flat=1))
+    assert shorts == ["ZZZ"]
+    assert "ZZZ" not in longs
+    assert labels["ZZZ"]["short"][0]["kind"] == "flat-base-breakdown"
+    assert not any(ref.get("kind") == "watchlist" for ref in labels["ZZZ"].get("long") or [])
+
+
+def test_manual_names_skip_the_theme_gate_and_the_cap(db):
+    data.add_to_watchlist("MINE")
+    scan = [
+        _stock("AAA", score=90, rs=0.2, setups=[_LONG], rank=1),
+        _stock("MINE", score=1, rs=0.9, setups=[{"tf": "D", "kind": "episodic-pivot", "label": "Episodic Pivot", "side": "long"}], rank=4),
+    ]
+    longs, _, labels = api.alert_refresh_inputs(scan, Settings(max_symbols=1))
+    assert longs == ["AAA", "MINE"]
+    assert [ref["kind"] for ref in labels["AAA"]["long"]] == ["ema-crossback"]
+    assert [ref["kind"] for ref in labels["MINE"]["long"]] == ["episodic-pivot", "watchlist"]
+
+
+def test_the_manual_watchlist_toggle_off_restores_the_old_list(db):
+    data.add_to_watchlist("MINE")
+    scan = [_stock("MINE"), _stock("AAA", score=90, setups=[_LONG], rank=1)]
+    longs, shorts, labels = api.alert_refresh_inputs(scan, Settings(alert_manual_watchlist=0))
+    assert longs == ["AAA"] and shorts == []
+    assert "MINE" not in labels
+
+
+def test_auto_added_names_are_not_checked_unless_they_qualify(db):
+    data.sync_alert_watchlist(["AUTO"], include_manual=False, now=MONDAY)
+    scan = [
+        _stock("AUTO"),
+        _stock("QUAL", score=90, setups=[_LONG], rank=1),
+    ]
+    longs, _, labels = api.alert_refresh_inputs(scan, Settings())
+    assert longs == ["QUAL"]
+    assert [ref["kind"] for ref in labels["QUAL"]["long"]] == ["ema-crossback"]
+    assert "AUTO" not in labels
+
+
+def test_an_off_universe_manual_name_is_included_when_it_is_not_in_the_scan(db):
+    data.add_to_watchlist("SOFI")
+    data.save_extra_symbol("SOFI", "SoFi", "Financials", "stock", "Banks")
+    longs, shorts, labels = api.alert_refresh_inputs([], Settings())
+    assert longs == ["SOFI"] and shorts == []
+    assert labels["SOFI"]["long"][0]["kind"] == "watchlist"
+
+
 def test_a_scan_that_has_not_finished_does_not_clear_the_list(db, monkeypatch):
     data.add_to_watchlist("MINE")
     api.State.scan_key = None

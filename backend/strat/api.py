@@ -335,9 +335,63 @@ def alert_short_symbols(rows: list[dict], settings: alert_rules.Settings) -> lis
     return [r["symbol"] for r in picked[: settings.max_short_symbols]]
 
 
+def _manual_alert_names(rows: list[dict]) -> list[str]:
+    """Stocks and ETFs the user added or starred, oldest first. Auto-added names and themes are left out."""
+    manual = {sym for sym, src in data.watch_sources().items() if src == data.WATCH_MANUAL}
+    if not manual:
+        return []
+    by_scan = {r.get("symbol"): r for r in rows}
+    extra_kind = {e["symbol"]: e.get("kind") for e in data.extra_symbols()}
+    universe_kind: dict[str, str] | None = None
+
+    def alertable(sym: str) -> bool:
+        nonlocal universe_kind
+        row = by_scan.get(sym)
+        if row is not None:
+            return _alertable(row)
+        kind = extra_kind.get(sym)
+        if kind is None:
+            if universe_kind is None:
+                universe_kind = {m.symbol: m.kind for m in load_universe()}
+            kind = universe_kind.get(sym)
+        return kind in ("stock", "etf")
+
+    return [sym for sym in data.watchlist() if sym in manual and alertable(sym)]
+
+
+def alert_refresh_inputs(rows: list[dict], settings: alert_rules.Settings) -> tuple[list[str], list[str], dict]:
+    """Names to check this pass: (longs, shorts, daily-setup refs).
+
+    Qualifying names are capped as usual. With ``alert_manual_watchlist`` on, a stock or ETF the user
+    added is also checked on the long side even with no daily setup and outside the theme gate, and it
+    does not count toward ``max_symbols``. One that already qualifies as a short stays a short.
+    A manual name that was not already a normal long is tagged with the Watchlist setup ref.
+    """
+    longs = alert_symbols(rows, settings)
+    shorts = alert_short_symbols(rows, settings)
+    labels = alert_daily_labels(rows, settings)
+    if not settings.alert_manual_watchlist:
+        return longs, shorts, labels
+    long_set, short_set = set(longs), set(shorts)
+    for sym in _manual_alert_names(rows):
+        if sym in short_set:
+            continue
+        if sym not in long_set:
+            longs.append(sym)
+            sides = dict(labels.get(sym) or {})
+            have = list(sides.get("long") or [])
+            if not any(isinstance(ref, dict) and ref.get("kind") == alert_rules.WATCHLIST_SETUP["kind"] for ref in have):
+                have.append(dict(alert_rules.WATCHLIST_SETUP))
+            sides["long"] = have
+            sides.setdefault("short", [])
+            labels[sym] = sides
+    return longs, shorts, labels
+
+
 def _alert_name_count() -> int:
     settings = alerts_store.load_settings()
-    return len(set(alert_symbols(State.scan, settings)) | set(alert_short_symbols(State.scan, settings)))
+    longs, shorts, _ = alert_refresh_inputs(State.scan, settings)
+    return len(set(longs) | set(shorts))
 
 
 def alert_daily_labels(rows: list[dict], settings: Optional[alert_rules.Settings] = None) -> dict[str, dict[str, list[dict]]]:
@@ -398,14 +452,17 @@ def _sync_alert_watchlist(settings: alert_rules.Settings) -> None:
 
 
 def _refresh_alerts() -> None:
-    """15-minute EMA entries for names with a daily setup, on the same poll. No-op outside the regular session."""
+    """15-minute EMA entries on the same poll. No-op outside the regular session.
+
+    Qualifying names, plus names the user added to the watchlist when that setting is on. The manual
+    names are part of the symbol list, so the EMA history fetch covers off-universe tickers too.
+    """
     try:
         settings = alerts_store.load_settings()
         _sync_alert_watchlist(settings)
+        longs, shorts, labels = alert_refresh_inputs(State.scan, settings)
         stats = alerts_live.refresh(
-            alert_symbols(State.scan, settings), settings=settings,
-            short_symbols=alert_short_symbols(State.scan, settings),
-            daily_setups=alert_daily_labels(State.scan, settings),
+            longs, settings=settings, short_symbols=shorts, daily_setups=labels,
         )
         if stats.get("skipped"):
             if stats.get("prepared"):
