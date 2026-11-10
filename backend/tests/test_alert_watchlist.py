@@ -62,7 +62,7 @@ def test_a_weekend_does_not_reset_or_add(db):
     data.sync_alert_watchlist(["AAA"], include_manual=False, now=MONDAY)
     data.add_to_watchlist("MINE")
     skipped = data.sync_alert_watchlist(["ZZZ"], include_manual=False, now=SUNDAY)
-    assert skipped == {"reset": False, "added": [], "session": None}
+    assert skipped == {"reset": False, "added": [], "session": None, "setups_changed": 0}
     assert data.watchlist() == ["AAA", "MINE"]
 
 
@@ -88,6 +88,7 @@ def test_rows_saved_before_source_existed_count_as_manual(db, tmp_path):
     # fixture already set CACHE_DB; reopen through the migrated connection by swapping the path.
     config_mod.CACHE_DB = path
     assert data.watch_sources()["OLD"] == "manual"
+    assert data.watch_setups()["OLD"] == []
     data.sync_alert_watchlist(["NEW"], include_manual=False, now=MONDAY)
     assert data.watchlist() == ["OLD", "NEW"]
 
@@ -104,9 +105,39 @@ def test_the_alert_refresh_adds_qualifying_names(db, monkeypatch):
         api._sync_alert_watchlist(Settings())
         assert data.watchlist() == ["AAA"]
         assert data.watch_sources()["AAA"] == "alert"
+        assert data.watch_setups()["AAA"] == [{"kind": "ema-crossback", "label": "EMA Crossback", "side": "long"}]
     finally:
         api.State.scan_key = None
         api.State.scan = []
+
+
+def test_sync_stores_setups_and_refreshes_them(db):
+    ep = {"kind": "episodic-pivot", "label": "Episodic Pivot", "side": "long"}
+    cross = {"kind": "ema-crossback", "label": "EMA Crossback", "side": "long"}
+    ma10 = {"kind": "ma-overcut-fail", "label": "MA Overcut and Fail (10-day)", "side": "short", "period": 10}
+    ma20 = {"kind": "ma-overcut-fail", "label": "MA Overcut and Fail (20-day)", "side": "short", "period": 20}
+    data.add_to_watchlist("MINE")
+    data.sync_alert_watchlist(
+        ["AAA", "BBB"], setups={"AAA": [ep, cross], "BBB": [ma10, ma20]}, include_manual=False, now=MONDAY,
+    )
+    assert data.watch_setups()["AAA"] == [ep, cross]
+    assert data.watch_setups()["BBB"] == [ma10, ma20]
+    assert data.watch_setups()["MINE"] == []
+    # Same day: AAA's setups change, BBB no longer qualifies but stays on the list with a dash.
+    data.sync_alert_watchlist(["AAA"], setups={"AAA": [ep]}, include_manual=False, now=MONDAY.replace(hour=11))
+    assert data.watchlist() == ["MINE", "AAA", "BBB"]
+    assert data.watch_setups()["AAA"] == [ep]
+    assert data.watch_setups()["BBB"] == []
+    # Starring AAA keeps it, and a later sync still refreshes the setups while it qualifies.
+    data.add_to_watchlist("AAA")
+    data.sync_alert_watchlist(["AAA"], setups={"AAA": [ep, cross]}, include_manual=False, now=MONDAY.replace(hour=12))
+    assert data.watch_sources()["AAA"] == "manual"
+    assert data.watch_setups()["AAA"] == [ep, cross]
+    # Next morning AAA no longer qualifies, so the column clears. The new auto name carries its setup.
+    data.sync_alert_watchlist(["CCC"], setups={"CCC": [cross]}, include_manual=False, now=TUESDAY)
+    assert data.watchlist() == ["MINE", "AAA", "CCC"]
+    assert data.watch_setups()["AAA"] == []
+    assert data.watch_setups()["CCC"] == [cross]
 
 
 def test_a_scan_that_has_not_finished_does_not_clear_the_list(db, monkeypatch):

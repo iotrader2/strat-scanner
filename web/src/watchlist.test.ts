@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type ScanRow } from "./api";
 import { sortRows } from "./components/ScanTable";
-import { normalizeTicker, watchedRows, withSymbol } from "./watchlist";
+import { normalizeTicker, watchSetupGroups, watchedRows, withSymbol } from "./watchlist";
 
 const row = (symbol: string, extra: Partial<ScanRow> = {}) => ({ symbol, score: 50, has_setup: true, ...extra }) as ScanRow;
 
@@ -27,6 +27,35 @@ describe("Add symbol input", () => {
     expect(normalizeTicker("  mrna ")).toBe("MRNA");
     expect(normalizeTicker("brk.b")).toBe("BRK.B");
     expect(normalizeTicker("   ")).toBe("");
+  });
+});
+
+describe("watchlist setup column", () => {
+  it("groups a side's setups and collapses moving-average periods", () => {
+    expect(watchSetupGroups([
+      { kind: "episodic-pivot", label: "Episodic Pivot", side: "long" },
+      { kind: "delayed-hvc", label: "Delayed High Volume Close", side: "long" },
+      { kind: "ema-crossback", label: "EMA Crossback", side: "long" },
+    ])).toEqual([{ side: "long", text: "EP, Delayed HVC, EMA Crossback" }]);
+    expect(watchSetupGroups([
+      { kind: "ma-overcut-fail", label: "MA Overcut and Fail (20-day)", side: "short", period: 20 },
+      { kind: "ma-overcut-fail", label: "MA Overcut and Fail (10-day)", side: "short", period: 10 },
+    ])).toEqual([{ side: "short", text: "MA Overcut Fail 10/20" }]);
+  });
+
+  it("shows nothing for a hand-added name that does not qualify", () => {
+    expect(watchSetupGroups(undefined)).toEqual([]);
+    expect(watchSetupGroups([])).toEqual([]);
+  });
+
+  it("keeps long and short on their own lines", () => {
+    expect(watchSetupGroups([
+      { kind: "flat-base-breakout", label: "Flat Base Breakout", side: "long" },
+      { kind: "ma-overcut-fail", label: "MA Overcut and Fail (10-day)", side: "short", period: 10 },
+    ])).toEqual([
+      { side: "long", text: "Flat Base" },
+      { side: "short", text: "MA Overcut Fail 10" },
+    ]);
   });
 });
 

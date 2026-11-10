@@ -227,6 +227,8 @@ export interface ScanRow {
   tf: Record<Tf, TfState | null> & Partial<Record<HigherTf, TfState | null>>;
   earnings?: Earnings | null;
   setups?: (Setup & { tf: Tf; points: number })[];
+  /** Daily setups stored on the watchlist row. Empty when the name was added by hand and does not qualify. */
+  watch_setups?: DailySetupRef[];
 }
 
 export type PerfPeriod = "1m" | "3m" | "6m";

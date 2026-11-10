@@ -75,6 +75,7 @@ def test_keeps_names_without_an_active_setup(client):
     rows = client.get("/api/watchlist").json()["rows"]
     assert [r["symbol"] for r in rows] == ["TDY"]
     assert rows[0]["has_setup"] is False and rows[0]["setup"] is None
+    assert rows[0]["watch_setups"] == []
 
 
 def test_reports_watched_names_with_no_cached_data(client):

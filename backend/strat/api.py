@@ -369,21 +369,31 @@ def _sync_alert_watchlist(settings: alert_rules.Settings) -> None:
     """
     if config.AS_OF or State.scan_key is None:
         return
-    names = list(dict.fromkeys([
-        *alert_symbols(State.scan, settings),
-        *alert_short_symbols(State.scan, settings),
-    ]))
+    longs = alert_symbols(State.scan, settings)
+    shorts = alert_short_symbols(State.scan, settings)
+    names = list(dict.fromkeys([*longs, *shorts]))
+    labels = alert_daily_labels(State.scan, settings)
+    long_set, short_set = set(longs), set(shorts)
+    setups = {}
+    for sym in names:
+        sides = labels.get(sym) or {}
+        refs = []
+        if sym in long_set:
+            refs.extend(sides.get("long") or [])
+        if sym in short_set:
+            refs.extend(sides.get("short") or [])
+        setups[sym] = refs
     try:
-        changed = data.sync_alert_watchlist(names, include_manual=bool(settings.reset_manual))
+        changed = data.sync_alert_watchlist(names, setups=setups, include_manual=bool(settings.reset_manual))
     except Exception:
         log.exception("alert watchlist sync failed")
         return
-    if changed["reset"] or changed["added"]:
+    if changed["reset"] or changed["added"] or changed["setups_changed"]:
         State.lists_dirty = True
         hub.publish({"type": "lists"})
         log.info(
-            "watchlist session=%s reset=%s added=%s",
-            changed["session"], changed["reset"], len(changed["added"]),
+            "watchlist session=%s reset=%s added=%s setups=%s",
+            changed["session"], changed["reset"], len(changed["added"]), changed["setups_changed"],
         )
 
 
@@ -984,9 +994,13 @@ def _stop_tracking_if_unused(symbol: str) -> None:
 def _watchlist_payload() -> dict:
     symbols = data.watchlist()
     by_symbol = _rows_by_symbol()
+    stored = data.watch_setups()
+    rows = _with_earnings([by_symbol[s] for s in symbols if s in by_symbol])
+    for row in rows:
+        row["watch_setups"] = stored.get(row["symbol"]) or []
     return {
         "symbols": symbols,
-        "rows": _with_earnings([by_symbol[s] for s in symbols if s in by_symbol]),
+        "rows": rows,
         "missing": [s for s in symbols if s not in by_symbol],
         "intraday": watch15m.snapshot(symbols),
     }
