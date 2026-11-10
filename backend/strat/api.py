@@ -309,11 +309,13 @@ def alert_symbols(rows: list[dict], settings: alert_rules.Settings) -> list[str]
     """Long-side alert names: a stock or ETF with a qualifying long daily setup, highest score first.
 
     With the theme gate on, the name's primary theme has to sit in the top ``theme_top_pct`` of themes.
-    At most ``max_symbols``. The 15-minute EMA only times the entry.
+    Average dollar volume and ATR % are applied before the cap. At most ``max_symbols``.
+    The 15-minute EMA only times the entry. Names the user added are not in this list.
     """
     picked = [
         r for r in rows
         if _alertable(r) and qualifying_setups(r, "long", settings) and theme_in_band(r, "long", settings)
+        and alert_rules.passes_name_screen(r, settings)
     ]
     picked.sort(key=lambda r: (-(r["score"] if isinstance(r.get("score"), (int, float)) else -1e9), r["symbol"]))
     return [r["symbol"] for r in picked[: settings.max_symbols]]
@@ -323,13 +325,15 @@ def alert_short_symbols(rows: list[dict], settings: alert_rules.Settings) -> lis
     """Short-side alert names: a stock or ETF with an allowed short daily setup, weakest RS first.
 
     With the theme gate on, the primary theme has to sit in the bottom ``theme_top_pct`` of themes.
-    At most ``max_short_symbols``. Empty when shorts are switched off.
+    Average dollar volume and ATR % are applied before the cap. At most ``max_short_symbols``.
+    Empty when shorts are switched off. Names the user added are not screened here.
     """
     if not settings.shorts:
         return []
     picked = [
         r for r in rows
         if _alertable(r) and qualifying_setups(r, "short", settings) and theme_in_band(r, "short", settings)
+        and alert_rules.passes_name_screen(r, settings)
     ]
     picked.sort(key=lambda r: (r["rs"] if isinstance(r.get("rs"), (int, float)) else 1e9, r["symbol"]))
     return [r["symbol"] for r in picked[: settings.max_short_symbols]]

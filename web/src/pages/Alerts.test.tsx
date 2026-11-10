@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { sample } from "../alerts.test";
 import { DEFAULT_ALERT_FILTERS, alertDayStatus } from "../alerts";
-import { AlertDayBanner, AlertFilterBar, AlertsTable, MetricsTable, RsPill } from "./Alerts";
+import { AlertDayBanner, AlertFilterBar, AlertLiquidityFilters, AlertsTable, MetricsTable, RsPill } from "./Alerts";
 
 describe("AlertsTable", () => {
   const html = renderToStaticMarkup(
@@ -229,5 +229,22 @@ describe("RsPill", () => {
   it("colours RS like the score pill", () => {
     expect(renderToStaticMarkup(<RsPill rs={0.12} />)).toBe('<span class="score-pill lo">P12</span>');
     expect(renderToStaticMarkup(<RsPill rs={null} />)).toContain("—");
+  });
+});
+
+describe("Alert liquidity sliders", () => {
+  it("matches the scanner volume and ATR sliders, and exempts names you added", () => {
+    const html = renderToStaticMarkup(
+      <AlertLiquidityFilters volume={10_000_000} atr={[0, 12]} onVolume={() => undefined} onAtr={() => undefined} />,
+    );
+    expect(html).toContain("Min avg $ volume");
+    expect(html).toContain("≥ $10M");
+    expect(html).toContain("$10M");
+    expect(html).toContain("$5B");
+    expect(html).toContain("ATR %");
+    expect(html).toContain(">Any<");
+    expect(html).toContain("0%");
+    expect(html).toContain("12%+");
+    expect(html).toContain("Names you added to the watchlist yourself are not filtered.");
   });
 });

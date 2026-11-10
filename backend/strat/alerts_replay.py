@@ -110,6 +110,11 @@ def main(argv=None) -> int:
     end = date.fromisoformat(args.end) if args.end else datetime.now(ET).date()
     days = sessions(client, end, args.days)
     settings = Settings()
+    atr = "Any" if settings.atr_filter_off() else f"{settings.atr_pct_min:g}–{settings.atr_pct_max:g}%"
+    print(
+        f"name screen: avg $ volume >= {settings.min_avg_dollar_volume:,.0f}, ATR % {atr}. "
+        "Names you added to the watchlist are not screened. This replay checks the symbols you passed."
+    )
     results = []
     for d in days:
         res = replay_day(client, symbols, d, settings)
@@ -123,7 +128,17 @@ def main(argv=None) -> int:
     print(f"\n   Alpaca requests: {client.requests}")
     if args.json:
         with open(args.json, "w") as fh:
-            json.dump({"symbols": symbols, "days": [d.isoformat() for d in days], "results": results, "metrics": metrics(allrows)}, fh, indent=1)
+            json.dump({
+                "symbols": symbols,
+                "days": [d.isoformat() for d in days],
+                "screen": {
+                    "min_avg_dollar_volume": settings.min_avg_dollar_volume,
+                    "atr_pct_min": settings.atr_pct_min,
+                    "atr_pct_max": settings.atr_pct_max,
+                },
+                "results": results,
+                "metrics": metrics(allrows),
+            }, fh, indent=1)
     return 0
 
 

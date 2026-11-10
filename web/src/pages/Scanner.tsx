@@ -7,7 +7,7 @@ import { Dropdown, type DropdownOption } from "../components/Dropdown";
 import { AtrSlider } from "../components/AtrSlider";
 import { LogSlider } from "../components/LogSlider";
 import { ATR_PCT_DEFAULT, normalizeAtrRange, passesAtr, type AtrRange } from "../atrFilter";
-import { fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
+import { DOLLAR_VOL_RANGE, fmtCompact, fmtPrice, passesLiquidity } from "../logScale";
 import { clearRetiredFilters, readPersisted, usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
 import { SymbolSearch } from "../components/SymbolSearch";
@@ -44,7 +44,6 @@ import {
 import { matchesTheme, themeName, themeOptions } from "../themes";
 
 const PRICE_RANGE = { min: 1, max: 1_000 };
-const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
 
 export const SETUPS_OPTIONS: DropdownOption<LeadershipFilter>[] = [
   { value: "all", label: "All names", hint: "Every stock and ETF that passes the price / dollar-volume filters, with or without a setup. Ignores the Min RS slider." },

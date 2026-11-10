@@ -46,7 +46,11 @@ import { TickerLogo } from "../components/TickerLogo";
 import { INTRADAY_EMA_COLORS } from "../intradayChart";
 import { usePersisted } from "../persist";
 import { fmtRs } from "../leadership";
+import { AtrSlider } from "../components/AtrSlider";
+import { LogSlider } from "../components/LogSlider";
 import { RangeSlider } from "../components/RangeSlider";
+import { normalizeAtrRange, type AtrRange } from "../atrFilter";
+import { DOLLAR_VOL_RANGE, fmtCompact } from "../logScale";
 
 /** The EMA's line color on the 15-minute chart: 120 red, 240 yellow, 480 blue. */
 function emaColor(setup: string): string | undefined {
@@ -705,6 +709,38 @@ function MetricsView({ revision }: { revision: number }) {
   );
 }
 
+export function AlertLiquidityFilters({
+  volume,
+  atr,
+  onVolume,
+  onAtr,
+}: {
+  volume: number;
+  atr: AtrRange;
+  onVolume: (v: number) => void;
+  onAtr: (v: AtrRange) => void;
+}) {
+  return (
+    <div className="filters settings-sliders">
+      <div className="filter-row filter-sliders">
+        <LogSlider
+          label="Min avg $ volume"
+          value={volume}
+          min={DOLLAR_VOL_RANGE.min}
+          max={DOLLAR_VOL_RANGE.max}
+          format={(v) => `$${fmtCompact(v)}`}
+          onChange={onVolume}
+        />
+        <AtrSlider value={atr} onChange={onAtr} />
+      </div>
+      <p className="muted small slider-note">
+        Uses each name&apos;s average dollar volume and ATR % from the daily scan, before the name caps.
+        Names you added to the watchlist yourself are not filtered.
+      </p>
+    </div>
+  );
+}
+
 function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) => void }) {
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<AlertSettingsPayload | null>(null);
@@ -767,6 +803,14 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
           {SETTING_GROUPS.map((g) => (
             <fieldset key={g.title} className="settings-group">
               <legend>{g.title}</legend>
+              {g.title === "Which names" && (
+                <AlertLiquidityFilters
+                  volume={Number(draft.min_avg_dollar_volume)}
+                  atr={normalizeAtrRange([draft.atr_pct_min, draft.atr_pct_max])}
+                  onVolume={(v) => setDraft({ ...draft, min_avg_dollar_volume: String(v) })}
+                  onAtr={([lo, hi]) => setDraft({ ...draft, atr_pct_min: String(lo), atr_pct_max: String(hi) })}
+                />
+              )}
               {g.items.map(([key, label, unit]) => (
                 <label key={key} className={`setting ${key in changed ? "changed" : ""}`}>
                   <span className="setting-label">{label}</span>

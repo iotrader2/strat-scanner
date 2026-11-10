@@ -244,6 +244,8 @@ def save_settings(changes: dict, db_path: Optional[Path] = None) -> Settings:
         raise SettingsError("Turn on at least one moving average")
     if int(merged["stop_mode"]) == 2 and float(merged["fixed_stop_pct"]) > float(merged["max_stop_pct"]):
         raise SettingsError("The fixed stop is wider than the max stop, so every order would be skipped")
+    if float(merged["atr_pct_min"]) > float(merged["atr_pct_max"]):
+        raise SettingsError("ATR % minimum is above the maximum")
     with _lock, _writing(), userdb.connect(db_path) as conn:
         for k, v in clean.items():
             conn.execute(

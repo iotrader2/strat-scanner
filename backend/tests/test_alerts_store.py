@@ -203,20 +203,31 @@ def test_forming_bar_is_the_next_slot_only():
     assert alerts_live.forming_bar(iex, day, 1, OPEN + timedelta(minutes=31)) is None
 
 
+def test_volume_and_atr_settings_use_the_slider_bounds(db):
+    saved = alerts_store.save_settings({"min_avg_dollar_volume": 25_000_000, "atr_pct_min": 1.5, "atr_pct_max": 8})
+    assert saved.min_avg_dollar_volume == 25_000_000
+    assert (saved.atr_pct_min, saved.atr_pct_max) == (1.5, 8)
+    assert alerts_store.load_settings().min_avg_dollar_volume == 25_000_000
+    with pytest.raises(alerts_store.SettingsError):
+        alerts_store.save_settings({"min_avg_dollar_volume": 1_000_000})
+    with pytest.raises(alerts_store.SettingsError):
+        alerts_store.save_settings({"atr_pct_min": 9, "atr_pct_max": 3})
+
+
 def test_alert_symbols_are_names_with_a_long_daily_setup():
     from strat.api import alert_daily_labels, alert_symbols
 
     long_d = {"tf": "D", "kind": "flat-base", "label": "Flat Base Breakout", "side": "long"}
     short_d = {"tf": "D", "kind": "flat-base-short", "label": "Flat Base Breakdown", "side": "short"}
     rows = [
-        {"symbol": "AAA", "kind": "stock", "in_universe": True, "score": 91, "setups": [long_d]},
-        {"symbol": "BBB", "kind": "stock", "in_universe": True, "score": 40, "setups": [long_d]},  # any score
-        {"symbol": "CCC", "kind": "etf", "in_universe": True, "score": 95, "setups": [long_d]},
-        {"symbol": "DDD", "kind": "stock", "in_universe": False, "score": 99, "setups": [short_d]},  # short only
-        {"symbol": "EEE", "kind": "stock", "in_universe": True, "score": 75, "setups": []},  # no daily setup
-        {"symbol": "theme-x", "kind": "theme", "score": 99, "setups": [long_d]},
-        {"symbol": "FFF", "kind": "stock", "in_universe": False, "score": None, "setups": [long_d]},
-        {"symbol": "GGG", "kind": "stock", "in_universe": True, "score": 99, "setups": [{**long_d, "tf": "W"}]},
+        {"symbol": "AAA", "kind": "stock", "in_universe": True, "score": 91, "setups": [long_d], "avg_dollar_volume": 50_000_000},
+        {"symbol": "BBB", "kind": "stock", "in_universe": True, "score": 40, "setups": [long_d], "avg_dollar_volume": 50_000_000},  # any score
+        {"symbol": "CCC", "kind": "etf", "in_universe": True, "score": 95, "setups": [long_d], "avg_dollar_volume": 50_000_000},
+        {"symbol": "DDD", "kind": "stock", "in_universe": False, "score": 99, "setups": [short_d], "avg_dollar_volume": 50_000_000},  # short only
+        {"symbol": "EEE", "kind": "stock", "in_universe": True, "score": 75, "setups": [], "avg_dollar_volume": 50_000_000},  # no daily setup
+        {"symbol": "theme-x", "kind": "theme", "score": 99, "setups": [long_d], "avg_dollar_volume": 50_000_000},
+        {"symbol": "FFF", "kind": "stock", "in_universe": False, "score": None, "setups": [long_d], "avg_dollar_volume": 50_000_000},
+        {"symbol": "GGG", "kind": "stock", "in_universe": True, "score": 99, "setups": [{**long_d, "tf": "W"}], "avg_dollar_volume": 50_000_000},
     ]
     assert alert_symbols(rows, Settings(theme_gate=0)) == ["CCC", "AAA", "BBB", "FFF"]
     assert alert_symbols(rows, Settings(theme_gate=0, max_symbols=1)) == ["CCC"]
