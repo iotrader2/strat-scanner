@@ -8,7 +8,10 @@ import {
   rsLevel,
   SETTING_GROUPS,
   SETUP_NAMES,
+  alertSortValue,
   dailySetupText,
+  sortByColumn,
+  toggleColumnSort,
   isShortSetup,
   setupPeriod,
   STATUS_LABEL,
@@ -317,5 +320,38 @@ describe("alert filters", () => {
 
   it("colours RS on the score cuts", () => {
     expect([rsLevel(0.93), rsLevel(0.7), rsLevel(0.55), rsLevel(0.49)]).toEqual(["hi", "hi", "mid", "lo"]);
+  });
+});
+
+describe("alert table sort", () => {
+  const rows = [
+    sample({ id: 1, symbol: "MU", r_multiple: null, open_r: 0.5, score: 40, fired_at: "2026-10-23T15:00:00Z" }),
+    sample({ id: 2, symbol: "AAPL", r_multiple: 2, open_r: null, score: 90, fired_at: "2026-10-23T14:00:00Z" }),
+    sample({ id: 3, symbol: "ZZZ", r_multiple: -1, open_r: null, score: null, fired_at: "2026-10-23T16:00:00Z" }),
+  ];
+
+  it("keeps the current order until a header is clicked", () => {
+    expect(sortByColumn(rows, null, alertSortValue).map((r) => r.id)).toEqual([1, 2, 3]);
+  });
+
+  it("sorts R numerically with blanks at the bottom, then reverses", () => {
+    const high = toggleColumnSort(null, "r");
+    expect(high).toEqual({ key: "r", dir: -1 });
+    expect(sortByColumn(rows, high, alertSortValue).map((r) => r.symbol)).toEqual(["AAPL", "ZZZ", "MU"]);
+    const low = toggleColumnSort(high, "r");
+    expect(low.dir).toBe(1);
+    expect(sortByColumn(rows, low, alertSortValue).map((r) => r.symbol)).toEqual(["ZZZ", "AAPL", "MU"]);
+  });
+
+  it("sorts tickers A to Z, and time newest first", () => {
+    expect(sortByColumn(rows, toggleColumnSort(null, "symbol"), alertSortValue).map((r) => r.symbol)).toEqual(["AAPL", "MU", "ZZZ"]);
+    expect(sortByColumn(rows, toggleColumnSort(null, "fired_at"), alertSortValue).map((r) => r.id)).toEqual([3, 1, 2]);
+  });
+
+  it("puts a missing score at the bottom either way", () => {
+    const desc = toggleColumnSort(null, "score");
+    const asc = toggleColumnSort(desc, "score");
+    expect(sortByColumn(rows, desc, alertSortValue).at(-1)?.symbol).toBe("ZZZ");
+    expect(sortByColumn(rows, asc, alertSortValue).at(-1)?.symbol).toBe("ZZZ");
   });
 });

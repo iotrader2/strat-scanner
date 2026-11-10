@@ -199,6 +199,136 @@ export function rTone(r: number | null | undefined): string {
   return v > 0 ? "green-text" : v < 0 ? "red-text" : "";
 }
 
+function px(v: number | null | undefined): string {
+  return v == null ? "—" : v.toFixed(2);
+}
+
+/** The "What happened" sentence. Also the text that column sorts by. */
+export function happenedText(a: TradeAlert): string {
+  const short = isShortSetup(a.setup);
+  const ema = `${setupPeriod(a.setup)} EMA`;
+  if (a.status === "pending") {
+    return short
+      ? `Watching: trigger under ${px(a.setup_low)} (last 15-min low)`
+      : `Watching: trigger over ${px(a.setup_high)} (last 15-min high)`;
+  }
+  if (a.status === "expired") {
+    if (a.exit_reason === "max_attempts") return "Expired: 2 attempts already";
+    if (a.exit_reason === "session_end") return "Not triggered by the close";
+    return "Not triggered in time";
+  }
+  if (a.status === "cancelled") return `Closed ${short ? "over" : "under"} the ${ema} before triggering`;
+  const parts = [`Filled ${px(a.fill_price)} at ${phoenixTime(a.fill_at)}`];
+  if (a.breakeven_at) parts.push(`stop to break-even ${phoenixTime(a.breakeven_at)}`);
+  if (a.exit_price != null) {
+    const why =
+      a.exit_reason === "close_under_ma"
+        ? `close under ${ema}`
+        : a.exit_reason === "close_over_ma"
+          ? `close over ${ema}`
+          : a.exit_reason === "session_end"
+            ? "session end"
+            : "stop";
+    parts.push(`out ${px(a.exit_price)} at ${phoenixTime(a.exit_at)} (${why})`);
+  }
+  return parts.join(", ");
+}
+
+export const ALERT_SORT_KEYS = [
+  "fired_at", "symbol", "score", "rs", "side", "daily_setup", "industry", "entry",
+  "ema", "trigger", "stop", "stop_pct", "risk", "status", "best", "open_r", "r", "outcome",
+] as const;
+export type AlertSortKey = (typeof ALERT_SORT_KEYS)[number];
+
+export const METRIC_SORT_KEYS = [
+  "name", "count", "filled", "fill_rate", "closed", "win_rate", "avg_r", "total_r", "open",
+] as const;
+export type MetricSortKey = (typeof METRIC_SORT_KEYS)[number];
+
+export type ColumnSort = { key: string; dir: 1 | -1 };
+
+/** No sort until a header is clicked. A saved value for a column that no longer exists is ignored. */
+export function normalizeColumnSort(saved: unknown, keys: readonly string[]): ColumnSort | null {
+  if (!saved || typeof saved !== "object") return null;
+  const key = (saved as { key?: unknown }).key;
+  const dir = (saved as { dir?: unknown }).dir;
+  if (typeof key !== "string" || !keys.includes(key)) return null;
+  if (dir !== 1 && dir !== -1) return null;
+  return { key, dir };
+}
+
+const TEXT_SORT = new Set<string>(["symbol", "side", "daily_setup", "industry", "entry", "status", "outcome", "name"]);
+
+/** First click: A→Z for text, newest or largest first for time and numbers. The next click flips. */
+export function toggleColumnSort(current: ColumnSort | null, key: string): ColumnSort {
+  if (current?.key === key) return { key, dir: current.dir === 1 ? -1 : 1 };
+  return { key, dir: TEXT_SORT.has(key) ? 1 : -1 };
+}
+
+function blank(v: number | string | null): v is null {
+  return v == null || v === "" || (typeof v === "number" && !Number.isFinite(v));
+}
+
+/** Blank and dash cells stay at the bottom in either direction. The original order is kept until `sort` is set. */
+export function sortByColumn<T>(rows: readonly T[], sort: ColumnSort | null, value: (row: T, key: string) => number | string | null): T[] {
+  if (!sort) return [...rows];
+  const dir = sort.dir;
+  return [...rows].sort((a, b) => {
+    const av = value(a, sort.key);
+    const bv = value(b, sort.key);
+    if (blank(av) && blank(bv)) return 0;
+    if (blank(av)) return 1;
+    if (blank(bv)) return -1;
+    if (typeof av === "string" && typeof bv === "string") return av.localeCompare(bv) * dir;
+    return (Number(av) - Number(bv)) * dir;
+  });
+}
+
+export function alertSortValue(a: TradeAlert, key: string): number | string | null {
+  switch (key) {
+    case "fired_at": {
+      const t = a.fired_at ? Date.parse(a.fired_at) : NaN;
+      return Number.isFinite(t) ? t : null;
+    }
+    case "symbol":
+      return a.symbol || null;
+    case "score":
+      return a.score ?? null;
+    case "rs":
+      return a.rs ?? null;
+    case "side":
+      return isShortSetup(a.setup) ? "Short" : "Long";
+    case "daily_setup":
+      return dailySetupText(a.details?.daily_setups) || null;
+    case "industry":
+      return a.industry || null;
+    case "entry":
+      return SETUP_NAMES[a.setup] ?? a.setup ?? null;
+    case "ema":
+      return a.details?.ma ?? null;
+    case "trigger":
+      return a.trigger_price ?? null;
+    case "stop":
+      return a.stop_price ?? null;
+    case "stop_pct":
+      return a.trigger_price > 0 ? stopPct(a) : null;
+    case "risk":
+      return Number.isFinite(a.trigger_price) && Number.isFinite(a.stop_price) ? riskPerShare(a) : null;
+    case "status":
+      return STATUS_LABEL[a.status] ?? a.status ?? null;
+    case "best":
+      return a.high_reached ?? null;
+    case "open_r":
+      return a.open_r ?? null;
+    case "r":
+      return a.r_multiple ?? null;
+    case "outcome":
+      return happenedText(a) || null;
+    default:
+      return null;
+  }
+}
+
 /**
  * Alerts that should chime: not seen in an earlier fetch of this page load, not found late, not yet acknowledged.
  * `seen` null means this is the first fetch, which never chimes (the alerts were already there).

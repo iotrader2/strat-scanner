@@ -29,6 +29,9 @@ describe("AlertsTable", () => {
 
   it("has the spec columns, with Score after Ticker and Bought before Acknowledge", () => {
     for (const h of ["Watch", "Ticker", "Score", "RS", "Side", "Daily setup", "Industry", "Entry", "EMA", "Trigger", "Stop", "Stop %", "Risk / sh", "Status"]) expect(html).toContain(`>${h}</th>`);
+    expect(html).toContain('class="sortable');
+    expect(html).not.toContain("▼");
+    expect(html).not.toContain("▲");
     const head = html.slice(html.indexOf("<thead>"), html.indexOf("</thead>"));
     const labels = [...head.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
     expect(labels.slice(labels.indexOf("Ticker"), labels.indexOf("Trigger") + 1)).toEqual([
