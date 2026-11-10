@@ -41,7 +41,7 @@ After the fill the trade is managed on completed bars: the stop, break-even afte
 ``breakeven_after_new_highs`` new-high bars, an exit on a close more than ``hold_pct`` under the EMA
 (``exit_close_under_ma``), and the session end.
 
-Trade window: no new alert from a bar that closes after 10:00 Arizona time, and a waiting alert expires
+Trade window: no new alert from a bar that closes after 12:00 ET, and a waiting alert expires
 (``trade_window``) at that cutoff instead of filling later. A trade already filled is still managed.
 
 One live alert per name at a time, and no new alert once ``max_attempts`` of the name's alerts have
@@ -70,10 +70,10 @@ TICK = 0.01
 BAR_MINUTES = 15
 BAR = timedelta(minutes=BAR_MINUTES)
 SESSION_BARS = 390 // BAR_MINUTES  # bars in a full regular session
-# Trade window: no new alert and no new entry after 10:00 Arizona time (noon ET in winter, 1 PM ET in summer;
-# Arizona does not observe daylight saving). Open trades are still managed to their exit.
-TRADE_CUTOFF_TZ = ZoneInfo("America/Phoenix")
-TRADE_CUTOFF = time(10, 0)
+# Trade window: 09:30-12:00 ET (2.5 hours), year-round. No new alert and no new entry at or after noon ET
+# (10:00 Arizona in winter, 09:00 Arizona in summer). Open trades are still managed to their exit.
+TRADE_CUTOFF_TZ = ZoneInfo("America/New_York")
+TRADE_CUTOFF = time(12, 0)
 MA_PERIODS = (120, 240, 480)
 EMA_LONG = MA_PERIODS[-1]
 LONG_SETUPS = tuple(str(p) for p in MA_PERIODS)
@@ -346,7 +346,7 @@ def _r(v: Optional[float]) -> Optional[float]:
 
 
 def trade_cutoff(ts: datetime) -> datetime:
-    """The 10:00 Arizona cutoff on the trading day of ``ts`` (a naive ``ts`` is read as UTC)."""
+    """The 12:00 ET cutoff on the trading day of ``ts`` (a naive ``ts`` is read as UTC)."""
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
     day = ts.astimezone(TRADE_CUTOFF_TZ).date()
@@ -789,7 +789,7 @@ def simulate(
         if i + 1 >= ctx.session_bars:
             reason = "last bar of the session"
         elif bar["t"] + BAR > trade_cutoff(bar["t"]):
-            reason = "after the 10:00 AZ trade cutoff"
+            reason = "after the 12:00 ET trade cutoff"
         elif any(a.status in ACTIVE for a in alerts):
             reason = "an alert on this name is still live"
         elif sum(1 for a in alerts if a.filled) >= s.max_attempts:

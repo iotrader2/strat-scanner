@@ -110,6 +110,9 @@ function shiftDate(year: number, month: number, day: number, days: number): { ye
   return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
 }
 
+/** Minutes from the 9:30 ET open to the noon ET trade cutoff. */
+export const TRADE_WINDOW_MINUTES = 150;
+
 function phoenixClock(date: Date): Clock {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: ALERT_TZ, hour: "numeric", minute: "2-digit" }).formatToParts(date);
   const hour = parts.find((p) => p.type === "hour")?.value ?? "";
@@ -128,7 +131,8 @@ function rangeLabel(start: Date, end: Date): string {
 
 /**
  * Whether alerts are running, and which EMAs are watched, in Phoenix time.
- * Alerts run from the close of the opening 15-minute candle (9:45 New York) to the 4:00 close.
+ * Alerts run from the close of the opening 15-minute candle (9:45 New York) to the 12:00 noon New York cutoff
+ * (the backend trade window: no new alert or entry after it).
  * `now` defaults to the current instant. Weekends use the next session's clock times.
  */
 export function alertDayStatus(now: Date = new Date(), settings?: Record<string, number>): AlertDayStatus {
@@ -137,7 +141,7 @@ export function alertDayStatus(now: Date = new Date(), settings?: Record<string,
   const session = weekend ? shiftDate(here.year, here.month, here.day, here.weekday === "Sat" ? 2 : 1) : { year: here.year, month: here.month, day: here.day };
   const open = zonedDateTime(ET, session.year, session.month, session.day, 9, 30);
   const first = new Date(open.getTime() + BAR_MINUTES * 60_000);
-  const last = new Date(open.getTime() + 390 * 60_000);
+  const last = new Date(open.getTime() + TRADE_WINDOW_MINUTES * 60_000);
   const span = rangeLabel(first, last);
   const state: SetupWindowState = weekend || now < first ? "later" : now <= last ? "open" : "done";
   const on = (p: string) => (settings?.[`ma_${p}`] ?? 1) !== 0;
@@ -215,7 +219,7 @@ export function happenedText(a: TradeAlert): string {
   if (a.status === "expired") {
     if (a.exit_reason === "max_attempts") return "Expired: 2 attempts already";
     if (a.exit_reason === "session_end") return "Not triggered by the close";
-    if (a.exit_reason === "trade_window") return "Not triggered by the 10:00 AZ cutoff";
+    if (a.exit_reason === "trade_window") return "Not triggered by the 12:00 ET cutoff";
     return "Not triggered in time";
   }
   if (a.status === "cancelled") return `Closed ${short ? "over" : "under"} the ${ema} before triggering`;

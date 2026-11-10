@@ -64,33 +64,34 @@ export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
 describe("alert day", () => {
   const at = (iso: string, settings?: Record<string, number>) => alertDayStatus(new Date(iso), settings);
 
-  it("runs from the first 15-minute close to the bell, in Phoenix time all year", () => {
+  it("runs from the first 15-minute close to the noon ET cutoff, in Phoenix time all year", () => {
     const summer = at("2026-10-23T13:00:00Z");
     expect(summer.phase).toBe("before");
     expect(summer.headline).toBe("Alerts start at 6:45 AM Phoenix.");
-    expect(summer.detail).toBe("Session 6:45 AM – 1:00 PM Phoenix.");
+    expect(summer.detail).toBe("Session 6:45–9:00 AM Phoenix.");
     expect(summer.windows.map((w) => w.setup)).toEqual(["120", "240", "480"]);
     expect(summer.windows.every((w) => w.state === "later")).toBe(true);
 
     const winter = at("2026-11-02T14:00:00Z");
     expect(winter.headline).toBe("Alerts start at 7:45 AM Phoenix.");
+    expect(winter.detail).toBe("Session 7:45–10:00 AM Phoenix.");
   });
 
   it("is open during the session and done after it", () => {
-    const mid = at("2026-10-23T16:00:00Z");
+    const mid = at("2026-10-23T15:00:00Z");
     expect(mid.phase).toBe("open");
-    expect(mid.headline).toBe("Watching for pullbacks until 1:00 PM Phoenix.");
+    expect(mid.headline).toBe("Watching for pullbacks until 9:00 AM Phoenix.");
     expect(mid.windows.every((w) => w.state === "open")).toBe(true);
-    const done = at("2026-10-23T20:01:00Z");
+    const done = at("2026-10-23T16:01:00Z"); // just past noon EDT
     expect(done.phase).toBe("done");
-    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The session was 6:45 AM – 1:00 PM Phoenix.");
+    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The session was 6:45–9:00 AM Phoenix.");
     expect(todayEmptyLead(mid)).toBeNull();
   });
 
   it("names the next session on a weekend", () => {
     const sat = at("2026-10-24T15:00:00Z");
     expect(sat.phase).toBe("closed");
-    expect(sat.detail).toBe("Next session is Monday, 6:45 AM – 1:00 PM Phoenix.");
+    expect(sat.detail).toBe("Next session is Monday, 6:45–9:00 AM Phoenix.");
   });
 
   it("shows a turned-off EMA as off, and all off as alerts off", () => {
