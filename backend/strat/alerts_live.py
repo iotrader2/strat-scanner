@@ -1,9 +1,8 @@
 """15-minute EMA entries for names with a daily setup, run from the 5-minute lists poll (inside the job slot).
 
-Which names: the caller passes every stock / ETF with a long daily setup (checked for a pullback to a rising
-120 / 240 / 480 EMA, highest score first, at most ``max_symbols``) and every one with a short daily setup
-(checked for a rally into a falling EMA, at most ``max_short_symbols``); names with an alert still live today are
-always kept.
+Which names: the caller passes the names ``alert_symbols`` / ``alert_short_symbols`` chose (theme band,
+allowed short setups, pending gate, then the score / RS caps). Each turned-on EMA is checked. Names with an
+alert still live today are always kept.
 
 Per poll, two Alpaca requests for those names: today's SIP bars (from the open up to the 15-minute SIP
 cutoff) and today's IEX bars from the open. Each completed regular-session bar takes its prices from SIP

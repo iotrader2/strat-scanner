@@ -503,8 +503,8 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
               No alerts {session === "today" ? "yet today" : `on ${view.session}`}. Alerts cover every name with a{" "}
               <Link className="sector-link" to="/">daily setup</Link>
               {view.universe != null ? ` (${view.universe} names right now)` : ""} during the regular session. A watch shows up a
-              few minutes after a 15-minute candle pulls back to a rising 120, 240 or 480 EMA (long setups) or rallies into a
-              falling one (short setups).
+              few minutes after a 15-minute candle pulls back to a rising EMA that is turned on (long setups) or rallies into a
+              falling one (short setups that are switched on).
               {today?.last_run?.at && <> Last check {phoenixTime(today.last_run.at)} Phoenix.</>}
             </>
           )}
@@ -757,7 +757,7 @@ function SettingsPanel({ onSettings }: { onSettings: (settings: AlertSettings) =
     <section className="card settings-card">
       <button type="button" className="settings-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span>Rule settings</span>
-        <span className="muted small">{open ? "Hide" : "Adjust the score cut, the EMAs and the earnings warning"}</span>
+        <span className="muted small">{open ? "Hide" : "Theme gate, EMAs, stop and which short setups"}</span>
       </button>
       {open && payload && (
         <div className="settings-body">
@@ -827,11 +827,10 @@ export default function Alerts() {
         <div>
           <h1>Alerts</h1>
           <p className="muted">
-            Entries for any daily setup, timed on the 15-minute chart: a long daily setup pulling back to a rising 120 (red),
-            240 (yellow) or 480 (blue) EMA, or a short daily setup rallying up into a falling one (resistance). Regular session
-            only. When a candle touches one of them and holds, you get a watch alert. A long triggers when price trades 1c over
-            the previous 15-minute candle's high, with a stop 1c under the pullback low (a short: 1c under the low, stop 1c
-            over the rally high), and is tracked until it fills, stops, exits or expires. Times are Phoenix.
+            Longs in a top-quartile theme, and the short setups that are switched on in a bottom-quartile theme.
+            The entry is a 15-minute pullback to the rising 120 EMA (240 and 480 are off until you turn them on), or a rally
+            into a falling one. Regular session only. The buy walks to each new 15-minute high + 1c. The default stop is 1%
+            from that buy, and an order wider than 2% is skipped. Times are Phoenix.
           </p>
           <AlertDayBanner status={day} />
         </div>
