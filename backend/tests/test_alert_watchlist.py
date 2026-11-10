@@ -96,7 +96,7 @@ def test_rows_saved_before_source_existed_count_as_manual(db, tmp_path):
 def test_the_alert_refresh_adds_qualifying_names(db, monkeypatch):
     api.State.scan_key = "2026-11-09"
     api.State.scan = [{
-        "symbol": "AAA", "kind": "stock", "score": 90, "rs": 0.2,
+        "symbol": "AAA", "kind": "stock", "score": 90, "rs": 0.2, "avg_dollar_volume": 50_000_000,
         "theme_strength": {"rank": 1, "total": 4},
         "setups": [{"tf": "D", "kind": "ema-crossback", "label": "EMA Crossback", "side": "long", "triggered": False}],
     }]
@@ -141,7 +141,7 @@ def test_sync_stores_setups_and_refreshes_them(db):
 
 
 def _stock(symbol, score=50, rs=0.5, setups=(), rank=None, total=4, kind="stock"):
-    row = {"symbol": symbol, "kind": kind, "score": score, "rs": rs, "setups": list(setups)}
+    row = {"symbol": symbol, "kind": kind, "score": score, "rs": rs, "setups": list(setups), "avg_dollar_volume": 50_000_000}
     if rank is not None:
         row["theme_strength"] = {"rank": rank, "total": total}
     return row
@@ -206,6 +206,18 @@ def test_auto_added_names_are_not_checked_unless_they_qualify(db):
     assert longs == ["QUAL"]
     assert [ref["kind"] for ref in labels["QUAL"]["long"]] == ["ema-crossback"]
     assert "AUTO" not in labels
+
+
+def test_a_thin_manual_name_still_alerts(db):
+    data.add_to_watchlist("MINE")
+    scan = [_stock("MINE", setups=[_LONG], rank=1)]
+    scan[0]["avg_dollar_volume"] = 1_000_000
+    scan[0]["atr_pct"] = 0.2
+    auto = _stock("AUTO", score=90, setups=[_LONG], rank=1)
+    auto["avg_dollar_volume"] = 1_000_000
+    longs, _, labels = api.alert_refresh_inputs([scan[0], auto], Settings(min_avg_dollar_volume=10_000_000))
+    assert longs == ["MINE"]
+    assert "AUTO" not in longs
 
 
 def test_an_off_universe_manual_name_is_included_when_it_is_not_in_the_scan(db):

@@ -17,6 +17,11 @@ under 1 KB a symbol.
 Only 09:30-16:00 ET is used, and nothing runs until the opening 15-minute candle has formed (09:45 ET);
 outside it the poll does nothing, apart from one run just after the close so the last bar is scored and
 open trades are closed.
+
+Completed bars SIP has already published keep SIP prices. Bars newer than the SIP delay are priced from
+Yahoo's consolidated 15-minute chart, and from IEX only when that symbol's Yahoo request fails. The bar
+still forming is judged the same way, so a trigger is not set off an IEX-only high.
+
 """
 
 from __future__ import annotations
@@ -27,7 +32,11 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Iterable, Mapping, Optional
 
 from . import alerts_store
-from .alerts import ACTIVE, BAR, SETUPS, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings, advance_stored, context_from_closes, simulate
+from .alerts import (
+    ACTIVE, BAR, SETUPS, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings,
+    advance_stored, apply_order, context_from_closes, simulate,
+)
+from .yahoo_15m import fetch_yahoo_15m
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff as _sip_cutoff
 from .scheduler import CLOSE, ET, OPEN, PREMARKET_AT, now_et
@@ -98,17 +107,36 @@ def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
     return len(stale)
 
 
-def merge_day(sip: list[Mapping], iex: list[Mapping], day: date, cutoff: datetime, now: datetime) -> tuple[list[dict], Optional[float]]:
-    """(completed regular-session bars for ``day`` oldest first, premarket low).
+def _minute(ts: datetime) -> datetime:
+    return ts.astimezone(timezone.utc).replace(second=0, microsecond=0)
 
-    Prices: SIP for bars that started before ``cutoff``, IEX after. Volume: IEX (0 when IEX had no trade).
-    """
-    iex_by = {}
-    for b in iex:
+
+def _indexed(rows: list[Mapping] | None, day: date) -> dict[datetime, dict]:
+    out = {}
+    for b in rows or []:
         t = _ts(b["t"])
         if t.astimezone(ET).date() == day and slot(t) is not None:
-            iex_by[t] = _bar(b)
-    merged: dict[datetime, dict] = {t: dict(b) for t, b in iex_by.items() if t >= cutoff}
+            out[_minute(t)] = _bar(b)
+    return out
+
+
+def merge_day(
+    sip: list[Mapping],
+    iex: list[Mapping],
+    day: date,
+    cutoff: datetime,
+    now: datetime,
+    yahoo: list[Mapping] | None = None,
+) -> tuple[list[dict], Optional[float]]:
+    """(completed regular-session bars for ``day`` oldest first, premarket low).
+
+    Prices: SIP once the candle started before ``cutoff`` and SIP has it. Otherwise Yahoo's consolidated
+    OHLC, and IEX only when Yahoo has no bar. Volume stays IEX when IEX traded (else the consolidated
+    volume, else 0). Each bar's ``src`` is ``sip``, ``yahoo``, or ``iex``.
+    """
+    iex_by = _indexed(iex, day)
+    yahoo_by = _indexed(yahoo, day)
+    sip_by: dict[datetime, dict] = {}
     pm_low = None
     for b in sip:
         t = _ts(b["t"])
@@ -117,10 +145,28 @@ def merge_day(sip: list[Mapping], iex: list[Mapping], day: date, cutoff: datetim
             continue
         if PREMARKET_AT <= local.time() < OPEN:
             pm_low = float(b["l"]) if pm_low is None else min(pm_low, float(b["l"]))
-        elif slot(t) is not None and t < cutoff:
-            row = _bar(b)
-            row["v"] = iex_by[t]["v"] if t in iex_by else 0.0
-            merged[t] = row
+        elif slot(t) is not None:
+            sip_by[_minute(t)] = _bar(b)
+    # IEX fills any hole. Yahoo replaces it. SIP replaces both once that candle is old enough to be published.
+    merged: dict[datetime, dict] = {}
+    for t, row in iex_by.items():
+        priced = dict(row)
+        priced["src"] = "iex"
+        merged[t] = priced
+    for t, row in yahoo_by.items():
+        if t < cutoff and t in sip_by:
+            continue
+        priced = dict(row)
+        priced["v"] = iex_by[t]["v"] if t in iex_by else float(row.get("v") or 0)
+        priced["src"] = "yahoo"
+        merged[t] = priced
+    for t, row in sip_by.items():
+        if t >= cutoff:
+            continue
+        priced = dict(row)
+        priced["v"] = iex_by[t]["v"] if t in iex_by else 0.0
+        priced["src"] = "sip"
+        merged[t] = priced
     done = [merged[t] for t in sorted(merged) if t + BAR <= now]
     # Bars must run from the open with no hole; stop at the first missing slot.
     out = []
@@ -131,12 +177,20 @@ def merge_day(sip: list[Mapping], iex: list[Mapping], day: date, cutoff: datetim
     return out, pm_low
 
 
-def forming_bar(iex: list[Mapping], day: date, done: int, now: datetime) -> Optional[dict]:
-    """Today's IEX bar still forming at ``now``, when it is the next bar after the ``done`` completed ones."""
-    for b in iex:
-        t = _ts(b["t"])
-        if t.astimezone(ET).date() == day and slot(t) == done and t <= now < t + BAR:
-            return _bar(b)
+def forming_bar(
+    iex: list[Mapping], day: date, done: int, now: datetime, yahoo: list[Mapping] | None = None
+) -> Optional[dict]:
+    """The bar still forming at ``now``, when it is the next bar after the ``done`` completed ones.
+
+    Yahoo's forming bar is the consolidated high/low. IEX is used only when Yahoo does not have it.
+    """
+    for rows, src in ((yahoo, "yahoo"), (iex, "iex")):
+        for b in rows or []:
+            t = _ts(b["t"])
+            if t.astimezone(ET).date() == day and slot(t) == done and t <= now < t + BAR:
+                row = _bar(b)
+                row["src"] = src
+                return row
     return None
 
 
@@ -211,6 +265,83 @@ def _advance_orphans(
     return out
 
 
+def _near(a: float, b: float) -> bool:
+    return round(float(a), 4) == round(float(b), 4)
+
+
+def correct_pending(
+    session: str,
+    bars_by: Mapping[str, list],
+    ctx_by: Mapping[str, Context],
+    settings: Settings,
+    skip_keys: set[str],
+    forming_by: Optional[Mapping[str, Optional[dict]]] = None,
+) -> list:
+    """Re-price pending alerts whose working candle was IEX once a consolidated bar exists.
+
+    Trigger becomes that candle's high + $0.01 (short: low − $0.01) and the stop follows ``stop_mode``.
+    Filled trades are left alone. Alerts this poll already rebuilt (``skip_keys``) are left to that rebuild.
+    Rows saved before ``bar_feed`` existed are treated as IEX.
+    """
+    out = []
+    for row in alerts_store.list_alerts(session=session):
+        if row["status"] != "pending" or row["key"] in skip_keys:
+            continue
+        feed = (row.get("details") or {}).get("bar_feed")
+        bars = bars_by.get(row["symbol"]) or []
+        setup_ts = _parse_ts(row["setup_bar"])
+        bar = next((b for b in bars if _minute(_parse_ts(b["t"])) == _minute(setup_ts)), None)
+        # Nothing better than IEX yet, or this watch was already priced from SIP.
+        if bar is None or bar.get("src") not in ("yahoo", "sip") or feed == "sip":
+            continue
+        # A Yahoo price is replaced only when SIP has the candle.
+        if feed == "yahoo" and bar.get("src") != "sip":
+            continue
+        short = str(row["setup"]).startswith("s")
+        stored = float(row["setup_low"] if short else row["setup_high"])
+        live = float(bar["l"] if short else bar["h"])
+        if feed == bar.get("src") and _near(stored, live):
+            continue
+        origin = _parse_ts(str(row["key"]).split("|")[3]) if str(row.get("key", "")).count("|") >= 3 else setup_ts
+        details = dict(row.get("details") or {})
+        scratch = Alert(
+            symbol=row["symbol"], session=row["session"], setup=row["setup"],
+            origin_bar=origin, setup_bar=setup_ts, setup_index=0,
+            trigger=float(row["trigger_price"]), stop=float(row["stop_price"]),
+            setup_low=float(row["setup_low"]), setup_high=float(row["setup_high"]),
+            ref_price=float(row["ref_price"]), details=details, current_stop=float(row["stop_price"]),
+        )
+        old = scratch.trigger
+        if not apply_order(scratch, float(bar["h"]), float(bar["l"]), settings):
+            scratch.status = "cancelled"
+            scratch.exit_reason = "stop_too_wide"
+            scratch.exit_at = bar["t"] + BAR
+            scratch.details["bar_feed"] = bar["src"]
+            out.append(scratch)
+            log.info("pending %s cancelled after reprice; stop wider than the max", row["symbol"])
+            continue
+        scratch.details["bar_feed"] = bar["src"]
+        ctx = ctx_by.get(row["symbol"])
+        walked = None
+        if ctx is not None:
+            walked = advance_stored(
+                symbol=scratch.symbol, session=scratch.session, setup=scratch.setup,
+                origin_bar=origin, setup_bar=setup_ts,
+                trigger=scratch.trigger, stop=scratch.stop,
+                setup_low=scratch.setup_low, setup_high=scratch.setup_high,
+                ref_price=scratch.ref_price, details=scratch.details,
+                bars=bars, ctx=ctx, settings=settings,
+                forming=(forming_by or {}).get(row["symbol"]),
+            )
+        final = walked or scratch
+        out.append(final)
+        log.info(
+            "repriced pending %s trigger %.4f -> %.4f stop %.4f (%s)",
+            row["symbol"], old, final.trigger, final.stop, bar["src"],
+        )
+    return out
+
+
 def refresh(
     symbols: Iterable[str],
     now: Optional[datetime] = None,
@@ -218,6 +349,7 @@ def refresh(
     settings: Optional[Settings] = None,
     short_symbols: Iterable[str] = (),
     daily_setups: Optional[Mapping[str, Mapping[str, list]]] = None,
+    yahoo_bars: Optional[Mapping[str, list]] = None,
 ) -> dict:
     """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line.
 
@@ -259,17 +391,23 @@ def refresh(
     else:
         sip = {}
     iex, _ = client.bars(syms, BARS, open_, end=min(clock, close_), feed="iex", adjustment="raw")
+    if yahoo_bars is None:
+        yahoo_bars, yahoo_failed = fetch_yahoo_15m(syms, day, clock)
+    else:
+        yahoo_failed = set()
     session_over = clock >= close_ + BAR
     found: list[Alert] = []
     bars_by: dict[str, list] = {}
     ctx_by: dict[str, Context] = {}
     forming_by: dict[str, Optional[dict]] = {}
     for sym in syms:
-        bars, _ = merge_day(sip.get(sym, []), iex.get(sym, []), day, cutoff, clock)
+        bars, _ = merge_day(sip.get(sym, []), iex.get(sym, []), day, cutoff, clock, yahoo_bars.get(sym))
         if not bars:
             continue
+        if sym in yahoo_failed and any(b.get("src") == "iex" for b in bars):
+            log.warning("alerts %s: recent 15m bars priced from IEX after Yahoo failed", sym)
         ctx = context_for(sym, len(bars) if session_over else SESSION_BARS)
-        forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock)
+        forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock, yahoo_bars.get(sym))
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
         labels = (daily_setups or {}).get(sym) or {}
         for side, wanted in (("long", sym in picked), ("short", sym in short_picked)):
@@ -281,8 +419,18 @@ def refresh(
                     a.details["daily_setups"] = list(labels[side])
                 found.append(a)
     del sip, iex
+    # A pending watch priced from IEX (including rows saved before bar_feed existed) takes the
+    # consolidated candle on this poll: trigger = high + 1c, stop from the current stop rule.
+    corrected = correct_pending(
+        day.isoformat(), bars_by, ctx_by, settings, {a.key for a in found}, forming_by,
+    )
+    found.extend(corrected)
+    corrected_keys = {a.key for a in corrected}
     # SIP backfill can make a touch stop reproducing an alert that already fired; still advance outcomes.
-    found.extend(_advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, forming_by))
+    found.extend(
+        a for a in _advance_orphans(day.isoformat(), found, bars_by, ctx_by, settings, forming_by)
+        if a.key not in corrected_keys
+    )
     # save_session treats a key already in alerts_history as fired. This pass stays inside
     # RUN_UNTIL (16:15), which is after the 16:05 archive, including on a restart warm-up.
     saved = alerts_store.save_session(day.isoformat(), found, now=clock, top_names=settings.top_names)

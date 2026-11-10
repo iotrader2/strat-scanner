@@ -359,7 +359,7 @@ def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     open_gate = Settings(theme_gate=0)
 
     def r(sym, rs, setups, kind="stock"):
-        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups}
+        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups, "avg_dollar_volume": 50_000_000}
 
     rows = [
         r("AAA", 0.08, [short_d]), r("BBB", 0.02, [short_d]), r("CCC", 0.90, [short_d]),  # any RS
@@ -381,6 +381,7 @@ def test_the_theme_gate_keeps_the_outer_band_and_pending_is_optional():
     def r(sym, rank, setups, score=80, rs=0.5):
         return {
             "symbol": sym, "kind": "stock", "score": score, "rs": rs, "setups": setups,
+            "avg_dollar_volume": 50_000_000,
             "theme_strength": {"rank": rank, "total": 4},
         }
 
@@ -395,6 +396,41 @@ def test_the_theme_gate_keeps_the_outer_band_and_pending_is_optional():
     triggered = {**long_d, "triggered": True}
     assert alert_symbols([r("TOP", 1, [triggered])], Settings(long_pending_only=1)) == []
     assert alert_symbols([r("TOP", 1, [triggered])], Settings()) == ["TOP"]
+
+
+def test_dollar_volume_and_atr_screen_names_before_the_cap():
+    from strat.alerts import passes_name_screen
+    from strat.api import alert_short_symbols, alert_symbols
+
+    setup = {"tf": "D", "kind": "ema-crossback", "label": "EMA Crossback", "side": "long", "triggered": False}
+    short = {"tf": "D", "kind": "flat-base-breakdown", "label": "Flat Base Breakdown", "side": "short"}
+
+    def row(sym, score, volume, atr=None, setups=None, rs=0.2):
+        return {
+            "symbol": sym, "kind": "stock", "score": score, "rs": rs, "setups": setups if setups is not None else [setup],
+            "avg_dollar_volume": volume, "atr_pct": atr,
+            "theme_strength": {"rank": 1, "total": 4},
+        }
+
+    thin = row("THIN", 99, 5_000_000, 4)
+    liquid = row("LIQ", 40, 20_000_000, 4)
+    quiet = row("QUIET", 80, 20_000_000, 0.5)
+    wild = row("WILD", 70, 20_000_000, 15)
+    missing = row("MISS", 60, 20_000_000, None)
+    # Default: $10M minimum, ATR Any. The thin name is dropped before the cap of 1.
+    assert alert_symbols([thin, liquid], Settings(max_symbols=1)) == ["LIQ"]
+    assert passes_name_screen(liquid, Settings())
+    assert not passes_name_screen(thin, Settings())
+    assert passes_name_screen(wild, Settings())  # 12%+ is no upper limit
+    assert passes_name_screen(missing, Settings())
+    tight = Settings(atr_pct_min=2, atr_pct_max=6)
+    assert alert_symbols([liquid, quiet, wild, missing], tight) == ["LIQ"]
+    assert passes_name_screen(wild, Settings(atr_pct_min=0, atr_pct_max=12))
+    short_row = row("SH", 10, 5_000_000, 4, setups=[short], rs=0.05)
+    short_ok = row("OK", 10, 30_000_000, 4, setups=[short], rs=0.1)
+    for r in (short_row, short_ok):
+        r["theme_strength"] = {"rank": 4, "total": 4}
+    assert alert_short_symbols([short_row, short_ok], Settings(short_flat=1)) == ["OK"]
 
 
 def test_open_r_is_for_triggered_trades_still_open():

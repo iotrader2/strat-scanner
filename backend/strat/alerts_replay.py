@@ -2,8 +2,9 @@
 
     cd backend && .venv/bin/python -m strat.alerts_replay --symbols AAPL,MU,SNDK,CRWD --days 5
 
-Same inputs as the live tab: SIP prices (the session is over, so SIP covers every bar) and the 120 / 240 /
-480 EMAs carried over from the weeks before each day. Nothing is written to the database. Times are printed
+Same inputs as the live tab: SIP where it has the bar, Yahoo's consolidated 15-minute chart for any
+bar SIP does not have yet, IEX only if that symbol's Yahoo request fails. The 120 / 240 / 480 EMAs are
+carried over from the weeks before each day. Nothing is written to the database. Times are printed
 in Phoenix time. The score filter is not applied: pass the names to check.
 """
 
@@ -15,8 +16,13 @@ import sys
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import logging
+
 from . import alerts_live
 from .alerts import Settings, mark_top, metrics, simulate
+from .yahoo_15m import fetch_yahoo_15m
+
+log = logging.getLogger(__name__)
 from .alpaca import AlpacaClient
 from .scheduler import CLOSE, ET, OPEN
 
@@ -41,10 +47,15 @@ def replay_day(client: AlpacaClient, symbols: list[str], day: date, settings: Se
     close = datetime.combine(day, CLOSE, tzinfo=ET)
     sip, _ = client.bars(symbols, alerts_live.BARS, start, end=close - timedelta(seconds=1), feed="sip", adjustment="raw")
     iex, _ = client.bars(symbols, alerts_live.BARS, datetime.combine(day, OPEN, tzinfo=ET), end=close - timedelta(seconds=1), feed="iex", adjustment="raw")
+    try:
+        yahoo, _failed = fetch_yahoo_15m(symbols, day, close.astimezone(timezone.utc))
+    except Exception:
+        log.exception("replay Yahoo 15m failed; bars SIP does not have stay on IEX")
+        yahoo = {}
     found, skipped, bars_seen = [], [], {}
     after = close.astimezone(timezone.utc) + timedelta(hours=1)
     for sym in symbols:
-        bars, _ = alerts_live.merge_day(sip.get(sym, []), iex.get(sym, []), day, after, after)
+        bars, _ = alerts_live.merge_day(sip.get(sym, []), iex.get(sym, []), day, after, after, yahoo.get(sym))
         bars_seen[sym] = len(bars)
         if not bars:
             continue
@@ -99,6 +110,11 @@ def main(argv=None) -> int:
     end = date.fromisoformat(args.end) if args.end else datetime.now(ET).date()
     days = sessions(client, end, args.days)
     settings = Settings()
+    atr = "Any" if settings.atr_filter_off() else f"{settings.atr_pct_min:g}–{settings.atr_pct_max:g}%"
+    print(
+        f"name screen: avg $ volume >= {settings.min_avg_dollar_volume:,.0f}, ATR % {atr}. "
+        "Names you added to the watchlist are not screened. This replay checks the symbols you passed."
+    )
     results = []
     for d in days:
         res = replay_day(client, symbols, d, settings)
@@ -112,7 +128,17 @@ def main(argv=None) -> int:
     print(f"\n   Alpaca requests: {client.requests}")
     if args.json:
         with open(args.json, "w") as fh:
-            json.dump({"symbols": symbols, "days": [d.isoformat() for d in days], "results": results, "metrics": metrics(allrows)}, fh, indent=1)
+            json.dump({
+                "symbols": symbols,
+                "days": [d.isoformat() for d in days],
+                "screen": {
+                    "min_avg_dollar_volume": settings.min_avg_dollar_volume,
+                    "atr_pct_min": settings.atr_pct_min,
+                    "atr_pct_max": settings.atr_pct_max,
+                },
+                "results": results,
+                "metrics": metrics(allrows),
+            }, fh, indent=1)
     return 0
 
 

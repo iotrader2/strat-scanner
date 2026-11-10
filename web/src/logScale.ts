@@ -1,5 +1,8 @@
 export const SLIDER_STEPS = 1000;
 
+/** Same dollar-volume slider the Stock Scanner uses: $10M at the left, $5B at the right, log steps. */
+export const DOLLAR_VOL_RANGE = { min: 10_000_000, max: 5_000_000_000 };
+
 /** Map a slider position (0..SLIDER_STEPS) onto [min, max] on a log scale. */
 export function sliderToValue(pos: number, min: number, max: number): number {
   const t = Math.min(Math.max(pos, 0), SLIDER_STEPS) / SLIDER_STEPS;

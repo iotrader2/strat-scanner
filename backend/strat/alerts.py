@@ -117,8 +117,13 @@ class Settings:
     reset_manual: int = 0
     # 1 = also check names you added to the watchlist, long side, even with no daily setup and
     # outside the theme gate. They do not count toward max_symbols. A name that already qualifies
-    # as a short stays a short.
+    # as a short stays a short. Those names are also exempt from the dollar-volume and ATR filters.
     alert_manual_watchlist: int = 1
+    # Daily-scan gates, applied before the name caps. Same scale as the scanner sliders.
+    # $10M is the left end. ATR 0–12 means the full range ("Any"): no ATR cut, and 12 is "12%+".
+    min_avg_dollar_volume: float = 10_000_000
+    atr_pct_min: float = 0.0
+    atr_pct_max: float = 12.0
     # Short daily setups (1 = on, 0 = off). The two that lost, and the thin ones, start off.
     # MA Overcut and Fail at 10 and 20 days made R and start on.
     short_hvc: int = 0
@@ -159,6 +164,29 @@ class Settings:
     def periods(self) -> list[int]:
         return [p for p in MA_PERIODS if getattr(self, f"ma_{p}", 0)]
 
+    def atr_filter_off(self) -> bool:
+        """True when the ATR slider is the full 0–12%+ range, which filters nothing."""
+        return self.atr_pct_min <= 0 and self.atr_pct_max >= 12
+
+
+def passes_name_screen(row: Mapping, settings: Settings) -> bool:
+    """Daily-scan dollar volume and ATR % gates. Manual watchlist names are not run through this.
+
+    ATR at 0–12 (the slider's "Any") keeps every name, including one with no ATR yet.
+    A tighter range drops a name with no ATR %. 12%+ means no upper limit.
+    """
+    volume = row.get("avg_dollar_volume")
+    if not isinstance(volume, (int, float)) or float(volume) < float(settings.min_avg_dollar_volume):
+        return False
+    if settings.atr_filter_off():
+        return True
+    atr = row.get("atr_pct")
+    if not isinstance(atr, (int, float)):
+        return False
+    if float(atr) < float(settings.atr_pct_min):
+        return False
+    return settings.atr_pct_max >= 12 or float(atr) <= float(settings.atr_pct_max)
+
 
 STOP_WIDEN = 0
 STOP_CANDLE = 1
@@ -171,6 +199,8 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
     "long_pending_only": (0, 1), "reset_manual": (0, 1), "alert_manual_watchlist": (0, 1),
+    "min_avg_dollar_volume": (10_000_000, 5_000_000_000),
+    "atr_pct_min": (0, 12), "atr_pct_max": (0, 12),
     "short_hvc": (0, 1), "short_crossback": (0, 1),
     "short_ma10": (0, 1), "short_ma20": (0, 1), "short_ma50": (0, 1),
     "short_overcut": (0, 1), "short_wedge": (0, 1), "short_flat": (0, 1),
@@ -446,6 +476,13 @@ def apply_order(a: "Alert", high: float, low: float, s: Settings) -> bool:
     return abs(trigger - stop) / trigger * 100 <= s.max_stop_pct + 0.05
 
 
+def _note_feed(a: "Alert", bar: Mapping) -> None:
+    """Remember which feed priced the candle the working order sits on (sip, yahoo, or iex)."""
+    src = bar.get("src")
+    if src in ("sip", "yahoo", "iex"):
+        a.details["bar_feed"] = src
+
+
 def _rearm(a: "Alert", bar: Mapping, index: int, s: Settings, end: datetime) -> bool:
     """Move the working order onto ``bar``. False cancels the watch because the new stop is too wide."""
     a.setup_bar, a.setup_index = bar["t"], index
@@ -455,6 +492,7 @@ def _rearm(a: "Alert", bar: Mapping, index: int, s: Settings, end: datetime) -> 
         a.exit_at = end
         return False
     a.details["rearmed"] = a.details.get("rearmed", 0) + 1
+    _note_feed(a, bar)
     return True
 
 
@@ -724,6 +762,7 @@ def simulate(
             if skipped is not None:
                 skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": "stop wider than the max"})
             continue
+        _note_feed(alert, bar)
         alerts.append(alert)
     if len(f.bars) >= ctx.session_bars:
         for a in alerts:
