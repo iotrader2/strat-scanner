@@ -359,7 +359,7 @@ def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     open_gate = Settings(theme_gate=0)
 
     def r(sym, rs, setups, kind="stock"):
-        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups, "avg_dollar_volume": 50_000_000}
+        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups, "avg_dollar_volume": 50_000_000, "atr_pct": 5.0}
 
     rows = [
         r("AAA", 0.08, [short_d]), r("BBB", 0.02, [short_d]), r("CCC", 0.90, [short_d]),  # any RS
@@ -381,7 +381,7 @@ def test_the_theme_gate_keeps_the_outer_band_and_pending_is_optional():
     def r(sym, rank, setups, score=80, rs=0.5):
         return {
             "symbol": sym, "kind": "stock", "score": score, "rs": rs, "setups": setups,
-            "avg_dollar_volume": 50_000_000,
+            "avg_dollar_volume": 50_000_000, "atr_pct": 5.0, "atr_pct": 5.0,
             "theme_strength": {"rank": rank, "total": 4},
         }
 
@@ -417,12 +417,19 @@ def test_dollar_volume_and_atr_screen_names_before_the_cap():
     quiet = row("QUIET", 80, 20_000_000, 0.5)
     wild = row("WILD", 70, 20_000_000, 15)
     missing = row("MISS", 60, 20_000_000, None)
-    # Default: $10M minimum, ATR Any. The thin name is dropped before the cap of 1.
+    at_floor = row("FLOOR", 95, 20_000_000, 3.0)
+    just_over = row("OVER", 30, 20_000_000, 3.01)
+    # Default: $10M minimum, ATR slider Any, hard ATR floor > 3%. The thin name is dropped before the cap of 1.
     assert alert_symbols([thin, liquid], Settings(max_symbols=1)) == ["LIQ"]
     assert passes_name_screen(liquid, Settings())
     assert not passes_name_screen(thin, Settings())
     assert passes_name_screen(wild, Settings())  # 12%+ is no upper limit
-    assert passes_name_screen(missing, Settings())
+    # The floor is strict and applies even with the slider at Any: 3% or less, or no ATR yet, is out.
+    assert not passes_name_screen(missing, Settings())
+    assert not passes_name_screen(quiet, Settings())
+    assert not passes_name_screen(at_floor, Settings())
+    assert passes_name_screen(just_over, Settings())
+    assert alert_symbols([at_floor, just_over, quiet, liquid], Settings()) == ["LIQ", "OVER"]
     tight = Settings(atr_pct_min=2, atr_pct_max=6)
     assert alert_symbols([liquid, quiet, wild, missing], tight) == ["LIQ"]
     assert passes_name_screen(wild, Settings(atr_pct_min=0, atr_pct_max=12))
@@ -444,3 +451,30 @@ def test_open_r_is_for_triggered_trades_still_open():
     assert open_r({**long_row, "status": "pending", "filled": 0}, 102.5) is None
     short_row = {"setup": "s240", "status": "triggered", "filled": 1, "fill_price": 50.0, "stop_price": 51.0}
     assert open_r(short_row, 48.0) == pytest.approx(2.0)
+
+
+def test_no_alert_or_entry_after_the_10am_arizona_cutoff():
+    from strat.alerts import trade_cutoff
+
+    # Arizona has no daylight saving: 10:00 MST is noon EST in winter and 1 PM EDT in summer.
+    assert trade_cutoff(datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)) == datetime(2026, 11, 10, 17, 0, tzinfo=timezone.utc)
+    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 17, 0, tzinfo=timezone.utc)
+
+    cutoff = datetime(2026, 10, 23, 17, 0, tzinfo=timezone.utc)
+    go = (100.2, 101.0, 100.1, 100.9)
+    # A touch bar that closes exactly at the cutoff still alerts and can fill on the forming bar before it.
+    [a] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, Settings())
+    assert a.status == "pending"
+    # ...but a bar that starts at the cutoff cannot fill it: the watch expires at the cutoff.
+    [b] = simulate("AAA", "2026-10-23", bars([TOUCH, go], start=cutoff - timedelta(minutes=15)), CTX, Settings())
+    assert b.status == "expired" and b.exit_reason == "trade_window" and not b.filled and b.exit_at == cutoff
+    forming = {"t": cutoff, "o": 100.3, "h": 100.9, "l": 100.2, "c": 100.85, "v": 10.0}
+    [c] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, Settings(), forming=forming)
+    assert c.status == "pending" and not c.filled
+    # A touch at or after the cutoff is not alerted.
+    skipped = []
+    assert simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff), CTX, Settings(), skipped=skipped) == []
+    assert skipped[0]["reason"] == "after the 10:00 AZ trade cutoff"
+    # A trade filled before the cutoff is still managed after it.
+    [d] = simulate("AAA", "2026-10-23", bars([TOUCH, go, (100.9, 101.1, 99.5, 99.6)], start=cutoff - timedelta(minutes=30)), CTX, Settings())
+    assert d.filled and d.status == "stopped"

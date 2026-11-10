@@ -41,6 +41,9 @@ After the fill the trade is managed on completed bars: the stop, break-even afte
 ``breakeven_after_new_highs`` new-high bars, an exit on a close more than ``hold_pct`` under the EMA
 (``exit_close_under_ma``), and the session end.
 
+Trade window: no new alert from a bar that closes after 10:00 Arizona time, and a waiting alert expires
+(``trade_window``) at that cutoff instead of filling later. A trade already filled is still managed.
+
 One live alert per name at a time, and no new alert once ``max_attempts`` of the name's alerts have
 triggered that day. Which names are checked (any name with a daily setup on that side) is decided by the caller.
 
@@ -57,8 +60,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, Mapping, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 from .earnings import DEFAULT_WARNING_WINDOW_DAYS
 
@@ -66,6 +70,10 @@ TICK = 0.01
 BAR_MINUTES = 15
 BAR = timedelta(minutes=BAR_MINUTES)
 SESSION_BARS = 390 // BAR_MINUTES  # bars in a full regular session
+# Trade window: no new alert and no new entry after 10:00 Arizona time (noon ET in winter, 1 PM ET in summer;
+# Arizona does not observe daylight saving). Open trades are still managed to their exit.
+TRADE_CUTOFF_TZ = ZoneInfo("America/Phoenix")
+TRADE_CUTOFF = time(10, 0)
 MA_PERIODS = (120, 240, 480)
 EMA_LONG = MA_PERIODS[-1]
 LONG_SETUPS = tuple(str(p) for p in MA_PERIODS)
@@ -117,7 +125,8 @@ class Settings:
     reset_manual: int = 0
     # 1 = also check names you added to the watchlist, long side, even with no daily setup and
     # outside the theme gate. They do not count toward max_symbols. A name that already qualifies
-    # as a short stays a short. Those names are also exempt from the dollar-volume and ATR filters.
+    # as a short stays a short. Those names are exempt from the dollar-volume and ATR slider filters,
+    # but not from the hard ATR floor (MIN_ALERT_ATR_PCT).
     alert_manual_watchlist: int = 1
     # Daily-scan gates, applied before the name caps. Same scale as the scanner sliders.
     # $10M is the left end. ATR 0–12 means the full range ("Any"): no ATR cut, and 12 is "12%+".
@@ -169,12 +178,25 @@ class Settings:
         return self.atr_pct_min <= 0 and self.atr_pct_max >= 12
 
 
+# Hard floor: a name needs a 14-day ATR above this percent of price to go on the auto watchlist or to
+# alert at all, manual watchlist names included. At or below it (or with no ATR yet) there is no alert.
+MIN_ALERT_ATR_PCT = 3.0
+
+
+def above_atr_floor(row: Optional[Mapping]) -> bool:
+    """True when the row's ATR % is strictly above ``MIN_ALERT_ATR_PCT``."""
+    atr = row.get("atr_pct") if row else None
+    return isinstance(atr, (int, float)) and float(atr) > MIN_ALERT_ATR_PCT
+
+
 def passes_name_screen(row: Mapping, settings: Settings) -> bool:
     """Daily-scan dollar volume and ATR % gates. Manual watchlist names are not run through this.
 
-    ATR at 0–12 (the slider's "Any") keeps every name, including one with no ATR yet.
-    A tighter range drops a name with no ATR %. 12%+ means no upper limit.
+    Every name must first be above the hard ATR floor (> ``MIN_ALERT_ATR_PCT``).
+    The slider at 0–12 ("Any") adds no further ATR cut; a tighter range narrows it. 12%+ means no upper limit.
     """
+    if not above_atr_floor(row):
+        return False
     volume = row.get("avg_dollar_volume")
     if not isinstance(volume, (int, float)) or float(volume) < float(settings.min_avg_dollar_volume):
         return False
@@ -321,6 +343,31 @@ class Alert:
 
 def _r(v: Optional[float]) -> Optional[float]:
     return None if v is None else round(v, 4)
+
+
+def trade_cutoff(ts: datetime) -> datetime:
+    """The 10:00 Arizona cutoff on the trading day of ``ts`` (a naive ``ts`` is read as UTC)."""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    day = ts.astimezone(TRADE_CUTOFF_TZ).date()
+    return datetime.combine(day, TRADE_CUTOFF, tzinfo=TRADE_CUTOFF_TZ)
+
+
+def after_cutoff(ts: datetime) -> bool:
+    """True when ``ts`` is at or past the trade-window cutoff."""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts >= trade_cutoff(ts)
+
+
+def _close_window(a: "Alert", bar: Mapping) -> bool:
+    """A waiting alert expires at the cutoff instead of filling on a bar that starts after it."""
+    if a.status != "pending" or not after_cutoff(bar["t"]):
+        return False
+    a.status = "expired"
+    a.exit_at = trade_cutoff(bar["t"]).astimezone(timezone.utc)
+    a.exit_reason = "trade_window"
+    return True
 
 
 def _iso(ts: Optional[datetime]) -> Optional[str]:
@@ -629,7 +676,7 @@ def step(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -
 def check_forming(a: Alert, bar: Mapping) -> None:
     """The bar still forming has traded through the buy (short: sell) stop: mark the fill now (no stop or exit checks)."""
     through = float(bar["l"]) <= a.trigger if a.short else float(bar["h"]) >= a.trigger
-    if a.status == "pending" and through:
+    if a.status == "pending" and through and not after_cutoff(bar["t"]):
         _fill(a, bar)
         a.details["fill_on_forming_bar"] = True
 
@@ -696,6 +743,8 @@ def advance_stored(
     for i in range(setup_i + 1, len(bars)):
         if a.status not in ACTIVE:
             break
+        if _close_window(a, bars[i]):
+            break
         step(a, bars[i], i, f.ma[a.period][i], s)
     if a.status in ACTIVE and ctx.session_bars and len(bars) >= ctx.session_bars:
         finish_session(a, bars[-1])
@@ -729,7 +778,7 @@ def simulate(
     alerts: list[Alert] = []
     for i, bar in enumerate(f.bars):
         for a in alerts:
-            if a.status in ACTIVE and a.setup_index < i:
+            if a.status in ACTIVE and a.setup_index < i and not _close_window(a, bar):
                 step(a, bar, i, f.ma[a.period][i], s)
         hit = touch(f, i, s, side)
         if not hit:
@@ -739,6 +788,8 @@ def simulate(
         reason = None
         if i + 1 >= ctx.session_bars:
             reason = "last bar of the session"
+        elif bar["t"] + BAR > trade_cutoff(bar["t"]):
+            reason = "after the 10:00 AZ trade cutoff"
         elif any(a.status in ACTIVE for a in alerts):
             reason = "an alert on this name is still live"
         elif sum(1 for a in alerts if a.filled) >= s.max_attempts:

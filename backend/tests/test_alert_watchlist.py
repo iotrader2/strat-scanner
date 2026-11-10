@@ -96,7 +96,7 @@ def test_rows_saved_before_source_existed_count_as_manual(db, tmp_path):
 def test_the_alert_refresh_adds_qualifying_names(db, monkeypatch):
     api.State.scan_key = "2026-11-09"
     api.State.scan = [{
-        "symbol": "AAA", "kind": "stock", "score": 90, "rs": 0.2, "avg_dollar_volume": 50_000_000,
+        "symbol": "AAA", "kind": "stock", "score": 90, "rs": 0.2, "avg_dollar_volume": 50_000_000, "atr_pct": 5.0, "atr_pct": 5.0,
         "theme_strength": {"rank": 1, "total": 4},
         "setups": [{"tf": "D", "kind": "ema-crossback", "label": "EMA Crossback", "side": "long", "triggered": False}],
     }]
@@ -141,7 +141,7 @@ def test_sync_stores_setups_and_refreshes_them(db):
 
 
 def _stock(symbol, score=50, rs=0.5, setups=(), rank=None, total=4, kind="stock"):
-    row = {"symbol": symbol, "kind": kind, "score": score, "rs": rs, "setups": list(setups), "avg_dollar_volume": 50_000_000}
+    row = {"symbol": symbol, "kind": kind, "score": score, "rs": rs, "setups": list(setups), "avg_dollar_volume": 50_000_000, "atr_pct": 5.0}
     if rank is not None:
         row["theme_strength"] = {"rank": rank, "total": total}
     return row
@@ -212,19 +212,33 @@ def test_a_thin_manual_name_still_alerts(db):
     data.add_to_watchlist("MINE")
     scan = [_stock("MINE", setups=[_LONG], rank=1)]
     scan[0]["avg_dollar_volume"] = 1_000_000
-    scan[0]["atr_pct"] = 0.2
     auto = _stock("AUTO", score=90, setups=[_LONG], rank=1)
     auto["avg_dollar_volume"] = 1_000_000
-    longs, _, labels = api.alert_refresh_inputs([scan[0], auto], Settings(min_avg_dollar_volume=10_000_000))
+    # The ATR slider does not apply to manual names either.
+    longs, _, labels = api.alert_refresh_inputs([scan[0], auto], Settings(min_avg_dollar_volume=10_000_000, atr_pct_min=8))
     assert longs == ["MINE"]
     assert "AUTO" not in longs
 
 
-def test_an_off_universe_manual_name_is_included_when_it_is_not_in_the_scan(db):
+def test_a_manual_name_at_or_under_3_pct_atr_does_not_alert(db):
+    for sym in ("LOW", "EDGE", "HIGH"):
+        data.add_to_watchlist(sym)
+    rows = [_stock("LOW"), _stock("EDGE"), _stock("HIGH")]
+    rows[0]["atr_pct"], rows[1]["atr_pct"], rows[2]["atr_pct"] = 0.2, 3.0, 3.5
+    longs, shorts, _ = api.alert_refresh_inputs(rows, Settings())
+    assert longs == ["HIGH"] and shorts == []
+
+
+def test_an_off_universe_manual_name_waits_for_its_scan_row(db):
+    # Without a scan row there is no ATR %, so it cannot clear the 3% floor yet.
     data.add_to_watchlist("SOFI")
     data.save_extra_symbol("SOFI", "SoFi", "Financials", "stock", "Banks")
     longs, shorts, labels = api.alert_refresh_inputs([], Settings())
-    assert longs == ["SOFI"] and shorts == []
+    assert longs == [] and shorts == []
+    row = _stock("SOFI")
+    row["atr_pct"] = 4.2
+    longs, _, labels = api.alert_refresh_inputs([row], Settings())
+    assert longs == ["SOFI"]
     assert labels["SOFI"]["long"][0]["kind"] == "watchlist"
 
 

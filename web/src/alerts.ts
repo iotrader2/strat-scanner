@@ -215,6 +215,7 @@ export function happenedText(a: TradeAlert): string {
   if (a.status === "expired") {
     if (a.exit_reason === "max_attempts") return "Expired: 2 attempts already";
     if (a.exit_reason === "session_end") return "Not triggered by the close";
+    if (a.exit_reason === "trade_window") return "Not triggered by the 10:00 AZ cutoff";
     return "Not triggered in time";
   }
   if (a.status === "cancelled") return `Closed ${short ? "over" : "under"} the ${ema} before triggering`;
