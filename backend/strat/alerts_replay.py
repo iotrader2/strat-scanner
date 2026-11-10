@@ -105,10 +105,10 @@ def main(argv=None) -> int:
         print_day(res)
         results.append(res)
     allrows = [dict(r, filled=bool(r["filled"])) for res in results for r in res["alerts"]]
-    print("\n== by setup (closed filled trades for win rate / R)")
+    print("\n== by daily setup (closed filled trades for win rate / R; an alert counts under each setup)")
     for m in metrics(allrows):
         if m["count"]:
-            print(f"   {m['setup']:<3} {m['name']:<28} n={m['count']:<3} fill {m['fill_rate']}%  win {m['win_rate']}%  avgR {m['avg_r']}  totR {m['total_r']}")
+            print(f"   {m['setup']:<24} {m['name']:<36} n={m['count']:<3} fill {m['fill_rate']}%  win {m['win_rate']}%  avgR {m['avg_r']}  totR {m['total_r']}")
     print(f"\n   Alpaca requests: {client.requests}")
     if args.json:
         with open(args.json, "w") as fh:

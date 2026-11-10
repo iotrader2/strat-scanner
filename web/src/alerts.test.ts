@@ -8,6 +8,7 @@ import {
   rsLevel,
   SETTING_GROUPS,
   SETUP_NAMES,
+  dailySetupText,
   isShortSetup,
   setupPeriod,
   STATUS_LABEL,
@@ -183,6 +184,16 @@ describe("alerts helpers", () => {
     expect(hit.body).toContain("Pullback to rising 120 EMA. Filled 101.05");
     expect(hit.body).toContain("6:45 AM Phoenix");
     expect(/\p{Extended_Pictographic}/u.test(watch.title + watch.body + hit.title + hit.body)).toBe(false);
+  });
+});
+
+describe("daily setup labels", () => {
+  it("joins stored labels and falls back to a kind", () => {
+    expect(dailySetupText(["Flat Base Breakout", { kind: "ma-overcut-fail", label: "MA Overcut and Fail (10-day)", side: "short", period: 10 }])).toBe(
+      "Flat Base Breakout, MA Overcut and Fail (10-day)",
+    );
+    expect(dailySetupText([{ kind: "episodic-pivot" }])).toBe("episodic-pivot");
+    expect(dailySetupText(undefined)).toBe("");
   });
 });
 
