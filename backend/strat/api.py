@@ -21,7 +21,16 @@ from . import alerts_live, alerts_store, ariel_setups, chart15m, config, data, e
 from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
-from .scheduler import archive_through, decide, fetch_period, now_et, previous_weekday, scheduler_sleep, session_phase
+from .scheduler import (
+    archive_through,
+    decide,
+    fetch_period,
+    now_et,
+    previous_weekday,
+    scheduler_sleep,
+    session_phase,
+    watchlist_reset_target,
+)
 from . import breadth as breadth_data
 from .breadth import fetch_breadth, universe_breadth
 from .trend import index_trend
@@ -182,12 +191,14 @@ def _run_refresh(full: bool, period: str | None = None, with_earnings: bool = Tr
         State.error = str(exc)
     finally:
         _refresh_nasdaq_issues()
-        _refresh_watch15m()
         State.refreshing = False
         try:
             with _scan_lock:
                 _ensure_scan(force=True)
         finally:
+            # After the scan, so a reset that lands in this job (the poll ran past 16:01) screens
+            # the session bar this poll just wrote, not the scan from the previous poll.
+            _refresh_watch15m()
             memory.release_heap()
             _release_job()
             _log_rss("end", full=full, period=period or "", fetch=fetch)
@@ -425,15 +436,17 @@ def alert_daily_labels(rows: list[dict], settings: Optional[alert_rules.Settings
     return out
 
 
-def _sync_alert_watchlist(settings: alert_rules.Settings) -> None:
-    """Clear the day's auto watchlist, then add the names that qualify for alerts.
+def _sync_alert_watchlist(settings: alert_rules.Settings, now=None) -> Optional[dict]:
+    """Add the names that qualify for alerts, and clear the auto list once after the close.
 
-    Runs on the premarket lists poll and on every later refresh. The clear happens once per
-    Eastern weekday, and it happens before the adds in that same call. Weekends are left alone.
-    A scan that has not finished yet does not clear anything.
+    During the session this only appends. At and after 16:01 America/New_York the first call
+    clears alert names, then adds the names that qualify for the next session, in that same
+    call. The rows come from the current scan, which overlays today's session bar, so the
+    list is built from the day that just ended. Weekends are left alone. A scan that has not
+    finished yet does not clear anything.
     """
     if config.AS_OF or State.scan_key is None:
-        return
+        return None
     longs = alert_symbols(State.scan, settings)
     shorts = alert_short_symbols(State.scan, settings)
     names = list(dict.fromkeys([*longs, *shorts]))
@@ -449,10 +462,12 @@ def _sync_alert_watchlist(settings: alert_rules.Settings) -> None:
             refs.extend(sides.get("short") or [])
         setups[sym] = refs
     try:
-        changed = data.sync_alert_watchlist(names, setups=setups, include_manual=bool(settings.reset_manual))
+        changed = data.sync_alert_watchlist(
+            names, setups=setups, include_manual=bool(settings.reset_manual), now=now,
+        )
     except Exception:
         log.exception("alert watchlist sync failed")
-        return
+        return None
     if changed["reset"] or changed["added"] or changed["setups_changed"]:
         State.lists_dirty = True
         hub.publish({"type": "lists"})
@@ -460,6 +475,29 @@ def _sync_alert_watchlist(settings: alert_rules.Settings) -> None:
             "watchlist session=%s reset=%s added=%s setups=%s",
             changed["session"], changed["reset"], len(changed["added"]), changed["setups_changed"],
         )
+    return changed
+
+
+def _close_watchlist_reset(now) -> bool:
+    """Run today's post-close watchlist reset. True once that next session is stored.
+
+    Called from the scheduler at and after 16:01 ET, which is after the closing poll window,
+    and again on a later start if that close was missed. The scan is rebuilt first so the
+    overlay of today's session bar (the cash session that just ended) is what the next
+    session's names are chosen from. A scan that is not ready yet returns False and the
+    scheduler tries again. A mid-session call is not made: ``watchlist_reset_target`` is None
+    before 16:01, so a restart then never reaches this.
+    """
+    target = watchlist_reset_target(now)
+    if target is None or config.AS_OF:
+        return False
+    if data.watchlist_session() == target.isoformat():
+        return True
+    _ensure_scan(force=True)
+    if State.scan_key is None:
+        return False
+    changed = _sync_alert_watchlist(alerts_store.load_settings(), now=now)
+    return bool(changed) and changed.get("session") == target.isoformat()
 
 
 def _refresh_alerts() -> None:
@@ -797,12 +835,21 @@ def _scheduler_loop() -> None:
     last_extended = None
     last_lists = None
     archived_through: date | None = None
+    # Eastern date whose 16:01 watchlist reset has been stored. In memory only: a restart
+    # after 16:01 checks the stored session and runs the reset if that close was missed.
+    close_reset_on: date | None = None
     while True:
         time.sleep(scheduler_sleep(now_et(), live_bars_enabled()))
         now = now_et()
         archived_through = _catch_up_alert_archive(archived_through, now)
         if config.AS_OF or State.refreshing or State.quoting or State.job is not None:
             continue
+        if watchlist_reset_target(now) is not None and close_reset_on != now.date():
+            try:
+                if _close_watchlist_reset(now):
+                    close_reset_on = now.date()
+            except Exception:
+                log.exception("post-close watchlist reset failed")
         if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():
             _publish_index_quotes()
         live = live_bars_enabled()
@@ -1085,7 +1132,7 @@ def add_watch(req: WatchRequest):
     """Add any ticker. Symbols outside the universe are validated and downloaded via yfinance first."""
     symbol, in_universe = _resolve_symbol(req.symbol)
     if symbol in data.watchlist():
-        # A star on a name the alerts added keeps it when the morning reset clears alert names.
+        # A star on a name the alerts added keeps it when the post-close reset clears alert names.
         data.add_to_watchlist(symbol)
         return _watchlist_payload()
     if not in_universe and symbol not in data.tracked_symbols():

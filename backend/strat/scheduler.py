@@ -21,6 +21,12 @@ CLOSE = time(16, 0)
 AFTER_HOURS_END = time(20, 0)
 EOD_AT = time(16, 20)
 CLOSING_POLL_END = time(16, 1)  # the 16:00:10 poll picks up the 15:55 bar
+# Watchlist reset starts at this same mark: one minute after the 16:00 cash close, so the
+# closing poll has written today's session bar and the scan is the day that just ended.
+# Phoenix is always UTC-7. 16:01 New York is 2:01 PM Phoenix on standard time and 1:01 PM
+# Phoenix on daylight time (the summer close itself is 1:00 PM Phoenix), so this is pinned
+# to America/New_York rather than a fixed Phoenix clock.
+WATCHLIST_RESET_AT = CLOSING_POLL_END
 # A few minutes after the 16:00 bell, once the closing poll (through 16:01) has finished.
 ARCHIVE_AT = time(16, 5)
 
@@ -70,15 +76,35 @@ def archive_through(now: datetime) -> date:
 def session_date(now: datetime) -> date | None:
     """Eastern date when ``now`` falls on a weekday, else None.
 
-    This is the trading day the watchlist belongs to. The app has no holiday calendar, so a
-    weekday holiday is treated like any other weekday. Phoenix is always UTC-7, so 4:00 AM
-    New York is 2:00 AM Phoenix while New York is on standard time and 1:00 AM Phoenix while
-    New York is on daylight time.
+    The app has no holiday calendar, so a weekday holiday is treated like any other weekday.
+    The watchlist reset does not use this date; it uses ``watchlist_reset_target``.
     """
     local = now_et(now)
     if local.weekday() >= 5:
         return None
     return local.date()
+
+
+def next_weekday(day: date) -> date:
+    """The next weekday after ``day``. Friday goes forward to Monday."""
+    nxt = day + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    return nxt
+
+
+def watchlist_reset_target(now: datetime) -> date | None:
+    """Next session the post-close watchlist reset should load, or None when it must not run.
+
+    At and after 16:01 America/New_York on a weekday, that session is the next weekday
+    (Friday covers Monday). Before 16:01, and all weekend, this is None, so a restart in
+    the middle of the session never clears the list. A restart after 16:01 still returns
+    the target until that close has been recorded. There is no holiday calendar.
+    """
+    local = now_et(now)
+    if local.weekday() >= 5 or local.time() < WATCHLIST_RESET_AT:
+        return None
+    return next_weekday(local.date())
 
 
 def previous_weekday(now: datetime) -> date:

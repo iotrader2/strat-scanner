@@ -1,4 +1,4 @@
-"""Each trading day the watchlist is cleared, then that day's alert names are added."""
+"""After the close the watchlist is cleared, then the next session's alert names are added."""
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -9,8 +9,9 @@ from strat import api, config, data
 from strat.alerts import Settings
 
 ET = ZoneInfo("America/New_York")
-MONDAY = datetime(2026, 11, 9, 4, 0, tzinfo=ET)  # 2:00 AM Phoenix (MST)
-TUESDAY = datetime(2026, 11, 10, 9, 45, tzinfo=ET)  # 7:45 AM Phoenix
+# 16:01 ET. November 2026 is standard time, so this is 2:01 PM Phoenix.
+MONDAY = datetime(2026, 11, 9, 16, 1, tzinfo=ET)
+TUESDAY = datetime(2026, 11, 10, 16, 1, tzinfo=ET)
 SUNDAY = datetime(2026, 11, 8, 12, 0, tzinfo=ET)
 
 
@@ -25,11 +26,11 @@ def test_the_first_sync_of_the_day_clears_alert_names_then_adds(db):
     data.add_to_watchlist("KEEP")
     data.sync_alert_watchlist(["OLD"], include_manual=False, now=MONDAY)
     assert data.watch_sources()["OLD"] == "alert"
-    # Same day: a name that fell off the list stays, and a new one is appended.
+    # Before the next close: a name that fell off the list stays, and a new one is appended.
     again = data.sync_alert_watchlist(["NEW"], include_manual=False, now=MONDAY.replace(hour=11))
     assert again["reset"] is False
     assert data.watchlist() == ["KEEP", "OLD", "NEW"]
-    # Next morning: yesterday's alert names are gone, the one still qualifying is added back, the manual name stays.
+    # Next close: yesterday's alert names are gone, the one still qualifying is added back, the manual name stays.
     nxt = data.sync_alert_watchlist(["OLD"], include_manual=False, now=TUESDAY)
     assert nxt["reset"] is True and nxt["added"] == ["OLD"]
     assert data.watchlist() == ["KEEP", "OLD"]
@@ -133,7 +134,7 @@ def test_sync_stores_setups_and_refreshes_them(db):
     data.sync_alert_watchlist(["AAA"], setups={"AAA": [ep, cross]}, include_manual=False, now=MONDAY.replace(hour=12))
     assert data.watch_sources()["AAA"] == "manual"
     assert data.watch_setups()["AAA"] == [ep, cross]
-    # Next morning AAA no longer qualifies, so the column clears. The new auto name carries its setup.
+    # Next close AAA no longer qualifies, so the column clears. The new auto name carries its setup.
     data.sync_alert_watchlist(["CCC"], setups={"CCC": [cross]}, include_manual=False, now=TUESDAY)
     assert data.watchlist() == ["MINE", "AAA", "CCC"]
     assert data.watch_setups()["AAA"] == []
@@ -240,6 +241,76 @@ def test_an_off_universe_manual_name_waits_for_its_scan_row(db):
     longs, _, labels = api.alert_refresh_inputs([row], Settings())
     assert longs == ["SOFI"]
     assert labels["SOFI"]["long"][0]["kind"] == "watchlist"
+
+
+def test_one_minute_before_the_close_does_not_reset(db):
+    data.add_to_watchlist("KEEP")
+    early = data.sync_alert_watchlist(["OLD"], include_manual=False, now=MONDAY.replace(minute=0))
+    assert early["reset"] is False
+    assert data.watchlist() == ["KEEP", "OLD"]
+    reset = data.sync_alert_watchlist(["NEXT"], include_manual=False, now=MONDAY)
+    assert reset["reset"] is True and reset["session"] == "2026-11-10" and reset["added"] == ["NEXT"]
+    assert data.watchlist() == ["KEEP", "NEXT"]
+    # The same close does not clear again; a new qualifier is appended.
+    later = data.sync_alert_watchlist(["ALSO"], include_manual=False, now=MONDAY.replace(minute=30))
+    assert later["reset"] is False and later["added"] == ["ALSO"]
+    assert data.watchlist() == ["KEEP", "NEXT", "ALSO"]
+
+
+def test_friday_close_loads_monday_and_the_weekend_does_not(db):
+    friday = datetime(2026, 11, 13, 16, 1, tzinfo=ET)
+    done = data.sync_alert_watchlist(["FRI"], include_manual=False, now=friday)
+    assert done["reset"] is True and done["session"] == "2026-11-16"
+    saturday = datetime(2026, 11, 14, 16, 1, tzinfo=ET)
+    skipped = data.sync_alert_watchlist(["SAT"], include_manual=False, now=saturday)
+    assert skipped == {"reset": False, "added": [], "session": None, "setups_changed": 0}
+    assert data.watchlist() == ["FRI"]
+
+
+def test_a_restart_during_the_session_does_not_wipe_a_missed_close(db):
+    # Wednesday's close loaded Thursday. Thursday's close never ran. Monday morning must not wipe.
+    wednesday = datetime(2026, 11, 4, 16, 1, tzinfo=ET)
+    data.add_to_watchlist("KEEP")
+    data.sync_alert_watchlist(["WED"], include_manual=False, now=wednesday)
+    assert data.watchlist_session() == "2026-11-05"
+    monday_open = datetime(2026, 11, 9, 10, 0, tzinfo=ET)
+    mid = data.sync_alert_watchlist(["MON"], include_manual=False, now=monday_open)
+    assert mid["reset"] is False
+    assert data.watchlist() == ["KEEP", "WED", "MON"]
+    # After 16:01 the same day, the missed reset runs and loads Tuesday.
+    caught = data.sync_alert_watchlist(["TUE"], include_manual=False, now=MONDAY)
+    assert caught["reset"] is True and caught["session"] == "2026-11-10" and caught["added"] == ["TUE"]
+    assert data.watchlist() == ["KEEP", "TUE"]
+
+
+def test_the_close_reset_waits_for_a_scan_then_clears_and_adds(db, monkeypatch):
+    data.add_to_watchlist("KEEP")
+    data.sync_alert_watchlist(["OLD"], include_manual=False, now=datetime(2026, 11, 9, 10, 0, tzinfo=ET))
+    api.State.scan_key = None
+    api.State.scan = []
+    monkeypatch.setattr(api.config, "AS_OF", None)
+    monkeypatch.setattr(api, "_ensure_scan", lambda force=False: None)
+    assert api._close_watchlist_reset(MONDAY) is False
+    assert data.watchlist() == ["KEEP", "OLD"]
+    api.State.scan_key = "ready"
+    api.State.scan = [_stock("NEXT", score=90, setups=[_LONG], rank=1)]
+    assert api._close_watchlist_reset(MONDAY) is True
+    assert data.watchlist_session() == "2026-11-10"
+    assert data.watchlist() == ["KEEP", "NEXT"]
+
+    def fail_scan(force=False):
+        raise AssertionError("the stored close must not scan again")
+
+    monkeypatch.setattr(api, "_ensure_scan", fail_scan)
+    assert api._close_watchlist_reset(MONDAY) is True
+    assert data.watchlist() == ["KEEP", "NEXT"]
+    api.State.scan_key = None
+    api.State.scan = []
+
+
+def test_the_close_reset_does_not_run_before_1601(db):
+    assert api._close_watchlist_reset(datetime(2026, 11, 9, 16, 0, tzinfo=ET)) is False
+    assert api._close_watchlist_reset(datetime(2026, 11, 14, 16, 1, tzinfo=ET)) is False
 
 
 def test_a_scan_that_has_not_finished_does_not_clear_the_list(db, monkeypatch):

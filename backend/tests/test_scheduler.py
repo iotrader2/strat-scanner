@@ -101,6 +101,26 @@ def test_alert_archive_waits_until_1605_eastern_and_follows_daylight_saving():
     assert scheduler.previous_weekday(saturday) == date(2026, 10, 23)
 
 
+def test_the_watchlist_reset_is_one_minute_after_the_new_york_close():
+    phx = ZoneInfo("America/Phoenix")
+    # Summer close is 1:00 PM Phoenix, so a fixed 2:01 PM Phoenix reset would be an hour late.
+    summer_close = datetime(2026, 7, 15, 16, 0, tzinfo=ET)
+    summer_reset = datetime(2026, 7, 15, 16, 1, tzinfo=ET)
+    assert summer_close.astimezone(phx).hour == 13 and summer_close.astimezone(phx).minute == 0
+    assert summer_reset.astimezone(phx).hour == 13 and summer_reset.astimezone(phx).minute == 1
+    assert scheduler.watchlist_reset_target(summer_close) is None
+    assert scheduler.watchlist_reset_target(summer_reset) == date(2026, 7, 16)
+    # Winter: 16:01 ET is 2:01 PM Phoenix. One minute earlier does not reset. Friday covers Monday.
+    winter_early = datetime(2026, 11, 9, 16, 0, tzinfo=ET)
+    winter_reset = datetime(2026, 11, 9, 16, 1, tzinfo=ET)
+    assert winter_reset.astimezone(phx).hour == 14 and winter_reset.astimezone(phx).minute == 1
+    assert scheduler.watchlist_reset_target(winter_early) is None
+    assert scheduler.watchlist_reset_target(winter_reset) == date(2026, 11, 10)
+    assert scheduler.watchlist_reset_target(datetime(2026, 11, 13, 16, 1, tzinfo=ET)) == date(2026, 11, 16)
+    assert scheduler.watchlist_reset_target(datetime(2026, 11, 14, 16, 1, tzinfo=ET)) is None
+    assert scheduler.watchlist_reset_target(datetime(2026, 11, 16, 10, 0, tzinfo=ET)) is None
+
+
 def test_fetch_window_stays_short_when_the_cache_is_current():
     now = datetime(2026, 10, 19, 11, 0, tzinfo=ET)
     assert scheduler.fetch_period(now, date(2026, 10, 16)) == "5d"
