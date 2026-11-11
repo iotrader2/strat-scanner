@@ -121,7 +121,7 @@ class Settings:
     max_stop_pct: float = 2.0  # do not arm an order wider than this
     # 1 = a long name needs a daily setup that has not broken yet.
     long_pending_only: int = 0
-    # 1 = the morning watchlist reset also removes names you added yourself. 0 = keep those.
+    # 1 = the post-close watchlist reset also removes names you added yourself. 0 = keep those.
     reset_manual: int = 0
     # 1 = also check names you added to the watchlist, long side, even with no daily setup and
     # outside the theme gate. They do not count toward max_symbols. A name that already qualifies

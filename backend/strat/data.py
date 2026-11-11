@@ -233,7 +233,7 @@ def _parse_setups(raw: str | None) -> list:
 
 
 def add_to_watchlist(symbol: str, db_path: Path | None = None, *, source: str = WATCH_MANUAL) -> None:
-    """Add ``symbol``. A manual add keeps the name across the morning reset; an alert add does not replace one."""
+    """Add ``symbol``. A manual add keeps the name across the post-close reset; an alert add does not replace one."""
     if source not in (WATCH_MANUAL, WATCH_ALERT):
         raise ValueError(f"source must be {WATCH_MANUAL!r} or {WATCH_ALERT!r}")
     added = datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -249,6 +249,13 @@ def add_to_watchlist(symbol: str, db_path: Path | None = None, *, source: str = 
                 "INSERT INTO watchlist(symbol, added_at, source) VALUES (?, ?, ?) ON CONFLICT(symbol) DO NOTHING",
                 (symbol, added, WATCH_ALERT),
             )
+
+
+def watchlist_session(db_path: Path | None = None) -> str | None:
+    """Next-session date the post-close reset last stored, or None if that reset has not run."""
+    with userdb.connect(db_path) as conn:
+        row = conn.execute("SELECT value FROM user_meta WHERE key = ?", (_WATCHLIST_SESSION,)).fetchone()
+    return None if row is None else row[0]
 
 
 def watch_sources(db_path: Path | None = None) -> dict[str, str]:
@@ -279,27 +286,34 @@ def sync_alert_watchlist(
     now: datetime | None = None,
     db_path: Path | None = None,
 ) -> dict:
-    """Reset this trading day's watchlist, then add ``symbols`` as alert names.
+    """Add ``symbols`` as alert names, and reset the list once after the close.
 
-    The reset runs only on the first call of an Eastern weekday, and it runs before the inserts
-    in that same call. Later calls the same day only add names that are not already listed.
+    At and after 16:01 America/New_York on a weekday the first call clears alert names, then
+    inserts ``symbols`` in that same transaction. The stored session is the next weekday, so
+    Friday's reset is Monday's list. Later calls only add names that are not already listed.
+    Before 16:01 a call never deletes, even when the stored session is stale, so a restart in
+    the middle of the session does not wipe the list. A call after 16:01 whose stored session
+    is not yet the next weekday does the clear-then-add. Weekends do nothing. There is no
+    holiday calendar.
     ``setups`` (symbol -> daily-setup refs) is written on the new rows and refreshed on every row
     already listed: a name in ``symbols`` keeps that day's setups, and every other name is cleared
-    so a hand-added name that does not qualify shows a dash. Weekends do nothing.
+    so a hand-added name that does not qualify shows a dash.
     ``include_manual`` also clears names the user added; otherwise those stay.
     """
-    from .scheduler import session_date
+    from .scheduler import now_et, watchlist_reset_target
 
-    day = session_date(now or datetime.now(timezone.utc))
-    if day is None:
+    clock = now or datetime.now(timezone.utc)
+    if now_et(clock).weekday() >= 5:
         return {"reset": False, "added": [], "session": None, "setups_changed": 0}
-    session = day.isoformat()
+    target = watchlist_reset_target(clock)
     wanted = list(dict.fromkeys(symbols))
     wanted_set = set(wanted)
     blobs = {sym: _setups_blob((setups or {}).get(sym)) for sym in wanted}
     with _write_lock, _writing(), userdb.connect(db_path) as conn:
         row = conn.execute("SELECT value FROM user_meta WHERE key = ?", (_WATCHLIST_SESSION,)).fetchone()
-        reset = row is None or row[0] != session
+        stored = None if row is None else row[0]
+        session = target.isoformat() if target is not None else stored
+        reset = target is not None and stored != session
         if reset:
             if include_manual:
                 conn.execute("DELETE FROM watchlist")
