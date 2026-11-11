@@ -101,6 +101,8 @@ main { flex: 1; min-width: 0; }
 .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 18px; flex-wrap: wrap; }
 .hero h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.02em; }
 .hero p { margin: 0; max-width: 640px; line-height: 1.5; }
+.watchlist-times { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0 0 8px; }
+.watchlist-loaded { font-weight: 600; }
 .stat-cards { display: flex; gap: 10px; flex-wrap: wrap; }
 .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 16px; display: flex; flex-direction: column; min-width: 120px; }
 .stat-card-btn {

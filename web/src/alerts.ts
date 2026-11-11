@@ -12,6 +12,27 @@ export function phoenixTime(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : timeFmt.format(d);
 }
 
+const stampFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: ALERT_TZ,
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+  timeZoneName: "short",
+});
+
+/** "Tue Nov 10, 2:01 PM MST". Phoenix has no daylight time, so the zone is always MST. A dash if missing. */
+export function phoenixStamp(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const parts = stampFmt.formatToParts(d);
+  const pick = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${pick("weekday")} ${pick("month")} ${pick("day")}, ${pick("hour")}:${pick("minute")} ${pick("dayPeriod")} ${pick("timeZoneName")}`;
+}
+
 /** Alert bars are 15-minute candles. Keep in step with `BAR_MINUTES` in backend/strat/alerts.py. */
 export const BAR_MINUTES = 15;
 

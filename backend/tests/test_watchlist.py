@@ -51,7 +51,9 @@ def client(tmp_path, monkeypatch):
 
 
 def test_starts_empty(client):
-    assert client.get("/api/watchlist").json() == {"symbols": [], "rows": [], "missing": [], "intraday": {}}
+    assert client.get("/api/watchlist").json() == {
+        "symbols": [], "rows": [], "missing": [], "intraday": {}, "loaded_at": None, "updated_at": None,
+    }
 
 
 def test_add_remove_round_trip(client):

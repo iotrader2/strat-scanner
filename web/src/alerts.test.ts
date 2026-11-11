@@ -21,6 +21,7 @@ import {
   maText,
   notificationText,
   phoenixTime,
+  phoenixStamp,
   playChime,
   riskPerShare,
   statusTone,
@@ -105,6 +106,11 @@ describe("alerts helpers", () => {
     expect(phoenixTime("2026-10-23T13:35:00Z")).toBe("6:35 AM");
     expect(phoenixTime("2026-11-02T14:35:00Z")).toBe("7:35 AM");
     expect(phoenixTime(null)).toBe("—");
+    // 21:01 UTC is 16:01 ET and 2:01 PM Phoenix, winter and summer alike.
+    expect(phoenixStamp("2026-11-10T21:01:00Z")).toBe("Tue Nov 10, 2:01 PM MST");
+    expect(phoenixStamp("2026-07-15T20:01:00Z")).toBe("Wed Jul 15, 1:01 PM MST");
+    expect(phoenixStamp(null)).toBe("—");
+    expect(phoenixStamp("not-a-time")).toBe("—");
   });
 
   it("risk per share and stop percent come from trigger and stop", () => {

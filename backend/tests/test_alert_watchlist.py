@@ -308,6 +308,39 @@ def test_the_close_reset_waits_for_a_scan_then_clears_and_adds(db, monkeypatch):
     api.State.scan = []
 
 
+def test_the_reset_records_when_the_list_was_loaded(db, monkeypatch):
+    assert data.watchlist_times() == {"loaded_at": None, "updated_at": None}
+    # Before the close an auto-add is an update, not a load.
+    early = data.sync_alert_watchlist(["OLD"], include_manual=False, now=MONDAY.replace(minute=0))
+    assert early["reset"] is False
+    assert data.watchlist_times() == {"loaded_at": None, "updated_at": "2026-11-09T21:00:00+00:00"}
+    # 16:01 ET is 2:01 PM Phoenix. The load time is that clock, and the earlier update stays.
+    reset = data.sync_alert_watchlist(["NEXT"], include_manual=False, now=MONDAY)
+    assert reset["reset"] is True
+    assert data.watchlist_times() == {
+        "loaded_at": "2026-11-09T21:01:00+00:00",
+        "updated_at": "2026-11-09T21:00:00+00:00",
+    }
+    # Appending the same name does not move the update time.
+    same = data.sync_alert_watchlist(["NEXT"], include_manual=False, now=datetime(2026, 11, 10, 10, 0, tzinfo=ET))
+    assert same["reset"] is False and same["added"] == []
+    assert data.watchlist_times()["updated_at"] == "2026-11-09T21:00:00+00:00"
+    # A new name during the session does.
+    added = data.sync_alert_watchlist(["ALSO"], include_manual=False, now=datetime(2026, 11, 10, 11, 15, tzinfo=ET))
+    assert added["added"] == ["ALSO"]
+    assert data.watchlist_times()["updated_at"] == "2026-11-10T16:15:00+00:00"
+    assert data.watchlist_times()["loaded_at"] == "2026-11-09T21:01:00+00:00"
+    # A catch-up after the next close stores the time it actually ran.
+    caught = data.sync_alert_watchlist(["TUE"], include_manual=False, now=datetime(2026, 11, 10, 16, 5, tzinfo=ET))
+    assert caught["reset"] is True
+    assert data.watchlist_times()["loaded_at"] == "2026-11-10T21:05:00+00:00"
+    monkeypatch.setattr(api, "_rows_by_symbol", lambda: {})
+    monkeypatch.setattr(api, "_with_earnings", lambda rows: rows)
+    body = api._watchlist_payload()
+    assert body["loaded_at"] == "2026-11-10T21:05:00+00:00"
+    assert body["updated_at"] == "2026-11-10T16:15:00+00:00"
+
+
 def test_the_close_reset_does_not_run_before_1601(db):
     assert api._close_watchlist_reset(datetime(2026, 11, 9, 16, 0, tzinfo=ET)) is False
     assert api._close_watchlist_reset(datetime(2026, 11, 14, 16, 1, tzinfo=ET)) is False

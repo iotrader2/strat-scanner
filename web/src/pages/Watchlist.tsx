@@ -5,6 +5,7 @@ import { SkeletonTable } from "../components/Loading";
 import { ListTable } from "../components/ListTable";
 import type { ExtraColumn } from "../components/ScanTable";
 import { useWatchlist } from "../components/Watch";
+import { phoenixStamp } from "../alerts";
 import { queueSummary, useSymbolQueue } from "../symbolQueue";
 import { normalizeTicker, watchSetupGroups, watchedRows, type WatchSetupGroup } from "../watchlist";
 
@@ -100,6 +101,22 @@ const SETUP_COLUMN: ExtraColumn = {
   render: (row) => <WatchSetupCell setups={row.watch_setups} />,
 };
 
+/** Header line for when the post-close load ran, and the smaller time of the last intraday auto-add. */
+export function WatchlistLoaded({
+  loadedAt,
+  updatedAt,
+}: {
+  loadedAt: string | null | undefined;
+  updatedAt: string | null | undefined;
+}) {
+  return (
+    <p className="watchlist-times">
+      <span className="watchlist-loaded">Last loaded: {phoenixStamp(loadedAt)}</span>
+      <span className="muted small">Last updated: {phoenixStamp(updatedAt)}</span>
+    </p>
+  );
+}
+
 export default function Watchlist() {
   const { symbols, data, error } = useWatchlist();
   const rows = useMemo(() => watchedRows(data?.rows ?? [], symbols), [data, symbols]);
@@ -111,6 +128,7 @@ export default function Watchlist() {
       <section className="hero">
         <div>
           <h1>Watchlist</h1>
+          <WatchlistLoaded loadedAt={data?.loaded_at} updatedAt={data?.updated_at} />
           <p className="muted">
             Stocks you&apos;re watching. They stay until you take them off. Setup is the daily setup that put an
             auto-added name on the list. A dash is a name you added that does not currently qualify. When you buy
