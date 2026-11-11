@@ -204,6 +204,8 @@ def watchlist(db_path: Path | None = None) -> list[str]:
 WATCH_MANUAL = "manual"
 WATCH_ALERT = "alert"
 _WATCHLIST_SESSION = "watchlist_session"
+_WATCHLIST_LOADED_AT = "watchlist_loaded_at"
+_WATCHLIST_UPDATED_AT = "watchlist_updated_at"
 _EMPTY_SETUPS = "[]"
 
 
@@ -256,6 +258,34 @@ def watchlist_session(db_path: Path | None = None) -> str | None:
     with userdb.connect(db_path) as conn:
         row = conn.execute("SELECT value FROM user_meta WHERE key = ?", (_WATCHLIST_SESSION,)).fetchone()
     return None if row is None else row[0]
+
+
+def watchlist_times(db_path: Path | None = None) -> dict[str, str | None]:
+    """When the list was last loaded at the close, and when an intraday auto-add last appended a name.
+
+    ``loaded_at`` is the clear-then-add (including a catch-up after downtime). ``updated_at`` is the
+    latest sync that appended alert names without clearing. Both are UTC timestamps, or None.
+    """
+    with userdb.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM user_meta WHERE key IN (?, ?)",
+            (_WATCHLIST_LOADED_AT, _WATCHLIST_UPDATED_AT),
+        ).fetchall()
+    found = {key: value for key, value in rows}
+    return {"loaded_at": found.get(_WATCHLIST_LOADED_AT), "updated_at": found.get(_WATCHLIST_UPDATED_AT)}
+
+
+def _set_user_meta(conn, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO user_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
+def _utc_stamp(clock: datetime) -> str:
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    return clock.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
 def watch_sources(db_path: Path | None = None) -> dict[str, str]:
@@ -319,10 +349,8 @@ def sync_alert_watchlist(
                 conn.execute("DELETE FROM watchlist")
             else:
                 conn.execute("DELETE FROM watchlist WHERE source = ?", (WATCH_ALERT,))
-            conn.execute(
-                "INSERT INTO user_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (_WATCHLIST_SESSION, session),
-            )
+            _set_user_meta(conn, _WATCHLIST_SESSION, session)
+            _set_user_meta(conn, _WATCHLIST_LOADED_AT, _utc_stamp(clock))
         have = {r[0] for r in conn.execute("SELECT symbol FROM watchlist").fetchall()}
         added_at = datetime.now(timezone.utc)
         added = []
@@ -335,6 +363,8 @@ def sync_alert_watchlist(
                 (sym, stamp, WATCH_ALERT, blobs[sym]),
             )
             added.append(sym)
+        if added and not reset:
+            _set_user_meta(conn, _WATCHLIST_UPDATED_AT, _utc_stamp(clock))
         setups_changed = 0
         for sym, raw in conn.execute("SELECT symbol, setups FROM watchlist").fetchall():
             blob = blobs[sym] if sym in wanted_set else _EMPTY_SETUPS

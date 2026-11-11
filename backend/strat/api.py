@@ -1113,11 +1113,14 @@ def _watchlist_payload() -> dict:
     rows = _with_earnings([by_symbol[s] for s in symbols if s in by_symbol])
     for row in rows:
         row["watch_setups"] = stored.get(row["symbol"]) or []
+    times = data.watchlist_times()
     return {
         "symbols": symbols,
         "rows": rows,
         "missing": [s for s in symbols if s not in by_symbol],
         "intraday": watch15m.snapshot(symbols),
+        "loaded_at": times["loaded_at"],
+        "updated_at": times["updated_at"],
     }
 
 

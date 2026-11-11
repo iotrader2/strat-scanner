@@ -797,6 +797,10 @@ export interface Watchlist {
   rows: ScanRow[];
   missing: string[];
   intraday?: Record<string, ListIntraday>;
+  /** UTC time of the last post-close clear-then-add, including a catch-up. Null if it has never run. */
+  loaded_at?: string | null;
+  /** UTC time of the last intraday auto-add. Null if none has been appended since the list existed. */
+  updated_at?: string | null;
 }
 
 export function fmtMoney(v: number): string {
