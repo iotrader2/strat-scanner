@@ -59,12 +59,23 @@ price) and R is measured downward. When a bar touches several falling EMAs the a
 from __future__ import annotations
 
 import json
+import logging
+import threading
 from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from .earnings import DEFAULT_WARNING_WINDOW_DAYS
+
+log = logging.getLogger(__name__)
+
+SKIP_EXT_CAP = "ext_cap"
+SKIP_MA120_SHORT = "ma120_short_disabled"
+
+_skip_lock = threading.Lock()
+_skip_session: Optional[str] = None
+_skip_counts: dict[str, int] = {SKIP_EXT_CAP: 0, SKIP_MA120_SHORT: 0}
 
 TICK = 0.01
 BAR_MINUTES = 15
@@ -109,11 +120,20 @@ class Settings:
     # Short side: a stock or ETF with an allowed short daily setup, weakest RS first, at most this many.
     shorts: int = 1  # 1 = alert short setups too, 0 = longs only
     max_short_symbols: int = 75
+    # 1 = allow short entries on the 15-minute 120 EMA (s120). 0 = skip every s120 short
+    # (including names that qualified via overcut-fail or any other short daily setup). 240/480 shorts are unchanged.
+    shorts_ma120_enabled: int = 0
     # Which averages (1 = on, 0 = off). The 120 EMA was the only one that made R in the
     # Oct 27–Nov 9 2026 replay; 240 and 480 stay available but start off.
     ma_120: int = 1
     ma_240: int = 0
     ma_480: int = 0
+    # Longs: skip when the buy trigger is more than this percent above the prior session's daily EMA
+    # of ``long_ext_ema_period``. 0 disables the cap. The rule lives in ``long_extension_skip``.
+    long_max_ext_vs_d10ema_pct: float = 2.0
+    long_ext_ema_period: int = 10  # daily EMA period for the long extension cap (default 10)
+    # 1 = do not skip when the trigger/fill is at or under the prior-day daily 4 EMA, even if over the cap.
+    long_ext_waive_at_d4ema: int = 1
     # 0 = lowest low since the touch. 1 = the candle that owns the buy. 2 = fixed percent.
     # 2 is the default: a 1% stop made the most R for theme-gated longs in that replay (+24.5 R) and stays inside 2%.
     stop_mode: int = 2
@@ -217,8 +237,10 @@ STOP_FIXED = 2
 SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "max_symbols": (1, 1000),
     "theme_gate": (0, 1), "theme_top_pct": (1, 50),
-    "shorts": (0, 1), "max_short_symbols": (0, 1000),
+    "shorts": (0, 1), "max_short_symbols": (0, 1000), "shorts_ma120_enabled": (0, 1),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
+    "long_max_ext_vs_d10ema_pct": (0, 100), "long_ext_ema_period": (1, 200),
+    "long_ext_waive_at_d4ema": (0, 1),
     "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
     "long_pending_only": (0, 1), "reset_manual": (0, 1), "alert_manual_watchlist": (0, 1),
     "min_avg_dollar_volume": (10_000_000, 5_000_000_000),
@@ -241,6 +263,8 @@ class Context:
     ma_tail: Mapping[int, Sequence[float]] = field(default_factory=dict)
     prev_close: Optional[float] = None  # last regular-session close before today
     session_bars: int = SESSION_BARS  # bars in a full session (fewer on a half day)
+    # Daily bars (or closes) through the previous session only — input to ``long_extension_skip``.
+    prior_daily_bars: Sequence[Any] = field(default_factory=tuple)
 
 
 def context_from_closes(closes: Sequence[float], session_bars: int = SESSION_BARS) -> Context:
@@ -377,6 +401,155 @@ def _iso(ts: Optional[datetime]) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------------------------- indicators
+
+
+def skip_counts() -> dict[str, int]:
+    """In-memory skipped-today counts by reason (``ext_cap``, ``ma120_short_disabled``)."""
+    with _skip_lock:
+        return dict(_skip_counts)
+
+
+def reset_skip_counts(session: Optional[str] = None) -> None:
+    """Clear skipped-today counts (daily rollover / archive)."""
+    global _skip_session
+    with _skip_lock:
+        _skip_session = session
+        for key in _skip_counts:
+            _skip_counts[key] = 0
+
+
+def record_skip(
+    session: str,
+    reason: str,
+    *,
+    symbol: str,
+    setup: str,
+    side: str,
+    trigger: Optional[float] = None,
+    prior_d10_ema: Optional[float] = None,
+    ext_pct: Optional[float] = None,
+    prior_d4_ema: Optional[float] = None,
+    ext_vs_d4_pct: Optional[float] = None,
+    waived: Optional[bool] = None,
+) -> None:
+    """Bump the in-memory skip counter and emit a structured skip log line."""
+    global _skip_session
+    with _skip_lock:
+        if _skip_session != session:
+            _skip_session = session
+            for key in _skip_counts:
+                _skip_counts[key] = 0
+        if reason in _skip_counts:
+            _skip_counts[reason] += 1
+    log.info(
+        "alert_skip symbol=%s setup=%s side=%s trigger=%s prior_d10_ema=%s ext_pct=%s "
+        "prior_d4_ema=%s ext_vs_d4_pct=%s waived=%s reason=%s",
+        symbol,
+        setup,
+        side,
+        None if trigger is None else round(float(trigger), 4),
+        None if prior_d10_ema is None else round(float(prior_d10_ema), 4),
+        None if ext_pct is None else round(float(ext_pct), 4),
+        None if prior_d4_ema is None else round(float(prior_d4_ema), 4),
+        None if ext_vs_d4_pct is None else round(float(ext_vs_d4_pct), 4),
+        waived,
+        reason,
+    )
+
+
+def ewm_last(values: Sequence[float], period: int) -> Optional[float]:
+    """Last EMA over ``values`` (pandas ``ewm(span=period, adjust=False)`` with ``min_periods=period``)."""
+    if period <= 0 or len(values) < period:
+        return None
+    k = 2.0 / (period + 1)
+    value = float(values[0])
+    for v in values[1:]:
+        value += k * (float(v) - value)
+    return value
+
+
+def _closes_from_daily_bars(daily_bars: Sequence[Any]) -> list[float]:
+    """Extract closes from a sequence of floats or bar mappings with a ``close`` field."""
+    out: list[float] = []
+    for bar in daily_bars or ():
+        try:
+            if isinstance(bar, Mapping):
+                out.append(float(bar["close"]))
+            else:
+                out.append(float(bar))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def prior_daily_bars_from_frame(daily: Any, session: date) -> list[dict]:
+    """Daily ``{close}`` bars through the session before ``session``; bars on ``session`` or later are ignored."""
+    if daily is None:
+        return []
+    try:
+        if getattr(daily, "empty", True):
+            return []
+    except (TypeError, ValueError):
+        return []
+    out: list[dict] = []
+    for ts, row in daily.iterrows():
+        try:
+            d = ts.date() if hasattr(ts, "date") else date.fromisoformat(str(ts)[:10])
+        except ValueError:
+            continue
+        if d >= session:
+            continue
+        try:
+            out.append({"close": float(row["close"])})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def prior_daily_ema(closes: Sequence[float], period: int) -> Optional[float]:
+    """Daily EMA of ``closes`` for ``period``. Caller must end at the previous session (no today's bar)."""
+    return ewm_last(closes, period)
+
+
+def long_extension_skip(
+    price: float,
+    daily_bars: Sequence[Any],
+    settings: Settings,
+) -> tuple[bool, dict]:
+    """Long extension cap with optional daily-4 EMA waiver: ``(skip, details)``.
+
+    Skip when ``price`` is more than ``long_max_ext_vs_d10ema_pct`` percent above the prior-session
+    daily EMA of ``long_ext_ema_period``. When ``long_ext_waive_at_d4ema`` is on and ``price`` is at
+    or under the prior-session daily 4 EMA, do not skip even if over the cap. ``daily_bars`` must
+    already exclude today's partial bar. Cap of 0 (or missing EMA) does not skip.
+    """
+    cap = float(settings.long_max_ext_vs_d10ema_pct)
+    if cap <= 0 or not isinstance(price, (int, float)) or float(price) <= 0:
+        return False, {}
+    period = int(settings.long_ext_ema_period)
+    closes = _closes_from_daily_bars(daily_bars)
+    ema = prior_daily_ema(closes, period)
+    if ema is None or ema <= 0:
+        return False, {}
+    px = float(price)
+    ext_pct = (px - ema) / ema * 100.0
+    d4 = prior_daily_ema(closes, 4)
+    ext_vs_d4 = ((px - d4) / d4 * 100.0) if d4 is not None and d4 > 0 else None
+    details = {
+        "prior_d10_ema": ema,
+        "ext_pct": ext_pct,
+        "ema_period": period,
+        "prior_d4_ema": d4,
+        "ext_vs_d4_pct": ext_vs_d4,
+        "waived": False,
+        "reason": SKIP_EXT_CAP,
+    }
+    if ext_pct <= cap:
+        return False, details
+    if settings.long_ext_waive_at_d4ema and d4 is not None and d4 > 0 and px <= d4:
+        details["waived"] = True
+        return False, details
+    return True, details
 
 
 def ema_series(values: Sequence[float], period: int) -> list[Optional[float]]:
@@ -813,6 +986,38 @@ def simulate(
             if skipped is not None:
                 skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": "stop wider than the max"})
             continue
+        if side == "short" and period == 120 and not s.shorts_ma120_enabled:
+            record_skip(
+                session, SKIP_MA120_SHORT,
+                symbol=symbol, setup=setup_key, side=side, trigger=alert.trigger,
+            )
+            if skipped is not None:
+                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": SKIP_MA120_SHORT})
+            continue
+        if side == "long":
+            skip_ext, ext_details = long_extension_skip(alert.trigger, ctx.prior_daily_bars, s)
+            if skip_ext:
+                record_skip(
+                    session, SKIP_EXT_CAP,
+                    symbol=symbol, setup=setup_key, side=side,
+                    trigger=alert.trigger,
+                    prior_d10_ema=ext_details.get("prior_d10_ema"),
+                    ext_pct=ext_details.get("ext_pct"),
+                    prior_d4_ema=ext_details.get("prior_d4_ema"),
+                    ext_vs_d4_pct=ext_details.get("ext_vs_d4_pct"),
+                    waived=ext_details.get("waived"),
+                )
+                if skipped is not None:
+                    skipped.append({
+                        "symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key,
+                        "reason": SKIP_EXT_CAP, "trigger": alert.trigger,
+                        **{
+                            k: ext_details[k]
+                            for k in ("prior_d10_ema", "ext_pct", "ema_period", "prior_d4_ema", "ext_vs_d4_pct", "waived")
+                            if k in ext_details
+                        },
+                    })
+                continue
         _note_feed(alert, bar)
         alerts.append(alert)
     if len(f.bars) >= ctx.session_bars:

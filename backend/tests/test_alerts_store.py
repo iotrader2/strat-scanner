@@ -323,7 +323,14 @@ def test_alerts_api(db):
     assert c.put("/api/alerts/settings", json={"hold_pct": -1}).status_code == 422
     assert c.delete("/api/alerts/settings").json()["settings"]["hold_pct"] == 0.3
     assert c.get("/api/alerts", params={"session": "bad"}).status_code == 422
-    assert c.get("/api/status").json()["storage"] == {"backend": "sqlite"}
+    status = c.get("/api/status").json()
+    assert status["storage"] == {"backend": "sqlite"}
+    assert status["alert_skips_today"] == {"ext_cap": 0, "ma120_short_disabled": 0}
+    defaults = c.get("/api/alerts/settings").json()["defaults"]
+    assert defaults["shorts_ma120_enabled"] == 0
+    assert defaults["long_max_ext_vs_d10ema_pct"] == 2.0
+    assert defaults["long_ext_ema_period"] == 10
+    assert defaults["long_ext_waive_at_d4ema"] == 1
 
 
 def test_regular_closes_drop_premarket_and_after_hours():

@@ -217,7 +217,8 @@ describe("EMA level and settings", () => {
     expect(keys).toEqual(
       expect.arrayContaining([
         "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "reset_manual", "alert_manual_watchlist", "stop_mode", "fixed_stop_pct", "max_stop_pct",
-        "short_hvc", "short_crossback", "short_ma10", "short_ma20", "ma_120", "ma_240", "ma_480",
+        "short_hvc", "short_crossback", "short_ma10", "short_ma20", "shorts_ma120_enabled",
+        "ma_120", "ma_240", "ma_480", "long_ext_ema_period", "long_max_ext_vs_d10ema_pct", "long_ext_waive_at_d4ema",
         "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars",
       ]),
     );
@@ -260,7 +261,7 @@ describe("short alerts", () => {
 
   it("lists the short-side settings", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
-    expect(keys).toEqual(expect.arrayContaining(["shorts", "max_short_symbols"]));
+    expect(keys).toEqual(expect.arrayContaining(["shorts", "max_short_symbols", "shorts_ma120_enabled"]));
     expect(keys).not.toContain("min_score");
     expect(keys).not.toContain("short_max_rs");
   });
