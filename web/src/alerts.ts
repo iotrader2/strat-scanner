@@ -442,6 +442,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     items: [
       ["shorts", "Alert short daily setups too: rallies into a falling EMA (1 = on, 0 = off)", ""],
       ["max_short_symbols", "Check at most (weakest RS first)", "names"],
+      ["shorts_ma120_enabled", "Short entries on the 120 EMA / s120 (1 = on, 0 = off). Off by default; 240 and 480 shorts are unchanged", ""],
       ["short_ma10", "MA Overcut and Fail, 10-day (1 = on, 0 = off)", ""],
       ["short_ma20", "MA Overcut and Fail, 20-day (1 = on, 0 = off)", ""],
       ["short_ma50", "MA Overcut and Fail, 50-day (1 = on, 0 = off)", ""],
@@ -460,6 +461,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["ma_120", "120 EMA, red (1 = on, 0 = off)", ""],
       ["ma_240", "240 EMA, yellow (1 = on, 0 = off)", ""],
       ["ma_480", "480 EMA, blue (1 = on, 0 = off)", ""],
+      ["long_max_ext_vs_d10ema_pct", "Skip a long when the buy is more than this % above the prior day's daily 10 EMA (0 = off)", "%"],
       ["touch_tol_pct", "Touch: low within", "% over the EMA"],
       ["hold_pct", "Lost the EMA: a close more than", "% under it"],
       ["rising_bars", "Rising: higher than", "candles earlier"],

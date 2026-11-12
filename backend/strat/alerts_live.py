@@ -194,10 +194,15 @@ def forming_bar(
     return None
 
 
-def context_for(sym: str, session_bars: int) -> Context:
+def context_for(sym: str, session_bars: int, prior_d10_ema: Optional[float] = None) -> Context:
     with _lock:
         p = dict(_profiles.get(sym) or {})
-    return Context(ma_tail=p.get("tail") or {}, prev_close=p.get("prev_close"), session_bars=session_bars)
+    return Context(
+        ma_tail=p.get("tail") or {},
+        prev_close=p.get("prev_close"),
+        session_bars=session_bars,
+        prior_d10_ema=prior_d10_ema,
+    )
 
 
 def sip_cutoff(now: datetime) -> datetime:
@@ -350,6 +355,7 @@ def refresh(
     short_symbols: Iterable[str] = (),
     daily_setups: Optional[Mapping[str, Mapping[str, list]]] = None,
     yahoo_bars: Optional[Mapping[str, list]] = None,
+    prior_d10_emas: Optional[Mapping[str, float]] = None,
 ) -> dict:
     """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line.
 
@@ -357,6 +363,7 @@ def refresh(
     ``daily_setups`` (symbol -> {"long": [refs], "short": [refs]}) names the daily setups behind each name.
     Each ref is ``{kind, label, side}`` (and ``period`` for a 10/20/50-day average). They are kept on the
     alert's details as ``daily_setups``. A name on several setups keeps every one of them.
+    ``prior_d10_emas`` (symbol -> prior-session daily 10 EMA) feeds the long extension cap in ``simulate``.
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     day = now_et(clock).date()
@@ -400,13 +407,16 @@ def refresh(
     bars_by: dict[str, list] = {}
     ctx_by: dict[str, Context] = {}
     forming_by: dict[str, Optional[dict]] = {}
+    d10 = prior_d10_emas or {}
     for sym in syms:
         bars, _ = merge_day(sip.get(sym, []), iex.get(sym, []), day, cutoff, clock, yahoo_bars.get(sym))
         if not bars:
             continue
         if sym in yahoo_failed and any(b.get("src") == "iex" for b in bars):
             log.warning("alerts %s: recent 15m bars priced from IEX after Yahoo failed", sym)
-        ctx = context_for(sym, len(bars) if session_over else SESSION_BARS)
+        ctx = context_for(
+            sym, len(bars) if session_over else SESSION_BARS, prior_d10_ema=d10.get(sym),
+        )
         forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock, yahoo_bars.get(sym))
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
         labels = (daily_setups or {}).get(sym) or {}

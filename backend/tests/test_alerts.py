@@ -1,20 +1,27 @@
 """Pullback-to-rising-EMA alerts (120 / 240 / 480 on 15-minute bars): watch, trigger, outcome."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
+import pandas as pd
 import pytest
 
 from strat.alerts import (
     MA_PERIODS,
     SETUP_NAMES,
     SETUPS,
+    SKIP_EXT_CAP,
+    SKIP_MA120_SHORT,
     Context,
     Settings,
     advance_stored,
     context_from_closes,
     ema_series,
     metrics,
+    prior_daily_10_ema,
+    prior_daily_10_ema_from_frame,
+    reset_skip_counts,
     simulate,
+    skip_counts,
 )
 
 OPEN = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)  # 09:30 EDT
@@ -71,7 +78,10 @@ def test_a_gap_over_the_trigger_still_fills_at_the_candle_high_plus_a_cent():
 
 def test_a_short_gap_under_the_trigger_still_fills_at_the_candle_low_minus_a_cent():
     ctx = Context(ma_tail={120: list(reversed(rising(100.91)))}, prev_close=99.0)  # falling, price under it
-    [a] = run([(99.5, 100.9, 99.2, 99.8), (98.7, 98.8, 98.5, 98.6)], ctx, side="short")
+    [a] = run(
+        [(99.5, 100.9, 99.2, 99.8), (98.7, 98.8, 98.5, 98.6)], ctx,
+        settings=Settings(shorts_ma120_enabled=1), side="short",
+    )
     assert a.status == "triggered" and a.trigger == 99.19 and a.fill_price == 99.19
 
 
@@ -307,22 +317,24 @@ def _reflect_ctx(ctx):
 
 
 _STEP = (100.2, 101.0, 100.1, 100.9)
+# Short mirror scenarios need s120 on; the product default leaves 120 EMA shorts off.
+_SHORT_ON = dict(shorts_ma120_enabled=1)
 _SCENARIOS = {
-    "watch": ([TOUCH], CTX, Settings(stop_mode=0)),
-    "trigger": ([TOUCH, _STEP], CTX, Settings(stop_mode=0)),
-    "trigger follows the candle": ([TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)], CTX, Settings(stop_mode=0)),
-    "cancel": ([TOUCH, (100.2, 100.3, 98.0, 98.2)], CTX, Settings(stop_mode=0)),
-    "expire": ([TOUCH] + [(100.2, 100.5, 100.0, 100.3)] * 4, CTX, Settings(stop_mode=0, watch_bars=4)),
+    "watch": ([TOUCH], CTX, Settings(stop_mode=0, **_SHORT_ON)),
+    "trigger": ([TOUCH, _STEP], CTX, Settings(stop_mode=0, **_SHORT_ON)),
+    "trigger follows the candle": ([TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)], CTX, Settings(stop_mode=0, **_SHORT_ON)),
+    "cancel": ([TOUCH, (100.2, 100.3, 98.0, 98.2)], CTX, Settings(stop_mode=0, **_SHORT_ON)),
+    "expire": ([TOUCH] + [(100.2, 100.5, 100.0, 100.3)] * 4, CTX, Settings(stop_mode=0, watch_bars=4, **_SHORT_ON)),
     "break-even stop": (
         [TOUCH, _STEP, (100.9, 101.2, 100.8, 101.1), (101.1, 101.4, 101.0, 101.3), (101.3, 101.5, 101.2, 101.4),
          (101.4, 101.45, 100.7, 100.8)],
-        CTX, Settings(stop_mode=0, breakeven_after_new_highs=3),
+        CTX, Settings(stop_mode=0, breakeven_after_new_highs=3, **_SHORT_ON),
     ),
     "exit on a close through the EMA": (
         [(100.5, 100.8, 98.5, 100.2), _STEP, (100.9, 100.95, 98.55, 98.55)],
-        Context(ma_tail={120: rising(98.5)}, prev_close=101.0), Settings(stop_mode=0, hold_pct=0, max_stop_pct=5),
+        Context(ma_tail={120: rising(98.5)}, prev_close=101.0), Settings(stop_mode=0, hold_pct=0, max_stop_pct=5, **_SHORT_ON),
     ),
-    "stop": ([TOUCH, _STEP, (100.9, 100.95, 98.9, 99.0)], CTX, Settings(stop_mode=0)),
+    "stop": ([TOUCH, _STEP, (100.9, 100.95, 98.9, 99.0)], CTX, Settings(stop_mode=0, **_SHORT_ON)),
 }
 
 
@@ -347,7 +359,70 @@ def test_short_alerts_mirror_long_alerts(name):
 
 
 def test_a_short_rally_into_a_rising_ema_is_not_alerted():
-    assert simulate("AAA", "2026-10-23", bars(_reflect_rows([TOUCH])), CTX, Settings(), side="short") == []
+    assert simulate(
+        "AAA", "2026-10-23", bars(_reflect_rows([TOUCH])), CTX, Settings(shorts_ma120_enabled=1), side="short",
+    ) == []
+
+
+def test_ma120_short_gate_off_by_default_and_on_when_enabled():
+    reset_skip_counts()
+    short_rows = _reflect_rows([TOUCH])
+    short_ctx = _reflect_ctx(CTX)
+    assert Settings().shorts_ma120_enabled == 0
+    assert simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(), side="short") == []
+    assert skip_counts()[SKIP_MA120_SHORT] == 1
+    [a] = simulate(
+        "AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(shorts_ma120_enabled=1), side="short",
+    )
+    assert a.setup == "s120" and a.status == "pending"
+
+
+def test_long_extension_cap_at_boundary_and_zero_disables():
+    reset_skip_counts()
+    # Trigger on TOUCH is 100.81. Extension = (trigger - ema) / ema * 100.
+    # At exactly 2% (or a hair under from float noise) the alert passes; above 2% it skips.
+    trigger = 100.81
+    ema_at = trigger / 1.02 + 1e-9  # at/under the 2% line
+    assert (trigger - ema_at) / ema_at * 100 <= 2.0
+    ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=ema_at)
+    [a] = run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
+    assert a.setup == "120" and a.trigger == trigger
+    ema_over = trigger / 1.02 - 1e-6  # clearly above 2%
+    assert (trigger - ema_over) / ema_over * 100 > 2.0
+    ctx_over = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=ema_over)
+    assert run([TOUCH], ctx_over, settings=Settings(long_max_ext_vs_d10ema_pct=2.0)) == []
+    assert skip_counts()[SKIP_EXT_CAP] >= 1
+    # 0 disables the cap even when deeply extended.
+    ctx_far = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=50.0)
+    assert len(run([TOUCH], ctx_far, settings=Settings(long_max_ext_vs_d10ema_pct=0))) == 1
+
+
+def test_prior_daily_10_ema_ignores_partial_current_day_bar():
+    closes = [100.0 + i * 0.5 for i in range(20)]
+    days = [date(2026, 10, 1) + timedelta(days=i) for i in range(20)]
+    session = date(2026, 10, 21)
+    base = prior_daily_10_ema(closes)
+    assert base is not None
+    df = pd.DataFrame({"close": closes + [999.0]}, index=pd.to_datetime(days + [session]))
+    assert prior_daily_10_ema_from_frame(df, session) == pytest.approx(base)
+    assert prior_daily_10_ema_from_frame(df.iloc[:-1], session) == pytest.approx(base)
+    # Including today in the bare close list would change the value.
+    assert prior_daily_10_ema(closes + [999.0]) != pytest.approx(base)
+
+
+def test_status_skip_counts_reset_and_accumulate():
+    reset_skip_counts()
+    assert skip_counts() == {SKIP_EXT_CAP: 0, SKIP_MA120_SHORT: 0}
+    short_rows = _reflect_rows([TOUCH])
+    short_ctx = _reflect_ctx(CTX)
+    simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(), side="short")
+    ema = 100.81 / 1.03
+    ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=ema)
+    run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
+    counts = skip_counts()
+    assert counts[SKIP_MA120_SHORT] == 1 and counts[SKIP_EXT_CAP] == 1
+    reset_skip_counts()
+    assert skip_counts() == {SKIP_EXT_CAP: 0, SKIP_MA120_SHORT: 0}
 
 
 def test_short_alert_names_have_a_short_daily_setup_weakest_first():

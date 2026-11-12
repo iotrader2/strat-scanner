@@ -500,6 +500,16 @@ def _close_watchlist_reset(now) -> bool:
     return bool(changed) and changed.get("session") == target.isoformat()
 
 
+def _prior_d10_emas(symbols: list[str], session: date) -> dict[str, float]:
+    """Prior-session daily 10 EMA per symbol from ``State.daily`` (excludes ``session``'s bar)."""
+    out: dict[str, float] = {}
+    for sym in symbols:
+        ema = alert_rules.prior_daily_10_ema_from_frame(State.daily.get(sym), session)
+        if ema is not None:
+            out[sym] = ema
+    return out
+
+
 def _refresh_alerts() -> None:
     """15-minute EMA entries on the same poll. No-op outside the regular session.
 
@@ -510,8 +520,11 @@ def _refresh_alerts() -> None:
         settings = alerts_store.load_settings()
         _sync_alert_watchlist(settings)
         longs, shorts, labels = alert_refresh_inputs(State.scan, settings)
+        session = now_et().date()
+        d10 = _prior_d10_emas(list(dict.fromkeys([*longs, *shorts])), session)
         stats = alerts_live.refresh(
             longs, settings=settings, short_symbols=shorts, daily_setups=labels,
+            prior_d10_emas=d10,
         )
         if stats.get("skipped"):
             if stats.get("prepared"):
@@ -806,6 +819,8 @@ def _catch_up_alert_archive(done: date | None, now) -> date | None:
         _reset_archive_retry()
     if result["skipped"]:
         return done
+    # Archive marks the end of the session: clear in-memory skip counts for the next day.
+    alert_rules.reset_skip_counts()
     dropped = result.get("dropped") or 0
     if result["moved"] or dropped:
         suffix = f" and removed {dropped} live duplicates" if dropped else ""
@@ -901,6 +916,7 @@ def _status_body() -> dict:
         "delay": "5m" if live_bars_enabled() else "15m",
         "source": "alpaca" if live_bars_enabled() else "yahoo",
         "storage": userdb.describe(),
+        "alert_skips_today": alert_rules.skip_counts(),
     }
 
 
