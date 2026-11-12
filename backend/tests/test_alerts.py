@@ -514,7 +514,7 @@ def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     open_gate = Settings(theme_gate=0)
 
     def r(sym, rs, setups, kind="stock"):
-        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups, "avg_dollar_volume": 50_000_000, "atr_pct": 5.0}
+        return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups, "avg_dollar_volume": 200_000_000, "atr_pct": 5.0}
 
     rows = [
         r("AAA", 0.08, [short_d]), r("BBB", 0.02, [short_d]), r("CCC", 0.90, [short_d]),  # any RS
@@ -536,7 +536,7 @@ def test_the_theme_gate_keeps_the_outer_band_and_pending_is_optional():
     def r(sym, rank, setups, score=80, rs=0.5):
         return {
             "symbol": sym, "kind": "stock", "score": score, "rs": rs, "setups": setups,
-            "avg_dollar_volume": 50_000_000, "atr_pct": 5.0, "atr_pct": 5.0,
+            "avg_dollar_volume": 200_000_000, "atr_pct": 5.0, "atr_pct": 5.0,
             "theme_strength": {"rank": rank, "total": 4},
         }
 
@@ -568,16 +568,20 @@ def test_dollar_volume_and_atr_screen_names_before_the_cap():
         }
 
     thin = row("THIN", 99, 5_000_000, 4)
-    liquid = row("LIQ", 40, 20_000_000, 4)
-    quiet = row("QUIET", 80, 20_000_000, 0.5)
-    wild = row("WILD", 70, 20_000_000, 15)
-    missing = row("MISS", 60, 20_000_000, None)
-    at_floor = row("FLOOR", 95, 20_000_000, 3.0)
-    just_over = row("OVER", 30, 20_000_000, 3.01)
-    # Default: $10M minimum, ATR slider Any, hard ATR floor > 3%. The thin name is dropped before the cap of 1.
-    assert alert_symbols([thin, liquid], Settings(max_symbols=1)) == ["LIQ"]
+    mid = row("MID", 99, 50_000_000, 4)  # above the old $10M default, under the new $100M default
+    liquid = row("LIQ", 40, 200_000_000, 4)
+    quiet = row("QUIET", 80, 200_000_000, 0.5)
+    wild = row("WILD", 70, 200_000_000, 15)
+    missing = row("MISS", 60, 200_000_000, None)
+    at_floor = row("FLOOR", 95, 200_000_000, 3.0)
+    just_over = row("OVER", 30, 200_000_000, 3.01)
+    # Default: $100M minimum, ATR slider Any, hard ATR floor > 3%. Thin / mid names are dropped before the cap of 1.
+    assert Settings().min_avg_dollar_volume == 100_000_000
+    assert alert_symbols([thin, mid, liquid], Settings(max_symbols=1)) == ["LIQ"]
     assert passes_name_screen(liquid, Settings())
     assert not passes_name_screen(thin, Settings())
+    assert not passes_name_screen(mid, Settings())
+    assert passes_name_screen(mid, Settings(min_avg_dollar_volume=10_000_000))
     assert passes_name_screen(wild, Settings())  # 12%+ is no upper limit
     # The floor is strict and applies even with the slider at Any: 3% or less, or no ATR yet, is out.
     assert not passes_name_screen(missing, Settings())
@@ -589,7 +593,7 @@ def test_dollar_volume_and_atr_screen_names_before_the_cap():
     assert alert_symbols([liquid, quiet, wild, missing], tight) == ["LIQ"]
     assert passes_name_screen(wild, Settings(atr_pct_min=0, atr_pct_max=12))
     short_row = row("SH", 10, 5_000_000, 4, setups=[short], rs=0.05)
-    short_ok = row("OK", 10, 30_000_000, 4, setups=[short], rs=0.1)
+    short_ok = row("OK", 10, 200_000_000, 4, setups=[short], rs=0.1)
     for r in (short_row, short_ok):
         r["theme_strength"] = {"rank": 4, "total": 4}
     assert alert_short_symbols([short_row, short_ok], Settings(short_flat=1)) == ["OK"]

@@ -238,10 +238,10 @@ describe("RsPill", () => {
 describe("Alert liquidity sliders", () => {
   it("matches the scanner volume and ATR sliders, and exempts names you added", () => {
     const html = renderToStaticMarkup(
-      <AlertLiquidityFilters volume={10_000_000} atr={[0, 12]} onVolume={() => undefined} onAtr={() => undefined} />,
+      <AlertLiquidityFilters volume={100_000_000} atr={[0, 12]} onVolume={() => undefined} onAtr={() => undefined} />,
     );
     expect(html).toContain("Min avg $ volume");
-    expect(html).toContain("≥ $10M");
+    expect(html).toContain("≥ $100M");
     expect(html).toContain("$10M");
     expect(html).toContain("$5B");
     expect(html).toContain("ATR %");
