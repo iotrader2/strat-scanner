@@ -383,12 +383,18 @@ def _flat_prior_bars(level: float, n: int = 15) -> list[float]:
     return [level] * n
 
 
+def _prior_bars_with_rise(step: float, n: int) -> list[float]:
+    """Flat history then a short rise so d4 sits above d10 by a controlled amount."""
+    return [100.0] * 50 + [100.0 + i * step for i in range(1, n + 1)]
+
+
 def test_long_extension_skip_at_boundary_and_zero_disables():
     # Trigger-style price 100.81. Extension = (price - ema) / ema * 100.
     price = 100.81
     ema_at = price / 1.02 + 1e-9  # at/under the 2% line
     assert (price - ema_at) / ema_at * 100 <= 2.0
-    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10)
+    # Waiver off so flat over-cap cases still skip (on a flat series d4 == d10).
+    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10, long_ext_waive_at_d4ema=0)
     skip, details = long_extension_skip(price, _flat_prior_bars(ema_at), s)
     assert skip is False and details["ext_pct"] <= 2.0
     ema_over = price / 1.02 - 1e-6  # clearly above 2%
@@ -402,8 +408,52 @@ def test_long_extension_skip_at_boundary_and_zero_disables():
     assert Settings().long_ext_ema_period == 10
     short_hist = _flat_prior_bars(ema_over, n=5)  # only 5 bars: period 10 cannot compute
     assert long_extension_skip(price, short_hist, Settings(long_ext_ema_period=10, long_max_ext_vs_d10ema_pct=2.0)) == (False, {})
-    skip5, d5 = long_extension_skip(price, short_hist, Settings(long_ext_ema_period=5, long_max_ext_vs_d10ema_pct=2.0))
+    skip5, d5 = long_extension_skip(
+        price, short_hist, Settings(long_ext_ema_period=5, long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0),
+    )
     assert skip5 is True and d5["ema_period"] == 5
+
+
+def test_long_extension_d4_waiver_tyl_kept_dg_skipped_and_boundary():
+    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10, long_ext_waive_at_d4ema=1)
+    assert Settings().long_ext_waive_at_d4ema == 1
+
+    # TYL-like: 2.47% above prior-day 10 EMA and 0.2% below prior-day 4 EMA → kept (waived).
+    tyl_bars = _prior_bars_with_rise(1.9, 5)
+    d10 = prior_daily_ema(tyl_bars, 10)
+    d4 = prior_daily_ema(tyl_bars, 4)
+    tyl_price = d10 * 1.0247
+    assert (tyl_price - d10) / d10 * 100 == pytest.approx(2.47)
+    assert (tyl_price - d4) / d4 * 100 == pytest.approx(-0.2, abs=0.05)
+    skip_tyl, tyl = long_extension_skip(tyl_price, tyl_bars, s)
+    assert skip_tyl is False and tyl["waived"] is True
+    assert tyl["prior_d4_ema"] == pytest.approx(d4)
+    assert tyl["ext_pct"] == pytest.approx(2.47)
+    assert tyl["ext_vs_d4_pct"] == pytest.approx(-0.2, abs=0.05)
+
+    # DG-like: 2.3% above the 10 EMA and 1.1% above the 4 EMA → skipped with ext_cap.
+    dg_bars = _prior_bars_with_rise(1.4, 3)
+    d10_dg = prior_daily_ema(dg_bars, 10)
+    d4_dg = prior_daily_ema(dg_bars, 4)
+    dg_price = d10_dg * 1.023
+    assert (dg_price - d10_dg) / d10_dg * 100 == pytest.approx(2.3)
+    assert (dg_price - d4_dg) / d4_dg * 100 == pytest.approx(1.1, abs=0.05)
+    skip_dg, dg = long_extension_skip(dg_price, dg_bars, s)
+    assert skip_dg is True and dg["waived"] is False and dg["reason"] == SKIP_EXT_CAP
+    assert dg["prior_d4_ema"] == pytest.approx(d4_dg)
+    assert dg["ext_pct"] == pytest.approx(2.3)
+    assert dg["ext_vs_d4_pct"] == pytest.approx(1.1, abs=0.05)
+
+    # Boundary: price exactly equal to the 4 EMA is kept (waiver), still over the 10 EMA cap.
+    skip_eq, eq = long_extension_skip(d4, tyl_bars, s)
+    assert (d4 - d10) / d10 * 100 > 2.0
+    assert skip_eq is False and eq["waived"] is True and eq["ext_vs_d4_pct"] == pytest.approx(0.0)
+
+    # Waiver off: the TYL case is skipped.
+    skip_off, off = long_extension_skip(
+        tyl_price, tyl_bars, Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0),
+    )
+    assert skip_off is True and off["waived"] is False
 
 
 def test_long_extension_cap_wired_through_simulate():
@@ -411,7 +461,7 @@ def test_long_extension_cap_wired_through_simulate():
     trigger = 100.81
     ema_over = trigger / 1.02 - 1e-6
     ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(ema_over))
-    assert run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0)) == []
+    assert run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0)) == []
     assert skip_counts()[SKIP_EXT_CAP] >= 1
     ctx_ok = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(trigger))
     [a] = run([TOUCH], ctx_ok, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
@@ -423,15 +473,19 @@ def test_prior_daily_ema_ignores_partial_current_day_bar():
     days = [date(2026, 10, 1) + timedelta(days=i) for i in range(20)]
     session = date(2026, 10, 21)
     base = prior_daily_ema(closes, 10)
-    assert base is not None
+    d4 = prior_daily_ema(closes, 4)
+    assert base is not None and d4 is not None
     df = pd.DataFrame({"close": closes + [999.0]}, index=pd.to_datetime(days + [session]))
     bars = prior_daily_bars_from_frame(df, session)
-    assert prior_daily_ema([b["close"] for b in bars], 10) == pytest.approx(base)
+    closes_prior = [b["close"] for b in bars]
+    assert prior_daily_ema(closes_prior, 10) == pytest.approx(base)
+    assert prior_daily_ema(closes_prior, 4) == pytest.approx(d4)
     assert prior_daily_bars_from_frame(df.iloc[:-1], session) == bars
-    # Including today in the bare close list would change the value.
+    # Including today in the bare close list would change both EMA values.
     assert prior_daily_ema(closes + [999.0], 10) != pytest.approx(base)
-    # long_extension_skip sees the same prior-only bars either way.
-    s = Settings(long_max_ext_vs_d10ema_pct=2.0)
+    assert prior_daily_ema(closes + [999.0], 4) != pytest.approx(d4)
+    # long_extension_skip sees the same prior-only bars either way (waiver off so over-cap skips).
+    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0)
     assert long_extension_skip(base * 1.05, bars, s)[0] is True
     assert long_extension_skip(base * 1.05, prior_daily_bars_from_frame(df.iloc[:-1], session), s)[0] is True
 
@@ -444,7 +498,7 @@ def test_status_skip_counts_reset_and_accumulate():
     simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(), side="short")
     ema = 100.81 / 1.03
     ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(ema))
-    run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
+    run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0))
     counts = skip_counts()
     assert counts[SKIP_MA120_SHORT] == 1 and counts[SKIP_EXT_CAP] == 1
     reset_skip_counts()

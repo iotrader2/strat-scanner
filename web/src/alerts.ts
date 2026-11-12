@@ -463,6 +463,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["ma_480", "480 EMA, blue (1 = on, 0 = off)", ""],
       ["long_ext_ema_period", "Long extension cap: prior-day daily EMA period", ""],
       ["long_max_ext_vs_d10ema_pct", "Skip a long when the buy is more than this % above that prior-day EMA (0 = off)", "%"],
+      ["long_ext_waive_at_d4ema", "Keep a long over the cap when the buy is at or under the prior-day daily 4 EMA (1 = on, 0 = off)", ""],
       ["touch_tol_pct", "Touch: low within", "% over the EMA"],
       ["hold_pct", "Lost the EMA: a close more than", "% under it"],
       ["rising_bars", "Rising: higher than", "candles earlier"],

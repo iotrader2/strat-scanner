@@ -129,9 +129,11 @@ class Settings:
     ma_240: int = 0
     ma_480: int = 0
     # Longs: skip when the buy trigger is more than this percent above the prior session's daily EMA
-    # of ``long_ext_ema_period``. 0 disables the cap. The rule lives in ``long_extension_skip`` (provisional).
+    # of ``long_ext_ema_period``. 0 disables the cap. The rule lives in ``long_extension_skip``.
     long_max_ext_vs_d10ema_pct: float = 2.0
     long_ext_ema_period: int = 10  # daily EMA period for the long extension cap (default 10)
+    # 1 = do not skip when the trigger/fill is at or under the prior-day daily 4 EMA, even if over the cap.
+    long_ext_waive_at_d4ema: int = 1
     # 0 = lowest low since the touch. 1 = the candle that owns the buy. 2 = fixed percent.
     # 2 is the default: a 1% stop made the most R for theme-gated longs in that replay (+24.5 R) and stays inside 2%.
     stop_mode: int = 2
@@ -238,6 +240,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "shorts": (0, 1), "max_short_symbols": (0, 1000), "shorts_ma120_enabled": (0, 1),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "long_max_ext_vs_d10ema_pct": (0, 100), "long_ext_ema_period": (1, 200),
+    "long_ext_waive_at_d4ema": (0, 1),
     "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
     "long_pending_only": (0, 1), "reset_manual": (0, 1), "alert_manual_watchlist": (0, 1),
     "min_avg_dollar_volume": (10_000_000, 5_000_000_000),
@@ -425,6 +428,9 @@ def record_skip(
     trigger: Optional[float] = None,
     prior_d10_ema: Optional[float] = None,
     ext_pct: Optional[float] = None,
+    prior_d4_ema: Optional[float] = None,
+    ext_vs_d4_pct: Optional[float] = None,
+    waived: Optional[bool] = None,
 ) -> None:
     """Bump the in-memory skip counter and emit a structured skip log line."""
     global _skip_session
@@ -436,13 +442,17 @@ def record_skip(
         if reason in _skip_counts:
             _skip_counts[reason] += 1
     log.info(
-        "alert_skip symbol=%s setup=%s side=%s trigger=%s prior_d10_ema=%s ext_pct=%s reason=%s",
+        "alert_skip symbol=%s setup=%s side=%s trigger=%s prior_d10_ema=%s ext_pct=%s "
+        "prior_d4_ema=%s ext_vs_d4_pct=%s waived=%s reason=%s",
         symbol,
         setup,
         side,
         None if trigger is None else round(float(trigger), 4),
         None if prior_d10_ema is None else round(float(prior_d10_ema), 4),
         None if ext_pct is None else round(float(ext_pct), 4),
+        None if prior_d4_ema is None else round(float(prior_d4_ema), 4),
+        None if ext_vs_d4_pct is None else round(float(ext_vs_d4_pct), 4),
+        waived,
         reason,
     )
 
@@ -506,12 +516,12 @@ def long_extension_skip(
     daily_bars: Sequence[Any],
     settings: Settings,
 ) -> tuple[bool, dict]:
-    """Provisional long extension cap: ``(skip, details)``.
+    """Long extension cap with optional daily-4 EMA waiver: ``(skip, details)``.
 
     Skip when ``price`` is more than ``long_max_ext_vs_d10ema_pct`` percent above the prior-session
-    daily EMA of ``long_ext_ema_period``. ``daily_bars`` must already exclude today's partial bar.
-    Cap of 0 (or missing EMA) does not skip. Keep this function the single place for the rule so it
-    can be swapped (e.g. 20 EMA, ATR multiples, waiver under the daily 4 EMA) without touching callers.
+    daily EMA of ``long_ext_ema_period``. When ``long_ext_waive_at_d4ema`` is on and ``price`` is at
+    or under the prior-session daily 4 EMA, do not skip even if over the cap. ``daily_bars`` must
+    already exclude today's partial bar. Cap of 0 (or missing EMA) does not skip.
     """
     cap = float(settings.long_max_ext_vs_d10ema_pct)
     if cap <= 0 or not isinstance(price, (int, float)) or float(price) <= 0:
@@ -521,16 +531,25 @@ def long_extension_skip(
     ema = prior_daily_ema(closes, period)
     if ema is None or ema <= 0:
         return False, {}
-    ext_pct = (float(price) - ema) / ema * 100.0
+    px = float(price)
+    ext_pct = (px - ema) / ema * 100.0
+    d4 = prior_daily_ema(closes, 4)
+    ext_vs_d4 = ((px - d4) / d4 * 100.0) if d4 is not None and d4 > 0 else None
     details = {
         "prior_d10_ema": ema,
         "ext_pct": ext_pct,
         "ema_period": period,
+        "prior_d4_ema": d4,
+        "ext_vs_d4_pct": ext_vs_d4,
+        "waived": False,
         "reason": SKIP_EXT_CAP,
     }
-    if ext_pct > cap:
-        return True, details
-    return False, details
+    if ext_pct <= cap:
+        return False, details
+    if settings.long_ext_waive_at_d4ema and d4 is not None and d4 > 0 and px <= d4:
+        details["waived"] = True
+        return False, details
+    return True, details
 
 
 def ema_series(values: Sequence[float], period: int) -> list[Optional[float]]:
@@ -984,12 +1003,19 @@ def simulate(
                     trigger=alert.trigger,
                     prior_d10_ema=ext_details.get("prior_d10_ema"),
                     ext_pct=ext_details.get("ext_pct"),
+                    prior_d4_ema=ext_details.get("prior_d4_ema"),
+                    ext_vs_d4_pct=ext_details.get("ext_vs_d4_pct"),
+                    waived=ext_details.get("waived"),
                 )
                 if skipped is not None:
                     skipped.append({
                         "symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key,
                         "reason": SKIP_EXT_CAP, "trigger": alert.trigger,
-                        **{k: ext_details[k] for k in ("prior_d10_ema", "ext_pct", "ema_period") if k in ext_details},
+                        **{
+                            k: ext_details[k]
+                            for k in ("prior_d10_ema", "ext_pct", "ema_period", "prior_d4_ema", "ext_vs_d4_pct", "waived")
+                            if k in ext_details
+                        },
                     })
                 continue
         _note_feed(alert, bar)
