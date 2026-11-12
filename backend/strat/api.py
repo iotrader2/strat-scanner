@@ -500,13 +500,13 @@ def _close_watchlist_reset(now) -> bool:
     return bool(changed) and changed.get("session") == target.isoformat()
 
 
-def _prior_d10_emas(symbols: list[str], session: date) -> dict[str, float]:
-    """Prior-session daily 10 EMA per symbol from ``State.daily`` (excludes ``session``'s bar)."""
-    out: dict[str, float] = {}
+def _prior_daily_bars(symbols: list[str], session: date) -> dict[str, list]:
+    """Prior-session daily bars per symbol from ``State.daily`` (excludes ``session``'s bar)."""
+    out: dict[str, list] = {}
     for sym in symbols:
-        ema = alert_rules.prior_daily_10_ema_from_frame(State.daily.get(sym), session)
-        if ema is not None:
-            out[sym] = ema
+        bars = alert_rules.prior_daily_bars_from_frame(State.daily.get(sym), session)
+        if bars:
+            out[sym] = bars
     return out
 
 
@@ -521,10 +521,10 @@ def _refresh_alerts() -> None:
         _sync_alert_watchlist(settings)
         longs, shorts, labels = alert_refresh_inputs(State.scan, settings)
         session = now_et().date()
-        d10 = _prior_d10_emas(list(dict.fromkeys([*longs, *shorts])), session)
+        prior_bars = _prior_daily_bars(list(dict.fromkeys([*longs, *shorts])), session)
         stats = alerts_live.refresh(
             longs, settings=settings, short_symbols=shorts, daily_setups=labels,
-            prior_d10_emas=d10,
+            prior_daily_bars=prior_bars,
         )
         if stats.get("skipped"):
             if stats.get("prepared"):

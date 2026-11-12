@@ -16,9 +16,10 @@ from strat.alerts import (
     advance_stored,
     context_from_closes,
     ema_series,
+    long_extension_skip,
     metrics,
-    prior_daily_10_ema,
-    prior_daily_10_ema_from_frame,
+    prior_daily_bars_from_frame,
+    prior_daily_ema,
     reset_skip_counts,
     simulate,
     skip_counts,
@@ -377,37 +378,62 @@ def test_ma120_short_gate_off_by_default_and_on_when_enabled():
     assert a.setup == "s120" and a.status == "pending"
 
 
-def test_long_extension_cap_at_boundary_and_zero_disables():
-    reset_skip_counts()
-    # Trigger on TOUCH is 100.81. Extension = (trigger - ema) / ema * 100.
-    # At exactly 2% (or a hair under from float noise) the alert passes; above 2% it skips.
-    trigger = 100.81
-    ema_at = trigger / 1.02 + 1e-9  # at/under the 2% line
-    assert (trigger - ema_at) / ema_at * 100 <= 2.0
-    ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=ema_at)
-    [a] = run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
-    assert a.setup == "120" and a.trigger == trigger
-    ema_over = trigger / 1.02 - 1e-6  # clearly above 2%
-    assert (trigger - ema_over) / ema_over * 100 > 2.0
-    ctx_over = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=ema_over)
-    assert run([TOUCH], ctx_over, settings=Settings(long_max_ext_vs_d10ema_pct=2.0)) == []
-    assert skip_counts()[SKIP_EXT_CAP] >= 1
+def _flat_prior_bars(level: float, n: int = 15) -> list[float]:
+    """Enough identical closes that the daily EMA equals ``level`` for any period ≤ n."""
+    return [level] * n
+
+
+def test_long_extension_skip_at_boundary_and_zero_disables():
+    # Trigger-style price 100.81. Extension = (price - ema) / ema * 100.
+    price = 100.81
+    ema_at = price / 1.02 + 1e-9  # at/under the 2% line
+    assert (price - ema_at) / ema_at * 100 <= 2.0
+    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10)
+    skip, details = long_extension_skip(price, _flat_prior_bars(ema_at), s)
+    assert skip is False and details["ext_pct"] <= 2.0
+    ema_over = price / 1.02 - 1e-6  # clearly above 2%
+    assert (price - ema_over) / ema_over * 100 > 2.0
+    skip_over, over = long_extension_skip(price, _flat_prior_bars(ema_over), s)
+    assert skip_over is True and over["reason"] == SKIP_EXT_CAP and over["ext_pct"] > 2.0
     # 0 disables the cap even when deeply extended.
-    ctx_far = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=50.0)
-    assert len(run([TOUCH], ctx_far, settings=Settings(long_max_ext_vs_d10ema_pct=0))) == 1
+    skip_off, _ = long_extension_skip(price, _flat_prior_bars(50.0), Settings(long_max_ext_vs_d10ema_pct=0))
+    assert skip_off is False
+    # Period setting is used (not hardcoded 10).
+    assert Settings().long_ext_ema_period == 10
+    short_hist = _flat_prior_bars(ema_over, n=5)  # only 5 bars: period 10 cannot compute
+    assert long_extension_skip(price, short_hist, Settings(long_ext_ema_period=10, long_max_ext_vs_d10ema_pct=2.0)) == (False, {})
+    skip5, d5 = long_extension_skip(price, short_hist, Settings(long_ext_ema_period=5, long_max_ext_vs_d10ema_pct=2.0))
+    assert skip5 is True and d5["ema_period"] == 5
 
 
-def test_prior_daily_10_ema_ignores_partial_current_day_bar():
+def test_long_extension_cap_wired_through_simulate():
+    reset_skip_counts()
+    trigger = 100.81
+    ema_over = trigger / 1.02 - 1e-6
+    ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(ema_over))
+    assert run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0)) == []
+    assert skip_counts()[SKIP_EXT_CAP] >= 1
+    ctx_ok = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(trigger))
+    [a] = run([TOUCH], ctx_ok, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
+    assert a.setup == "120" and a.trigger == trigger
+
+
+def test_prior_daily_ema_ignores_partial_current_day_bar():
     closes = [100.0 + i * 0.5 for i in range(20)]
     days = [date(2026, 10, 1) + timedelta(days=i) for i in range(20)]
     session = date(2026, 10, 21)
-    base = prior_daily_10_ema(closes)
+    base = prior_daily_ema(closes, 10)
     assert base is not None
     df = pd.DataFrame({"close": closes + [999.0]}, index=pd.to_datetime(days + [session]))
-    assert prior_daily_10_ema_from_frame(df, session) == pytest.approx(base)
-    assert prior_daily_10_ema_from_frame(df.iloc[:-1], session) == pytest.approx(base)
+    bars = prior_daily_bars_from_frame(df, session)
+    assert prior_daily_ema([b["close"] for b in bars], 10) == pytest.approx(base)
+    assert prior_daily_bars_from_frame(df.iloc[:-1], session) == bars
     # Including today in the bare close list would change the value.
-    assert prior_daily_10_ema(closes + [999.0]) != pytest.approx(base)
+    assert prior_daily_ema(closes + [999.0], 10) != pytest.approx(base)
+    # long_extension_skip sees the same prior-only bars either way.
+    s = Settings(long_max_ext_vs_d10ema_pct=2.0)
+    assert long_extension_skip(base * 1.05, bars, s)[0] is True
+    assert long_extension_skip(base * 1.05, prior_daily_bars_from_frame(df.iloc[:-1], session), s)[0] is True
 
 
 def test_status_skip_counts_reset_and_accumulate():
@@ -417,7 +443,7 @@ def test_status_skip_counts_reset_and_accumulate():
     short_ctx = _reflect_ctx(CTX)
     simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(), side="short")
     ema = 100.81 / 1.03
-    ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_d10_ema=ema)
+    ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(ema))
     run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
     counts = skip_counts()
     assert counts[SKIP_MA120_SHORT] == 1 and counts[SKIP_EXT_CAP] == 1

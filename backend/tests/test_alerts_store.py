@@ -329,6 +329,7 @@ def test_alerts_api(db):
     defaults = c.get("/api/alerts/settings").json()["defaults"]
     assert defaults["shorts_ma120_enabled"] == 0
     assert defaults["long_max_ext_vs_d10ema_pct"] == 2.0
+    assert defaults["long_ext_ema_period"] == 10
 
 
 def test_regular_closes_drop_premarket_and_after_hours():
