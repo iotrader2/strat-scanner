@@ -97,7 +97,7 @@ def test_rows_saved_before_source_existed_count_as_manual(db, tmp_path):
 def test_the_alert_refresh_adds_qualifying_names(db, monkeypatch):
     api.State.scan_key = "2026-11-09"
     api.State.scan = [{
-        "symbol": "AAA", "kind": "stock", "score": 90, "rs": 0.2, "avg_dollar_volume": 50_000_000, "atr_pct": 5.0, "atr_pct": 5.0,
+        "symbol": "AAA", "kind": "stock", "score": 90, "rs": 0.2, "avg_dollar_volume": 200_000_000, "atr_pct": 5.0, "atr_pct": 5.0,
         "theme_strength": {"rank": 1, "total": 4},
         "setups": [{"tf": "D", "kind": "ema-crossback", "label": "EMA Crossback", "side": "long", "triggered": False}],
     }]
@@ -142,7 +142,7 @@ def test_sync_stores_setups_and_refreshes_them(db):
 
 
 def _stock(symbol, score=50, rs=0.5, setups=(), rank=None, total=4, kind="stock"):
-    row = {"symbol": symbol, "kind": kind, "score": score, "rs": rs, "setups": list(setups), "avg_dollar_volume": 50_000_000, "atr_pct": 5.0}
+    row = {"symbol": symbol, "kind": kind, "score": score, "rs": rs, "setups": list(setups), "avg_dollar_volume": 200_000_000, "atr_pct": 5.0}
     if rank is not None:
         row["theme_strength"] = {"rank": rank, "total": total}
     return row

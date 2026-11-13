@@ -13,6 +13,7 @@ wrapper rewrites them to ``%s``. The URL is never logged.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -25,6 +26,11 @@ from typing import Any, Iterator, Optional, Sequence
 from . import config
 
 log = logging.getLogger(__name__)
+
+# One-time bump of a stored alert min dollar-volume that still holds the previous default ($10M → $100M).
+_OLD_MIN_AVG_DOLLAR_VOLUME = 10_000_000
+_NEW_MIN_AVG_DOLLAR_VOLUME = 100_000_000
+_MIN_AVG_DV_MIGRATION_KEY = "migrated_min_avg_dollar_volume_100m"
 
 # Tables owned by this module (also the order the import script copies them in).
 TABLES = ("watchlist", "positions", "position_trims", "extra_symbols", "alerts", "alert_settings")
@@ -222,6 +228,8 @@ def _pg_open():
         cur.execute(f'SET search_path TO "{schema}"')
         if schema not in _pg_ready:
             cur.execute(PG_SCHEMA)
+            conn.commit()
+            _migrate_min_avg_dollar_volume_default(_PgConn(conn))
     conn.commit()
     _pg_ready.add(schema)
     return conn
@@ -263,6 +271,39 @@ def _pg_connect() -> Iterator[_PgConn]:
             raise
 
 
+def _migrate_min_avg_dollar_volume_default(conn) -> None:
+    """If ``alert_settings`` still stores the old $10M default, raise it to $100M once.
+
+    Custom values other than exactly $10M are left alone. A ``user_meta`` flag makes the bump
+    one-time so deliberately setting the slider back to $10M later is not overwritten.
+    """
+    try:
+        flagged = conn.execute(
+            "SELECT 1 FROM user_meta WHERE key = ?", (_MIN_AVG_DV_MIGRATION_KEY,)
+        ).fetchone()
+    except Exception:
+        return
+    if flagged:
+        return
+    row = conn.execute(
+        "SELECT value FROM alert_settings WHERE key = ?", ("min_avg_dollar_volume",)
+    ).fetchone()
+    if row is not None:
+        try:
+            stored = float(json.loads(row[0]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            stored = None
+        if stored == float(_OLD_MIN_AVG_DOLLAR_VOLUME):
+            conn.execute(
+                "UPDATE alert_settings SET value = ? WHERE key = ?",
+                (json.dumps(_NEW_MIN_AVG_DOLLAR_VOLUME), "min_avg_dollar_volume"),
+            )
+    conn.execute(
+        "INSERT INTO user_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (_MIN_AVG_DV_MIGRATION_KEY, "1"),
+    )
+
+
 def _sqlite_migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(extra_symbols)")}
     if "industry" not in cols:
@@ -273,6 +314,7 @@ def _sqlite_migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE watchlist ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
     if "setups" not in {r[1] for r in conn.execute("PRAGMA table_info(watchlist)")}:
         conn.execute("ALTER TABLE watchlist ADD COLUMN setups TEXT NOT NULL DEFAULT '[]'")
+    _migrate_min_avg_dollar_volume_default(conn)
 
 
 @contextmanager

@@ -15,9 +15,13 @@ OPEN = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)  # 09:30 EDT, Friday
 # A pullback to the rising 120 EMA (it ended the prior session at 99.09) on the opening bar.
 A_ROWS = [(100.5, 100.8, 99.1, 100.2)]
 CTX = Context(ma_tail={120: [99.0 + 0.01 * k for k in range(10)]}, prev_close=101.0)
-# Archive helpers use MA-touch fixtures; production default is EMA crossback.
-TOUCH = Settings(entry_trigger=ENTRY_MA_TOUCH, max_stop_pct=5)
 LIVE_KEYS = ["session", "alerts", "sessions", "unread", "last_run", "watchlist", "universe", "setups", "ema5m"]
+
+
+def _touch(**kw):
+    """Archive fixtures use the legacy MA-touch path (production default is 6 EMA crossback)."""
+    kw.setdefault("max_stop_pct", 5.0)
+    return Settings(entry_trigger=ENTRY_MA_TOUCH, **kw)
 
 
 @pytest.fixture
@@ -34,7 +38,7 @@ def _bars(rows, start=OPEN):
 
 
 def _save(symbol, session, when=None, start=OPEN):
-    found = simulate(symbol, session, _bars(A_ROWS, start), CTX, TOUCH)
+    found = simulate(symbol, session, _bars(A_ROWS, start), CTX, _touch())
     return alerts_store.save_session(session, found, now=when or (OPEN + timedelta(minutes=6)))
 
 
@@ -295,7 +299,7 @@ def test_an_archived_key_is_not_recreated_by_a_later_pass(db):
     assert alerts_live.due(later)
     assert alerts_store.archive_if_due(later)["moved"] == 1
 
-    found = simulate("AAA", "2026-10-23", _bars(A_ROWS), CTX, TOUCH)
+    found = simulate("AAA", "2026-10-23", _bars(A_ROWS), CTX, _touch())
     assert any(a.key == key for a in found)
     again = alerts_store.save_session("2026-10-23", found, now=later)
     assert again["inserted"] == [] and again["removed"] == 0
@@ -363,13 +367,13 @@ def test_a_restart_poll_after_the_archive_does_not_recreate_the_alert(db):
     iex = {"AAA": [today]}
     client = _Bars(sip, iex)
     try:
-        first = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, settings=TOUCH)
+        first = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, settings=_touch())
         assert len(first["inserted"]) == 1
         original = first["inserted"][0]["id"]
         later = datetime(2026, 10, 23, 20, 10, tzinfo=timezone.utc)  # 16:10 EDT, still inside RUN_UNTIL
         assert alerts_live.due(later)
         assert alerts_store.archive_if_due(later)["moved"] == 1
-        second = alerts_live.refresh(["AAA"], now=later, client=client, settings=TOUCH)
+        second = alerts_live.refresh(["AAA"], now=later, client=client, settings=_touch())
         assert not second.get("skipped")
         assert second["alerts"] >= 1 and second["inserted"] == []
         assert alerts_store.list_alerts() == []

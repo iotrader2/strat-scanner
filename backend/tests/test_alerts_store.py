@@ -268,14 +268,68 @@ def test_forming_bar_is_the_next_slot_only():
 
 
 def test_volume_and_atr_settings_use_the_slider_bounds(db):
+    from strat.alerts import SETTING_LIMITS
+
+    assert Settings().min_avg_dollar_volume == 100_000_000
+    assert SETTING_LIMITS["min_avg_dollar_volume"] == (10_000_000, 5_000_000_000)
+    assert alerts_store.load_settings().min_avg_dollar_volume == 100_000_000
     saved = alerts_store.save_settings({"min_avg_dollar_volume": 25_000_000, "atr_pct_min": 1.5, "atr_pct_max": 8})
     assert saved.min_avg_dollar_volume == 25_000_000
     assert (saved.atr_pct_min, saved.atr_pct_max) == (1.5, 8)
     assert alerts_store.load_settings().min_avg_dollar_volume == 25_000_000
+    # Left end of the slider ($10M) remains valid even though the default is $100M.
+    assert alerts_store.save_settings({"min_avg_dollar_volume": 10_000_000}).min_avg_dollar_volume == 10_000_000
     with pytest.raises(alerts_store.SettingsError):
         alerts_store.save_settings({"min_avg_dollar_volume": 1_000_000})
     with pytest.raises(alerts_store.SettingsError):
         alerts_store.save_settings({"atr_pct_min": 9, "atr_pct_max": 3})
+
+
+def test_stored_old_default_dollar_volume_is_bumped_once(tmp_path, monkeypatch):
+    """A persisted $10M (the previous default) becomes $100M; other values and a later $10M stay put."""
+    import json
+    import sqlite3
+
+    from strat import userdb
+
+    path = tmp_path / "old.sqlite3"
+    raw = sqlite3.connect(path)
+    raw.executescript(userdb.SQLITE_SCHEMA)
+    raw.execute(
+        "INSERT INTO alert_settings(key, value) VALUES (?, ?)",
+        ("min_avg_dollar_volume", json.dumps(10_000_000)),
+    )
+    raw.commit()
+    raw.close()
+
+    monkeypatch.setattr(config, "CACHE_DB", path)
+    assert alerts_store.load_settings().min_avg_dollar_volume == 100_000_000
+    with userdb.connect() as conn:
+        flag = conn.execute(
+            "SELECT value FROM user_meta WHERE key = ?", (userdb._MIN_AVG_DV_MIGRATION_KEY,)
+        ).fetchone()
+        stored = conn.execute(
+            "SELECT value FROM alert_settings WHERE key = ?", ("min_avg_dollar_volume",)
+        ).fetchone()
+    assert flag and flag[0] == "1"
+    assert json.loads(stored[0]) == 100_000_000
+
+    # Custom values other than the old default are not rewritten.
+    path2 = tmp_path / "custom.sqlite3"
+    raw = sqlite3.connect(path2)
+    raw.executescript(userdb.SQLITE_SCHEMA)
+    raw.execute(
+        "INSERT INTO alert_settings(key, value) VALUES (?, ?)",
+        ("min_avg_dollar_volume", json.dumps(25_000_000.0)),
+    )
+    raw.commit()
+    raw.close()
+    monkeypatch.setattr(config, "CACHE_DB", path2)
+    assert alerts_store.load_settings().min_avg_dollar_volume == 25_000_000
+
+    # After the one-time flag, deliberately choosing $10M is kept.
+    alerts_store.save_settings({"min_avg_dollar_volume": 10_000_000})
+    assert alerts_store.load_settings().min_avg_dollar_volume == 10_000_000
 
 
 def test_alert_symbols_are_names_with_a_long_daily_setup():
@@ -284,14 +338,14 @@ def test_alert_symbols_are_names_with_a_long_daily_setup():
     long_d = {"tf": "D", "kind": "flat-base", "label": "Flat Base Breakout", "side": "long"}
     short_d = {"tf": "D", "kind": "flat-base-short", "label": "Flat Base Breakdown", "side": "short"}
     rows = [
-        {"symbol": "AAA", "kind": "stock", "in_universe": True, "score": 91, "setups": [long_d], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},
-        {"symbol": "BBB", "kind": "stock", "in_universe": True, "score": 40, "setups": [long_d], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},  # any score
-        {"symbol": "CCC", "kind": "etf", "in_universe": True, "score": 95, "setups": [long_d], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},
-        {"symbol": "DDD", "kind": "stock", "in_universe": False, "score": 99, "setups": [short_d], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},  # short only
-        {"symbol": "EEE", "kind": "stock", "in_universe": True, "score": 75, "setups": [], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},  # no daily setup
-        {"symbol": "theme-x", "kind": "theme", "score": 99, "setups": [long_d], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},
-        {"symbol": "FFF", "kind": "stock", "in_universe": False, "score": None, "setups": [long_d], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},
-        {"symbol": "GGG", "kind": "stock", "in_universe": True, "score": 99, "setups": [{**long_d, "tf": "W"}], "avg_dollar_volume": 50_000_000, "atr_pct": 5.0},
+        {"symbol": "AAA", "kind": "stock", "in_universe": True, "score": 91, "setups": [long_d], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},
+        {"symbol": "BBB", "kind": "stock", "in_universe": True, "score": 40, "setups": [long_d], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},  # any score
+        {"symbol": "CCC", "kind": "etf", "in_universe": True, "score": 95, "setups": [long_d], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},
+        {"symbol": "DDD", "kind": "stock", "in_universe": False, "score": 99, "setups": [short_d], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},  # short only
+        {"symbol": "EEE", "kind": "stock", "in_universe": True, "score": 75, "setups": [], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},  # no daily setup
+        {"symbol": "theme-x", "kind": "theme", "score": 99, "setups": [long_d], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},
+        {"symbol": "FFF", "kind": "stock", "in_universe": False, "score": None, "setups": [long_d], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},
+        {"symbol": "GGG", "kind": "stock", "in_universe": True, "score": 99, "setups": [{**long_d, "tf": "W"}], "avg_dollar_volume": 200_000_000, "atr_pct": 5.0},
     ]
     assert alert_symbols(rows, Settings(theme_gate=0)) == ["CCC", "AAA", "BBB", "FFF"]
     assert alert_symbols(rows, Settings(theme_gate=0, max_symbols=1)) == ["CCC"]
