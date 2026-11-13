@@ -113,8 +113,8 @@ themes:
 
   crypto:
     name: Crypto-related
-    description: "Exchanges, treasury companies and brokers that trade with bitcoin."
-    members: "COIN MSTR HOOD MARA CRCL"
+    description: "Exchanges, treasury companies (bitcoin and ether) and brokers that trade crypto."
+    members: "COIN MSTR HOOD MARA CRCL BMNR"
     also: "RIOT CLSK"
     keep: "MARA"
 
