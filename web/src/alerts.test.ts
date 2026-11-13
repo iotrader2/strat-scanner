@@ -347,6 +347,16 @@ describe("alert filters", () => {
     expect(ids({ ...DEFAULT_ALERT_FILTERS, side: "short" })).toEqual([2, 4]);
   });
 
+  it("counts inverse-ETF longs (EMA Crossback Short) as the short side", () => {
+    const inv = [
+      sample({ id: 1, symbol: "NVDA", setup: "6" }),
+      sample({ id: 2, symbol: "TSLQ", setup: "6", details: { inverse_etf: true, underlying: "TSLA" } as never }),
+    ];
+    const by = (side: "long" | "short") => filterAlerts(inv, { ...DEFAULT_ALERT_FILTERS, side }).map((a) => a.id);
+    expect(by("short")).toEqual([2]);
+    expect(by("long")).toEqual([1]);
+  });
+
   it("filters by score and RS ranges; a narrowed range drops names without a value", () => {
     expect(ids({ ...DEFAULT_ALERT_FILTERS, score: [50, 100] })).toEqual([1, 3]);
     expect(ids({ ...DEFAULT_ALERT_FILTERS, rs: [0, 10] })).toEqual([2]);

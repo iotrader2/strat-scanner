@@ -344,7 +344,7 @@ export function alertSortValue(a: TradeAlert, key: string): number | string | nu
     case "rs":
       return a.rs ?? null;
     case "side":
-      return isShortSetup(a.setup) ? "Short" : "Long";
+      return isShortAlert(a) ? "Short" : "Long";
     case "daily_setup":
       return dailySetupText(a.details?.daily_setups) || null;
     case "industry":
@@ -629,7 +629,7 @@ function inRange(v: number | null | undefined, [lo, hi]: [number, number]): bool
  * Alerts that pass the filters and whose ticker contains ``ticker`` (any case). A narrowed score or RS range drops names with no score / RS (off the scan).
  * RS is compared as a whole percentile (0.934 → 93), the same number the RS column shows.
  */
-export function filterAlerts<T extends Pick<TradeAlert, "symbol" | "setup" | "score" | "rs" | "status">>(
+export function filterAlerts<T extends Pick<TradeAlert, "symbol" | "setup" | "score" | "rs" | "status" | "details">>(
   alerts: T[],
   f: AlertFilters,
   ticker = "",
@@ -637,8 +637,9 @@ export function filterAlerts<T extends Pick<TradeAlert, "symbol" | "setup" | "sc
   const q = ticker.trim().toUpperCase();
   return alerts.filter((a) => {
     if (q && !a.symbol.toUpperCase().includes(q)) return false;
-    if (f.side === "long" && isShortSetup(a.setup)) return false;
-    if (f.side === "short" && !isShortSetup(a.setup)) return false;
+    // Inverse-ETF longs are the short side (EMA Crossback Short), same as the SHORT chip.
+    if (f.side === "long" && isShortAlert(a)) return false;
+    if (f.side === "short" && !isShortAlert(a)) return false;
     if (f.status !== "all" && a.status !== f.status) return false;
     if (!inRange(a.score, f.score)) return false;
     return inRange(a.rs == null ? null : Math.round(a.rs * 100), f.rs);
