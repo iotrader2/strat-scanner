@@ -14,6 +14,7 @@ import {
 import {
   SETTING_GROUPS,
   SETUP_NAMES,
+  isShortAlert,
   SETUP_RULES,
   STATUS_LABEL,
   alertDayStatus,
@@ -339,6 +340,11 @@ export function AlertsTable({
                 <Link className="sym sym-with-logo" to={`/stock/${encodeURIComponent(a.symbol)}`}>
                   <TickerLogo symbol={a.symbol} size={20} />
                   {a.symbol}
+                  {a.details?.underlying && (
+                    <span className="muted small" title="Underlying for this inverse ETF short">
+                      {" "}← {String(a.details.underlying)}
+                    </span>
+                  )}
                   <EarningsIcon earnings={a.earnings} />
                   {a.top && <span className="top-chip">TOP</span>}
                 </Link>
@@ -350,8 +356,8 @@ export function AlertsTable({
                 <RsPill rs={a.rs} />
               </td>
               <td>
-                <span className={`side-chip ${isShortSetup(a.setup) ? "short" : "long"}`}>
-                  {isShortSetup(a.setup) ? "SHORT" : "LONG"}
+                <span className={`side-chip ${isShortAlert(a) ? "short" : "long"}`}>
+                  {isShortAlert(a) ? "SHORT" : "LONG"}
                 </span>
               </td>
               <td className="daily-setup-cell">
@@ -411,7 +417,7 @@ export function AlertsTable({
                     onClick={() => onBought(a)}
                     title="Record the entry and track it on the Positions tab"
                   >
-                    {isShortSetup(a.setup) ? "Shorted →" : "Bought →"}
+                    {isShortAlert(a) ? "Shorted →" : "Bought →"}
                   </button>
                 )}
               </td>
@@ -557,7 +563,7 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
         <EntryModal
           title="Move to Positions"
           symbol={moving.symbol}
-          initial={{ price: entryPrice(moving), shares: null, side: isShortSetup(moving.setup) ? "short" : "long" }}
+          initial={{ price: entryPrice(moving), shares: null, side: isShortAlert(moving) ? "short" : "long" }}
           lastPrice={entryPrice(moving)}
           submitLabel="Move to Positions"
           onSubmit={(v) => open(moving.symbol, v)}
@@ -956,10 +962,9 @@ export default function Alerts() {
         <div>
           <h1>Alerts</h1>
           <p className="muted">
-            Longs in a top-quartile theme, and the short setups that are switched on in a bottom-quartile theme.
-            The entry is a 15-minute pullback to the rising 120 EMA (240 and 480 are off until you turn them on), or a rally
-            into a falling one. Regular session only. The buy walks to each new 15-minute high + 1c. The default stop is 1%
-            from that buy, and an order wider than 2% is skipped. Times are Phoenix.
+            Longs in a top-quartile theme; shorts via mapped inverse ETFs when EMA Crossback Short is on.
+            Default entry is a 15-minute close back above the 6 EMA (buy that candle&apos;s high + 1c, stop at its low − 1c).
+            The rising-120 pullback remains selectable. An order wider than 1% is skipped. Times are Phoenix.
           </p>
           <AlertDayBanner status={day} />
         </div>

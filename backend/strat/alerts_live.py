@@ -33,9 +33,10 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 from . import alerts_store
 from .alerts import (
-    ACTIVE, BAR, SETUPS, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings,
-    advance_stored, apply_order, context_from_closes, simulate,
+    ACTIVE, BAR, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings,
+    advance_stored, apply_order, context_from_closes, ema_periods_for, known_setup, simulate,
 )
+from .inverse_etfs import map_underlyings_to_etfs
 from .yahoo_15m import fetch_yahoo_15m
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff as _sip_cutoff
@@ -100,7 +101,7 @@ def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
         batch = stale[i : i + HISTORY_BATCH]
         sip, _ = client.bars(batch, BARS, open_ - timedelta(days=HISTORY_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="raw")
         for sym in batch:
-            ctx = context_from_closes(regular_closes(sip.get(sym, []), day))
+            ctx = context_from_closes(regular_closes(sip.get(sym, []), day), periods=ema_periods_for())
             with _lock:
                 _profiles[sym] = {"day": day.isoformat(), "tail": dict(ctx.ma_tail), "prev_close": ctx.prev_close}
         del sip
@@ -371,8 +372,15 @@ def refresh(
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     day = now_et(clock).date()
-    short_picked = {s for s in short_symbols if s}
-    syms = list(dict.fromkeys([s for s in symbols if s] + sorted(short_picked)))
+    settings = settings or alerts_store.load_settings()
+    short_underlyings = [s for s in short_symbols if s]
+    # Shorts: map underlyings with EMA Crossback Short to inverse ETFs; never simulate direct shorts.
+    inverse_pairs = map_underlyings_to_etfs(short_underlyings) if settings.inverse_etf_shorts and settings.shorts else []
+    inverse_etfs = {etf for etf, _ in inverse_pairs}
+    underlying_for = {etf: und for etf, und in inverse_pairs}
+    picked = {s for s in symbols if s} - set(short_underlyings)
+    # Fetch bars for long names + inverse ETFs (not the underlyings, unless also a long).
+    syms = list(dict.fromkeys(list(picked) + sorted(inverse_etfs)))
     if syms and prepare_due(clock):
         # Premarket: fetch the EMA history now, so the 6:45 pass only needs today's bars.
         client = client or AlpacaClient()
@@ -380,18 +388,16 @@ def refresh(
     if not due(clock):
         return {"symbols": len(syms), "skipped": True, "inserted": []}
     # A name whose daily setup went away keeps being tracked while its alert is live, but only its
-    # existing alert is advanced: it cannot start a new one. Rows from the old A-F rules are not tracked.
-    picked = set(syms) - short_picked
+    # existing alert is advanced: it cannot start a new one.
     live = [
         r["symbol"] for r in alerts_store.list_alerts(session=day.isoformat())
-        if r["status"] in ACTIVE and r["setup"] in SETUPS
+        if r["status"] in ACTIVE and known_setup(r["setup"])
     ]
     syms = list(dict.fromkeys(syms + live))
     if not syms:
         return {"symbols": 0, "skipped": True, "inserted": []}
     client = client or AlpacaClient()
     before = client.requests
-    settings = settings or alerts_store.load_settings()
     prepared = ensure_profiles(client, syms, day)
     cutoff = sip_cutoff(clock)
     open_, close_ = _at(day, OPEN), _at(day, CLOSE)
@@ -418,19 +424,35 @@ def refresh(
             continue
         if sym in yahoo_failed and any(b.get("src") == "iex" for b in bars):
             log.warning("alerts %s: recent 15m bars priced from IEX after Yahoo failed", sym)
+        # Inverse ETFs skip the long extension cap; underlyings are screened before mapping.
+        prior = () if sym in inverse_etfs else prior_bars.get(sym)
         ctx = context_for(
-            sym, len(bars) if session_over else SESSION_BARS, prior_daily_bars=prior_bars.get(sym),
+            sym, len(bars) if session_over else SESSION_BARS, prior_daily_bars=prior,
         )
         forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock, yahoo_bars.get(sym))
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
-        labels = (daily_setups or {}).get(sym) or {}
-        for side, wanted in (("long", sym in picked), ("short", sym in short_picked)):
-            # A new alert needs a daily setup on that side (when the caller says which names have one).
-            if not wanted or (daily_setups is not None and not labels.get(side)):
+        if sym in picked:
+            labels = (daily_setups or {}).get(sym) or {}
+            if daily_setups is None or labels.get("long"):
+                for a in simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming, side="long"):
+                    if labels.get("long"):
+                        a.details["daily_setups"] = list(labels["long"])
+                    found.append(a)
+        if sym in inverse_etfs:
+            und = underlying_for[sym]
+            und_labels = (daily_setups or {}).get(und) or {}
+            short_refs = list(und_labels.get("short") or [])
+            if daily_setups is not None and not short_refs:
                 continue
-            for a in simulate(sym, day.isoformat(), bars, ctx, settings, forming=forming, side=side):
-                if labels.get(side):
-                    a.details["daily_setups"] = list(labels[side])
+            for a in simulate(
+                sym, day.isoformat(), bars, ctx, settings, forming=forming, side="long",
+                skip_extension_cap=True,
+            ):
+                a.details["underlying"] = und
+                a.details["inverse_etf"] = True
+                a.details["side_role"] = "short"
+                if short_refs:
+                    a.details["daily_setups"] = short_refs
                 found.append(a)
     del sip, iex
     # A pending watch priced from IEX (including rows saved before bar_feed existed) takes the

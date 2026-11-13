@@ -1,4 +1,7 @@
-"""Pullback-to-rising-EMA alerts (120 / 240 / 480 on 15-minute bars): watch, trigger, outcome."""
+"""Pullback-to-rising-EMA alerts (120 / 240 / 480 on 15-minute bars): watch, trigger, outcome.
+
+Also covers the default 6 EMA crossback entry and the 6/20/120 trim ladder.
+"""
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -6,6 +9,8 @@ import pandas as pd
 import pytest
 
 from strat.alerts import (
+    ENTRY_EMA_CROSS,
+    ENTRY_MA_TOUCH,
     MA_PERIODS,
     SETUP_NAMES,
     SETUPS,
@@ -24,6 +29,7 @@ from strat.alerts import (
     simulate,
     skip_counts,
 )
+from strat.inverse_etfs import INVERSE_ETF_MAP, inverse_etf_for, map_underlyings_to_etfs
 
 OPEN = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc)  # 09:30 EDT
 
@@ -36,6 +42,12 @@ def rising(last: float, step: float = 0.01, n: int = 10) -> list[float]:
 CTX = Context(ma_tail={120: rising(99.09)}, prev_close=101.0)
 TOUCH = (100.5, 100.8, 99.1, 100.2)  # dips to the 120 and closes back up
 
+# Legacy MA-touch defaults for existing tests (production default is entry_trigger=1, max_stop_pct=1).
+# Candle-stop fixtures are often ~1.7% wide, so tests keep a looser cap unless they opt in.
+def touch_settings(**kw):
+    kw.setdefault("max_stop_pct", 5.0)
+    return Settings(entry_trigger=ENTRY_MA_TOUCH, **kw)
+
 
 def bars(rows, start=OPEN):
     return [
@@ -45,14 +57,17 @@ def bars(rows, start=OPEN):
 
 
 def run(rows, ctx=CTX, settings=None, **kw):
-    return simulate("AAA", "2026-10-23", bars(rows), ctx, settings or Settings(), **kw)
+    return simulate("AAA", "2026-10-23", bars(rows), ctx, settings or touch_settings(), **kw)
 
 
 def test_setups_are_the_three_emas():
     assert MA_PERIODS == (120, 240, 480)
-    assert SETUPS == ("120", "240", "480", "s120", "s240", "s480")
+    assert "120" in SETUPS and "s120" in SETUPS and "6" in SETUPS
     assert SETUP_NAMES["240"] == "Pullback to rising 240 EMA"
     assert SETUP_NAMES["s240"] == "Short: rally to falling 240 EMA"
+    assert SETUP_NAMES["6"] == "15-min 6 EMA crossback"
+    assert Settings().entry_trigger == ENTRY_EMA_CROSS
+    assert Settings().trim_emas() == (6, 20, 120)
 
 
 def test_touch_of_a_rising_120_is_a_watch_with_the_candle_high_as_trigger():
@@ -81,7 +96,7 @@ def test_a_short_gap_under_the_trigger_still_fills_at_the_candle_low_minus_a_cen
     ctx = Context(ma_tail={120: list(reversed(rising(100.91)))}, prev_close=99.0)  # falling, price under it
     [a] = run(
         [(99.5, 100.9, 99.2, 99.8), (98.7, 98.8, 98.5, 98.6)], ctx,
-        settings=Settings(shorts_ma120_enabled=1), side="short",
+        settings=touch_settings(shorts_ma120_enabled=1), side="short",
     )
     assert a.status == "triggered" and a.trigger == 99.19 and a.fill_price == 99.19
 
@@ -108,19 +123,19 @@ def test_a_low_that_stays_above_the_ema_is_not_a_touch():
 
 def test_the_lowest_ema_held_is_the_alert():
     ctx = Context(ma_tail={120: rising(100.0), 240: rising(99.0)}, prev_close=101.0)
-    [a] = run([(100.6, 100.7, 98.95, 100.3)], ctx, settings=Settings(ma_240=1, ma_480=1))
+    [a] = run([(100.6, 100.7, 98.95, 100.3)], ctx, settings=touch_settings(ma_240=1, ma_480=1))
     assert a.setup == "240" and a.details["touched"] == [120, 240]
 
 
 def test_a_turned_off_ema_is_skipped():
-    s = Settings(ma_120=0)
+    s = touch_settings(ma_120=0)
     assert run([TOUCH], settings=s) == []
     assert Settings().periods() == [120]
 
 
 def test_trigger_follows_the_previous_candle_while_waiting():
     rows = [TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)]
-    [a] = run(rows, settings=Settings(stop_mode=0))
+    [a] = run(rows, settings=touch_settings(stop_mode=0))
     assert a.status == "triggered"
     # Bar 1 did not take out 100.81; its own high (100.60) + 1c became the buy stop, filled on bar 2.
     assert a.fill_price == 100.61 and a.fill_at == OPEN + timedelta(minutes=30)
@@ -138,14 +153,14 @@ def test_the_fixed_stop_walks_with_the_buy_and_stays_one_percent():
 
 def test_the_one_candle_stop_is_that_candle_only():
     rows = [TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)]
-    [wide] = run(rows, settings=Settings(stop_mode=0))
-    [candle] = run(rows, settings=Settings(stop_mode=1))
+    [wide] = run(rows, settings=touch_settings(stop_mode=0))
+    [candle] = run(rows, settings=touch_settings(stop_mode=1))
     assert wide.stop == 99.04  # touch low 99.10 and bar-1 low 99.05
     assert candle.stop == 99.04  # the signal candle's own low is the lower one here
     # A later candle with a higher low tightens the one-candle stop and leaves the widening stop down at the touch.
     higher = [TOUCH, (100.2, 100.4, 99.8, 100.3), (100.3, 100.5, 100.0, 100.45)]
-    [wide2] = run(higher, settings=Settings(stop_mode=0))
-    [candle2] = run(higher, settings=Settings(stop_mode=1))
+    [wide2] = run(higher, settings=touch_settings(stop_mode=0))
+    [candle2] = run(higher, settings=touch_settings(stop_mode=1))
     assert wide2.fill_price == candle2.fill_price == 100.41
     assert wide2.stop == 99.09
     assert candle2.stop == 99.79
@@ -154,7 +169,7 @@ def test_the_one_candle_stop_is_that_candle_only():
 def test_a_stop_wider_than_the_max_is_not_armed():
     skipped = []
     # The touch candle is about 1.7% wide, so a 1% cap skips it. A later tight pullback can still alert.
-    assert run([TOUCH], settings=Settings(stop_mode=1, max_stop_pct=1), skipped=skipped) == []
+    assert run([TOUCH], settings=touch_settings(stop_mode=1, max_stop_pct=1), skipped=skipped) == []
     assert skipped[0]["reason"] == "stop wider than the max"
 
 
@@ -165,9 +180,9 @@ def test_a_close_under_the_ema_cancels_the_watch():
 
 def test_the_watch_expires_without_a_trigger():
     quiet = (100.2, 100.5, 100.0, 100.3)
-    [a] = run([TOUCH] + [quiet] * 4, settings=Settings(watch_bars=4))
+    [a] = run([TOUCH] + [quiet] * 4, settings=touch_settings(watch_bars=4))
     assert a.status == "expired" and a.exit_reason == "not_triggered"
-    [b] = run([TOUCH] + [quiet] * 3, settings=Settings(watch_bars=4))
+    [b] = run([TOUCH] + [quiet] * 3, settings=touch_settings(watch_bars=4))
     assert b.status == "pending" and b.trigger == 100.51
 
 
@@ -183,7 +198,7 @@ def test_the_forming_bar_can_trigger_early():
 def test_stop_and_break_even_after_the_fill():
     rows = [TOUCH, (100.2, 101.0, 100.1, 100.9), (100.9, 101.2, 100.8, 101.1), (101.1, 101.4, 101.0, 101.3),
             (101.3, 101.5, 101.2, 101.4), (101.4, 101.45, 100.7, 100.8)]
-    [a] = run(rows, settings=Settings(breakeven_after_new_highs=3))
+    [a] = run(rows, settings=touch_settings(breakeven_after_new_highs=3))
     assert a.breakeven_at is not None
     assert a.status == "breakeven" and a.exit_price == 100.81 and a.r_multiple == 0
 
@@ -192,9 +207,9 @@ def test_a_close_under_the_ema_exits_an_open_trade():
     ctx = Context(ma_tail={120: rising(98.5)}, prev_close=101.0)
     rows = [(100.5, 100.8, 98.5, 100.2), (100.2, 101.0, 100.1, 100.9), (100.9, 100.95, 98.55, 98.55)]
     # The last bar's low stays over the stop (98.49) but it closes under the EMA (~98.57).
-    [a] = run(rows, ctx, settings=Settings(hold_pct=0, stop_mode=0, max_stop_pct=5))
+    [a] = run(rows, ctx, settings=touch_settings(hold_pct=0, stop_mode=0, max_stop_pct=5))
     assert a.status == "exited" and a.exit_reason == "close_under_ma" and a.exit_price == 98.55
-    [b] = run(rows, ctx, settings=Settings(hold_pct=0, exit_close_under_ma=0, stop_mode=0, max_stop_pct=5))
+    [b] = run(rows, ctx, settings=touch_settings(hold_pct=0, exit_close_under_ma=0, stop_mode=0, max_stop_pct=5))
     assert b.status == "triggered"
 
 
@@ -321,21 +336,21 @@ _STEP = (100.2, 101.0, 100.1, 100.9)
 # Short mirror scenarios need s120 on; the product default leaves 120 EMA shorts off.
 _SHORT_ON = dict(shorts_ma120_enabled=1)
 _SCENARIOS = {
-    "watch": ([TOUCH], CTX, Settings(stop_mode=0, **_SHORT_ON)),
-    "trigger": ([TOUCH, _STEP], CTX, Settings(stop_mode=0, **_SHORT_ON)),
-    "trigger follows the candle": ([TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)], CTX, Settings(stop_mode=0, **_SHORT_ON)),
-    "cancel": ([TOUCH, (100.2, 100.3, 98.0, 98.2)], CTX, Settings(stop_mode=0, **_SHORT_ON)),
-    "expire": ([TOUCH] + [(100.2, 100.5, 100.0, 100.3)] * 4, CTX, Settings(stop_mode=0, watch_bars=4, **_SHORT_ON)),
+    "watch": ([TOUCH], CTX, touch_settings(stop_mode=0, **_SHORT_ON)),
+    "trigger": ([TOUCH, _STEP], CTX, touch_settings(stop_mode=0, **_SHORT_ON)),
+    "trigger follows the candle": ([TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)], CTX, touch_settings(stop_mode=0, **_SHORT_ON)),
+    "cancel": ([TOUCH, (100.2, 100.3, 98.0, 98.2)], CTX, touch_settings(stop_mode=0, **_SHORT_ON)),
+    "expire": ([TOUCH] + [(100.2, 100.5, 100.0, 100.3)] * 4, CTX, touch_settings(stop_mode=0, watch_bars=4, **_SHORT_ON)),
     "break-even stop": (
         [TOUCH, _STEP, (100.9, 101.2, 100.8, 101.1), (101.1, 101.4, 101.0, 101.3), (101.3, 101.5, 101.2, 101.4),
          (101.4, 101.45, 100.7, 100.8)],
-        CTX, Settings(stop_mode=0, breakeven_after_new_highs=3, **_SHORT_ON),
+        CTX, touch_settings(stop_mode=0, breakeven_after_new_highs=3, **_SHORT_ON),
     ),
     "exit on a close through the EMA": (
         [(100.5, 100.8, 98.5, 100.2), _STEP, (100.9, 100.95, 98.55, 98.55)],
-        Context(ma_tail={120: rising(98.5)}, prev_close=101.0), Settings(stop_mode=0, hold_pct=0, max_stop_pct=5, **_SHORT_ON),
+        Context(ma_tail={120: rising(98.5)}, prev_close=101.0), touch_settings(stop_mode=0, hold_pct=0, max_stop_pct=5, **_SHORT_ON),
     ),
-    "stop": ([TOUCH, _STEP, (100.9, 100.95, 98.9, 99.0)], CTX, Settings(stop_mode=0, **_SHORT_ON)),
+    "stop": ([TOUCH, _STEP, (100.9, 100.95, 98.9, 99.0)], CTX, touch_settings(stop_mode=0, **_SHORT_ON)),
 }
 
 
@@ -361,7 +376,7 @@ def test_short_alerts_mirror_long_alerts(name):
 
 def test_a_short_rally_into_a_rising_ema_is_not_alerted():
     assert simulate(
-        "AAA", "2026-10-23", bars(_reflect_rows([TOUCH])), CTX, Settings(shorts_ma120_enabled=1), side="short",
+        "AAA", "2026-10-23", bars(_reflect_rows([TOUCH])), CTX, touch_settings(shorts_ma120_enabled=1), side="short",
     ) == []
 
 
@@ -370,10 +385,10 @@ def test_ma120_short_gate_off_by_default_and_on_when_enabled():
     short_rows = _reflect_rows([TOUCH])
     short_ctx = _reflect_ctx(CTX)
     assert Settings().shorts_ma120_enabled == 0
-    assert simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(), side="short") == []
+    assert simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, touch_settings(), side="short") == []
     assert skip_counts()[SKIP_MA120_SHORT] == 1
     [a] = simulate(
-        "AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(shorts_ma120_enabled=1), side="short",
+        "AAA", "2026-10-23", bars(short_rows), short_ctx, touch_settings(shorts_ma120_enabled=1), side="short",
     )
     assert a.setup == "s120" and a.status == "pending"
 
@@ -394,7 +409,7 @@ def test_long_extension_skip_at_boundary_and_zero_disables():
     ema_at = price / 1.02 + 1e-9  # at/under the 2% line
     assert (price - ema_at) / ema_at * 100 <= 2.0
     # Waiver off so flat over-cap cases still skip (on a flat series d4 == d10).
-    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10, long_ext_waive_at_d4ema=0)
+    s = touch_settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10, long_ext_waive_at_d4ema=0)
     skip, details = long_extension_skip(price, _flat_prior_bars(ema_at), s)
     assert skip is False and details["ext_pct"] <= 2.0
     ema_over = price / 1.02 - 1e-6  # clearly above 2%
@@ -402,20 +417,20 @@ def test_long_extension_skip_at_boundary_and_zero_disables():
     skip_over, over = long_extension_skip(price, _flat_prior_bars(ema_over), s)
     assert skip_over is True and over["reason"] == SKIP_EXT_CAP and over["ext_pct"] > 2.0
     # 0 disables the cap even when deeply extended.
-    skip_off, _ = long_extension_skip(price, _flat_prior_bars(50.0), Settings(long_max_ext_vs_d10ema_pct=0))
+    skip_off, _ = long_extension_skip(price, _flat_prior_bars(50.0), touch_settings(long_max_ext_vs_d10ema_pct=0))
     assert skip_off is False
     # Period setting is used (not hardcoded 10).
     assert Settings().long_ext_ema_period == 10
     short_hist = _flat_prior_bars(ema_over, n=5)  # only 5 bars: period 10 cannot compute
-    assert long_extension_skip(price, short_hist, Settings(long_ext_ema_period=10, long_max_ext_vs_d10ema_pct=2.0)) == (False, {})
+    assert long_extension_skip(price, short_hist, touch_settings(long_ext_ema_period=10, long_max_ext_vs_d10ema_pct=2.0)) == (False, {})
     skip5, d5 = long_extension_skip(
-        price, short_hist, Settings(long_ext_ema_period=5, long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0),
+        price, short_hist, touch_settings(long_ext_ema_period=5, long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0),
     )
     assert skip5 is True and d5["ema_period"] == 5
 
 
 def test_long_extension_d4_waiver_tyl_kept_dg_skipped_and_boundary():
-    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10, long_ext_waive_at_d4ema=1)
+    s = touch_settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_ema_period=10, long_ext_waive_at_d4ema=1)
     assert Settings().long_ext_waive_at_d4ema == 1
 
     # TYL-like: 2.47% above prior-day 10 EMA and 0.2% below prior-day 4 EMA → kept (waived).
@@ -451,7 +466,7 @@ def test_long_extension_d4_waiver_tyl_kept_dg_skipped_and_boundary():
 
     # Waiver off: the TYL case is skipped.
     skip_off, off = long_extension_skip(
-        tyl_price, tyl_bars, Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0),
+        tyl_price, tyl_bars, touch_settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0),
     )
     assert skip_off is True and off["waived"] is False
 
@@ -461,10 +476,10 @@ def test_long_extension_cap_wired_through_simulate():
     trigger = 100.81
     ema_over = trigger / 1.02 - 1e-6
     ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(ema_over))
-    assert run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0)) == []
+    assert run([TOUCH], ctx, settings=touch_settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0)) == []
     assert skip_counts()[SKIP_EXT_CAP] >= 1
     ctx_ok = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(trigger))
-    [a] = run([TOUCH], ctx_ok, settings=Settings(long_max_ext_vs_d10ema_pct=2.0))
+    [a] = run([TOUCH], ctx_ok, settings=touch_settings(long_max_ext_vs_d10ema_pct=2.0))
     assert a.setup == "120" and a.trigger == trigger
 
 
@@ -485,7 +500,7 @@ def test_prior_daily_ema_ignores_partial_current_day_bar():
     assert prior_daily_ema(closes + [999.0], 10) != pytest.approx(base)
     assert prior_daily_ema(closes + [999.0], 4) != pytest.approx(d4)
     # long_extension_skip sees the same prior-only bars either way (waiver off so over-cap skips).
-    s = Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0)
+    s = touch_settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0)
     assert long_extension_skip(base * 1.05, bars, s)[0] is True
     assert long_extension_skip(base * 1.05, prior_daily_bars_from_frame(df.iloc[:-1], session), s)[0] is True
 
@@ -495,10 +510,10 @@ def test_status_skip_counts_reset_and_accumulate():
     assert skip_counts() == {SKIP_EXT_CAP: 0, SKIP_MA120_SHORT: 0}
     short_rows = _reflect_rows([TOUCH])
     short_ctx = _reflect_ctx(CTX)
-    simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, Settings(), side="short")
+    simulate("AAA", "2026-10-23", bars(short_rows), short_ctx, touch_settings(), side="short")
     ema = 100.81 / 1.03
     ctx = Context(ma_tail=CTX.ma_tail, prev_close=CTX.prev_close, prior_daily_bars=_flat_prior_bars(ema))
-    run([TOUCH], ctx, settings=Settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0))
+    run([TOUCH], ctx, settings=touch_settings(long_max_ext_vs_d10ema_pct=2.0, long_ext_waive_at_d4ema=0))
     counts = skip_counts()
     assert counts[SKIP_MA120_SHORT] == 1 and counts[SKIP_EXT_CAP] == 1
     reset_skip_counts()
@@ -510,8 +525,9 @@ def test_short_alert_names_have_a_short_daily_setup_weakest_first():
 
     short_d = {"tf": "D", "kind": "ma-overcut-fail", "label": "MA Overcut and Fail (20-day)", "side": "short"}
     long_d = {"tf": "D", "kind": "flat-base-breakout", "label": "Flat Base Breakout", "side": "long"}
-    off = {"tf": "D", "kind": "ema-crossback-short", "label": "EMA Crossback Short", "side": "short"}
-    open_gate = Settings(theme_gate=0)
+    cross = {"tf": "D", "kind": "ema-crossback-short", "label": "EMA Crossback Short", "side": "short"}
+    # Defaults: short_crossback on, short_ma20 off — opt into MA20 for this legacy screen test.
+    open_gate = Settings(theme_gate=0, short_ma20=1, short_crossback=0)
 
     def r(sym, rs, setups, kind="stock"):
         return {"symbol": sym, "rs": rs, "kind": kind, "in_universe": True, "setups": setups, "avg_dollar_volume": 50_000_000, "atr_pct": 5.0}
@@ -519,19 +535,21 @@ def test_short_alert_names_have_a_short_daily_setup_weakest_first():
     rows = [
         r("AAA", 0.08, [short_d]), r("BBB", 0.02, [short_d]), r("CCC", 0.90, [short_d]),  # any RS
         r("DDD", 0.05, [long_d]), r("EEE", 0.01, [short_d], kind="etf"), r("FFF", 0.01, [short_d], kind="theme"),
-        r("GGG", 0.01, [off]),
+        r("GGG", 0.01, [cross]),
     ]
     assert alert_short_symbols(rows, open_gate) == ["EEE", "BBB", "AAA", "CCC"]
-    assert alert_short_symbols(rows, Settings(theme_gate=0, max_short_symbols=2)) == ["EEE", "BBB"]
+    assert alert_short_symbols(rows, Settings(theme_gate=0, short_ma20=1, short_crossback=0, max_short_symbols=2)) == ["EEE", "BBB"]
     assert alert_short_symbols(rows, Settings(theme_gate=0, shorts=0)) == []
-    assert alert_short_symbols(rows, Settings(theme_gate=0, short_ma20=0)) == []
+    assert alert_short_symbols(rows, Settings(theme_gate=0, short_ma20=0, short_crossback=0)) == []
+    # Default short_crossback picks the crossback name only.
+    assert alert_short_symbols(rows, Settings(theme_gate=0)) == ["GGG"]
 
 
 def test_the_theme_gate_keeps_the_outer_band_and_pending_is_optional():
     from strat.api import alert_short_symbols, alert_symbols
 
     long_d = {"tf": "D", "kind": "ema-crossback", "label": "EMA Crossback", "side": "long", "triggered": False}
-    short_d = {"tf": "D", "kind": "ma-overcut-fail", "label": "MA Overcut and Fail (10-day)", "side": "short"}
+    short_d = {"tf": "D", "kind": "ema-crossback-short", "label": "EMA Crossback Short", "side": "short"}
 
     def r(sym, rank, setups, score=80, rs=0.5):
         return {
@@ -575,24 +593,24 @@ def test_dollar_volume_and_atr_screen_names_before_the_cap():
     at_floor = row("FLOOR", 95, 20_000_000, 3.0)
     just_over = row("OVER", 30, 20_000_000, 3.01)
     # Default: $10M minimum, ATR slider Any, hard ATR floor > 3%. The thin name is dropped before the cap of 1.
-    assert alert_symbols([thin, liquid], Settings(max_symbols=1)) == ["LIQ"]
-    assert passes_name_screen(liquid, Settings())
-    assert not passes_name_screen(thin, Settings())
-    assert passes_name_screen(wild, Settings())  # 12%+ is no upper limit
+    assert alert_symbols([thin, liquid], touch_settings(max_symbols=1)) == ["LIQ"]
+    assert passes_name_screen(liquid, touch_settings())
+    assert not passes_name_screen(thin, touch_settings())
+    assert passes_name_screen(wild, touch_settings())  # 12%+ is no upper limit
     # The floor is strict and applies even with the slider at Any: 3% or less, or no ATR yet, is out.
-    assert not passes_name_screen(missing, Settings())
-    assert not passes_name_screen(quiet, Settings())
-    assert not passes_name_screen(at_floor, Settings())
-    assert passes_name_screen(just_over, Settings())
-    assert alert_symbols([at_floor, just_over, quiet, liquid], Settings()) == ["LIQ", "OVER"]
-    tight = Settings(atr_pct_min=2, atr_pct_max=6)
+    assert not passes_name_screen(missing, touch_settings())
+    assert not passes_name_screen(quiet, touch_settings())
+    assert not passes_name_screen(at_floor, touch_settings())
+    assert passes_name_screen(just_over, touch_settings())
+    assert alert_symbols([at_floor, just_over, quiet, liquid], touch_settings()) == ["LIQ", "OVER"]
+    tight = touch_settings(atr_pct_min=2, atr_pct_max=6)
     assert alert_symbols([liquid, quiet, wild, missing], tight) == ["LIQ"]
-    assert passes_name_screen(wild, Settings(atr_pct_min=0, atr_pct_max=12))
+    assert passes_name_screen(wild, touch_settings(atr_pct_min=0, atr_pct_max=12))
     short_row = row("SH", 10, 5_000_000, 4, setups=[short], rs=0.05)
     short_ok = row("OK", 10, 30_000_000, 4, setups=[short], rs=0.1)
     for r in (short_row, short_ok):
         r["theme_strength"] = {"rank": 4, "total": 4}
-    assert alert_short_symbols([short_row, short_ok], Settings(short_flat=1)) == ["OK"]
+    assert alert_short_symbols([short_row, short_ok], touch_settings(short_flat=1)) == ["OK"]
 
 
 def test_open_r_is_for_triggered_trades_still_open():
@@ -618,18 +636,135 @@ def test_no_alert_or_entry_after_noon_eastern():
     cutoff = datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)
     go = (100.2, 101.0, 100.1, 100.9)
     # A touch bar that closes exactly at the cutoff still alerts and can fill on the forming bar before it.
-    [a] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, Settings())
+    [a] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, touch_settings())
     assert a.status == "pending"
     # ...but a bar that starts at the cutoff cannot fill it: the watch expires at the cutoff.
-    [b] = simulate("AAA", "2026-10-23", bars([TOUCH, go], start=cutoff - timedelta(minutes=15)), CTX, Settings())
+    [b] = simulate("AAA", "2026-10-23", bars([TOUCH, go], start=cutoff - timedelta(minutes=15)), CTX, touch_settings())
     assert b.status == "expired" and b.exit_reason == "trade_window" and not b.filled and b.exit_at == cutoff
     forming = {"t": cutoff, "o": 100.3, "h": 100.9, "l": 100.2, "c": 100.85, "v": 10.0}
-    [c] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, Settings(), forming=forming)
+    [c] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, touch_settings(), forming=forming)
     assert c.status == "pending" and not c.filled
     # A touch at or after the cutoff is not alerted.
     skipped = []
-    assert simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff), CTX, Settings(), skipped=skipped) == []
+    assert simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff), CTX, touch_settings(), skipped=skipped) == []
     assert skipped[0]["reason"] == "after the 12:00 ET trade cutoff"
     # A trade filled before the cutoff is still managed after it.
-    [d] = simulate("AAA", "2026-10-23", bars([TOUCH, go, (100.9, 101.1, 99.5, 99.6)], start=cutoff - timedelta(minutes=30)), CTX, Settings())
+    [d] = simulate("AAA", "2026-10-23", bars([TOUCH, go, (100.9, 101.1, 99.5, 99.6)], start=cutoff - timedelta(minutes=30)), CTX, touch_settings())
     assert d.filled and d.status == "stopped"
+
+
+# --- 6 EMA crossback entry + trim ladder -------------------------------------------------------------------------------
+
+CROSS_CTX = Context(
+    ma_tail={6: [100.0] * 10, 20: [99.0] * 10, 120: [98.0] * 10},
+    prev_close=99.0,  # at/below the 6 EMA
+)
+# Closes above the continued 6 EMA; candle width stays inside the default 1% max_stop_pct (+0.05 slack).
+CROSS = (100.2, 101.0, 100.2, 100.8)  # buy 101.01, stop 100.19 → ~0.81%
+
+
+def cross_run(rows, ctx=CROSS_CTX, settings=None, **kw):
+    return simulate("AAA", "2026-10-23", bars(rows), ctx, settings or Settings(), **kw)
+
+
+def test_cross_detection_and_one_cent_levels():
+    [a] = cross_run([CROSS])
+    assert a.setup == "6" and a.status == "pending" and a.is_cross
+    assert a.trigger == 101.01 and a.stop == 100.19
+    assert a.details["entry_trigger"] == ENTRY_EMA_CROSS
+    assert Settings().max_stop_pct == 1.0
+    # Prior already above the 6 EMA: not a cross.
+    assert cross_run([CROSS], Context(ma_tail=CROSS_CTX.ma_tail, prev_close=100.5)) == []
+    # Close still at/under the 6 EMA: not a cross.
+    assert cross_run([(100.2, 101.0, 100.2, 99.9)]) == []
+
+
+def test_cross_fill_and_cancel_on_break_of_low_no_expiry():
+    [filled] = cross_run([CROSS, (100.8, 101.5, 100.5, 101.2)])
+    assert filled.status == "triggered" and filled.fill_price == 101.01
+    [cancelled] = cross_run([CROSS, (100.5, 100.7, 100.10, 100.3)])
+    assert cancelled.status == "cancelled" and cancelled.exit_reason == "broke_setup_low" and not cancelled.filled
+    # Many quiet bars: no watch_bars expiry; order stays at the cross candle high.
+    quiet = (100.5, 100.7, 100.3, 100.4)
+    [pending] = cross_run([CROSS] + [quiet] * 8)
+    assert pending.status == "pending" and pending.trigger == 101.01 and pending.details.get("rearmed", 0) == 0
+
+
+def test_cross_max_stop_pct_skip_and_attempts_cap():
+    skipped = []
+    wide = (100.2, 101.0, 98.0, 100.8)  # ~3% stop — skipped at the default 1% cap
+    assert cross_run([wide], skipped=skipped) == []
+    assert skipped[0]["reason"] == "stop wider than the max"
+    # Two filled attempts then a later cross is skipped. Stop is far below so fills are clean.
+    ctx = Context(ma_tail={6: [100.0] * 10, 20: [99.0] * 10, 120: [98.0] * 10}, prev_close=99.0)
+    s = Settings(max_attempts=2, max_stop_pct=5, breakeven_after_bars=50)
+    rows = [
+        (100.2, 101.0, 99.0, 100.8),  # cross 1
+        (100.8, 101.5, 100.5, 101.2),  # fill 1
+        (101.0, 101.1, 98.9, 99.0),  # stop out
+        (98.5, 100.5, 98.4, 100.3),  # cross 2
+        (100.3, 101.0, 100.0, 100.8),  # fill 2
+        (100.8, 100.9, 98.3, 98.5),  # stop out fill 2 (prior close under 6 again)
+        (98.0, 100.6, 97.9, 100.4),  # cross 3 — attempts cap
+    ]
+    skipped = []
+    alerts = cross_run(rows, ctx, settings=s, skipped=skipped)
+    assert sum(1 for a in alerts if a.filled) == 2
+    assert any("attempts" in s.get("reason", "") for s in skipped)
+
+
+def test_cross_breakeven_after_four_bars():
+    # Fill, then 4 completed bars that do not hit the stop; BE raises stop to the fill.
+    hold = (101.0, 101.4, 100.9, 101.2)
+    rows = [CROSS, (100.8, 101.5, 100.5, 101.2)] + [hold] * 4 + [(101.2, 101.3, 100.95, 101.0)]
+    [a] = cross_run(rows, settings=Settings(breakeven_after_bars=4, max_stop_pct=5))
+    assert a.breakeven_at is not None
+    assert a.current_stop >= a.fill_price or a.status in ("breakeven", "stopped", "exited", "triggered")
+    assert a.bars_since_fill >= 4
+
+
+def test_cross_trim_ladder_weighted_r_and_same_bar_multi_trim():
+    # Cross candle low is well below trim lows so the protective stop never fires first.
+    ctx = Context(
+        ma_tail={6: [105.0] * 10, 20: [103.0] * 10, 120: [101.0] * 10},
+        prev_close=99.0,
+    )
+    cross = (104.0, 106.0, 90.0, 105.5)  # stop = 89.99
+    fill = (105.5, 106.5, 105.0, 106.0)
+    under6 = (105.0, 105.2, 104.0, 104.2)
+    under20 = (104.0, 104.1, 102.0, 102.2)
+    under120 = (102.0, 102.1, 100.0, 100.2)
+    [a] = cross_run(
+        [cross, fill, under6, under20, under120], ctx,
+        settings=Settings(max_stop_pct=20, breakeven_after_bars=50),
+    )
+    assert a.filled and a.trims_done == 3 and a.remaining_frac == 0
+    assert a.status == "exited"
+    assert len(a.details["trims"]) == 3
+    assert a.details["trims"][0]["reason"].startswith("trim_ema_6")
+    assert a.details["trims"][1]["reason"].startswith("trim_ema_20")
+    assert a.details["trims"][2]["reason"].startswith("trim_ema_120")
+    assert a.r_multiple is not None and a.r_multiple < 0
+    # Same bar closes through all three: take all thirds at once.
+    [b] = cross_run(
+        [cross, fill, (105.0, 105.1, 99.0, 99.5)],
+        ctx,
+        settings=Settings(max_stop_pct=20, breakeven_after_bars=50),
+    )
+    assert b.trims_done == 3 and b.status == "exited" and len(b.details["trims"]) == 3
+    assert all(t["price"] == 99.5 for t in b.details["trims"])
+
+
+def test_ma_touch_mode_still_rearms_and_uses_stop_mode():
+    rows = [TOUCH, (100.2, 100.6, 99.05, 100.3), (100.3, 100.65, 100.2, 100.5)]
+    [a] = run(rows, settings=touch_settings(stop_mode=0))
+    assert a.status == "triggered" and a.fill_price == 100.61
+    assert a.details.get("rearmed", 0) >= 1
+    assert a.details["entry_trigger"] == ENTRY_MA_TOUCH
+
+
+def test_inverse_etf_mapping_and_only_mapped_names():
+    assert inverse_etf_for("NVDA") == "NVDD"
+    assert inverse_etf_for("FAKE") is None
+    assert map_underlyings_to_etfs(["NVDA", "AAPL", "ZZZ", "nvda"]) == [("NVDD", "NVDA"), ("AAPD", "AAPL")]
+    assert set(INVERSE_ETF_MAP) >= {"NFLX", "PLTR", "MSFT", "AAPL", "META", "NVDA", "AMZN", "TSLA", "TSM", "AMD", "GOOGL", "MU"}

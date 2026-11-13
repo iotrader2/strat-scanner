@@ -217,12 +217,14 @@ describe("EMA level and settings", () => {
     expect(keys).toEqual(
       expect.arrayContaining([
         "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "reset_manual", "alert_manual_watchlist", "stop_mode", "fixed_stop_pct", "max_stop_pct",
-        "short_hvc", "short_crossback", "short_ma10", "short_ma20", "shorts_ma120_enabled",
+        "short_hvc", "short_crossback", "short_ma10", "short_ma20", "shorts_ma120_enabled", "inverse_etf_shorts",
+        "entry_trigger", "cross_ema_period", "trim_ema_1", "trim_ema_2", "trim_ema_3", "breakeven_after_bars",
         "ma_120", "ma_240", "ma_480", "long_ext_ema_period", "long_max_ext_vs_d10ema_pct", "long_ext_waive_at_d4ema",
         "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars",
       ]),
     );
     expect(keys).not.toContain("d_hold20");
+    expect(keys).not.toContain("trim_fraction");
   });
   it("has one earnings-warning setting, in calendar days", () => {
     const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "earnings_window_days");
