@@ -5,7 +5,7 @@ from strat.candles import Candle, Setup, timeframe_state
 from strat.leadership import Breakdown, Trend, qqq_excess, trend_metrics
 from strat.perf import MomentumRanks
 from strat.data import resample
-from strat.scanner import LEGACY, scan_all, scan_symbol
+from strat.scanner import LEADERSHIP, LEGACY, scan_all, scan_symbol
 from strat.scoring import (
     QQQ_POINTS,
     BROKEN_FACTOR,
@@ -336,7 +336,7 @@ class TestScan:
 
     def test_ranking_is_by_leadership_score(self):
         members, hist = _universe()
-        rows = scan_all(members, hist, MAP).rows
+        rows = scan_all(members, hist, MAP, method=LEADERSHIP).rows
         stocks = [r for r in rows if r["kind"] == "stock"]
         assert [r["symbol"] for r in stocks[:3]] == ["S29", "S28", "S27"]
         assert stocks[0]["score"] > stocks[-1]["score"] + 30
@@ -355,7 +355,7 @@ class TestScan:
 
     def test_row_scores_are_0_to_100_with_a_breakdown_of_the_new_components(self):
         members, hist = _universe()
-        for r in scan_all(members, hist, MAP).rows:
+        for r in scan_all(members, hist, MAP, method=LEADERSHIP).rows:
             assert 0 <= r["score"] <= 100
             keys = [c["key"] for c in r["score_breakdown"]]
             assert keys[:2] == ["rs", "qqq"] and {"trend", "continuity"} <= set(keys)
@@ -364,7 +364,7 @@ class TestScan:
 
     def test_theme_strength_comes_from_the_themes_leadership_rank(self):
         members, hist = _universe()
-        result = scan_all(members, hist, MAP)
+        result = scan_all(members, hist, MAP, method=LEADERSHIP)
         assert result.strengths["up"].rank == 1 and result.strengths["down"].rank == 2
         rows = {r["symbol"]: r for r in result.rows}
         pts = lambda sym: next(c for c in rows[sym]["score_breakdown"] if c["key"] == "theme_strength")["points"]  # noqa: E731
@@ -378,7 +378,7 @@ class TestScan:
 
     def test_rows_carry_tightness_kill_candle_and_breakout_fields(self):
         members, hist = _universe()
-        rows = {r["symbol"]: r for r in scan_all(members, hist, MAP).rows}
+        rows = {r["symbol"]: r for r in scan_all(members, hist, MAP, method=LEADERSHIP).rows}
         top = rows["S29"]
         assert {"tightness", "kill_candle", "breakout"} <= set(top)
         assert top["kill_candle"] is None and top["breakout"] is None

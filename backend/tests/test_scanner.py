@@ -99,7 +99,7 @@ def test_weekly_trend_setup_in_the_scan_row_needs_the_10_week_side(monkeypatch):
 
 def test_row_carries_score_breakdown():
     row = scan_symbol(Member("TEST", "Test", "Industrials", "stock", "SP500"), _daily())
-    assert row["score_max_raw"] == 100
+    assert row["score_max_raw"] == 80  # the setup score's scan part; the entry adds 20 when an alert fires
     assert abs(sum(c["points"] for c in row["score_breakdown"]) - row["score_raw"]) < 0.05
     assert {"key", "label", "points", "max_points", "detail"} <= set(row["score_breakdown"][0])
 
@@ -323,7 +323,7 @@ def test_continuity_uses_the_month_week_and_day_in_progress(monkeypatch):
     assert (tf["W"]["live_color"], tf["W"]["live_open"]) == ("green", 208.11)
     assert (tf["D"]["live_color"], tf["D"]["live_open"]) == ("red", 226.27)
     cont = next(c for c in row["score_breakdown"] if c["key"] == "continuity")
-    assert cont["points"] == 8
+    assert cont["points"] == 6  # M 3 + W 3 of the setup score's 7
     assert row["mw_green"] is True and row["full_continuity"] is False
     assert "M+W green" in row["reason"]
 

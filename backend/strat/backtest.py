@@ -33,7 +33,7 @@ import pandas as pd
 
 from . import config, data
 from .members import effective_universe
-from .scanner import LEADERS, LEGACY, ScanResult, scan_all
+from .scanner import LEADERS, LEADERSHIP, LEGACY, ScanResult, scan_all
 from .themes import ThemeMap, load_themes
 from .universe import load_universe
 
@@ -873,6 +873,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     variants: dict[str, list[DateRank]] = {}
     if not args.no_old:
         variants["Old"] = rank_all(collect(daily, members, themes, dates, LEGACY, progress=True, splits=splits))
+        # The leadership-first score the setup score replaced for stocks and ETFs (forward 3M is its home turf).
+        variants["Leadership"] = rank_all(collect(daily, members, themes, dates, LEADERSHIP, progress=True, splits=splits))
     variants["New"] = rank_all(new_rows)
     print(render_report(
         variants, new_rows, tuple(args.reference), args.test_start,

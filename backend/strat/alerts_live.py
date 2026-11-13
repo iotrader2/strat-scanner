@@ -37,6 +37,8 @@ from .alerts import (
     advance_stored, apply_order, context_from_closes, ema_periods_for, known_setup, simulate,
 )
 from .inverse_etfs import map_underlyings_to_etfs
+from .leadership import BENCHMARK
+from .setup_score import EntryInputs, entry_score
 from .yahoo_15m import fetch_yahoo_15m
 from .alpaca import AlpacaClient
 from .intraday import sip_cutoff as _sip_cutoff
@@ -361,6 +363,7 @@ def refresh(
     daily_setups: Optional[Mapping[str, Mapping[str, list]]] = None,
     yahoo_bars: Optional[Mapping[str, list]] = None,
     prior_daily_bars: Optional[Mapping[str, Sequence]] = None,
+    scan_rows: Optional[Mapping[str, Mapping]] = None,
 ) -> dict:
     """One alerts pass for ``symbols`` (plus names with a live alert today). Returns counts for the log line.
 
@@ -369,6 +372,9 @@ def refresh(
     Each ref is ``{kind, label, side}`` (and ``period`` for a 10/20/50-day average). They are kept on the
     alert's details as ``daily_setups``. A name on several setups keeps every one of them.
     ``prior_daily_bars`` (symbol -> prior-session daily bars/closes) feeds ``long_extension_skip`` in ``simulate``.
+    ``scan_rows`` (symbol -> scan row) turns on the setup score: each new alert gets ``details["score"]``, the scan
+    components plus the entry parts (intraday RS vs QQQ to the trigger bar, stop / ATR, trigger-day volume), frozen
+    at the poll that first saved it (see ``alerts_store.save_session``). QQQ's 15-minute bars are fetched for it.
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     day = now_et(clock).date()
@@ -396,6 +402,8 @@ def refresh(
     syms = list(dict.fromkeys(syms + live))
     if not syms:
         return {"symbols": 0, "skipped": True, "inserted": []}
+    if scan_rows is not None and BENCHMARK not in syms:
+        syms.append(BENCHMARK)  # bars only: QQQ is not simulated unless it is a name itself
     client = client or AlpacaClient()
     before = client.requests
     prepared = ensure_profiles(client, syms, day)
@@ -455,6 +463,9 @@ def refresh(
                     a.details["daily_setups"] = short_refs
                 found.append(a)
     del sip, iex
+    if scan_rows is not None:
+        for a in found:
+            attach_entry_score(a, bars_by.get(a.symbol), bars_by.get(BENCHMARK), scan_rows.get(a.symbol))
     # A pending watch priced from IEX (including rows saved before bar_feed existed) takes the
     # consolidated candle on this poll: trigger = high + 1c, stop from the current stop rule.
     corrected = correct_pending(
@@ -484,6 +495,45 @@ def refresh(
         _last_run.clear()
         _last_run.update({"at": clock.strftime("%Y-%m-%dT%H:%M:%SZ"), "alerts": len(found), "symbols": len(syms)})
     return stats
+
+
+def entry_inputs(alert, bars: Optional[Sequence[Mapping]], qqq_bars: Optional[Sequence[Mapping]], row: Optional[Mapping]) -> EntryInputs:
+    """The entry parts of the setup score for one alert: today's move from the open to the trigger (signal) bar's
+    close against QQQ over the same window, the stop as a share of the daily ATR, and today's volume so far."""
+    row = row or {}
+    atr = row.get("atr_pct")
+    avg_vol = row.get("avg_volume")
+    stock = qqq = day_vol = None
+    elapsed = None
+    if bars:
+        idx = next((i for i, b in enumerate(bars) if b["t"] == alert.origin_bar), None)
+        if idx is not None and bars[0].get("o"):
+            stock = (float(bars[idx]["c"]) / float(bars[0]["o"]) - 1.0) * 100.0
+            day_vol = float(sum(float(b.get("v") or 0.0) for b in bars[: idx + 1]))
+            elapsed = idx + 1
+    if qqq_bars:
+        q = next((b for b in qqq_bars if b["t"] == alert.origin_bar), None)
+        if q is not None and qqq_bars[0].get("o"):
+            qqq = (float(q["c"]) / float(qqq_bars[0]["o"]) - 1.0) * 100.0
+    return EntryInputs(
+        stop_pct=alert.stop_pct if alert.trigger else None,
+        atr14_pct=float(atr) if isinstance(atr, (int, float)) and atr > 0 else None,
+        stock_change_pct=stock,
+        qqq_change_pct=qqq,
+        day_volume=day_vol,
+        avg_volume=float(avg_vol) if isinstance(avg_vol, (int, float)) and avg_vol > 0 else None,
+        bars_elapsed=elapsed,
+    )
+
+
+def attach_entry_score(alert, bars, qqq_bars, row) -> None:
+    """Put the setup score of the trade on ``details["score"]`` unless it already has one (a stored alert keeps it)."""
+    if isinstance(alert.details.get("score"), dict):
+        return
+    try:
+        alert.details["score"] = entry_score(row, entry_inputs(alert, bars, qqq_bars, row))
+    except Exception:  # noqa: BLE001 — a scoring problem must never stop an alert
+        log.exception("entry score failed for %s", alert.symbol)
 
 
 def last_run() -> dict:

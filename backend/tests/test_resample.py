@@ -187,7 +187,7 @@ class TestCtvaTrigger:
         assert (weekly["live_color"], weekly["live_open"]) == ("green", 12.40)
         assert (monthly["live_color"], monthly["live_open"]) == ("red", 44)
         detail = next(c["detail"] for c in row["score_breakdown"] if c["key"] == "continuity")
-        assert detail == "W +4 · D +1 (M not green)"  # the setup and Monthly 2U add nothing
+        assert detail == "W +3 · D +0.5 (M not green)"  # the setup and Monthly 2U add nothing
         assert "13.01" not in detail
 
         # The weekly chart shows the week in progress (Monday's bar), like the daily chart shows today;
