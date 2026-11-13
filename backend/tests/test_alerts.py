@@ -8,7 +8,11 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
+import json
+
 from strat.alerts import (
+    advance_carried,
+    carry_alert,
     ENTRY_EMA_CROSS,
     ENTRY_MA_TOUCH,
     MA_PERIODS,
@@ -67,7 +71,8 @@ def test_setups_are_the_three_emas():
     assert SETUP_NAMES["s240"] == "Short: rally to falling 240 EMA"
     assert SETUP_NAMES["6"] == "15-min 6 EMA crossback"
     assert Settings().entry_trigger == ENTRY_EMA_CROSS
-    assert Settings().trim_emas() == (6, 20, 120)
+    assert Settings().daily_trim_emas() == (6, 20)
+    assert Settings().trail_stop_bars == 3
 
 
 def test_touch_of_a_rising_120_is_a_watch_with_the_candle_high_as_trigger():
@@ -717,42 +722,115 @@ def test_cross_breakeven_after_four_bars():
     # Fill, then 4 completed bars that do not hit the stop; BE raises stop to the fill.
     hold = (101.0, 101.4, 100.9, 101.2)
     rows = [CROSS, (100.8, 101.5, 100.5, 101.2)] + [hold] * 4 + [(101.2, 101.3, 100.95, 101.0)]
-    [a] = cross_run(rows, settings=Settings(breakeven_after_bars=4, max_stop_pct=5))
+    [a] = cross_run(rows, settings=Settings(trail_stop_bars=0, breakeven_after_bars=4, max_stop_pct=5))
     assert a.breakeven_at is not None
     assert a.current_stop >= a.fill_price or a.status in ("breakeven", "stopped", "exited", "triggered")
     assert a.bars_since_fill >= 4
 
 
-def test_cross_trim_ladder_weighted_r_and_same_bar_multi_trim():
-    # Cross candle low is well below trim lows so the protective stop never fires first.
-    ctx = Context(
-        ma_tail={6: [105.0] * 10, 20: [103.0] * 10, 120: [101.0] * 10},
-        prev_close=99.0,
-    )
-    cross = (104.0, 106.0, 90.0, 105.5)  # stop = 89.99
-    fill = (105.5, 106.5, 105.0, 106.0)
-    under6 = (105.0, 105.2, 104.0, 104.2)
-    under20 = (104.0, 104.1, 102.0, 102.2)
-    under120 = (102.0, 102.1, 100.0, 100.2)
-    [a] = cross_run(
-        [cross, fill, under6, under20, under120], ctx,
-        settings=Settings(max_stop_pct=20, breakeven_after_bars=50),
-    )
-    assert a.filled and a.trims_done == 3 and a.remaining_frac == 0
-    assert a.status == "exited"
-    assert len(a.details["trims"]) == 3
-    assert a.details["trims"][0]["reason"].startswith("trim_ema_6")
-    assert a.details["trims"][1]["reason"].startswith("trim_ema_20")
-    assert a.details["trims"][2]["reason"].startswith("trim_ema_120")
-    assert a.r_multiple is not None and a.r_multiple < 0
-    # Same bar closes through all three: take all thirds at once.
-    [b] = cross_run(
-        [cross, fill, (105.0, 105.1, 99.0, 99.5)],
-        ctx,
-        settings=Settings(max_stop_pct=20, breakeven_after_bars=50),
-    )
-    assert b.trims_done == 3 and b.status == "exited" and len(b.details["trims"]) == 3
-    assert all(t["price"] == 99.5 for t in b.details["trims"])
+LADDER_CTX = Context(ma_tail={6: [105.0] * 10}, prev_close=99.0)
+LADDER_CROSS = (104.0, 106.0, 90.0, 105.5)  # stop = 89.99
+LADDER_FILL = (105.5, 106.5, 105.0, 106.0)
+WIDE = Settings(max_stop_pct=20)
+
+
+def _mark(day_bars, price, minutes_before_close=1, late=False):
+    """A 15:59 ET mark on the day of ``day_bars``."""
+    close = bars([LADDER_CROSS])[0]["t"].replace(hour=20, minute=0)  # 16:00 ET on 2026-10-23 (EDT)
+    at = close - timedelta(minutes=minutes_before_close)
+    return {"price": price, "at": at.strftime("%Y-%m-%dT%H:%M:%SZ"), "late": late}
+
+
+def test_cross_trade_is_held_overnight_without_a_close_check():
+    rows = [LADDER_CROSS, LADDER_FILL] + [(106.0, 106.2, 105.8, 106.0)] * 4
+    ctx = Context(ma_tail=LADDER_CTX.ma_tail, prev_close=99.0, session_bars=6)
+    [a] = cross_run(rows, ctx, settings=WIDE)
+    assert a.status == "triggered" and a.remaining_frac == 1.0 and a.exit_reason is None
+
+
+def test_trail_stop_to_the_low_of_three_bars_after_the_trigger_candle():
+    b1, b2, b3 = (106.0, 107.0, 105.5, 106.8), (106.8, 107.5, 105.2, 107.2), (107.2, 108.0, 106.4, 107.9)
+    [a] = cross_run([LADDER_CROSS, LADDER_FILL, b1, b2], LADDER_CTX, settings=WIDE)
+    assert a.current_stop == 89.99 and not a.details.get("stops")
+    [a] = cross_run([LADDER_CROSS, LADDER_FILL, b1, b2, b3], LADDER_CTX, settings=WIDE)
+    # Lowest low of the three bars after the fill bar (105.0 on the fill bar does not count), minus 1c.
+    assert a.current_stop == 105.19
+    assert a.details["stops"] == [{
+        "step": 1, "price": 105.19, "from": 89.99, "reason": "low_of_3_bars", "at": "2026-10-23T14:45:00Z",
+    }]
+    assert a.record()["details"].count('"current_stop": 105.19') == 1
+    # The trailed stop is traded later: out at the stop, above the fill.
+    [a] = cross_run([LADDER_CROSS, LADDER_FILL, b1, b2, b3, (107.0, 107.1, 105.0, 105.5)], LADDER_CTX, settings=WIDE)
+    assert a.exit_reason == "trail_stop" and a.exit_price == 105.19 and a.status == "stopped" and a.stop_hit
+    # Never lowered: a stop already above the three-bar low stays.
+    [a] = cross_run([LADDER_CROSS, LADDER_FILL, b1, b2, b3], LADDER_CTX, settings=Settings(max_stop_pct=20, trail_stop_bars=2))
+    assert a.current_stop == 105.19 and a.details["stops"][0]["reason"] == "low_of_2_bars"
+
+
+def test_daily_close_check_takes_the_entry_day_third_and_the_ema_thirds_in_order():
+    rows = [LADDER_CROSS, LADDER_FILL, (106.0, 106.2, 105.8, 106.0)]
+    rising = (100.0,) * 40  # daily 6 / 20 EMAs well under the price
+    ctx = Context(ma_tail=LADDER_CTX.ma_tail, prev_close=99.0, daily_closes=rising, close_mark=_mark(rows, 106.0))
+    [a] = cross_run(rows, ctx, settings=WIDE)
+    assert a.trims_done == 1 and a.status == "triggered"
+    assert a.details["trims"][0]["reason"] == "trim_day_close" and a.details["trims"][0]["at"] == "2026-10-23T19:59:00Z"
+    assert abs(a.remaining_frac - 2 / 3) < 1e-4
+    check = a.details["close_checks"]["2026-10-23"]
+    assert check["price"] == 106.0 and check["ema"]["6"] is not None
+    # Price under both daily EMAs at 15:59: all three thirds at once, in order.
+    falling = tuple(float(200 - i) for i in range(40))
+    ctx = Context(ma_tail=LADDER_CTX.ma_tail, prev_close=99.0, daily_closes=falling, close_mark=_mark(rows, 106.0))
+    [b] = cross_run(rows, ctx, settings=WIDE)
+    assert [t["reason"] for t in b.details["trims"]] == ["trim_day_close", "trim_daily_ema_6", "trim_daily_ema_20"]
+    assert b.status == "exited" and b.remaining_frac == 0 and b.exit_reason == "trim_daily_ema_20"
+    assert b.r_multiple is not None
+    # Too little daily history for an EMA: only the entry-day third.
+    ctx = Context(ma_tail=LADDER_CTX.ma_tail, prev_close=99.0, daily_closes=(), close_mark=_mark(rows, 106.0))
+    [c] = cross_run(rows, ctx, settings=WIDE)
+    assert c.trims_done == 1
+
+
+def test_close_check_runs_before_the_last_bar_so_later_polls_agree():
+    hold = (106.0, 106.2, 105.8, 106.0)
+    rows = [LADDER_CROSS, LADDER_FILL] + [hold] * 3
+    rising = (100.0,) * 40
+    mark = _mark(rows, 106.0)
+    ctx = Context(ma_tail=LADDER_CTX.ma_tail, prev_close=99.0, daily_closes=rising, close_mark=mark, session_bars=26)
+    [early] = cross_run(rows, ctx, settings=WIDE)
+    # Same day with the closing bar complete (it starts at 15:45 ET and trades the trailed stop):
+    full = rows + [hold] * 20 + [(106.0, 106.1, 100.0, 100.5)]
+    assert len(full) == 26
+    ctx = Context(ma_tail=LADDER_CTX.ma_tail, prev_close=99.0, daily_closes=rising, close_mark=mark, session_bars=26)
+    [late] = cross_run(full, ctx, settings=WIDE)
+    assert early.details["trims"][0] == late.details["trims"][0]
+    assert late.exit_reason == "trail_stop" and late.trims_done == 1
+
+
+def test_carried_position_walks_today_from_its_start_of_day_snapshot():
+    rows = [LADDER_CROSS, LADDER_FILL, (106.0, 106.2, 105.8, 106.0)]
+    rising = (100.0,) * 40
+    ctx = Context(ma_tail=LADDER_CTX.ma_tail, prev_close=99.0, daily_closes=rising, close_mark=_mark(rows, 106.0))
+    [a] = cross_run(rows, ctx, settings=WIDE)
+    rec = a.record()
+    row = {**rec, "details": json.loads(rec["details"])}
+    # Next session: three bars, then a 15:59 price under the daily 6 EMA (but over the 20).
+    nxt = [dict(b, t=b["t"] + timedelta(days=3)) for b in bars([(106.0, 106.5, 105.0, 105.5)] * 3)]
+    closes = rising + (106.0,)
+    mark = {"price": 120.0, "at": "2026-10-26T19:59:00Z", "late": False}
+    day_ctx = Context(daily_closes=closes + (130.0,) * 5, close_mark=mark)  # 6 EMA ~127, 20 EMA ~113
+    b = advance_carried(carry_alert(row, "2026-10-26"), nxt, day_ctx, WIDE)
+    assert b.details["carry"]["day"] == "2026-10-26"
+    assert [t["reason"] for t in b.details["trims"]] == ["trim_day_close", "trim_daily_ema_6"]
+    assert b.status == "triggered" and b.trims_done == 2
+    # A second poll the same day restarts from the snapshot: no second trim.
+    rec2 = b.record()
+    row2 = {**rec2, "details": json.loads(rec2["details"])}
+    again = advance_carried(carry_alert(row2, "2026-10-26"), nxt, day_ctx, WIDE)
+    assert again.trims_done == 2 and len(again.details["trims"]) == 2
+    # A gap under the stop the next morning: out at the open.
+    gap = [dict(b, t=b["t"] + timedelta(days=3)) for b in bars([(80.0, 81.0, 79.0, 80.5)])]
+    out = advance_carried(carry_alert(row, "2026-10-26"), gap, Context(), WIDE)
+    assert out.exit_reason == "stop" and out.exit_price == 80.0 and out.status == "stopped"
 
 
 def test_ma_touch_mode_still_rearms_and_uses_stop_mode():

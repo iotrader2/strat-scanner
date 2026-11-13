@@ -672,19 +672,33 @@ Each alert has two steps, and each chimes / notifies:
    The watch is cancelled on a close more than `hold_pct` under the EMA and expires after `watch_bars` (4)
    candles. The 5-minute poll also checks the candle still forming (IEX, real time), so a trigger shows up
    within a poll; the row turns unread again and the tab chimes a second time.
-3. **Trims.** In the default crossback mode the position is sold in thirds on 15-minute closes back
-   through the 6, then 20, then 120 EMA (`trim_ema_1..3`). Each third chimes, notifies ("AMD trim 1/3 at
-   585.30") and turns the row unread again. Every alert row carries `trims`: one entry per third taken,
-   with `client_order_id` `<alert id>-t1/-t2/-t3` (the buy uses the bare alert id, so the broker rejects a
-   repeat), `frac` of the original size, and `close_all` on the step that leaves nothing (sell everything
-   that remains rather than a third). The socket `alerts` message lists new ones under `trimmed`.
+3. **Stop move.** Once the 3 15-minute bars after the trigger candle have completed, the stop moves up to
+   the lowest low of those 3 bars - $0.01 (`trail_stop_bars`, 3; it never moves down; 0 = the old
+   break-even after `breakeven_after_bars`). Each move chimes, notifies ("AMD stop to 583.10") and turns
+   the row unread again. Every alert row carries `stops`: one entry per move, with `client_order_id`
+   `<alert id>-s<step>`, `stop_price` and `previous_stop`. The socket `alerts` message lists new ones
+   under `stop_moved`.
+4. **Trims (daily chart, 15:59 ET).** In the default crossback mode the position is sold in thirds on a
+   check one minute before the close: the first third at the entry day's check, the next when the 15:59
+   price is under the daily 6 EMA (`trim_daily_ema_1`), the last when it is under the daily 20 EMA
+   (`trim_daily_ema_2`). The daily EMAs count the 15:59 price as today's close. One check can take
+   several thirds, in order. The position is held overnight (no session-end exit) and stays on the live
+   table, with its stop, until the ladder or the stop closes it; it is archived after that day's close.
+   A name with a position held from an earlier day does not open a new alert. If the 15:59 pass is
+   missed, the first pass after the close decides on the last bar (`late` on the check). Each third
+   chimes, notifies ("AMD trim 1/3 at 585.30") and turns the row unread again. Every alert row carries
+   `trims`: one entry per third taken, with `client_order_id` `<alert id>-t1/-t2/-t3` (the buy uses the
+   bare alert id, so the broker rejects a repeat), `frac` of the original size, and `close_all` on the
+   step that leaves nothing (sell everything that remains rather than a third). The socket `alerts`
+   message lists new ones under `trimmed`.
 
 **Local order app feed.** `GET /api/alerts/orders?session=YYYY-MM-DD` (default today) returns that
-session's buys and trims oldest first: one `buy` per alert (`client_order_id` = alert id, `filled`,
-trigger or fill price, stop) and one `sell` per trim. Stop and session-end exits are not listed; the
-app's own stop order covers those.
+Eastern day's orders oldest first: one `buy` per alert of that session (`client_order_id` = alert id,
+`filled`, trigger or fill price, stop), one `stop` per stop move and one `trim` sell per third taken
+that day (a position held overnight shows its later trims on the later day). Stop and session-end exits
+are not listed; the app's own stop order covers those. See `docs/local-order-app.md`.
 
-After the fill the trade is tracked on completed candles: the stop, break-even after 3 new-high candles,
+In MA-touch mode (`entry_trigger=0`), after the fill the trade is tracked on completed candles: the stop, break-even after 3 new-high candles,
 an exit on a close under the EMA (`exit_close_under_ma`), and the session end. The EMAs are regular-session
 15-minute closes (no premarket), the same lines the chart draws; their history (~63 sessions) is fetched
 once per day per name in premarket and only the last few values are kept.

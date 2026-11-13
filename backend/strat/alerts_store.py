@@ -1,7 +1,8 @@
 """Alerts and alert settings in the user database (Postgres on stage, SQLite locally).
 
 Live rows stay on ``alerts`` through the session. After the close they move, in one transaction,
-to ``alerts_history`` with the same id. A live row whose key is already in history is a
+to ``alerts_history`` with the same id. An open crossback position (status ``triggered``) stays on the
+live table across sessions until the daily trim ladder or the stop closes it, then moves at that close. A live row whose key is already in history is a
 re-creation (new id, same alert): it is not copied again, and it is removed from the live table.
 """
 
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from . import userdb
-from .alerts import MA_PERIODS, SETTING_LIMITS, Alert, Settings, mark_top
+from .alerts import ENTRY_EMA_CROSS, MA_PERIODS, SETTING_LIMITS, Alert, Settings, mark_top
 
 _lock = threading.Lock()
 
@@ -52,7 +53,8 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-TRIM_REASON_PREFIX = "trim_ema_"
+TRIM_REASON_PREFIX = "trim_"
+_EMA_PREFIX = "trim_daily_ema_"
 
 
 def ladder_trims(alert_id: int, details: Optional[dict]) -> list[dict]:
@@ -62,6 +64,8 @@ def ladder_trims(alert_id: int, details: Optional[dict]) -> list[dict]:
     same trim twice is rejected by the broker. ``frac`` is of the original size. ``close_all`` is set
     when nothing is left after this sell (the third step): sell the whole remaining position rather
     than a third, so rounding never leaves a share behind. Stop and session-end exits are not trims.
+    ``reason`` is ``trim_day_close`` (the entry day's 15:59 check) or ``trim_daily_ema_<n>`` (15:59
+    price under the daily EMA ``ema``).
     """
     out: list[dict] = []
     remaining = 1.0
@@ -80,7 +84,7 @@ def ladder_trims(alert_id: int, details: Optional[dict]) -> list[dict]:
         if not reason.startswith(TRIM_REASON_PREFIX):
             continue
         step = len(out) + 1
-        ema = reason[len(TRIM_REASON_PREFIX):]
+        ema = reason[len(_EMA_PREFIX):] if reason.startswith(_EMA_PREFIX) else ""
         out.append({
             "step": step,
             "client_order_id": f"{alert_id}-t{step}",
@@ -92,6 +96,30 @@ def ladder_trims(alert_id: int, details: Optional[dict]) -> list[dict]:
             "at": t.get("at"),
             "reason": reason,
             "ema": int(ema) if ema.isdigit() else None,
+            # Decided after the close (the 15:59 pass was missed): an extended-hours or next-open sell.
+            "late": bool(t.get("late")),
+        })
+    return out
+
+
+def stop_moves(alert_id: int, details: Optional[dict]) -> list[dict]:
+    """Intraday stop moves, in order, for the local order app to replace its working stop order.
+
+    ``client_order_id`` is ``<alert id>-s<step>``; ``stop_price`` is the new stop for whatever remains.
+    """
+    out: list[dict] = []
+    for m in (details or {}).get("stops") or []:
+        if not isinstance(m, dict):
+            continue
+        step = len(out) + 1
+        out.append({
+            "step": step,
+            "client_order_id": f"{alert_id}-s{step}",
+            "side": "sell",
+            "stop_price": m.get("price"),
+            "previous_stop": m.get("from"),
+            "at": m.get("at"),
+            "reason": m.get("reason"),
         })
     return out
 
@@ -105,15 +133,24 @@ def _row(r) -> dict:
     except ValueError:
         d["details"] = {}
     d["trims"] = ladder_trims(d["id"], d["details"])
+    d["stops"] = stop_moves(d["id"], d["details"])
     return d
 
 
-def _trim_count(details_json: Optional[str]) -> int:
+def _details(details_json: Optional[str]) -> dict:
     try:
         details = json.loads(details_json or "{}")
     except ValueError:
-        return 0
-    return len(ladder_trims(0, details if isinstance(details, dict) else {}))
+        return {}
+    return details if isinstance(details, dict) else {}
+
+
+def _trim_count(details_json: Optional[str]) -> int:
+    return len(ladder_trims(0, _details(details_json)))
+
+
+def _stop_count(details_json: Optional[str]) -> int:
+    return len(stop_moves(0, _details(details_json)))
 
 
 def _select(where: str = "", params: tuple = (), order: str = "fired_at DESC, id DESC", limit: Optional[int] = None):
@@ -195,7 +232,8 @@ def save_session(
     An alert that moves from watching (``pending``) to ``triggered`` is marked unread again and
     returned in ``triggered``, so the page chimes a second time for the entry. Each new thirds-ladder
     trim does the same and is returned in ``trimmed`` (one entry per new step), so the page chimes
-    and the local order app can place that sell.
+    and the local order app can place that sell. Each new intraday stop move likewise comes back in
+    ``stop_moved``, so the local order app can replace its stop order.
 
     A key already in ``alerts_history`` has already fired. It is not inserted again — the local
     order app uses the alert id as ``clientOrderId``, so a new id would be a second order — and a
@@ -204,7 +242,7 @@ def save_session(
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     stamp = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
-    inserted, triggered, trimmed, updated, removed = [], [], [], 0, 0
+    inserted, triggered, trimmed, stop_moved, updated, removed = [], [], [], [], 0, 0
     with _lock, _writing(), userdb.connect(db_path) as conn:
         archived = {
             r[0]
@@ -255,6 +293,15 @@ def save_session(
                                 "id": old[-1], "symbol": a.symbol, "setup": a.setup, "step": step,
                                 "client_order_id": f"{old[-1]}-t{step}",
                             })
+                    before, after = _stop_count(old[details_at]), _stop_count(rec["details"])
+                    if after > before:
+                        conn.execute("UPDATE alerts SET acknowledged = 0 WHERE key = ?", (rec["key"],))
+                        moves = stop_moves(old[-1], json.loads(rec["details"]))
+                        for m in moves[before:after]:
+                            stop_moved.append({
+                                "id": old[-1], "symbol": a.symbol, "setup": a.setup, "step": m["step"],
+                                "stop_price": m["stop_price"], "client_order_id": m["client_order_id"],
+                            })
                 continue
             late = (clock - a.fired_at).total_seconds() > LATE_AFTER_SECONDS
             cols = list(rec) + ["detected_at", "late", "top", "acknowledged", "updated_at"]
@@ -276,7 +323,79 @@ def save_session(
             # New alerts for names that are already top get the tag too.
             for sym in sorted(already):
                 conn.execute("UPDATE alerts SET top = 1 WHERE session = ? AND symbol = ? AND top = 0", (session, sym))
-    return {"inserted": inserted, "triggered": triggered, "trimmed": trimmed, "updated": updated, "removed": removed}
+    return {
+        "inserted": inserted, "triggered": triggered, "trimmed": trimmed, "stop_moved": stop_moved,
+        "updated": updated, "removed": removed,
+    }
+
+
+def _is_open_cross(status: str, details_json) -> bool:
+    if status != "triggered":
+        return False
+    details = details_json if isinstance(details_json, dict) else _details(details_json)
+    return details.get("entry_trigger") == ENTRY_EMA_CROSS
+
+
+def list_carried(day: str, db_path: Optional[Path] = None) -> list[dict]:
+    """Live rows from sessions before ``day``: crossback positions held overnight (open, or closed on ``day``
+    and not archived yet). With auto-archive off, older finished rows are left out."""
+    rows = list_alerts(end=_day_before(day), limit=None, db_path=db_path)
+    out = []
+    for r in rows:
+        if _is_open_cross(r["status"], r["details"]):
+            out.append(r)
+            continue
+        carry = (r.get("details") or {}).get("carry") or {}
+        if carry.get("day") == day:
+            out.append(r)
+    return out
+
+
+def _day_before(day: str) -> str:
+    return date.fromordinal(date.fromisoformat(day).toordinal() - 1).isoformat()
+
+
+def open_carried(day: str, db_path: Optional[Path] = None) -> list[dict]:
+    """Crossback positions from sessions before ``day`` that the next poll keeps walking: still open, or
+    already snapshotted for ``day`` (so a poll that re-walks the day from the snapshot sees them)."""
+    out = []
+    for r in list_carried(day, db_path=db_path):
+        carry = (r.get("details") or {}).get("carry") or {}
+        if r["status"] == "triggered" or carry.get("day") == day:
+            out.append(r)
+    return out
+
+
+_CLOSE_MARKS_META = "alert_close_marks:"
+
+
+def close_marks(day: str, db_path: Optional[Path] = None) -> dict[str, dict]:
+    """The 15:59 ET prices taken for ``day``'s daily trim check: symbol -> {price, at, late}."""
+    with userdb.connect(db_path) as conn:
+        row = conn.execute("SELECT value FROM user_meta WHERE key = ?", (_CLOSE_MARKS_META + day,)).fetchone()
+    if not row:
+        return {}
+    try:
+        marks = json.loads(row[0] or "{}")
+    except ValueError:
+        return {}
+    return marks if isinstance(marks, dict) else {}
+
+
+def save_close_marks(day: str, marks: dict[str, dict], db_path: Optional[Path] = None) -> None:
+    """Add marks for ``day``. A symbol's first mark of the day is kept: the trims it decided were reported."""
+    with _lock, _writing(), userdb.connect(db_path) as conn:
+        row = conn.execute("SELECT value FROM user_meta WHERE key = ?", (_CLOSE_MARKS_META + day,)).fetchone()
+        try:
+            merged = json.loads(row[0]) if row and row[0] else {}
+        except ValueError:
+            merged = {}
+        for sym, mark in marks.items():
+            merged.setdefault(sym, mark)
+        conn.execute(
+            "INSERT INTO user_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (_CLOSE_MARKS_META + day, json.dumps(merged, sort_keys=True)),
+        )
 
 
 def _migrate_max_stop_pct_to_1(conn) -> bool:
@@ -469,30 +588,39 @@ def archive_alerts(through: date, now: Optional[datetime] = None, db_path: Optio
     day = through.isoformat()
     live_cols = ", ".join(COLUMNS)
     hist_cols = ", ".join((*COLUMNS, *HISTORY_EXTRA))
-    # Skip keys already archived. Inserting them raises UniqueViolation on alerts_history.key
-    # and aborts the whole transaction, including alerts that should move.
-    insert_sql = (
-        f"INSERT INTO alerts_history ({hist_cols}) "
-        f"SELECT {live_cols}, session, ? FROM alerts WHERE session <= ? "
-        "AND key NOT IN (SELECT key FROM alerts_history) "
-        "ON CONFLICT (id) DO NOTHING"
-    )
-    delete_sql = (
-        "DELETE FROM alerts WHERE session <= ? AND ("
-        "id IN (SELECT id FROM alerts_history) OR key IN (SELECT key FROM alerts_history))"
-    )
     with _lock, _writing(), userdb.connect(db_path) as conn:
-        before = int(conn.execute("SELECT COUNT(*) FROM alerts WHERE session <= ?", (day,)).fetchone()[0])
+        # Open crossback positions are held overnight: they stay live until the ladder or the stop closes them.
+        held = [
+            int(r[0])
+            for r in conn.execute(
+                "SELECT id, status, details FROM alerts WHERE session <= ? AND status = 'triggered'", (day,)
+            ).fetchall()
+            if _is_open_cross(r[1], r[2])
+        ]
+        hold = f" AND id NOT IN ({', '.join(str(i) for i in held)})" if held else ""
+        # Skip keys already archived. Inserting them raises UniqueViolation on alerts_history.key
+        # and aborts the whole transaction, including alerts that should move.
+        insert_sql = (
+            f"INSERT INTO alerts_history ({hist_cols}) "
+            f"SELECT {live_cols}, session, ? FROM alerts WHERE session <= ?{hold} "
+            "AND key NOT IN (SELECT key FROM alerts_history) "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        delete_sql = (
+            f"DELETE FROM alerts WHERE session <= ?{hold} AND ("
+            "id IN (SELECT id FROM alerts_history) OR key IN (SELECT key FROM alerts_history))"
+        )
+        before = int(conn.execute(f"SELECT COUNT(*) FROM alerts WHERE session <= ?{hold}", (day,)).fetchone()[0])
         dropped = int(
             conn.execute(
-                "SELECT COUNT(*) FROM alerts WHERE session <= ? AND key IN (SELECT key FROM alerts_history)",
+                f"SELECT COUNT(*) FROM alerts WHERE session <= ?{hold} AND key IN (SELECT key FROM alerts_history)",
                 (day,),
             ).fetchone()[0]
         )
         conn.execute(insert_sql, (stamp, day))
         conn.execute(delete_sql, (day,))
-        after = int(conn.execute("SELECT COUNT(*) FROM alerts WHERE session <= ?", (day,)).fetchone()[0])
-    return {"moved": before - dropped - after, "dropped": dropped, "through": day, "skipped": False}
+        after = int(conn.execute(f"SELECT COUNT(*) FROM alerts WHERE session <= ?{hold}", (day,)).fetchone()[0])
+    return {"moved": before - dropped - after, "dropped": dropped, "through": day, "skipped": False, "held": len(held)}
 
 
 def archive_if_due(now: Optional[datetime] = None, db_path: Optional[Path] = None) -> dict:

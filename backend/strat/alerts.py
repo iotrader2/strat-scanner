@@ -4,10 +4,18 @@ Default (``entry_trigger=1``): a completed 15-minute bar that closes **above** t
 cross EMA (default 6) after the prior bar closed at or below it. Buy = that candle's high + $0.01;
 stop = that candle's low - $0.01. The order does not re-arm. While pending it fills at the buy or
 cancels if price trades the candle low - $0.01; the 12:00 ET cutoff and session end still apply (no
-``watch_bars`` expiry). After the fill: break-even after ``breakeven_after_bars`` completed bars;
-trim in thirds on closes back through ``trim_ema_1`` / ``trim_ema_2`` / ``trim_ema_3`` (defaults
-6 / 20 / 120), each once and in order (one bar may take several thirds at the same close); plus stop
-and session end on whatever remains. Partial exits use weighted R.
+``watch_bars`` expiry). After the fill, once ``trail_stop_bars`` (3) 15-minute bars have completed after
+the trigger candle, the stop moves up to the lowest low of those bars - $0.01 (``trail_stop_bars=0``: the
+old break-even after ``breakeven_after_bars``). Each stop move is recorded in ``details["stops"]`` so the
+local order app can replace its stop order.
+
+The position is sold in thirds on a daily-chart check one minute before the close (15:59 ET,
+``Context.close_mark``): the first third at the entry day's check, the next when that price is under the
+daily ``trim_daily_ema_1`` (6) EMA, the last when it is under the daily ``trim_daily_ema_2`` (20) EMA.
+The daily EMAs count the 15:59 price as today's close. Each step fires once and in order; one check can
+take several thirds. The position is held overnight (no session-end exit) until the ladder or the stop
+closes it: :func:`carry_alert` / :func:`advance_carried` walk it on later sessions. Partial exits use
+weighted R.
 
 Legacy (``entry_trigger=0``): pullback to a rising 120 / 240 / 480 EMA with re-arm and ``stop_mode``.
 
@@ -57,6 +65,11 @@ EMA_LONG = MA_PERIODS[-1]
 ENTRY_MA_TOUCH = 0
 ENTRY_EMA_CROSS = 1
 TRIM_FRAC = 1.0 / 3.0  # each ladder step exits one third of the original position
+# Daily trim ladder: checked once per session one minute before the 16:00 ET close.
+CLOSE_CHECK_AT = time(15, 59)
+TRIM_DAY_CLOSE = "trim_day_close"  # step 1: the entry day's 15:59 check
+TRIM_DAILY_PREFIX = "trim_daily_ema_"  # steps 2 and 3: 15:59 price under the daily EMA
+STOP_EXIT_REASONS = ("stop", "breakeven_stop", "trail_stop")
 LONG_SETUPS = tuple(str(p) for p in MA_PERIODS)
 SHORT_SETUPS = tuple(f"s{p}" for p in MA_PERIODS)
 # Cross setups use the period string (e.g. "6"); keep common ones listed for live orphan checks.
@@ -103,12 +116,14 @@ class Settings:
     # 1 = 15-min EMA crossback (default). 0 = pullback to rising 120/240/480 EMA.
     entry_trigger: int = ENTRY_EMA_CROSS
     cross_ema_period: int = 6  # 15-min EMA period for the crossback entry
-    # Cross mode trim ladder (each fires once, in order, one third of the original size):
-    # close through trim_ema_1, then trim_ema_2, then trim_ema_3 (against the position).
-    trim_ema_1: int = 6
-    trim_ema_2: int = 20
-    trim_ema_3: int = 120
-    # Cross mode: raise the stop to the fill after this many completed bars after the fill.
+    # Cross mode trim ladder, checked at 15:59 ET on the daily chart (each third once, in order):
+    # 1/3 at the entry day's check, 1/3 under the daily trim_daily_ema_1, the last 1/3 under trim_daily_ema_2.
+    trim_daily_ema_1: int = 6
+    trim_daily_ema_2: int = 20
+    # Cross mode: once this many 15-minute bars have completed after the trigger candle, raise the
+    # stop to their lowest low - $0.01. 0 = the old break-even after ``breakeven_after_bars``.
+    trail_stop_bars: int = 3
+    # Cross mode with trail_stop_bars=0: raise the stop to the fill after this many completed bars after the fill.
     breakeven_after_bars: int = 4
     # 1 = short side via longing mapped inverse ETFs when the underlying has EMA Crossback Short.
     inverse_etf_shorts: int = 1
@@ -180,8 +195,8 @@ class Settings:
     def uses_ema_cross(self) -> bool:
         return int(self.entry_trigger) == ENTRY_EMA_CROSS
 
-    def trim_emas(self) -> tuple[int, int, int]:
-        return (int(self.trim_ema_1), int(self.trim_ema_2), int(self.trim_ema_3))
+    def daily_trim_emas(self) -> tuple[int, int]:
+        return (int(self.trim_daily_ema_1), int(self.trim_daily_ema_2))
 
     def atr_filter_off(self) -> bool:
         """True when the ATR slider is the full 0–12%+ range, which filters nothing."""
@@ -201,11 +216,10 @@ def known_setup(setup: str) -> bool:
 
 
 def ema_periods_for(settings: Optional["Settings"] = None) -> tuple[int, ...]:
-    """15-minute EMA periods to seed and continue (MA-touch set, cross entry, trim ladder)."""
+    """15-minute EMA periods to seed and continue (MA-touch set, cross entry)."""
     s = settings or Settings()
     found = set(MA_PERIODS)
     found.add(int(s.cross_ema_period))
-    found.update(s.trim_emas())
     return tuple(sorted(p for p in found if p > 0))
 
 
@@ -251,7 +265,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "shorts": (0, 1), "max_short_symbols": (0, 1000), "shorts_ma120_enabled": (0, 1),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "entry_trigger": (0, 1), "cross_ema_period": (2, 50),
-    "trim_ema_1": (2, 200), "trim_ema_2": (2, 200), "trim_ema_3": (2, 200),
+    "trim_daily_ema_1": (2, 200), "trim_daily_ema_2": (2, 200), "trail_stop_bars": (0, 20),
     "breakeven_after_bars": (1, 50), "inverse_etf_shorts": (0, 1),
     "long_max_ext_vs_d10ema_pct": (0, 100), "long_ext_ema_period": (1, 200),
     "long_ext_waive_at_d4ema": (0, 1),
@@ -280,6 +294,10 @@ class Context:
     session_bars: int = SESSION_BARS  # bars in a full session (fewer on a half day)
     # Daily bars (or closes) through the previous session only — input to ``long_extension_skip``.
     prior_daily_bars: Sequence[Any] = field(default_factory=tuple)
+    # Finished daily closes before today, oldest first: the daily trim EMAs (today's close is the mark price).
+    daily_closes: Sequence[float] = field(default_factory=tuple)
+    # Today's 15:59 ET price for the daily trim check: {"price", "at" (UTC ISO), "late"}. None until taken.
+    close_mark: Optional[Mapping[str, Any]] = None
 
 
 def context_from_closes(
@@ -330,6 +348,7 @@ class Alert:
     remaining_frac: float = 1.0
     realized_r: float = 0.0
     trims_done: int = 0  # cross ladder: 0..3 thirds taken
+    post_fill_lows: list = field(default_factory=list)  # lows of the bars after the trigger candle (trail stop)
 
     @property
     def key(self) -> str:
@@ -369,6 +388,8 @@ class Alert:
         self.details["realized_r"] = round(self.realized_r, 4)
         self.details["bars_since_fill"] = self.bars_since_fill
         self.details["trims_done"] = self.trims_done
+        if self.filled:
+            self.details["current_stop"] = round(self.current_stop, 4)
         return {
             "key": self.key,
             "symbol": self.symbol,
@@ -823,7 +844,7 @@ def _close_trade(a: Alert, price: float, at: datetime, reason: str, status: str,
     a.exit_reason = reason
     a.status = status
     a.r_multiple = a.realized_r
-    if reason in ("stop", "breakeven_stop"):
+    if reason in STOP_EXIT_REASONS:
         a.stop_hit = True
 
 
@@ -859,22 +880,89 @@ def _close_through(bar: Mapping, ma: Optional[float], short: bool = False) -> bo
     return float(bar["c"]) < ma
 
 
-def _cross_trim_ladder(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings, end: datetime) -> None:
-    """Take each remaining third whose EMA the close has gone through, in order, at this close."""
-    if a.trims_done >= 3 or a.remaining_frac <= 0:
+def _move_stop(a: Alert, price: float, at: datetime, reason: str) -> None:
+    """Raise the working stop and record the move, so the local order app can replace its stop order."""
+    stops = a.details.setdefault("stops", [])
+    stops.append({
+        "step": len(stops) + 1,
+        "price": round(float(price), 4),
+        "from": round(float(a.current_stop), 4),
+        "reason": reason,
+        "at": _iso(at),
+    })
+    a.current_stop = float(price)
+
+
+def _stop_out(a: Alert, bar: Mapping, end: datetime) -> None:
+    """The bar traded the working stop (long): exit what remains there, or at the open on a gap through it."""
+    price = min(a.current_stop, float(bar["o"]))
+    fill = a.fill_price or a.trigger
+    a.stop_hit = True
+    if a.details.get("stops"):
+        status = "stopped" if price < fill else ("breakeven" if price == fill else "exited")
+        _close_trade(a, price, end, "trail_stop", status)
+    elif a.breakeven_at is not None and a.current_stop >= fill:
+        _close_trade(a, price, end, "breakeven_stop", "breakeven")
+    else:
+        _close_trade(a, price, end, "stop", "stopped")
+
+
+def _mark_at(ctx: Context) -> Optional[datetime]:
+    mark = ctx.close_mark
+    if not mark or mark.get("price") is None or not mark.get("at"):
+        return None
+    return datetime.fromisoformat(str(mark["at"]).replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def daily_close_check(a: Alert, ctx: Context, s: Settings) -> None:
+    """The 15:59 ET daily-chart trim check, once per session per alert (``details["close_checks"]``).
+
+    Step 1 sells a third at the first check after the fill (the entry day). Step 2 sells a third when the
+    price is under the daily ``trim_daily_ema_1``, step 3 the rest under ``trim_daily_ema_2``. The daily
+    EMAs are of the finished daily closes plus the 15:59 price as today's close. Steps go in order and one
+    check may take several. Crossback trades only; nothing without a mark.
+    """
+    at = _mark_at(ctx)
+    if at is None or not a.is_cross or a.status != "triggered" or a.remaining_frac <= 0:
         return
-    price = float(bar["c"])
-    for step_i, period in enumerate(s.trim_emas()):
+    if a.fill_at is not None and a.fill_at >= at:
+        return
+    day = at.astimezone(TRADE_CUTOFF_TZ).date().isoformat()
+    checks = a.details.setdefault("close_checks", {})
+    if day in checks:
+        return
+    price = float(ctx.close_mark["price"])  # type: ignore[index]
+    closes = [float(c) for c in ctx.daily_closes] + [price]
+    emas = {p: ewm_last(closes, p) for p in s.daily_trim_emas()}
+    checks[day] = {
+        "price": round(price, 4),
+        "at": _iso(at),
+        "ema": {str(p): (None if v is None else round(v, 4)) for p, v in emas.items()},
+        "late": bool(ctx.close_mark.get("late")),  # type: ignore[union-attr]
+    }
+    steps = [(TRIM_DAY_CLOSE, True)] + [
+        (f"{TRIM_DAILY_PREFIX}{p}", _close_through({"c": price}, emas[p], short=a.short)) for p in s.daily_trim_emas()
+    ]
+    for step_i, (reason, hit) in enumerate(steps):
         if step_i < a.trims_done:
             continue
-        ma = f.ma_at(int(period), index)
-        if not _close_through(bar, ma, short=a.short):
+        if not hit:
             break
-        reason = f"trim_ema_{period}"
-        _close_trade(a, price, end, reason, "exited", frac=min(TRIM_FRAC, a.remaining_frac))
+        _close_trade(a, price, at, reason, "exited", frac=min(TRIM_FRAC, a.remaining_frac))
+        a.details["trims"][-1]["late"] = checks[day]["late"]
         a.trims_done = step_i + 1
         if a.status not in ACTIVE:
             return
+
+
+def _close_check_before(alerts: Sequence[Alert], bar: Mapping, ctx: Context, s: Settings) -> None:
+    """Run the 15:59 check ahead of the bar it falls in (the last bar of the day), so a later poll that
+    has that bar complete takes the same trims the 15:59 poll reported."""
+    at = _mark_at(ctx)
+    if at is None or bar["t"] + BAR <= at:
+        return
+    for a in alerts:
+        daily_close_check(a, ctx, s)
 
 
 def _step_short(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings) -> None:
@@ -948,19 +1036,24 @@ def _step_cross(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings) -> No
         return
     a.bars_since_fill += 1
     if bar["l"] <= a.current_stop:
-        at_be = a.breakeven_at is not None and a.current_stop >= (a.fill_price or 0)
-        price = min(a.current_stop, float(bar["o"]))
-        a.stop_hit = True
-        _close_trade(a, price, end, "breakeven_stop" if at_be else "stop", "breakeven" if at_be else "stopped")
+        _stop_out(a, bar, end)
         return
     a.high_reached = max(a.high_reached or bar["h"], float(bar["h"]))
     if bar["h"] > a.running_high:
         a.running_high = float(bar["h"])
         a.new_highs += 1
-    if a.breakeven_at is None and a.bars_since_fill >= s.breakeven_after_bars:
+    trail = int(s.trail_stop_bars)
+    if trail > 0:
+        if not a.details.get("trailed"):
+            a.post_fill_lows.append(float(bar["l"]))
+            if len(a.post_fill_lows) >= trail:
+                a.details["trailed"] = True
+                level = round(min(a.post_fill_lows[:trail]) - TICK, 4)
+                if level > a.current_stop:
+                    _move_stop(a, level, end, f"low_of_{trail}_bars")
+    elif a.breakeven_at is None and a.bars_since_fill >= s.breakeven_after_bars:
         a.breakeven_at = end
         a.current_stop = max(a.current_stop, a.fill_price or a.trigger)
-    _cross_trim_ladder(a, bar, index, f, s, end)
 
 
 def step(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings) -> None:
@@ -1030,13 +1123,14 @@ def check_forming(a: Alert, bar: Mapping) -> None:
 
 
 def finish_session(a: Alert, last_bar: Mapping) -> None:
-    """The session is over: a waiting alert expires and an open trade is closed at the last close."""
+    """The session is over: a waiting alert expires. An open MA-touch trade is closed at the last close;
+    an open crossback trade is held overnight for the daily trim ladder."""
     end = last_bar["t"] + BAR
     if a.status == "pending":
         a.status = "expired"
         a.exit_at = end
         a.exit_reason = "session_end"
-    elif a.status == "triggered":
+    elif a.status == "triggered" and not a.is_cross:
         _close_trade(a, float(last_bar["c"]), end, "session_end", "exited")
 
 
@@ -1098,7 +1192,11 @@ def advance_stored(
             break
         if _close_window(a, bars[i]):
             break
+        _close_check_before([a], bars[i], ctx, s)
+        if a.status not in ACTIVE:
+            break
         step(a, bars[i], i, f, s)
+    daily_close_check(a, ctx, s)
     if a.status in ACTIVE and ctx.session_bars and len(bars) >= ctx.session_bars:
         finish_session(a, bars[-1])
     elif forming is not None:
@@ -1135,6 +1233,7 @@ def simulate(
     alerts: list[Alert] = []
     use_cross = s.uses_ema_cross() and side == "long"
     for i, bar in enumerate(f.bars):
+        _close_check_before(alerts, bar, ctx, s)
         for a in alerts:
             if a.status in ACTIVE and a.setup_index < i and not _close_window(a, bar):
                 step(a, bar, i, f, s)
@@ -1217,6 +1316,8 @@ def simulate(
                 continue
         _note_feed(alert, bar)
         alerts.append(alert)
+    for a in alerts:
+        daily_close_check(a, ctx, s)
     if len(f.bars) >= ctx.session_bars:
         for a in alerts:
             finish_session(a, f.bars[-1])
@@ -1224,6 +1325,77 @@ def simulate(
         for a in alerts:
             check_forming(a, forming)
     return alerts
+
+
+# Row columns a carried position starts each session from (with ``details`` minus the snapshot itself).
+_CARRY_COLUMNS = (
+    "status", "filled", "fill_price", "fill_at", "high_reached", "stop_hit", "breakeven_at",
+    "exit_price", "exit_at", "exit_reason", "r_multiple",
+)
+
+
+def _parse_iso(raw: Any) -> Optional[datetime]:
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, datetime):
+        return raw.astimezone(timezone.utc)
+    return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def carry_alert(row: Mapping, day: str) -> Alert:
+    """An open crossback position from an earlier session, as it stood at the start of ``day``.
+
+    The first poll of ``day`` snapshots the stored row into ``details["carry"]``; every later poll that
+    day restarts from that snapshot, so re-walking the day's bars never takes a trim or stop twice.
+    """
+    det = row.get("details") if isinstance(row.get("details"), dict) else json.loads(row.get("details") or "{}")
+    det = dict(det or {})
+    carry = det.get("carry") or {}
+    if carry.get("day") != day:
+        base = {k: row.get(k) for k in _CARRY_COLUMNS}
+        base["details"] = {k: v for k, v in det.items() if k != "carry"}
+        carry = {"day": day, "row": base}
+    base = json.loads(json.dumps(carry["row"]))
+    d = dict(base["details"])
+    d["carry"] = carry
+    d["trailed"] = True  # the intraday trail is an entry-day rule
+    fill = None if base.get("fill_price") is None else float(base["fill_price"])
+    stop = float(row["stop_price"])
+    current = d.get("current_stop")
+    if current is None:
+        current = fill if base.get("breakeven_at") and fill is not None else stop
+    parts = str(row["key"]).split("|")
+    origin = _parse_iso(parts[3]) if len(parts) >= 4 else _parse_iso(row["fired_at"]) - BAR  # type: ignore[operator]
+    high = base.get("high_reached")
+    return Alert(
+        symbol=row["symbol"], session=row["session"], setup=row["setup"], origin_bar=origin,  # type: ignore[arg-type]
+        setup_bar=_parse_iso(row["setup_bar"]), setup_index=-1,  # type: ignore[arg-type]
+        trigger=float(row["trigger_price"]), stop=stop, setup_low=float(row["setup_low"]),
+        setup_high=float(row["setup_high"]), ref_price=float(row["ref_price"]),
+        status=str(base["status"]), filled=bool(base.get("filled")), fill_price=fill,
+        fill_at=_parse_iso(base.get("fill_at")), high_reached=high, stop_hit=bool(base.get("stop_hit")),
+        breakeven_at=_parse_iso(base.get("breakeven_at")), exit_price=base.get("exit_price"),
+        exit_at=_parse_iso(base.get("exit_at")), exit_reason=base.get("exit_reason"),
+        r_multiple=base.get("r_multiple"), details=d, current_stop=float(current),
+        running_high=float(high or fill or 0.0), bars_since_fill=int(d.get("bars_since_fill", 0) or 0),
+        remaining_frac=float(d.get("remaining_frac", 1.0) if d.get("remaining_frac") is not None else 1.0),
+        realized_r=float(d.get("realized_r", 0.0) or 0.0), trims_done=int(d.get("trims_done", 0) or 0),
+    )
+
+
+def advance_carried(a: Alert, bars: Sequence[Mapping], ctx: Context, settings: Optional[Settings] = None) -> Alert:
+    """Walk a carried position through today's completed bars (stop) and today's 15:59 trim check."""
+    s = settings or Settings()
+    f = Frame(bars, ctx, periods=())
+    for i, bar in enumerate(bars):
+        if a.status != "triggered":
+            break
+        _close_check_before([a], bar, ctx, s)
+        if a.status != "triggered":
+            break
+        _step_cross(a, bar, i, f, s)
+    daily_close_check(a, ctx, s)
+    return a
 
 
 def open_r(row: Mapping, price: Optional[float]) -> Optional[float]:

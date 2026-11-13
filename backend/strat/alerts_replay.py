@@ -54,12 +54,17 @@ def replay_day(client: AlpacaClient, symbols: list[str], day: date, settings: Se
         yahoo = {}
     found, skipped, bars_seen = [], [], {}
     after = close.astimezone(timezone.utc) + timedelta(hours=1)
+    # Daily trim check: the last bar's close stands in for the 15:59 ET price. A replay covers one
+    # day only, so a crossback trade still open after that check is shown as triggered (held).
+    daily_closes = alerts_live.ensure_daily_closes(client, symbols, day)
+    mark_at = (close - timedelta(minutes=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for sym in symbols:
         bars, _ = alerts_live.merge_day(sip.get(sym, []), iex.get(sym, []), day, after, after, yahoo.get(sym))
         bars_seen[sym] = len(bars)
         if not bars:
             continue
-        ctx = alerts_live.context_for(sym, len(bars))
+        mark = {"price": float(bars[-1]["c"]), "at": mark_at, "late": False}
+        ctx = alerts_live.context_for(sym, len(bars), daily_closes=daily_closes.get(sym), close_mark=mark)
         found.extend(simulate(sym, day.isoformat(), bars, ctx, settings, skipped))
     rows = [a.record() for a in found]
     top = mark_top(rows, settings.top_names)

@@ -558,7 +558,10 @@ export const api = {
 export type AlertSetup = "6" | "120" | "240" | "480" | "s120" | "s240" | "s480";
 export type AlertStatus = "pending" | "triggered" | "stopped" | "breakeven" | "exited" | "expired" | "cancelled";
 
-/** One thirds-ladder sell: a close back through ``ema`` on the 15-minute chart. */
+/**
+ * One thirds-ladder sell, decided at 15:59 ET on the daily chart: step 1 at the entry day's check
+ * (``reason`` "trim_day_close", ``ema`` null), then the price under the daily ``ema`` (6, then 20).
+ */
 export interface AlertTrim {
   /** 1, 2 or 3. */
   step: number;
@@ -575,6 +578,21 @@ export interface AlertTrim {
   at: string | null;
   reason: string;
   ema: number | null;
+  /** Decided after the close because the 15:59 pass was missed. */
+  late?: boolean;
+}
+
+/** One intraday stop move (to the lowest low of the 3 bars after the trigger candle - $0.01). */
+export interface AlertStopMove {
+  /** 1, 2, … */
+  step: number;
+  /** ``<alert id>-s<step>``: replace the working stop order. */
+  client_order_id: string;
+  side: "sell";
+  stop_price: number | null;
+  previous_stop: number | null;
+  at: string | null;
+  reason: string | null;
 }
 
 /** One setup alert and what happened after it. Times are UTC ISO; the UI shows them in Phoenix time. */
@@ -631,6 +649,10 @@ export interface TradeAlert {
   acknowledged: boolean;
   /** Thirds-ladder sells taken so far, in order. Stop and session-end exits are not listed. */
   trims?: AlertTrim[];
+  /** Intraday stop moves so far, in order. */
+  stops?: AlertStopMove[];
+  /** A crossback position from an earlier session, held overnight for the daily trims. */
+  carried?: boolean;
   /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
   score: number | null;
   score_raw?: number | null;

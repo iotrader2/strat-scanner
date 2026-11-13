@@ -384,7 +384,7 @@ def test_ensure_profiles_keeps_only_the_ema_tails(db):
     closes = alerts_live.regular_closes(sip["AAA"], OPEN.date())
     assert len(closes) >= 480
     p = alerts_live._profiles["AAA"]
-    assert set(p["tail"]) >= {6, 20, 120, 240, 480}
+    assert set(p["tail"]) >= {6, 120, 240, 480}
     assert p["tail"][480][-1] == pytest.approx(alerts.ema_seed(closes, 480))
     assert p["prev_close"] == closes[-1]
     ctx = alerts_live.context_for("AAA", 26)
@@ -521,11 +521,11 @@ FILLED_ROWS = A_ROWS + [(100.2, 101.3, 100.1, 101.2)]
 
 def _with_trims(found, steps):
     """Take the first ``steps`` thirds of the ladder on each filled alert, as the crossback ladder does."""
-    emas = (6, 20, 120)
+    reasons = ("trim_day_close", "trim_daily_ema_6", "trim_daily_ema_20")
     for a in found:
         for i in range(steps):
             at = OPEN + timedelta(minutes=45 + 15 * i)
-            alerts._close_trade(a, 102.0 + i, at, f"trim_ema_{emas[i]}", "exited", frac=min(alerts.TRIM_FRAC, a.remaining_frac))
+            alerts._close_trade(a, 102.0 + i, at, reasons[i], "exited", frac=min(alerts.TRIM_FRAC, a.remaining_frac))
             a.trims_done = i + 1
     return found
 
@@ -539,7 +539,7 @@ def test_each_new_trim_is_reported_once_and_marks_the_alert_unread(db):
     aid = row["id"]
     assert first["trimmed"] == [{"id": aid, "symbol": "AAA", "setup": "120", "step": 1, "client_order_id": f"{aid}-t1"}]
     assert not row["acknowledged"]
-    assert row["trims"][0]["client_order_id"] == f"{aid}-t1" and row["trims"][0]["ema"] == 6
+    assert row["trims"][0]["client_order_id"] == f"{aid}-t1" and row["trims"][0]["ema"] is None
     assert not row["trims"][0]["close_all"]
     # Same poll again: nothing new.
     alerts_store.acknowledge()
@@ -553,6 +553,7 @@ def test_each_new_trim_is_reported_once_and_marks_the_alert_unread(db):
     assert [t["client_order_id"] for t in trims] == [f"{aid}-t1", f"{aid}-t2", f"{aid}-t3"]
     assert [t["close_all"] for t in trims] == [False, False, True]
     assert trims[2]["remaining_frac"] == 0
+    assert [t["ema"] for t in trims] == [None, 6, 20]
 
 
 def test_stop_and_session_end_exits_are_not_trims():
@@ -577,3 +578,87 @@ def test_orders_feed_lists_buys_then_trims(db):
     assert kinds == [("buy", str(aid), "buy"), ("trim", f"{aid}-t1", "sell"), ("trim", f"{aid}-t2", "sell")]
     buy = out["orders"][0]
     assert buy["filled"] and buy["price"] == 100.81 and buy["symbol"] == "AAA"
+
+
+class DailyClient(FakeClient):
+    """FakeClient that serves ``daily`` for 1Day requests."""
+
+    def __init__(self, sip, iex, daily):
+        super().__init__(sip, iex)
+        self.daily = daily
+
+    def bars(self, symbols, tf, start, end=None, feed=None, adjustment="raw"):
+        if tf == "1Day":
+            self.requests += 1
+            return {s: [b for b in self.daily.get(s, []) if start <= datetime.fromisoformat(b["t"].replace("Z", "+00:00")) <= end] for s in symbols}, []
+        return super().bars(symbols, tf, start, end, feed, adjustment)
+
+
+def _flat_history(days=7, v=100.0):
+    return [
+        _raw(OPEN - timedelta(days=d) + timedelta(minutes=15 * k), v, v, v, v, 1)
+        for d in range(days, 0, -1) for k in range(26)
+    ]
+
+
+def test_crossback_position_trails_trims_at_1559_is_held_overnight_and_stops_out_next_day(db):
+    alerts_live.clear()
+    history = _flat_history()  # 15-min 6 EMA = 100, prior close at it
+    day1 = [
+        (100.0, 100.6, 99.9, 100.5),  # cross: buy 100.61, stop 99.89
+        (100.5, 100.8, 100.3, 100.7),  # fill (trigger candle)
+        (100.7, 100.9, 100.4, 100.8), (100.8, 100.9, 100.35, 100.8), (100.8, 101.0, 100.5, 100.9),  # trail to 100.34
+    ] + [(100.9, 101.1, 100.8, 101.0)] * 20
+    today = [_raw(OPEN + timedelta(minutes=15 * i), *row, 1000) for i, row in enumerate(day1)]
+    forming = _raw(OPEN + timedelta(minutes=15 * 25), 101.0, 101.2, 100.9, 101.1, 500)
+    # Daily closes at 99 before the day: the 15:59 price is over both daily EMAs, so only the entry-day third.
+    daily = {"AAA": [_raw(datetime(2026, 9, 1, 4, tzinfo=timezone.utc) + timedelta(days=i), 99, 99, 99, 99, 1) for i in range(52)]}
+    client = DailyClient({"AAA": history + today}, {"AAA": today + [forming]}, daily)
+    labels = {"AAA": {"long": [{"kind": "watchlist", "label": "Watchlist", "side": "long"}]}}
+    run = lambda now: alerts_live.refresh(["AAA"], now=now, client=client, yahoo_bars={}, settings=Settings(), daily_setups=labels)
+
+    first = run(OPEN + timedelta(minutes=30, seconds=10))  # cross + fill bars complete
+    assert len(first["inserted"]) == 1 and first["stop_moved"] == []
+    aid = first["inserted"][0]["id"]
+    alerts_store.acknowledge()
+    moved = run(OPEN + timedelta(minutes=75, seconds=10))  # the third bar after the fill is complete
+    assert moved["stop_moved"] == [{"id": aid, "symbol": "AAA", "setup": "6", "step": 1, "stop_price": 100.34, "client_order_id": f"{aid}-s1"}]
+    row = alerts_store.list_alerts(session="2026-10-23")[0]
+    assert not row["acknowledged"] and row["stops"][0]["stop_price"] == 100.34 and row["stops"][0]["previous_stop"] == 99.89
+
+    at_1559 = OPEN + timedelta(hours=6, minutes=29, seconds=10)
+    close_pass = run(at_1559)
+    assert [t["client_order_id"] for t in close_pass["trimmed"]] == [f"{aid}-t1"]
+    marks = alerts_store.close_marks("2026-10-23")
+    assert marks["AAA"]["price"] == 101.1 and not marks["AAA"]["late"]
+    # The 16:00 pass (last bar complete) reports nothing new and keeps the 15:59 mark.
+    after = run(OPEN + timedelta(hours=6, minutes=30, seconds=10))
+    assert after["trimmed"] == [] and after["stop_moved"] == []
+    row = alerts_store.list_alerts(session="2026-10-23")[0]
+    assert row["status"] == "triggered" and [t["reason"] for t in row["trims"]] == ["trim_day_close"]
+    assert row["trims"][0]["price"] == 101.1 and not row["trims"][0]["close_all"]
+
+    # 16:05 archive keeps the open position live.
+    moved_out = alerts_store.archive_alerts(date(2026, 10, 23), now=OPEN + timedelta(hours=7))
+    assert moved_out["held"] == 1 and moved_out["moved"] == 0
+    assert [r["id"] for r in alerts_store.list_carried("2026-10-26")] == [aid]
+
+    # Next session: a gap under the trailed stop at the open.
+    open2 = OPEN + timedelta(days=3)
+    day2 = [_raw(open2, 100.0, 100.2, 99.8, 100.1, 1000)]
+    client.sip["AAA"] = history + today + day2
+    client.iex["AAA"] = day2
+    out = alerts_live.refresh([], now=open2 + timedelta(minutes=15, seconds=10), client=client, yahoo_bars={}, settings=Settings())
+    assert out["carried"] == 1
+    row = alerts_store.list_carried("2026-10-26")[0]
+    assert row["status"] == "stopped" and row["exit_reason"] == "trail_stop" and row["exit_price"] == 100.0
+    assert row["details"]["carry"]["day"] == "2026-10-26"
+    # The day's orders: on 10-23 the buy, the stop move and the first trim; nothing more on 10-26.
+    from strat import api
+
+    kinds = [(o["kind"], o["client_order_id"]) for o in api.get_alert_orders("2026-10-23")["orders"]]
+    assert kinds == [("buy", str(aid)), ("stop", f"{aid}-s1"), ("trim", f"{aid}-t1")]
+    assert api.get_alert_orders("2026-10-26")["orders"] == []
+    # Closed: the next archive moves it.
+    assert alerts_store.archive_alerts(date(2026, 10, 26), now=open2 + timedelta(hours=7))["moved"] == 1
+    alerts_live.clear()
