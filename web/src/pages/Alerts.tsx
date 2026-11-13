@@ -23,7 +23,6 @@ import {
   alertSortValue,
   dailySetupText,
   happenedText,
-  isShortSetup,
   normalizeColumnSort,
   setupPeriod,
   type ColumnSort,
