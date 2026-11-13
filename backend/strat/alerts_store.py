@@ -19,6 +19,9 @@ from .alerts import MA_PERIODS, SETTING_LIMITS, Alert, Settings, mark_top
 
 _lock = threading.Lock()
 
+# One-shot: rewrite a stored max_stop_pct of exactly 2 to the new default of 1.
+_MAX_STOP_PCT_1_META = "max_stop_pct_1"
+
 
 @contextmanager
 def _writing():
@@ -212,9 +215,40 @@ def save_session(
     return {"inserted": inserted, "triggered": triggered, "updated": updated, "removed": removed}
 
 
+def _migrate_max_stop_pct_to_1(conn) -> bool:
+    """If ``user_meta`` has not recorded it yet, rewrite a stored ``max_stop_pct`` of exactly 2 to 1.
+
+    Same idea as a ``min_avg_dollar_volume_100m``-style one-shot: flag in ``user_meta`` so it runs once.
+    Custom values other than exactly 2 are left alone. Returns True when a rewrite happened.
+    """
+    if conn.execute("SELECT 1 FROM user_meta WHERE key = ?", (_MAX_STOP_PCT_1_META,)).fetchone():
+        return False
+    changed = False
+    row = conn.execute("SELECT value FROM alert_settings WHERE key = 'max_stop_pct'").fetchone()
+    if row is not None:
+        try:
+            current = float(json.loads(row[0]))
+        except (TypeError, ValueError):
+            current = None
+        if current == 2.0:
+            conn.execute(
+                "UPDATE alert_settings SET value = ? WHERE key = 'max_stop_pct'",
+                (json.dumps(1.0),),
+            )
+            changed = True
+    conn.execute(
+        "INSERT INTO user_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (_MAX_STOP_PCT_1_META, "1"),
+    )
+    return changed
+
+
 def load_settings(db_path: Optional[Path] = None) -> Settings:
     def read() -> list:
         with userdb.connect(db_path) as conn:
+            # Run the one-shot rewrite inside the same connection before reading settings.
+            if _migrate_max_stop_pct_to_1(conn):
+                userdb.bump()
             return conn.execute("SELECT key, value FROM alert_settings").fetchall()
 
     return Settings.from_mapping({k: json.loads(v) for k, v in userdb.cached("alert_settings", read, db_path)})
@@ -240,9 +274,10 @@ def save_settings(changes: dict, db_path: Optional[Path] = None) -> Settings:
             raise SettingsError(f"{k} must be between {lo:g} and {hi:g}")
         clean[k] = int(num) if isinstance(current[k], int) else num
     merged = {**current, **clean}
-    if not any(merged[f"ma_{p}"] for p in MA_PERIODS):
+    # MA-touch mode needs at least one of 120/240/480 on; cross mode uses cross_ema_period instead.
+    if int(merged.get("entry_trigger", 1)) == 0 and not any(merged[f"ma_{p}"] for p in MA_PERIODS):
         raise SettingsError("Turn on at least one moving average")
-    if int(merged["stop_mode"]) == 2 and float(merged["fixed_stop_pct"]) > float(merged["max_stop_pct"]):
+    if int(merged["stop_mode"]) == 2 and float(merged["fixed_stop_pct"]) > float(merged["max_stop_pct"]) and int(merged.get("entry_trigger", 1)) == 0:
         raise SettingsError("The fixed stop is wider than the max stop, so every order would be skipped")
     if float(merged["atr_pct_min"]) > float(merged["atr_pct_max"]):
         raise SettingsError("ATR % minimum is above the maximum")

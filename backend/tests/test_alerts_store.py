@@ -28,7 +28,7 @@ CTX = Context(ma_tail={120: [99.0 + 0.01 * k for k in range(10)]}, prev_close=10
 
 
 def _alerts(symbol, rows, daily=("Flat Base Breakout",)):
-    found = simulate(symbol, "2026-10-23", _bars(rows), CTX)
+    found = simulate(symbol, "2026-10-23", _bars(rows), CTX, Settings(entry_trigger=0, max_stop_pct=5))
     for a in found:
         if daily:
             a.details["daily_setups"] = list(daily)
@@ -86,6 +86,7 @@ def test_acknowledge(db):
 
 def test_settings_round_trip_and_validation(db):
     assert alerts_store.load_settings() == Settings()
+    assert Settings().max_stop_pct == 1.0
     s = alerts_store.save_settings({"hold_pct": 0.5, "top_names": 4, "max_symbols": 80})
     assert s.hold_pct == 0.5 and s.top_names == 4 and s.max_symbols == 80
     assert alerts_store.load_settings().top_names == 4
@@ -94,10 +95,43 @@ def test_settings_round_trip_and_validation(db):
     with pytest.raises(alerts_store.SettingsError):
         alerts_store.save_settings({"hold_pct": 99})
     with pytest.raises(alerts_store.SettingsError):
-        alerts_store.save_settings({"ma_120": 0, "ma_240": 0, "ma_480": 0})
+        alerts_store.save_settings({"entry_trigger": 0, "ma_120": 0, "ma_240": 0, "ma_480": 0})
     with pytest.raises(alerts_store.SettingsError):
-        alerts_store.save_settings({"stop_mode": 2, "fixed_stop_pct": 3, "max_stop_pct": 2})
+        alerts_store.save_settings({"entry_trigger": 0, "stop_mode": 2, "fixed_stop_pct": 3, "max_stop_pct": 2})
     assert alerts_store.reset_settings() == Settings()
+
+
+def test_max_stop_pct_2_is_rewritten_to_1_once(db):
+    """One-shot user_meta migration: a stored max_stop_pct of exactly 2 becomes 1; other values stay."""
+    import json
+
+    from strat import userdb
+
+    with userdb.connect() as conn:
+        conn.execute(
+            "INSERT INTO alert_settings(key, value) VALUES (?, ?)",
+            ("max_stop_pct", json.dumps(2.0)),
+        )
+    assert alerts_store.load_settings().max_stop_pct == 1.0
+    with userdb.connect() as conn:
+        flag = conn.execute(
+            "SELECT value FROM user_meta WHERE key = ?", (alerts_store._MAX_STOP_PCT_1_META,)
+        ).fetchone()
+        stored = json.loads(conn.execute("SELECT value FROM alert_settings WHERE key = 'max_stop_pct'").fetchone()[0])
+    assert flag and flag[0] == "1" and stored == 1.0
+    # Idempotent: a later custom value is not rewritten after the flag is set.
+    alerts_store.save_settings({"max_stop_pct": 1.5})
+    assert alerts_store.load_settings().max_stop_pct == 1.5
+    # A fresh DB that never had 2 still gets the flag and keeps the code default.
+    alerts_store.reset_settings()
+    with userdb.connect() as conn:
+        conn.execute("DELETE FROM user_meta WHERE key = ?", (alerts_store._MAX_STOP_PCT_1_META,))
+        conn.execute(
+            "INSERT INTO alert_settings(key, value) VALUES (?, ?)",
+            ("max_stop_pct", json.dumps(1.5)),
+        )
+    # Flag cleared but value is 1.5 (not exactly 2): leave it, set the flag.
+    assert alerts_store.load_settings().max_stop_pct == 1.5
 
 
 # ------------------------------------------------------------------ live merge
@@ -161,7 +195,7 @@ def test_refresh_keeps_the_daily_setup_on_the_alert(db):
     touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
     client = FakeClient({"AAA": history}, {"AAA": [touch]})
     labels = {"AAA": {"long": [{"kind": "flat-base-breakout", "label": "Flat Base Breakout", "side": "long"}], "short": []}}
-    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, daily_setups=labels)
+    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, daily_setups=labels, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["alerts"] == 1
     row = alerts_store.list_alerts()[0]
     assert row["setup"] == "120" and row["details"]["daily_setups"] == labels["AAA"]["long"]
@@ -176,21 +210,21 @@ def test_refresh_end_to_end(db):
     touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
     forming = _raw(OPEN + timedelta(minutes=15), last, last + 0.5, last - 0.05, last + 0.4, 500)
     client = FakeClient({"AAA": history}, {"AAA": [touch]})
-    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client)
+    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["alerts"] == 1 and len(stats["inserted"]) == 1
     row = alerts_store.list_alerts()[0]
     assert row["setup"] == "120" and row["symbol"] == "AAA" and row["status"] == "pending"
     assert row["trigger_price"] == round(last + 0.31, 2)
     # Five minutes later the forming candle trades through the buy stop: triggered before it closes.
     client.iex["AAA"].append(forming)
-    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=21), client=client)
+    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=21), client=client, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["symbols"] == 1  # kept because its alert is live, even off the list
     assert len(stats["triggered"]) == 1
     assert alerts_store.list_alerts()[0]["status"] == "triggered"
     # Overnight nothing runs; in premarket only the per-day inputs are prepared.
     assert alerts_live.refresh(["AAA"], now=OPEN - timedelta(hours=4), client=client)["skipped"]
     alerts_live.clear()
-    pre = alerts_live.refresh(["AAA"], now=OPEN - timedelta(minutes=30), client=client)
+    pre = alerts_live.refresh(["AAA"], now=OPEN - timedelta(minutes=30), client=client, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert pre["skipped"] and pre["prepared"] == 1
 
 
@@ -404,7 +438,7 @@ def test_ensure_profiles_keeps_only_the_ema_tails(db):
     closes = alerts_live.regular_closes(sip["AAA"], OPEN.date())
     assert len(closes) >= 480
     p = alerts_live._profiles["AAA"]
-    assert set(p["tail"]) == {120, 240, 480}
+    assert set(p["tail"]) >= {6, 20, 120, 240, 480}
     assert p["tail"][480][-1] == pytest.approx(alerts.ema_seed(closes, 480))
     assert p["prev_close"] == closes[-1]
     ctx = alerts_live.context_for("AAA", 26)
@@ -431,17 +465,17 @@ def test_a_name_off_the_list_only_advances_its_alert_and_never_starts_one(db):
                 setup_low=0.6, setup_high=0.99, ref_price=0.9)
     alerts_store.save_session("2026-10-23", [old], now=OPEN)
     client = FakeClient({"MU": history}, {"MU": [touch]})
-    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=16), client=client)
+    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=16), client=client, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["skipped"] and stats["symbols"] == 0  # the old row does not pull MU into the poll
     assert [r["setup"] for r in alerts_store.list_alerts()] == ["D"]
 
     # A new-rules alert that is live keeps MU tracked, but the same touch cannot mint a second alert.
-    watch = alerts.simulate("MU", "2026-10-23", [alerts_live._bar(touch)], ctx)
+    watch = alerts.simulate("MU", "2026-10-23", [alerts_live._bar(touch)], ctx, Settings(entry_trigger=0, max_stop_pct=5))
     assert len(watch) == 1
     alerts_store.save_session("2026-10-23", watch, now=OPEN + timedelta(minutes=16))
     nxt = _raw(OPEN + timedelta(minutes=15), last, last + 0.05, round(ma, 2) - 0.01, last - 0.05, 1000)
     client.iex["MU"].append(nxt)
-    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=31), client=client)
+    stats = alerts_live.refresh([], now=OPEN + timedelta(minutes=31), client=client, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["symbols"] == 1 and stats["inserted"] == []
     assert sorted(r["setup"] for r in alerts_store.list_alerts()) == ["120", "D"]
 
@@ -492,7 +526,7 @@ def test_a_manual_watchlist_name_is_alerted_and_its_history_is_fetched(db):
     scan = [{"symbol": "SOFI", "kind": "stock", "in_universe": False, "setups": [], "atr_pct": 4.0}]
     longs, shorts, labels = alert_refresh_inputs(scan, Settings())
     stats = alerts_live.refresh(
-        longs, now=OPEN + timedelta(minutes=16), client=client, settings=Settings(),
+        longs, now=OPEN + timedelta(minutes=16), client=client, settings=Settings(entry_trigger=0, max_stop_pct=5),
         short_symbols=shorts, daily_setups=labels,
     )
     assert stats["alerts"] == 1
@@ -511,7 +545,7 @@ def test_refresh_needs_a_daily_setup_for_a_new_alert(db):
     touch = _raw(OPEN, last, last + 0.3, round(ma, 2), last - 0.1, 1000)
     client = FakeClient({"AAA": history}, {"AAA": [touch]})
     labels = {"AAA": {"long": [], "short": ["Flat Base Breakdown"]}}  # only a short setup: no long alert
-    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, daily_setups=labels)
+    stats = alerts_live.refresh(["AAA"], now=OPEN + timedelta(minutes=16), client=client, daily_setups=labels, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["alerts"] == 0
     alerts_live.clear()
 
@@ -531,6 +565,6 @@ def test_first_passes_after_the_open_do_not_ask_for_sip_bars(db):
 
     client = Strict({"AAA": history}, {"AAA": [touch]})
     now = OPEN + timedelta(minutes=15, seconds=10)
-    stats = alerts_live.refresh(["AAA"], now=now, client=client)
+    stats = alerts_live.refresh(["AAA"], now=now, client=client, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["alerts"] == 1 and not stats["inserted"][0]["late"]
     alerts_live.clear()

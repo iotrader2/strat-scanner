@@ -1,59 +1,26 @@
-"""Intraday entries for daily setups on 15-minute bars: a pullback to a rising 120 / 240 / 480 EMA (long), or a
-rally into a falling one (short).
+"""Intraday entries for daily setups on 15-minute bars.
 
-The setup decision is daily: the caller checks only names with a daily setup on the scanner (``alert_symbols`` /
-``alert_short_symbols`` in ``api``): a long daily setup is checked for the long pullback, a short daily setup for the
-short rally. The 15-minute EMAs only time the entry.
+Default (``entry_trigger=1``): a completed 15-minute bar that closes **above** the configurable
+cross EMA (default 6) after the prior bar closed at or below it. Buy = that candle's high + $0.01;
+stop = that candle's low - $0.01. The order does not re-arm. While pending it fills at the buy or
+cancels if price trades the candle low - $0.01; the 12:00 ET cutoff and session end still apply (no
+``watch_bars`` expiry). After the fill: break-even after ``breakeven_after_bars`` completed bars;
+trim in thirds on closes back through ``trim_ema_1`` / ``trim_ema_2`` / ``trim_ema_3`` (defaults
+6 / 20 / 120), each once and in order (one bar may take several thirds at the same close); plus stop
+and session end on whatever remains. Partial exits use weighted R.
+
+Legacy (``entry_trigger=0``): pullback to a rising 120 / 240 / 480 EMA with re-arm and ``stop_mode``.
+
+The setup decision is daily: ``alert_symbols`` / ``alert_short_symbols`` pick names. Short exposure
+is taken by longing a mapped single-stock inverse ETF when the underlying has EMA Crossback Short
+(see ``inverse_etfs``); the old direct-short ``s120`` / ``s240`` / ``s480`` path is not used for new
+alerts. Direct-short simulate remains for tests and historical rows.
 
 Everything here is pure: :func:`simulate` takes one symbol's completed regular-session bars for one
-day plus a little context and returns the alerts that day would have produced, each with its outcome
-so far. The live poll (``alerts_live``) and the replay script call the same function, so a replay
-shows exactly what the tab would have shown.
+day plus context and returns alerts with outcomes. The live poll and replay call the same function.
 
-Bars are dicts ``{"t": datetime (bar start, UTC), "o", "h", "l", "c", "v"}``. Bar ``i`` is the
-``i``-th 15-minute bar after the open, so bar 0 is the opening bar (6:30 Phoenix while New York is on
-daylight time). The moving averages are EMAs of regular-session 15-minute closes (premarket and after
-hours are left out), the same lines the 15-minute chart draws: 120 (red), 240 (yellow) and 480 (blue).
-Each is carried over from the prior sessions (``Context.ma_tail``) and continued with today's closes.
-
-An alert has two steps.
-
-1. **Watch** (status ``pending``). A completed bar touches a rising EMA coming from above:
-
-   * the EMA is rising: its value on the bar before is higher than ``rising_bars`` bars earlier;
-   * the bar before closed above the EMA (more than ``touch_tol_pct`` over it), so this is a pullback
-     to the line, not price already sitting on it;
-   * this bar's low reaches the EMA (within ``touch_tol_pct``);
-   * this bar did not close more than ``hold_pct`` under the EMA.
-
-   When one bar touches more than one EMA, the alert is for the lowest one it held. The buy is the
-   touch bar's high + $0.01. The stop depends on ``stop_mode``: the pullback low so far - $0.01
-   (``0``), that candle's low - $0.01 (``1``), or ``fixed_stop_pct`` under the buy (``2``, the default).
-   An order wider than ``max_stop_pct`` is not armed.
-
-2. **Trigger** (status ``triggered``). A later bar trades over the previous 15-minute candle's high +
-   $0.01; the fill is always that price (a gap over it does not move the entry). While the alert waits, each completed bar that does not trigger moves the buy to its own
-   high + $0.01 and moves the stop with it (lowest low so far, that candle only, or the fixed percent). The watch is cancelled when a bar closes
-   more than ``hold_pct`` under the EMA, when the new stop would be wider than ``max_stop_pct``, and expires after ``watch_bars`` bars without a trigger. The live
-   poll also checks the forming bar, so a trigger shows up within a poll instead of after the candle closes.
-
-After the fill the trade is managed on completed bars: the stop, break-even after
-``breakeven_after_new_highs`` new-high bars, an exit on a close more than ``hold_pct`` under the EMA
-(``exit_close_under_ma``), and the session end.
-
-Trade window: no new alert from a bar that closes after 12:00 ET, and a waiting alert expires
-(``trade_window``) at that cutoff instead of filling later. A trade already filled is still managed.
-
-One live alert per name at a time, and no new alert once ``max_attempts`` of the name's alerts have
-triggered that day. Which names are checked (any name with a daily setup on that side) is decided by the caller.
-
-**Short side** (``side="short"``, setups ``s120`` / ``s240`` / ``s480``) is the exact mirror, for short daily setups: a
-completed bar rallies up into a *falling* EMA coming from below (the bar before closed under it, this bar's
-high reaches it, the close did not go more than ``hold_pct`` over it). The sell is the touch bar's low -
-$0.01 and the stop follows ``stop_mode`` (rally high so far, that candle's high, or the fixed percent over the sell). After the fill: the stop
-above, break-even after ``breakeven_after_new_highs`` new-low bars, an exit on a close more than ``hold_pct``
-over the EMA, and the session end. For a short, ``high_reached`` holds the lowest price reached (the best
-price) and R is measured downward. When a bar touches several falling EMAs the alert is for the highest.
+Bars are dicts ``{"t": datetime (bar start, UTC), "o", "h", "l", "c", "v"}``. EMAs are of
+regular-session 15-minute closes, seeded from prior sessions (``Context.ma_tail``).
 """
 
 from __future__ import annotations
@@ -87,12 +54,18 @@ TRADE_CUTOFF_TZ = ZoneInfo("America/New_York")
 TRADE_CUTOFF = time(12, 0)
 MA_PERIODS = (120, 240, 480)
 EMA_LONG = MA_PERIODS[-1]
+ENTRY_MA_TOUCH = 0
+ENTRY_EMA_CROSS = 1
+TRIM_FRAC = 1.0 / 3.0  # each ladder step exits one third of the original position
 LONG_SETUPS = tuple(str(p) for p in MA_PERIODS)
 SHORT_SETUPS = tuple(f"s{p}" for p in MA_PERIODS)
-SETUPS = LONG_SETUPS + SHORT_SETUPS
+# Cross setups use the period string (e.g. "6"); keep common ones listed for live orphan checks.
+CROSS_SETUPS = ("6",)
+SETUPS = LONG_SETUPS + SHORT_SETUPS + CROSS_SETUPS
 SETUP_NAMES = {
     **{str(p): f"Pullback to rising {p} EMA" for p in MA_PERIODS},
     **{f"s{p}": f"Short: rally to falling {p} EMA" for p in MA_PERIODS},
+    "6": "15-min 6 EMA crossback",
 }
 
 
@@ -123,22 +96,34 @@ class Settings:
     # 1 = allow short entries on the 15-minute 120 EMA (s120). 0 = skip every s120 short
     # (including names that qualified via overcut-fail or any other short daily setup). 240/480 shorts are unchanged.
     shorts_ma120_enabled: int = 0
-    # Which averages (1 = on, 0 = off). The 120 EMA was the only one that made R in the
-    # Oct 27–Nov 9 2026 replay; 240 and 480 stay available but start off.
+    # Which averages (1 = on, 0 = off) for ``entry_trigger=0`` (MA touch). Cross mode ignores these.
     ma_120: int = 1
     ma_240: int = 0
     ma_480: int = 0
+    # 1 = 15-min EMA crossback (default). 0 = pullback to rising 120/240/480 EMA.
+    entry_trigger: int = ENTRY_EMA_CROSS
+    cross_ema_period: int = 6  # 15-min EMA period for the crossback entry
+    # Cross mode trim ladder (each fires once, in order, one third of the original size):
+    # close through trim_ema_1, then trim_ema_2, then trim_ema_3 (against the position).
+    trim_ema_1: int = 6
+    trim_ema_2: int = 20
+    trim_ema_3: int = 120
+    # Cross mode: raise the stop to the fill after this many completed bars after the fill.
+    breakeven_after_bars: int = 4
+    # 1 = short side via longing mapped inverse ETFs when the underlying has EMA Crossback Short.
+    inverse_etf_shorts: int = 1
     # Longs: skip when the buy trigger is more than this percent above the prior session's daily EMA
     # of ``long_ext_ema_period``. 0 disables the cap. The rule lives in ``long_extension_skip``.
+    # Not applied to inverse-ETF (short-proxy) alerts.
     long_max_ext_vs_d10ema_pct: float = 2.0
     long_ext_ema_period: int = 10  # daily EMA period for the long extension cap (default 10)
     # 1 = do not skip when the trigger/fill is at or under the prior-day daily 4 EMA, even if over the cap.
     long_ext_waive_at_d4ema: int = 1
     # 0 = lowest low since the touch. 1 = the candle that owns the buy. 2 = fixed percent.
-    # 2 is the default: a 1% stop made the most R for theme-gated longs in that replay (+24.5 R) and stays inside 2%.
+    # Used only for ``entry_trigger=0``. Cross mode always uses the cross candle's low - 1c.
     stop_mode: int = 2
     fixed_stop_pct: float = 1.0
-    max_stop_pct: float = 2.0  # do not arm an order wider than this
+    max_stop_pct: float = 1.0  # do not arm an order wider than this (default 1%; +0.05 slack in apply_order)
     # 1 = a long name needs a daily setup that has not broken yet.
     long_pending_only: int = 0
     # 1 = the post-close watchlist reset also removes names you added yourself. 0 = keep those.
@@ -153,25 +138,24 @@ class Settings:
     min_avg_dollar_volume: float = 100_000_000
     atr_pct_min: float = 0.0
     atr_pct_max: float = 12.0
-    # Short daily setups (1 = on, 0 = off). The two that lost, and the thin ones, start off.
-    # MA Overcut and Fail at 10 and 20 days made R and start on.
+    # Short daily setups (1 = on, 0 = off). Default: only EMA Crossback Short (via inverse ETFs).
     short_hvc: int = 0
-    short_crossback: int = 0
-    short_ma10: int = 1
-    short_ma20: int = 1
+    short_crossback: int = 1
+    short_ma10: int = 0
+    short_ma20: int = 0
     short_ma50: int = 0
     short_overcut: int = 0
     short_wedge: int = 0
     short_flat: int = 0
     short_flag: int = 0
     short_gap: int = 0
-    touch_tol_pct: float = 0.1  # a low this close above the EMA counts as a touch
+    touch_tol_pct: float = 0.1  # a low this close above the EMA counts as a touch (MA touch mode)
     hold_pct: float = 0.3  # a close more than this under the EMA has lost it
     rising_bars: int = 4  # rising = higher than this many bars earlier (4 bars = 1 hour)
-    watch_bars: int = 4  # bars after the touch the buy stop stays live
+    watch_bars: int = 4  # MA touch: bars after the touch the buy stop stays live
     max_attempts: int = 2
-    breakeven_after_new_highs: int = 3
-    exit_close_under_ma: int = 1  # exit an open trade on a close under the EMA (1 = on, 0 = off)
+    breakeven_after_new_highs: int = 3  # MA touch: BE after this many new-high bars
+    exit_close_under_ma: int = 1  # MA touch only: full exit on close under the setup EMA
     top_names: int = 3
     # Earnings ⚠ on the scanner, watchlist, alerts, positions and the chart. Calendar days, today included.
     earnings_window_days: int = DEFAULT_WARNING_WINDOW_DAYS
@@ -193,9 +177,36 @@ class Settings:
     def periods(self) -> list[int]:
         return [p for p in MA_PERIODS if getattr(self, f"ma_{p}", 0)]
 
+    def uses_ema_cross(self) -> bool:
+        return int(self.entry_trigger) == ENTRY_EMA_CROSS
+
+    def trim_emas(self) -> tuple[int, int, int]:
+        return (int(self.trim_ema_1), int(self.trim_ema_2), int(self.trim_ema_3))
+
     def atr_filter_off(self) -> bool:
         """True when the ATR slider is the full 0–12%+ range, which filters nothing."""
         return self.atr_pct_min <= 0 and self.atr_pct_max >= 12
+
+
+def known_setup(setup: str) -> bool:
+    """True when ``setup`` is a legacy MA-touch / short key or a cross-period long setup."""
+    if setup in SETUPS:
+        return True
+    if str(setup).startswith("s"):
+        return False
+    try:
+        return 2 <= int(setup) <= 50
+    except ValueError:
+        return False
+
+
+def ema_periods_for(settings: Optional["Settings"] = None) -> tuple[int, ...]:
+    """15-minute EMA periods to seed and continue (MA-touch set, cross entry, trim ladder)."""
+    s = settings or Settings()
+    found = set(MA_PERIODS)
+    found.add(int(s.cross_ema_period))
+    found.update(s.trim_emas())
+    return tuple(sorted(p for p in found if p > 0))
 
 
 # Hard floor: a name needs a 14-day ATR above this percent of price to go on the auto watchlist or to
@@ -239,6 +250,9 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "theme_gate": (0, 1), "theme_top_pct": (1, 50),
     "shorts": (0, 1), "max_short_symbols": (0, 1000), "shorts_ma120_enabled": (0, 1),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
+    "entry_trigger": (0, 1), "cross_ema_period": (2, 50),
+    "trim_ema_1": (2, 200), "trim_ema_2": (2, 200), "trim_ema_3": (2, 200),
+    "breakeven_after_bars": (1, 50), "inverse_etf_shorts": (0, 1),
     "long_max_ext_vs_d10ema_pct": (0, 100), "long_ext_ema_period": (1, 200),
     "long_ext_waive_at_d4ema": (0, 1),
     "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
@@ -250,7 +264,8 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "short_overcut": (0, 1), "short_wedge": (0, 1), "short_flat": (0, 1),
     "short_flag": (0, 1), "short_gap": (0, 1),
     "touch_tol_pct": (0, 5), "hold_pct": (0, 5), "rising_bars": (1, TAIL_KEEP - 1), "watch_bars": (1, 26),
-    "max_attempts": (1, 20), "breakeven_after_new_highs": (1, 50), "exit_close_under_ma": (0, 1),
+    "max_attempts": (1, 20), "breakeven_after_new_highs": (1, 50),
+    "exit_close_under_ma": (0, 1),
     "top_names": (0, 50), "earnings_window_days": (0, 30), "auto_archive": (0, 1),
 }
 
@@ -267,13 +282,17 @@ class Context:
     prior_daily_bars: Sequence[Any] = field(default_factory=tuple)
 
 
-def context_from_closes(closes: Sequence[float], session_bars: int = SESSION_BARS) -> Context:
+def context_from_closes(
+    closes: Sequence[float],
+    session_bars: int = SESSION_BARS,
+    periods: Optional[Sequence[int]] = None,
+) -> Context:
     """Context from prior sessions' regular 15-minute closes (oldest first). Periods without enough closes stay unknown."""
     tails = {}
-    for p in MA_PERIODS:
-        series = [v for v in ema_series(closes, p) if v is not None]
+    for p in (periods if periods is not None else ema_periods_for()):
+        series = [v for v in ema_series(closes, int(p)) if v is not None]
         if series:
-            tails[p] = series[-TAIL_KEEP:]
+            tails[int(p)] = series[-TAIL_KEEP:]
     return Context(ma_tail=tails, prev_close=float(closes[-1]) if closes else None, session_bars=session_bars)
 
 
@@ -281,15 +300,15 @@ def context_from_closes(closes: Sequence[float], session_bars: int = SESSION_BAR
 class Alert:
     symbol: str
     session: str
-    setup: str  # the EMA period, "120" / "240" / "480"; short side "s120" / "s240" / "s480"
-    origin_bar: datetime  # the touch bar (the key)
-    setup_bar: datetime  # the candle whose high + $0.01 is the buy stop (moves while waiting)
+    setup: str  # MA touch: "120"/"240"/"480" or "s…"; cross: period string e.g. "6"
+    origin_bar: datetime  # the signal bar (the key)
+    setup_bar: datetime  # the candle whose high + $0.01 is the buy stop (moves while waiting in MA-touch)
     setup_index: int
     trigger: float
     stop: float
-    setup_low: float  # pullback low so far
+    setup_low: float  # pullback / cross candle low
     setup_high: float  # high of ``setup_bar``
-    ref_price: float  # touch bar close
+    ref_price: float  # signal bar close
     status: str = "pending"
     filled: bool = False
     fill_price: Optional[float] = None
@@ -307,6 +326,10 @@ class Alert:
     current_stop: float = 0.0
     running_high: float = 0.0
     new_highs: int = 0
+    bars_since_fill: int = 0
+    remaining_frac: float = 1.0
+    realized_r: float = 0.0
+    trims_done: int = 0  # cross ladder: 0..3 thirds taken
 
     @property
     def key(self) -> str:
@@ -325,6 +348,10 @@ class Alert:
         return self.side == "short"
 
     @property
+    def is_cross(self) -> bool:
+        return bool(self.details.get("entry_trigger") == ENTRY_EMA_CROSS)
+
+    @property
     def fired_at(self) -> datetime:
         return self.origin_bar + BAR
 
@@ -338,6 +365,10 @@ class Alert:
 
     def record(self) -> dict:
         """Row for the alerts table (outcome and levels; bookkeeping columns are added by the store)."""
+        self.details["remaining_frac"] = self.remaining_frac
+        self.details["realized_r"] = round(self.realized_r, 4)
+        self.details["bars_since_fill"] = self.bars_since_fill
+        self.details["trims_done"] = self.trims_done
         return {
             "key": self.key,
             "symbol": self.symbol,
@@ -592,14 +623,24 @@ def ema_continue(seed: Optional[float], values: Sequence[float], period: int) ->
 class Frame:
     """Today's bars with the EMAs every rule reads. Negative indexes reach into the prior session."""
 
-    def __init__(self, bars: Sequence[Mapping], ctx: Context):
+    def __init__(self, bars: Sequence[Mapping], ctx: Context, periods: Optional[Sequence[int]] = None):
         self.bars = list(bars)
         self.ctx = ctx
         closes = [float(b["c"]) for b in self.bars]
-        self.tail = {p: list(ctx.ma_tail.get(p) or ()) for p in MA_PERIODS}
-        self.ma = {p: ema_continue(self.tail[p][-1] if self.tail[p] else None, closes, p) for p in MA_PERIODS}
+        period_list = list(periods) if periods is not None else list(ema_periods_for())
+        for p in ctx.ma_tail:
+            if int(p) not in period_list:
+                period_list.append(int(p))
+        self.periods = tuple(sorted(set(int(p) for p in period_list)))
+        self.tail = {p: list(ctx.ma_tail.get(p) or ()) for p in self.periods}
+        self.ma = {
+            p: ema_continue(self.tail[p][-1] if self.tail[p] else None, closes, p)
+            for p in self.periods
+        }
 
     def ma_at(self, p: int, i: int) -> Optional[float]:
+        if p not in self.ma:
+            return None
         if i >= 0:
             return self.ma[p][i] if i < len(self.bars) else None
         tail = self.tail[p]
@@ -649,6 +690,21 @@ def match_short(f: Frame, i: int, p: int, s: Settings) -> Optional[dict]:
     return {"ma": m, "slope_pct": (mp - mb) / mb * 100}
 
 
+def match_cross(f: Frame, i: int, period: int) -> Optional[dict]:
+    """Bar ``i`` closes above the ``period`` EMA after the prior close was at or below it (strict)."""
+    m, mp = f.ma_at(period, i), f.ma_at(period, i - 1)
+    pc = f.close_at(i - 1)
+    if m is None or mp is None or pc is None or m <= 0:
+        return None
+    if not (pc <= mp):
+        return None
+    b = f.bars[i]
+    if not (float(b["c"]) > m):
+        return None
+    slope = ((mp - (f.ma_at(period, i - 2) or mp)) / mp * 100) if mp else 0.0
+    return {"ma": m, "slope_pct": slope}
+
+
 def touch(f: Frame, i: int, s: Settings, side: str = "long") -> Optional[tuple[int, dict, list[int]]]:
     """(period, levels, every period touched) for the EMA bar ``i`` came back to and was held by.
 
@@ -673,21 +729,27 @@ def touch(f: Frame, i: int, s: Settings, side: str = "long") -> Optional[tuple[i
 def apply_order(a: "Alert", high: float, low: float, s: Settings) -> bool:
     """Point the working order at this candle. False when the stop is past ``max_stop_pct`` or on the wrong side.
 
-    The buy (short: the sell) is always this candle's extreme plus one cent. The stop is the lowest low since
-    the touch, this candle only, or ``fixed_stop_pct`` away from the order, depending on ``stop_mode``.
+    Cross mode always uses this candle's high + 1c / low - 1c. MA-touch uses ``stop_mode``.
     """
     high, low = float(high), float(low)
+    candle_only = a.is_cross or s.stop_mode in (STOP_CANDLE, STOP_FIXED)
     if a.short:
         trigger = round(low - TICK, 2)
-        extreme = high if s.stop_mode in (STOP_CANDLE, STOP_FIXED) else max(a.setup_high, high)
+        extreme = high if candle_only else max(a.setup_high, high)
         a.setup_high, a.setup_low = extreme, low
-        stop = round(trigger * (1 + s.fixed_stop_pct / 100), 2) if s.stop_mode == STOP_FIXED else round(extreme + TICK, 2)
+        if a.is_cross or s.stop_mode != STOP_FIXED:
+            stop = round(extreme + TICK, 2)
+        else:
+            stop = round(trigger * (1 + s.fixed_stop_pct / 100), 2)
         wrong_side = stop <= trigger
     else:
         trigger = round(high + TICK, 2)
-        extreme = low if s.stop_mode in (STOP_CANDLE, STOP_FIXED) else min(a.setup_low, low)
+        extreme = low if candle_only else min(a.setup_low, low)
         a.setup_low, a.setup_high = extreme, high
-        stop = round(trigger * (1 - s.fixed_stop_pct / 100), 2) if s.stop_mode == STOP_FIXED else round(extreme - TICK, 2)
+        if a.is_cross or s.stop_mode != STOP_FIXED:
+            stop = round(extreme - TICK, 2)
+        else:
+            stop = round(trigger * (1 - s.fixed_stop_pct / 100), 2)
         wrong_side = stop >= trigger
     if trigger <= 0 or stop <= 0 or wrong_side:
         return False
@@ -719,18 +781,50 @@ def _rearm(a: "Alert", bar: Mapping, index: int, s: Settings, end: datetime) -> 
 # --------------------------------------------------------------------------------------------- outcomes
 
 
-def _close_trade(a: Alert, price: float, at: datetime, reason: str, status: str) -> None:
+def _risk_per_share(a: Alert) -> float:
+    fill = a.fill_price or a.trigger
+    return abs(fill - a.stop)
+
+
+def _piece_r(a: Alert, price: float) -> Optional[float]:
+    risk = _risk_per_share(a)
+    if risk <= 0:
+        return None
+    fill = a.fill_price or a.trigger
+    if a.short:
+        return (fill - price) / risk
+    return (price - fill) / risk
+
+
+def _close_trade(a: Alert, price: float, at: datetime, reason: str, status: str, frac: Optional[float] = None) -> None:
+    """Exit ``frac`` of the original size (default: all remaining). Weighted R across partials."""
+    if frac is None:
+        frac = a.remaining_frac
+    frac = min(float(frac), a.remaining_frac)
+    if frac <= 0:
+        return
+    piece = _piece_r(a, price)
+    if piece is not None:
+        a.realized_r += frac * piece
+    a.remaining_frac = max(0.0, round(a.remaining_frac - frac, 6))
+    a.details.setdefault("trims", []).append({
+        "frac": round(frac, 4),
+        "price": round(float(price), 4),
+        "r": None if piece is None else round(piece, 4),
+        "reason": reason,
+        "at": _iso(at),
+    })
+    # Float thirds leave a tiny remainder; treat anything under a basis point of size as flat.
+    if a.remaining_frac > 1e-5:
+        return
+    a.remaining_frac = 0.0
     a.exit_price = price
     a.exit_at = at
     a.exit_reason = reason
     a.status = status
-    fill = a.fill_price or a.trigger
-    if a.short:
-        risk = a.stop - fill
-        a.r_multiple = (fill - price) / risk if risk > 0 else None
-    else:
-        risk = fill - a.stop
-        a.r_multiple = (price - fill) / risk if risk > 0 else None
+    a.r_multiple = a.realized_r
+    if reason in ("stop", "breakeven_stop"):
+        a.stop_hit = True
 
 
 def _fill(a: Alert, bar: Mapping) -> None:
@@ -738,6 +832,7 @@ def _fill(a: Alert, bar: Mapping) -> None:
     a.fill_at = bar["t"]
     a.status = "triggered"
     a.current_stop = a.stop
+    a.bars_since_fill = 0
     # The entry is always the trigger: the previous 15-minute candle's high + $0.01 (short: low - $0.01),
     # even when the bar opens through it.
     a.fill_price = a.trigger
@@ -755,9 +850,37 @@ def _lost(bar: Mapping, ma: Optional[float], s: Settings, short: bool = False) -
     return float(bar["c"]) < ma * (1 - s.hold_pct / 100)
 
 
-def _step_short(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -> None:
-    """``step`` for a short alert: every comparison mirrored."""
+def _close_through(bar: Mapping, ma: Optional[float], short: bool = False) -> bool:
+    """Strict close through the EMA against the position (no hold_pct slack)."""
+    if ma is None:
+        return False
+    if short:
+        return float(bar["c"]) > ma
+    return float(bar["c"]) < ma
+
+
+def _cross_trim_ladder(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings, end: datetime) -> None:
+    """Take each remaining third whose EMA the close has gone through, in order, at this close."""
+    if a.trims_done >= 3 or a.remaining_frac <= 0:
+        return
+    price = float(bar["c"])
+    for step_i, period in enumerate(s.trim_emas()):
+        if step_i < a.trims_done:
+            continue
+        ma = f.ma_at(int(period), index)
+        if not _close_through(bar, ma, short=a.short):
+            break
+        reason = f"trim_ema_{period}"
+        _close_trade(a, price, end, reason, "exited", frac=min(TRIM_FRAC, a.remaining_frac))
+        a.trims_done = step_i + 1
+        if a.status not in ACTIVE:
+            return
+
+
+def _step_short(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings) -> None:
+    """``step`` for a short alert: every comparison mirrored (legacy MA-touch shorts)."""
     end = bar["t"] + BAR
+    ma = f.ma_at(a.period, index)
     if a.status == "pending":
         a.bars_waited += 1
         if bar["l"] <= a.trigger:
@@ -799,12 +922,57 @@ def _step_short(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Sett
         _close_trade(a, float(bar["c"]), end, "close_over_ma", "exited")
 
 
-def step(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -> None:
-    """Advance one active alert by one completed bar (the bars after its touch bar, in order)."""
+def _step_cross(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings) -> None:
+    """Advance a crossback alert: fixed candle order, cancel on low break, thirds ladder after fill."""
+    end = bar["t"] + BAR
+    if a.status == "pending":
+        a.bars_waited += 1
+        # Fill if the buy is traded; else cancel if price breaks the cross candle's low - 1c.
+        if bar["h"] >= a.trigger:
+            _fill(a, bar)
+            if bar["l"] <= a.current_stop:
+                a.stop_hit = True
+                _close_trade(a, a.current_stop, end, "stop", "stopped")
+            else:
+                # Same bar as fill: still run BE/ladder only on later bars; count starts after fill bar.
+                pass
+            return
+        if bar["l"] <= a.stop:
+            a.status = "cancelled"
+            a.exit_reason = "broke_setup_low"
+            a.exit_at = end
+            return
+        # No rearm, no watch_bars expiry — trade window / session end handle the rest.
+        return
+    if a.status != "triggered":
+        return
+    a.bars_since_fill += 1
+    if bar["l"] <= a.current_stop:
+        at_be = a.breakeven_at is not None and a.current_stop >= (a.fill_price or 0)
+        price = min(a.current_stop, float(bar["o"]))
+        a.stop_hit = True
+        _close_trade(a, price, end, "breakeven_stop" if at_be else "stop", "breakeven" if at_be else "stopped")
+        return
+    a.high_reached = max(a.high_reached or bar["h"], float(bar["h"]))
+    if bar["h"] > a.running_high:
+        a.running_high = float(bar["h"])
+        a.new_highs += 1
+    if a.breakeven_at is None and a.bars_since_fill >= s.breakeven_after_bars:
+        a.breakeven_at = end
+        a.current_stop = max(a.current_stop, a.fill_price or a.trigger)
+    _cross_trim_ladder(a, bar, index, f, s, end)
+
+
+def step(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings) -> None:
+    """Advance one active alert by one completed bar (the bars after its signal bar, in order)."""
+    if a.is_cross:
+        _step_cross(a, bar, index, f, s)
+        return
     if a.short:
-        _step_short(a, bar, index, ma, s)
+        _step_short(a, bar, index, f, s)
         return
     end = bar["t"] + BAR
+    ma = f.ma_at(a.period, index)
     if a.status == "pending":
         a.bars_waited += 1
         if bar["h"] >= a.trigger:
@@ -847,9 +1015,16 @@ def step(a: Alert, bar: Mapping, index: int, ma: Optional[float], s: Settings) -
 
 
 def check_forming(a: Alert, bar: Mapping) -> None:
-    """The bar still forming has traded through the buy (short: sell) stop: mark the fill now (no stop or exit checks)."""
+    """Forming bar: fill on buy stop, or (cross) cancel if price breaks the setup low - 1c."""
+    if a.status != "pending" or after_cutoff(bar["t"]):
+        return
+    if a.is_cross and not a.short and float(bar["l"]) <= a.stop and float(bar["h"]) < a.trigger:
+        a.status = "cancelled"
+        a.exit_reason = "broke_setup_low"
+        a.exit_at = bar["t"] + BAR
+        return
     through = float(bar["l"]) <= a.trigger if a.short else float(bar["h"]) >= a.trigger
-    if a.status == "pending" and through and not after_cutoff(bar["t"]):
+    if through:
         _fill(a, bar)
         a.details["fill_on_forming_bar"] = True
 
@@ -900,25 +1075,30 @@ def advance_stored(
     for ACTIVE rows missing from the new run so fills / expiry / stops still update from the stored levels.
     """
     s = settings or Settings()
-    if not bars or setup not in SETUPS:
+    if not bars or not known_setup(setup):
         return None
     setup_i = _index_of(bars, setup_bar)
     origin_i = _index_of(bars, origin_bar)
     if setup_i is None:
         return None
+    det = dict(details or {})
     a = Alert(
         symbol=symbol, session=session, setup=setup, origin_bar=origin_bar, setup_bar=setup_bar,
         setup_index=setup_i, trigger=trigger, stop=stop, setup_low=setup_low, setup_high=setup_high,
-        ref_price=ref_price, details=dict(details or {}), current_stop=stop,
+        ref_price=ref_price, details=det, current_stop=stop,
         bars_waited=setup_i - origin_i if origin_i is not None else 0,
+        remaining_frac=float(det.get("remaining_frac", 1.0) or 1.0),
+        realized_r=float(det.get("realized_r", 0.0) or 0.0),
+        trims_done=int(det.get("trims_done", 0) or 0),
+        bars_since_fill=int(det.get("bars_since_fill", 0) or 0),
     )
-    f = Frame(bars, ctx)
+    f = Frame(bars, ctx, periods=ema_periods_for(s))
     for i in range(setup_i + 1, len(bars)):
         if a.status not in ACTIVE:
             break
         if _close_window(a, bars[i]):
             break
-        step(a, bars[i], i, f.ma[a.period][i], s)
+        step(a, bars[i], i, f, s)
     if a.status in ACTIVE and ctx.session_bars and len(bars) >= ctx.session_bars:
         finish_session(a, bars[-1])
     elif forming is not None:
@@ -935,29 +1115,42 @@ def simulate(
     skipped: Optional[list] = None,
     forming: Optional[Mapping] = None,
     side: str = "long",
+    skip_extension_cap: bool = False,
 ) -> list[Alert]:
     """Alerts for one symbol and day, oldest first, with outcomes through the last bar given.
 
-    ``side="short"`` looks for the short mirror (rallies into a falling EMA) instead of pullbacks.
+    With ``entry_trigger=1`` (default) and ``side="long"``, looks for a close above the cross EMA after
+    a prior close at or below it. With ``entry_trigger=0``, uses the rising-EMA pullback (``touch``).
+    ``side="short"`` is the legacy falling-EMA mirror (kept for tests / history; live shorts use inverse ETFs).
 
     ``bars`` are that day's completed regular-session bars in order, starting with the opening bar.
     ``forming`` is the bar still forming (live only): it can fill a waiting alert, nothing else.
-    When ``skipped`` is a list, touches that were not alerted are appended to it (for replays).
+    When ``skipped`` is a list, signals that were not alerted are appended to it (for replays).
+    ``skip_extension_cap`` disables the long extension skip (inverse-ETF short proxies).
     """
     s = settings or Settings()
     if not bars:
         return []
-    f = Frame(bars, ctx)
+    f = Frame(bars, ctx, periods=ema_periods_for(s))
     alerts: list[Alert] = []
+    use_cross = s.uses_ema_cross() and side == "long"
     for i, bar in enumerate(f.bars):
         for a in alerts:
             if a.status in ACTIVE and a.setup_index < i and not _close_window(a, bar):
-                step(a, bar, i, f.ma[a.period][i], s)
-        hit = touch(f, i, s, side)
-        if not hit:
-            continue
-        period, lv, touched = hit
-        setup_key = f"s{period}" if side == "short" else str(period)
+                step(a, bar, i, f, s)
+        if use_cross:
+            period = int(s.cross_ema_period)
+            lv = match_cross(f, i, period)
+            if not lv:
+                continue
+            touched = [period]
+            setup_key = str(period)
+        else:
+            hit = touch(f, i, s, side)
+            if not hit:
+                continue
+            period, lv, touched = hit
+            setup_key = f"s{period}" if side == "short" else str(period)
         reason = None
         if i + 1 >= ctx.session_bars:
             reason = "last bar of the session"
@@ -979,7 +1172,11 @@ def simulate(
                 "ma": round(lv["ma"], 4),
                 "ma_slope_pct": round(lv["slope_pct"], 3),
                 "touched": touched,
-                "ma_values": {str(p): (None if f.ma[p][i] is None else round(f.ma[p][i], 4)) for p in MA_PERIODS},
+                "entry_trigger": ENTRY_EMA_CROSS if use_cross else ENTRY_MA_TOUCH,
+                "ma_values": {
+                    str(p): (None if f.ma_at(p, i) is None else round(f.ma_at(p, i), 4))  # type: ignore[arg-type]
+                    for p in f.periods
+                },
             },
         )
         if not apply_order(alert, float(bar["h"]), float(bar["l"]), s):
@@ -994,7 +1191,7 @@ def simulate(
             if skipped is not None:
                 skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": SKIP_MA120_SHORT})
             continue
-        if side == "long":
+        if side == "long" and not skip_extension_cap:
             skip_ext, ext_details = long_extension_skip(alert.trigger, ctx.prior_daily_bars, s)
             if skip_ext:
                 record_skip(
@@ -1032,18 +1229,32 @@ def simulate(
 def open_r(row: Mapping, price: Optional[float]) -> Optional[float]:
     """Current R of a filled trade still open (status ``triggered``) at ``price``; None otherwise.
 
-    1R is the fill minus the stop at the fill (short: the stop minus the fill), the same R a closed trade gets.
+    1R is the fill minus the original stop (short: stop minus fill). With partial trims, returns
+    realized weighted R plus remaining_frac times the open piece R.
     """
     if row.get("status") != "triggered" or not row.get("filled") or price is None:
         return None
     fill, stop = row.get("fill_price"), row.get("stop_price")
     if fill is None or stop is None:
         return None
+    risk = abs(float(fill) - float(stop))
+    if risk <= 0:
+        return None
     if setup_side(str(row.get("setup"))) == "short":
-        risk = float(stop) - float(fill)
-        return (float(fill) - float(price)) / risk if risk > 0 else None
-    risk = float(fill) - float(stop)
-    return (float(price) - float(fill)) / risk if risk > 0 else None
+        piece = (float(fill) - float(price)) / risk
+    else:
+        piece = (float(price) - float(fill)) / risk
+    det = row.get("details")
+    if isinstance(det, str):
+        try:
+            det = json.loads(det or "{}")
+        except ValueError:
+            det = {}
+    if not isinstance(det, dict):
+        det = {}
+    rem = float(det.get("remaining_frac", 1.0) or 1.0)
+    realized = float(det.get("realized_r", 0.0) or 0.0)
+    return realized + rem * piece
 
 
 def mark_top(rows: list[dict], top_names: int) -> set[str]:
