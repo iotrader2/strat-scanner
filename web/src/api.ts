@@ -519,6 +519,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ symbol }),
     }),
+  /** The watchlist as it stood at one day's close. No date uses the latest stored day. Stored going forward only. */
+  watchlistHistory: (date?: string) =>
+    get<WatchlistHistory>(`/api/watchlist/history${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   unwatch: (symbol: string) => get<Watchlist>(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
   positions: () => get<Positions>("/api/positions"),
   openPosition: (req: PositionInput & { symbol: string }) => send<Positions>("/api/positions", "POST", req),
@@ -801,6 +804,20 @@ export interface Watchlist {
   loaded_at?: string | null;
   /** UTC time of the last intraday auto-add. Null if none has been appended since the list existed. */
   updated_at?: string | null;
+}
+
+/** One stored day of the watchlist. Rows are the scan rows saved at that close, not today's prices. */
+export interface WatchlistHistory {
+  /** The day shown, or null when nothing has been stored yet. */
+  date: string | null;
+  /** Every stored day, newest first. */
+  dates: string[];
+  symbols: string[];
+  rows: (ScanRow & { watch_source?: "manual" | "alert" })[];
+  /** Names on that day's list with no scan row saved at the close. */
+  missing: string[];
+  /** UTC time the day was stored (the post-close reset). */
+  snapshot_at: string | null;
 }
 
 export function fmtMoney(v: number): string {
