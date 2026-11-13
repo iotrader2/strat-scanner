@@ -472,6 +472,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     items: [
       ["entry_trigger", "Entry: 1 = 6 EMA crossback (default), 0 = pullback to rising 120/240/480", ""],
       ["cross_ema_period", "Crossback EMA period", ""],
+      ["cross_min_body_pct", "Cross candle: green, body ≥", "% of range"],
       ["trim_ema_1", "Trim 1/3 on close through this EMA (against the position)", ""],
       ["trim_ema_2", "Trim next 1/3 on close through this EMA", ""],
       ["trim_ema_3", "Trim last 1/3 on close through this EMA", ""],

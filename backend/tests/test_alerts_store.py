@@ -134,6 +134,36 @@ def test_max_stop_pct_2_is_rewritten_to_1_once(db):
     assert alerts_store.load_settings().max_stop_pct == 1.5
 
 
+def test_cross_min_body_pct_seeded_to_50_when_unset(db):
+    """One-shot user_meta migration: unset cross_min_body_pct becomes 50; existing values stay."""
+    import json
+
+    from strat import userdb
+
+    assert alerts_store.load_settings().cross_min_body_pct == 50.0
+    with userdb.connect() as conn:
+        flag = conn.execute(
+            "SELECT value FROM user_meta WHERE key = ?", (alerts_store._CROSS_MIN_BODY_PCT_50_META,)
+        ).fetchone()
+        stored = json.loads(
+            conn.execute("SELECT value FROM alert_settings WHERE key = 'cross_min_body_pct'").fetchone()[0]
+        )
+    assert flag and flag[0] == "1" and stored == 50.0
+    # Idempotent: a later custom value is not overwritten after the flag is set.
+    alerts_store.save_settings({"cross_min_body_pct": 40})
+    assert alerts_store.load_settings().cross_min_body_pct == 40.0
+    # Flag cleared with an existing custom value: leave it, set the flag (do not force 50).
+    alerts_store.reset_settings()
+    with userdb.connect() as conn:
+        conn.execute("DELETE FROM user_meta WHERE key = ?", (alerts_store._CROSS_MIN_BODY_PCT_50_META,))
+        conn.execute("DELETE FROM alert_settings WHERE key = 'cross_min_body_pct'")
+        conn.execute(
+            "INSERT INTO alert_settings(key, value) VALUES (?, ?)",
+            ("cross_min_body_pct", json.dumps(25.0)),
+        )
+    assert alerts_store.load_settings().cross_min_body_pct == 25.0
+
+
 # ------------------------------------------------------------------ live merge
 
 

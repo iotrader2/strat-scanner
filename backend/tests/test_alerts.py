@@ -673,10 +673,31 @@ def test_cross_detection_and_one_cent_levels():
     assert a.trigger == 101.01 and a.stop == 100.19
     assert a.details["entry_trigger"] == ENTRY_EMA_CROSS
     assert Settings().max_stop_pct == 1.0
+    assert Settings().cross_min_body_pct == 50.0
     # Prior already above the 6 EMA: not a cross.
     assert cross_run([CROSS], Context(ma_tail=CROSS_CTX.ma_tail, prev_close=100.5)) == []
     # Close still at/under the 6 EMA: not a cross.
     assert cross_run([(100.2, 101.0, 100.2, 99.9)]) == []
+
+
+def test_cross_candle_strength_filter():
+    # CROSS body = (100.8-100.2)/(101.0-100.2) = 75% — passes default 50.
+    assert cross_run([CROSS])
+    # Red candle (close < open) fails even with a large body.
+    assert cross_run([(101.0, 101.0, 100.2, 100.3)]) == []
+    # Green but body only 40% of range: fails at 50.
+    weak = (100.2, 101.0, 100.0, 100.6)  # body 0.4 / range 1.0 = 40%
+    assert cross_run([weak]) == []
+    # Zero range fails (and is never "green" with body >= pct).
+    assert cross_run([(100.5, 100.5, 100.5, 100.5)]) == []
+    # Setting 0 disables the filter: weak green cross arms.
+    [a] = cross_run([weak], settings=Settings(cross_min_body_pct=0, max_stop_pct=5))
+    assert a.status == "pending" and a.is_cross
+    # Weak first cross does not arm; after a close back under the EMA, a later qualifying cross does.
+    back_under = (100.5, 100.6, 99.5, 99.8)
+    strong = (100.2, 101.0, 100.2, 100.8)  # 75% body
+    [later] = cross_run([weak, back_under, strong], settings=Settings(max_stop_pct=5))
+    assert later.status == "pending" and later.trigger == 101.01 and later.stop == 100.19
 
 
 def test_cross_fill_and_cancel_on_break_of_low_no_expiry():
@@ -692,17 +713,19 @@ def test_cross_fill_and_cancel_on_break_of_low_no_expiry():
 
 def test_cross_max_stop_pct_skip_and_attempts_cap():
     skipped = []
-    wide = (100.2, 101.0, 98.0, 100.8)  # ~3% stop — skipped at the default 1% cap
+    # Green ~83% body, ~3% stop — skipped at the default 1% cap (body filter still passes).
+    wide = (98.0, 101.0, 98.0, 100.5)
     assert cross_run([wide], skipped=skipped) == []
     assert skipped[0]["reason"] == "stop wider than the max"
     # Two filled attempts then a later cross is skipped. Stop is far below so fills are clean.
+    # Each cross is green with body >= 50% of range so the strength filter does not block them.
     ctx = Context(ma_tail={6: [100.0] * 10, 20: [99.0] * 10, 120: [98.0] * 10}, prev_close=99.0)
     s = Settings(max_attempts=2, max_stop_pct=5, breakeven_after_bars=50)
     rows = [
-        (100.2, 101.0, 99.0, 100.8),  # cross 1
+        (99.0, 101.0, 99.0, 100.8),  # cross 1 — body 90%
         (100.8, 101.5, 100.5, 101.2),  # fill 1
         (101.0, 101.1, 98.9, 99.0),  # stop out
-        (98.5, 100.5, 98.4, 100.3),  # cross 2
+        (98.5, 100.5, 98.4, 100.3),  # cross 2 — body ~86%
         (100.3, 101.0, 100.0, 100.8),  # fill 2
         (100.8, 100.9, 98.3, 98.5),  # stop out fill 2 (prior close under 6 again)
         (98.0, 100.6, 97.9, 100.4),  # cross 3 — attempts cap
@@ -725,11 +748,12 @@ def test_cross_breakeven_after_four_bars():
 
 def test_cross_trim_ladder_weighted_r_and_same_bar_multi_trim():
     # Cross candle low is well below trim lows so the protective stop never fires first.
+    # Strong green body (~97% of range) so the default strength filter still arms.
     ctx = Context(
         ma_tail={6: [105.0] * 10, 20: [103.0] * 10, 120: [101.0] * 10},
         prev_close=99.0,
     )
-    cross = (104.0, 106.0, 90.0, 105.5)  # stop = 89.99
+    cross = (90.0, 106.0, 90.0, 105.5)  # stop = 89.99
     fill = (105.5, 106.5, 105.0, 106.0)
     under6 = (105.0, 105.2, 104.0, 104.2)
     under20 = (104.0, 104.1, 102.0, 102.2)
