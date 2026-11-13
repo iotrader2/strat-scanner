@@ -53,6 +53,8 @@ import { EarningsIcon } from "../components/EarningsIcon";
 import { TickerLogo } from "../components/TickerLogo";
 import { INTRADAY_EMA_COLORS } from "../intradayChart";
 import { usePersisted } from "../persist";
+import { Pager } from "../components/Pager";
+import { normalizePageSize, paginate } from "../pagination";
 import { fmtRs } from "../leadership";
 import { AtrSlider } from "../components/AtrSlider";
 import { LogSlider } from "../components/LogSlider";
@@ -115,7 +117,7 @@ function AlertScore({ a }: { a: TradeAlert }) {
     a.score_raw != null && a.score_max_raw != null
       ? { score: a.score, score_raw: a.score_raw, score_max_raw: a.score_max_raw, score_breakdown: a.score_breakdown ?? [] }
       : undefined;
-  return <ScorePill score={a.score} row={row} />;
+  return <ScorePill score={a.score} row={row} title={a.score_at_entry ? "Setup score at entry" : "Score breakdown"} />;
 }
 
 /** RS percentile as a pill, coloured on the same cuts as the score pill. */
@@ -286,6 +288,11 @@ export function AlertsTable({
   const [stored, setStored] = usePersisted<ColumnSort | null>(sortStorageKey, null);
   const sort = normalizeColumnSort(stored, ALERT_SORT_KEYS);
   const ordered = useMemo(() => sortByColumn(alerts, sort, alertSortValue), [alerts, sort]);
+  const [storedSize, setStoredSize] = usePersisted<number>(`${sortStorageKey}PageSize`, 50);
+  const pageSize = normalizePageSize(storedSize);
+  // Not persisted: a reload starts on page 1. A page past the end (after filtering) shows the last page.
+  const [page, setPage] = useState(0);
+  const slice = useMemo(() => paginate(ordered, page, pageSize), [ordered, page, pageSize]);
   const header = (key: (typeof ALERT_SORT_KEYS)[number], label: string, className?: string, title?: string) => (
     <SortableTh
       key={key}
@@ -294,10 +301,26 @@ export function AlertsTable({
       className={className}
       active={sort?.key === key}
       dir={sort?.dir ?? 1}
-      onClick={() => setStored(toggleColumnSort(sort, key))}
+      onClick={() => {
+        setStored(toggleColumnSort(sort, key));
+        setPage(0);
+      }}
+    />
+  );
+  const pager = (
+    <Pager
+      id={sortStorageKey}
+      slice={slice}
+      size={pageSize}
+      onPage={setPage}
+      onSize={(n) => {
+        setStoredSize(n);
+        setPage(0);
+      }}
     />
   );
   return (
+    <>
     <div className="card table-card">
       <table className="scan-table alerts-table">
         <thead>
@@ -325,7 +348,7 @@ export function AlertsTable({
           </tr>
         </thead>
         <tbody>
-          {ordered.map((a) => (
+          {slice.rows.map((a) => (
             <tr
               key={a.id}
               className={`alert-row ${a.acknowledged ? "read" : "unread"} ${flashing.has(a.id) ? "flash" : ""}`}
@@ -437,6 +460,8 @@ export function AlertsTable({
         </tbody>
       </table>
     </div>
+    {slice.total > 25 && pager}
+    </>
   );
 }
 

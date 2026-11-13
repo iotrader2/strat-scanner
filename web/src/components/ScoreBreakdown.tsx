@@ -25,6 +25,7 @@ export function BreakdownTable({ row, showDetail = false }: { row: ScoreFields; 
             <td>
               <div className="bd-label">
                 {c.label}
+                {c.entry && <span className="bd-weight"> · at entry</span>}
                 {c.weight_pct > 0 && <span className="bd-weight"> ({formatWeight(c.weight_pct)})</span>}
               </div>
               {c.sub_weights?.length > 0 && <div className="bd-sub">{c.sub_weights.join(" · ")}</div>}
@@ -55,7 +56,7 @@ export function BreakdownTable({ row, showDetail = false }: { row: ScoreFields; 
   );
 }
 
-export function ScorePill({ score, row }: { score: number; row?: ScoreFields }) {
+export function ScorePill({ score, row, title = "Score breakdown" }: { score: number; row?: ScoreFields; title?: string }) {
   const [anchor, setAnchor] = useState<Rect | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
@@ -99,7 +100,7 @@ export function ScorePill({ score, row }: { score: number; row?: ScoreFields }) 
             role="tooltip"
             style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: "hidden" }}
           >
-            <div className="tt-title">Score breakdown</div>
+            <div className="tt-title">{title}</div>
             <BreakdownTable row={row} />
           </div>,
           document.body,

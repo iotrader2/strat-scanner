@@ -541,6 +541,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     items: [
       ["entry_trigger", "Entry: 1 = 6 EMA crossback (default), 0 = pullback to rising 120/240/480", ""],
       ["cross_ema_period", "Crossback EMA period", ""],
+      ["cross_min_body_pct", "Cross candle: green, body ≥", "% of range"],
       ["trail_stop_bars", "Crossback: stop to the lowest low of this many bars after the trigger candle - 1c (0 = break-even rule below)", "bars"],
       ["breakeven_after_bars", "Crossback with trail off: stop to break-even after", "completed bars after the fill"],
       ["trim_daily_ema_1", "Daily trims at 15:59 ET: 1/3 on the entry day, next 1/3 under this daily EMA", ""],

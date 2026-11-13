@@ -139,6 +139,10 @@ export interface ScoreComponent {
   /** Internal weighting, e.g. "1M 20%" for relative strength or "52-week high 6 pts" for near highs. */
   sub_weights: string[];
   detail: string;
+  /** Setup score group: tightness, short_rs, setup, theme or long_rs. */
+  group?: string;
+  /** True for the parts only an alert has (intraday RS, stop / ATR, trigger-day volume). */
+  entry?: boolean;
 }
 
 export interface ScanRow {
@@ -519,6 +523,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ symbol }),
     }),
+  /** The watchlist as it stood at one day's close. No date uses the latest stored day. Stored going forward only. */
+  watchlistHistory: (date?: string) =>
+    get<WatchlistHistory>(`/api/watchlist/history${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   unwatch: (symbol: string) => get<Watchlist>(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
   positions: () => get<Positions>("/api/positions"),
   openPosition: (req: PositionInput & { symbol: string }) => send<Positions>("/api/positions", "POST", req),
@@ -658,6 +665,10 @@ export interface TradeAlert {
   score_raw?: number | null;
   score_max_raw?: number | null;
   score_breakdown?: ScoreComponent[];
+  /** True when ``score`` is the setup score frozen on the alert when it fired (scan parts + entry parts). */
+  score_at_entry?: boolean;
+  /** The symbol's scan score right now, for comparison with the score at entry. */
+  scan_score_now?: number | null;
   /** "long" or "short" (from the setup key). */
   side?: "long" | "short";
   /** Last price on the scan. */
@@ -850,6 +861,20 @@ export interface Watchlist {
   loaded_at?: string | null;
   /** UTC time of the last intraday auto-add. Null if none has been appended since the list existed. */
   updated_at?: string | null;
+}
+
+/** One stored day of the watchlist. Rows are the scan rows saved at that close, not today's prices. */
+export interface WatchlistHistory {
+  /** The day shown, or null when nothing has been stored yet. */
+  date: string | null;
+  /** Every stored day, newest first. */
+  dates: string[];
+  symbols: string[];
+  rows: (ScanRow & { watch_source?: "manual" | "alert" })[];
+  /** Names on that day's list with no scan row saved at the close. */
+  missing: string[];
+  /** UTC time the day was stored (the post-close reset). */
+  snapshot_at: string | null;
 }
 
 export function fmtMoney(v: number): string {

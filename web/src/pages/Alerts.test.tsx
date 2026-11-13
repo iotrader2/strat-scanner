@@ -238,10 +238,10 @@ describe("RsPill", () => {
 describe("Alert liquidity sliders", () => {
   it("matches the scanner volume and ATR sliders, and exempts names you added", () => {
     const html = renderToStaticMarkup(
-      <AlertLiquidityFilters volume={10_000_000} atr={[0, 12]} onVolume={() => undefined} onAtr={() => undefined} />,
+      <AlertLiquidityFilters volume={100_000_000} atr={[0, 12]} onVolume={() => undefined} onAtr={() => undefined} />,
     );
     expect(html).toContain("Min avg $ volume");
-    expect(html).toContain("≥ $10M");
+    expect(html).toContain("≥ $100M");
     expect(html).toContain("$10M");
     expect(html).toContain("$5B");
     expect(html).toContain("ATR %");
@@ -250,5 +250,30 @@ describe("Alert liquidity sliders", () => {
     expect(html).toContain("12%+");
     expect(html).toContain("needs an ATR above 3% to be added or to");
     expect(html).toContain("the sliders do not apply to names you added.");
+  });
+});
+
+describe("AlertsTable pages", () => {
+  const many = Array.from({ length: 60 }, (_, i) => sample({ id: i + 1, symbol: `S${i + 1}` }));
+  const render = (alerts = many) =>
+    renderToStaticMarkup(
+      <MemoryRouter>
+        <AlertsTable alerts={alerts} flashing={new Set()} onAck={() => undefined} onBought={() => undefined} sortStorageKey="testPagerSort" />
+      </MemoryRouter>,
+    );
+
+  it("shows 50 rows by default with a rows-per-page picker and page buttons", () => {
+    const html = render();
+    expect(html.match(/data-alert-id=/g)).toHaveLength(50);
+    expect(html).toContain("Rows per page");
+    expect(html).toContain("1–50 of 60");
+    expect(html).toContain("Page 1 of 2");
+    expect(html).toContain(">All</option>");
+  });
+
+  it("has no pager for a short list", () => {
+    const html = render(many.slice(0, 10));
+    expect(html.match(/data-alert-id=/g)).toHaveLength(10);
+    expect(html).not.toContain("Rows per page");
   });
 });

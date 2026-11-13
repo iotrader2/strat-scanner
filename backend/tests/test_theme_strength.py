@@ -7,6 +7,7 @@ from strat import api, config, data
 from strat.members import backfill_industries, extra_members
 from strat.scanner import scan_all, scan_symbol, theme_strengths
 from strat.scoring import THEME_POINTS, ThemeStrength, theme_strength_points
+from strat.setup_score import THEME_POINTS as SETUP_THEME_POINTS, theme_strength_points as setup_theme_points
 from strat.themes import parse_themes
 from strat.universe import Member
 
@@ -100,10 +101,12 @@ class TestScan:
         assert f1["theme"] == "fast" and f1["theme_name"] == "Fast movers"
         assert f1["theme_strength"]["theme"] == "fast"
         assert f1["theme_strength"]["score"] == result.theme_rows["fast"]["score"]
-        assert comp["points"] == pytest.approx(theme_strength_points(result.strengths["fast"]), abs=0.01)
-        assert comp["max_points"] == THEME_POINTS == 25 and "Fast movers" in comp["label"] and "Fast movers" in comp["detail"]
-        assert f1["score_max_raw"] == 100
-        assert f1["score"] == pytest.approx(min(100, f1["score_raw"] * 100 / 100), abs=0.06)
+        assert comp["points"] == pytest.approx(setup_theme_points(result.strengths["fast"]), abs=0.01)
+        assert comp["max_points"] == SETUP_THEME_POINTS == 15 and "Fast movers" in comp["label"] and "Fast movers" in comp["detail"]
+        # Stocks carry the setup score: 80 scan points (the other 20 only exist once an alert fires).
+        assert f1["score_max_raw"] == 80
+        assert f1["score"] == pytest.approx(min(100, f1["score_raw"] * 100 / 80), abs=0.06)
+        assert f1["leadership_score"] > 0
 
     def test_a_stock_uses_its_primary_theme_not_its_secondary_ones(self):
         rows = {r["symbol"]: r for r in scan_all(_members(), _history(), MAP).rows}
@@ -116,13 +119,13 @@ class TestScan:
         lone = rows["LONE"]
         comp = next(c for c in lone["score_breakdown"] if c["key"] == "theme_strength")
         assert lone["theme"] is None and lone["theme_strength"] is None
-        assert comp["points"] == 0 and comp["max_points"] == THEME_POINTS == 25 and "not in any theme" in comp["detail"]
+        assert comp["points"] == 0 and comp["max_points"] == SETUP_THEME_POINTS == 15 and "not in any theme" in comp["detail"]
 
     def test_etfs_and_themes_have_no_theme_strength(self):
         result = scan_all(_members(), _history(), MAP)
         xlk = next(r for r in result.rows if r["symbol"] == "XLK")
         keys = [c["key"] for c in xlk["score_breakdown"]]
-        assert "theme_strength" not in keys and xlk["score_max_raw"] == 75 and xlk["theme_strength"] is None
+        assert "theme_strength" not in keys and xlk["score_max_raw"] == 65 and xlk["theme_strength"] is None
         fast = result.theme_rows["fast"]
         assert "theme_strength" not in [c["key"] for c in fast["score_breakdown"]] and fast["score_max_raw"] == 70
         assert "liquidity" not in [c["key"] for c in fast["score_breakdown"]]

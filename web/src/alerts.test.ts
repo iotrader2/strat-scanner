@@ -271,13 +271,18 @@ describe("EMA level and settings", () => {
       expect.arrayContaining([
         "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "reset_manual", "alert_manual_watchlist", "stop_mode", "fixed_stop_pct", "max_stop_pct",
         "short_hvc", "short_crossback", "short_ma10", "short_ma20", "shorts_ma120_enabled", "inverse_etf_shorts",
-        "entry_trigger", "cross_ema_period", "trim_daily_ema_1", "trim_daily_ema_2", "trail_stop_bars", "breakeven_after_bars",
+        "entry_trigger", "cross_ema_period", "cross_min_body_pct", "trim_daily_ema_1", "trim_daily_ema_2", "trail_stop_bars", "breakeven_after_bars",
         "ma_120", "ma_240", "ma_480", "long_ext_ema_period", "long_max_ext_vs_d10ema_pct", "long_ext_waive_at_d4ema",
         "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars",
       ]),
     );
     expect(keys).not.toContain("d_hold20");
     expect(keys).not.toContain("trim_fraction");
+  });
+  it("labels the cross-candle strength filter", () => {
+    const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "cross_min_body_pct");
+    expect(item?.[1]).toMatch(/Cross candle: green, body/);
+    expect(item?.[2]).toMatch(/% of range/);
   });
   it("has one earnings-warning setting, in calendar days", () => {
     const item = SETTING_GROUPS.flatMap((g) => g.items).find((i) => i[0] === "earnings_window_days");

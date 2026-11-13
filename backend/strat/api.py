@@ -38,7 +38,7 @@ from .trend import index_trend
 from .members import backfill_industries, effective_universe, extra_members, refresh_earnings
 from .leadership import BENCHMARK, LEADER_MIN_RS, LEADERS_MIN_SCORE, in_leaders_scan
 from .perf import MomentumRanks, Perf
-from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol, theme_cards
+from .scanner import ScanResult, chart_payload, etf_cards, scan_all, scan_symbol, short_rs_for, theme_cards
 from .themes import ThemeError, ThemeMap, load_themes
 from .universe import MARKET_ETFS, Member, load_universe, to_yahoo
 
@@ -64,6 +64,7 @@ class State:
     ranks: MomentumRanks = MomentumRanks({})
     qqq: dict[str, Optional[float]] = {}
     prior: dict = {}
+    short_rs: dict = {}
     theme_map: Optional[ThemeMap] = None
     version: int = 0
     quoting: bool = False
@@ -134,9 +135,10 @@ def _scan_one(member: Member, daily) -> Optional[dict]:
     """Scan one symbol against the current theme ranking and momentum distributions."""
     qqq_daily = State.daily.get(BENCHMARK)
     bench_close = None if qqq_daily is None or qqq_daily.empty else qqq_daily["close"]
+    srs, peers = short_rs_for(member, daily, qqq_daily, State.short_rs)
     return scan_symbol(
         member, daily, State.strengths, State.ranks, State.theme_map, State.qqq, prior=State.prior,
-        benchmark_close=bench_close,
+        benchmark_close=bench_close, srs=srs, srs_peers=peers,
         opening_high=_opening_ranges().get(member.symbol, (None, None))[0],
         opening_low=_opening_ranges().get(member.symbol, (None, None))[1],
     )
@@ -465,6 +467,7 @@ def _sync_alert_watchlist(settings: alert_rules.Settings, now=None) -> Optional[
     try:
         changed = data.sync_alert_watchlist(
             names, setups=setups, include_manual=bool(settings.reset_manual), now=now,
+            snapshot_rows={r["symbol"]: r for r in State.scan},
         )
     except Exception:
         log.exception("alert watchlist sync failed")
@@ -525,7 +528,7 @@ def _refresh_alerts() -> None:
         prior_bars = _prior_daily_bars(list(dict.fromkeys([*longs, *shorts])), session)
         stats = alerts_live.refresh(
             longs, settings=settings, short_symbols=shorts, daily_setups=labels,
-            prior_daily_bars=prior_bars,
+            prior_daily_bars=prior_bars, scan_rows={r["symbol"]: r for r in State.scan if r.get("symbol")},
         )
         if stats.get("skipped"):
             if stats.get("prepared"):
@@ -766,6 +769,7 @@ def _compute_scan(key: Optional[str]) -> list[dict]:
     result = scan_all(_universe(), State.daily, State.theme_map, opening_ranges=_opening_ranges())
     State.result, State.scan = result, result.rows
     State.strengths, State.ranks, State.qqq, State.prior = result.strengths, result.ranks, result.qqq, result.prior
+    State.short_rs = result.short_rs
     State.scan_key = key
     State.version += 1
     data.save_snapshot(State.version, key or "", State.scan)
@@ -1014,7 +1018,7 @@ def scan(
 ):
     """Ranked scan rows. By default only the Leaders scan: relative strength at or above ``min_rs`` (a 0..1 percentile,
     default P90), or an RS line versus QQQ that made a 52-week high in the last 5 sessions, with the trend intact,
-    and a score strictly above ``LEADERS_MIN_SCORE`` (70). Raising ``min_rs`` above P90 tightens the percentile cut.
+    and a leadership score (``leadership_score``, not the setup score) strictly above ``LEADERS_MIN_SCORE`` (70). Raising ``min_rs`` above P90 tightens the percentile cut.
     A daily setup is not required; names without one are labelled in the row."""
     min_price = config.MIN_PRICE if min_price is None else min_price
     min_dollar_volume = config.MIN_DOLLAR_VOLUME if min_dollar_volume is None else min_dollar_volume
@@ -1026,7 +1030,8 @@ def scan(
         and r["avg_dollar_volume"] >= min_dollar_volume
         and (include_etfs or r["kind"] == "stock")
         and (not leaders_only or in_leaders_scan(
-            r["rs"], r["leadership"]["breakdown"], r["score"], cut, rs_line_high=bool(r.get("rs_line_high")),
+            r["rs"], r["leadership"]["breakdown"], r.get("leadership_score", r["score"]), cut,
+            rs_line_high=bool(r.get("rs_line_high")),
         ))
     ])
     return {"as_of": State.scan_key, "count": len(rows), "rows": rows}
@@ -1171,6 +1176,37 @@ def _watchlist_payload() -> dict:
 def get_watchlist():
     """Watched names with their full scan row, whether or not they still have a daily setup."""
     return _watchlist_payload()
+
+
+@app.get("/api/watchlist/history")
+def get_watchlist_history(day: Optional[str] = Query(None, alias="date")):
+    """The watchlist as it stood at one day's close (read only). No date picks the latest stored day.
+
+    Days are stored going forward by the post-close reset; there is nothing before the first one.
+    Rows are the scan rows saved at that close, not today's prices.
+    """
+    dates = data.watchlist_history_dates()
+    if day:
+        try:
+            chosen: Optional[str] = date.fromisoformat(day).isoformat()
+        except ValueError:
+            raise HTTPException(422, "date must be YYYY-MM-DD") from None
+    else:
+        chosen = dates[0] if dates else None
+    stored = data.watchlist_history(chosen) if chosen else []
+    rows = []
+    for item in stored:
+        if item["row"] is None:
+            continue
+        rows.append({**item["row"], "watch_setups": item["setups"], "watch_source": item["source"], "earnings": None})
+    return {
+        "date": chosen,
+        "dates": dates,
+        "symbols": [item["symbol"] for item in stored],
+        "rows": rows,
+        "missing": [item["symbol"] for item in stored if item["row"] is None],
+        "snapshot_at": stored[0]["snapshot_at"] if stored else None,
+    }
 
 
 @app.post("/api/watchlist")
@@ -1417,6 +1453,30 @@ def _has_daily_setup(row: Mapping) -> bool:
     return isinstance(details, dict) and bool(details.get("daily_setups"))
 
 
+def _alert_score(row: Mapping, scan: Optional[Mapping]) -> dict:
+    """The setup score the trade was taken with (frozen on the alert when it fired), else the current scan score."""
+    details = row.get("details") if isinstance(row.get("details"), dict) else {}
+    frozen = details.get("score") if isinstance(details.get("score"), dict) else None
+    now = None if scan is None else scan.get("score")
+    if frozen:
+        return {
+            "score": frozen.get("score"),
+            "score_raw": frozen.get("raw"),
+            "score_max_raw": frozen.get("max_raw"),
+            "score_breakdown": frozen.get("breakdown") or [],
+            "score_at_entry": True,
+            "scan_score_now": now,
+        }
+    return {
+        "score": now,
+        "score_raw": None if scan is None else scan.get("score_raw"),
+        "score_max_raw": None if scan is None else scan.get("score_max_raw"),
+        "score_breakdown": [] if scan is None else (scan.get("score_breakdown") or []),
+        "score_at_entry": False,
+        "scan_score_now": now,
+    }
+
+
 def _attach_scores(rows: list[dict]) -> list[dict]:
     """The scanner score, RS and industry (with its rank) for each alert's symbol, as the Stock Scanner shows them."""
     by_symbol = {r["symbol"]: r for r in State.scan if r.get("symbol")}
@@ -1438,10 +1498,7 @@ def _attach_scores(rows: list[dict]) -> list[dict]:
             "industry": industry,
             "industry_rank": rank[0] if rank else None,
             "industry_total": rank[1] if rank else None,
-            "score": None if scan is None else scan.get("score"),
-            "score_raw": None if scan is None else scan.get("score_raw"),
-            "score_max_raw": None if scan is None else scan.get("score_max_raw"),
-            "score_breakdown": [] if scan is None else (scan.get("score_breakdown") or []),
+            **_alert_score(row, scan),
         })
     return attached
 
@@ -1592,6 +1649,20 @@ def alert_metrics(start: Optional[str] = None, end: Optional[str] = None, symbol
         "rows": alert_rules.metrics(rows),
         "symbols": alerts_store.metric_symbols(),
     }
+
+
+@app.get("/api/alerts/score-report")
+def alert_score_report(start: Optional[str] = None, end: Optional[str] = None):
+    """Setup score vs R over closed trades: Spearman per component, R >= 1.5 hit rate per score quintile."""
+    from . import score_report
+
+    for v in (start, end):
+        if v:
+            try:
+                date.fromisoformat(v)
+            except ValueError:
+                raise HTTPException(422, "start / end must be YYYY-MM-DD") from None
+    return {"start": start, "end": end, **score_report.report(alerts_store.list_for_metrics(start=start, end=end))}
 
 
 @app.get("/api/alerts/settings")

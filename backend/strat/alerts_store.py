@@ -22,6 +22,8 @@ _lock = threading.Lock()
 
 # One-shot: rewrite a stored max_stop_pct of exactly 2 to the new default of 1.
 _MAX_STOP_PCT_1_META = "max_stop_pct_1"
+# One-shot: seed cross_min_body_pct to 50 when the key is unset.
+_CROSS_MIN_BODY_PCT_50_META = "cross_min_body_pct_50"
 
 
 @contextmanager
@@ -220,6 +222,26 @@ def acknowledge(ids: Optional[Iterable[int]] = None, db_path: Optional[Path] = N
         return n
 
 
+# Detail keys written once, when the alert is first saved, and never replaced by a later poll: the setup score is the
+# score the trade was taken with (the scan row behind it keeps changing through the day).
+FROZEN_DETAILS = ("score",)
+
+
+def keep_frozen_details(old: Optional[str], new: Optional[str]) -> Optional[str]:
+    """``new`` details JSON with the frozen keys of ``old`` put back."""
+    try:
+        before = json.loads(old) if old else {}
+        after = json.loads(new) if new else {}
+    except (TypeError, ValueError):
+        return new
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return new
+    kept = {k: before[k] for k in FROZEN_DETAILS if k in before}
+    if not kept or all(after.get(k) == v for k, v in kept.items()):
+        return new
+    return json.dumps({**after, **kept}, sort_keys=True)
+
+
 def save_session(
     session: str,
     alerts: Iterable[Alert],
@@ -276,6 +298,7 @@ def save_session(
                 continue
             if rec["key"] in known:
                 old = known[rec["key"]]
+                rec["details"] = keep_frozen_details(old[OUTCOME.index("details")], rec["details"])
                 if tuple(old[: len(OUTCOME)]) != tuple(rec[c] for c in OUTCOME):
                     conn.execute(
                         f"UPDATE alerts SET {', '.join(c + ' = ?' for c in OUTCOME)}, updated_at = ? WHERE key = ?",
@@ -426,11 +449,38 @@ def _migrate_max_stop_pct_to_1(conn) -> bool:
     return changed
 
 
+def _migrate_cross_min_body_pct_default(conn) -> bool:
+    """If ``user_meta`` has not recorded it yet and ``cross_min_body_pct`` is unset, seed it to 50.
+
+    Existing custom values are left alone. Returns True when a row was inserted.
+    """
+    if conn.execute("SELECT 1 FROM user_meta WHERE key = ?", (_CROSS_MIN_BODY_PCT_50_META,)).fetchone():
+        return False
+    changed = False
+    row = conn.execute("SELECT value FROM alert_settings WHERE key = 'cross_min_body_pct'").fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO alert_settings(key, value) VALUES (?, ?)",
+            ("cross_min_body_pct", json.dumps(50.0)),
+        )
+        changed = True
+    conn.execute(
+        "INSERT INTO user_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (_CROSS_MIN_BODY_PCT_50_META, "1"),
+    )
+    return changed
+
+
 def load_settings(db_path: Optional[Path] = None) -> Settings:
     def read() -> list:
         with userdb.connect(db_path) as conn:
-            # Run the one-shot rewrite inside the same connection before reading settings.
+            # Run one-shot migrations inside the same connection before reading settings.
+            changed = False
             if _migrate_max_stop_pct_to_1(conn):
+                changed = True
+            if _migrate_cross_min_body_pct_default(conn):
+                changed = True
+            if changed:
                 userdb.bump()
             return conn.execute("SELECT key, value FROM alert_settings").fetchall()
 

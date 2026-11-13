@@ -53,6 +53,7 @@ takes about a minute. The top bar shows a live indicator: *Updating · N symbols
 | `npm test` | Run the backend (pytest) and frontend (Vitest) unit tests |
 | `npm run typecheck` | Type-check the frontend |
 | `npm run backtest:leaders` | Cut the price cache off at historical dates and compare the old and new scoring (see [Backtest](#backtest)); add `-- --timeline` for the weekly rank of the reference leaders |
+| `npm run score:report` | Setup score vs R over closed alert trades: Spearman per component, R ≥ 1.5 hit rate per score quintile (see [Setup score](#setup-score-stocks-and-etfs)) |
 
 Each has a `make` equivalent (`make refresh`, `make test`, ...). The `refresh`/`test` npm scripts assume a
 POSIX shell; on Windows run `backend\.venv\Scripts\python -m strat.refresh` / `-m pytest` from `backend/`.
@@ -201,6 +202,46 @@ whatever its price, and a late listing never rewrites history. The index starts 
 Its M/W/D Strat badges, daily setups, continuity and H/I markers are computed on that index exactly as for a stock.
 
 ## How scoring works
+
+There are two scores. Stocks and ETFs are ranked (scanner order, alert name cap, alert score) on the **setup score**,
+built to find the intraday trades most likely to reach a big R. Themes are ranked on the **leadership score** below, and
+the Leaders view still gates on it (`leadership_score` on every row).
+
+### Setup score (stocks and ETFs)
+
+The previous score gave 45 of 100 points to 1M/3M/6M relative strength, and Vs QQQ only paid in full at +20 / +60 / +100
+point excess returns, a threshold most names never reach. The setup score moves the weight to a tight base (a small stop
+relative to normal volatility is the direct R-multiple lever) and short-horizon RS, scored as percentiles or
+volatility-relative ratios instead of fixed thresholds. Code: `backend/strat/setup_score.py`.
+
+| Group | Points | Parts (full credit … no credit) |
+| --- | ---: | --- |
+| **Tightness** | 30 | Stop % / ATR(14) % **8\*** (≤0.10 … ≥0.35) · ATR(5)/ATR(20) 6 (≤0.6 … ≥1.0) · close tightness 6: stdev of the last 5 closes ÷ ATR % 4 (≤0.2 … ≥0.75) + inside day or NR7 2 · 5-day / 50-day volume 3 (≤0.6 … ≥1.0) · trigger-day volume **2\*** (volume to the trigger bar vs the pro-rated 20-day average, ≥1.5 … ≤1.0) · ATRs from the nearer of the 10 / 21-day EMA 5 (≤0.5 … ≥2.0) |
+| **Short RS** | 25 | Intraday RS **10\***: (stock − QQQ) % from the open to the trigger bar's close, in ATR % (≥0.5 … ≤0) · 10-day and 20-day return minus QQQ as a **percentile** of the peer group 5 + 5 · RS line (stock / QQQ) at a 20-day high 3, +2 when price is not at its own 20-day high (the RS line got there first) |
+| **Setup** | 20 | Trend 8 (10/20-day: above 2.5 + rising 1.5 each) · Continuity 7 (M 3 · W 3 · D 0.5 · all three +0.5) · Liquidity 5 |
+| **Theme** | 15 | `15 × (N − rank + 1) / N` of the primary theme |
+| **Long RS** | 10 | `10 × blended 1M/3M/6M percentile` (the old Vs QQQ threshold component is gone) |
+
+Daily metrics use **completed** bars only. The breakdown, kill-candle and pinned penalties apply as before.
+
+\* *Entry parts* only exist once a 15-minute alert fires. The scanner ranks on the other 80 points (65 for ETFs),
+rescaled to 0–100. When an alert is first saved it gets `details["score"]`: every component's points, the group totals,
+all raw inputs (scan and entry) and the full 0–100 score with the entry parts. It is **frozen** (a later poll never
+replaces it, see `alerts_store.FROZEN_DETAILS`), and the Alerts table shows it as *Setup score at entry*.
+
+**Validate before trusting it.** The weights above are a starting point, not a fit. After about 200 closed trades run
+
+```bash
+npm run score:report        # or GET /api/alerts/score-report?start=YYYY-MM-DD&end=YYYY-MM-DD
+```
+
+It prints the Spearman correlation of each component (and each raw input) with R and with the R ≥ 1.5 flag, the top
+quintile's R ≥ 1.5 hit rate relative to the overall rate (*tail lift*), and per score quintile the count, average and
+median R, R ≥ 1.5 hit rate, number of ≥ 3R trades and total R. Set the weights from what predicts the right tail (the
+edge is the occasional +3R trade, not the win rate), then bump `setup_score.VERSION` so the report can tell the
+weight sets apart. Under 200 trades the report says the sample is too small to act on.
+
+### Leadership score (themes, Leaders view, backtest)
 
 **The highest scores go to the stocks that go up the most; Strat timing is a small Continuity bonus.** The score is 0–100.
 Of the 100 points, 90 describe leadership and price behaviour and 10 are **Continuity**: Monthly / Weekly / Daily alignment.
@@ -485,6 +526,10 @@ Scanner** (drill into daily setups, optionally filtered to a theme), **Watchlist
     check/**−** toggle removes a name.
   - Names stay on the list whether or not they are leaders or have a daily setup; they are then marked “no active setup” (leaders: “Leader · no setup”).
   - The list is stored in the `watchlist` table of the local SQLite cache, so it survives restarts and data refreshes.
+  - **History** (tab on the Watchlist page): pick a trading day to see the list as it stood at that day's close, with
+    the scan row (prices, score, setups) saved then and whether each name was auto-added or yours. The post-close reset
+    (4:01 PM New York) copies the whole list into `watchlist_history` just before it clears, in the same transaction.
+    Forward only: nothing is backfilled for days before this existed, and a day with an empty list stores nothing.
   - **Add symbol** (on the Watchlist tab) takes any Yahoo Finance ticker, not just universe names: type it (it is
     upper-cased) and press Enter.
     - Tickers outside the S&P 500 / Nasdaq-100 / ETF universe (e.g. `SOFI`) are first validated by downloading
@@ -627,6 +672,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 | `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
 | `POST /api/watchlist` | Add any ticker, body `{"symbol": "SOFI"}`. Returns 404 only if Yahoo Finance has no such symbol and 502 if the lookup fails |
 | `DELETE /api/watchlist/{symbol}` | Remove a symbol |
+| `GET /api/watchlist/history?date=YYYY-MM-DD` | The list stored at that day's close (`symbols`, saved scan `rows`, `missing`), plus every stored day (`dates`). No date picks the latest |
 | `GET /api/positions` | Open positions: `symbols` and `positions` (`symbol`, `entry_price`, `shares`, `entry_date`, scan `row` or `null` before data is cached) |
 | `POST /api/positions` | Open a position in any ticker, body `{"symbol": "NVDA", "entry_price": 196.4, "shares": 40, "entry_date": "2026-09-22"}`. `entry_price` defaults to the last price, `entry_date` to today (US/Eastern) and `shares` is optional. Removes the name from the watchlist. 404 for unknown tickers, 409 if already held, 422 for a future date or non-positive numbers |
 | `PUT /api/positions/{symbol}` | Edit `entry_price`, `shares` and `entry_date` |
