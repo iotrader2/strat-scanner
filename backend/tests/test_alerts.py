@@ -42,8 +42,10 @@ def rising(last: float, step: float = 0.01, n: int = 10) -> list[float]:
 CTX = Context(ma_tail={120: rising(99.09)}, prev_close=101.0)
 TOUCH = (100.5, 100.8, 99.1, 100.2)  # dips to the 120 and closes back up
 
-# Legacy MA-touch defaults for existing tests (production default is entry_trigger=1).
+# Legacy MA-touch defaults for existing tests (production default is entry_trigger=1, max_stop_pct=1).
+# Candle-stop fixtures are often ~1.7% wide, so tests keep a looser cap unless they opt in.
 def touch_settings(**kw):
+    kw.setdefault("max_stop_pct", 5.0)
     return Settings(entry_trigger=ENTRY_MA_TOUCH, **kw)
 
 
@@ -657,8 +659,8 @@ CROSS_CTX = Context(
     ma_tail={6: [100.0] * 10, 20: [99.0] * 10, 120: [98.0] * 10},
     prev_close=99.0,  # at/below the 6 EMA
 )
-# Closes above the continued 6 EMA; wide enough that max_stop_pct 2% still arms.
-CROSS = (100.2, 101.0, 99.8, 100.8)
+# Closes above the continued 6 EMA; candle width stays inside the default 1% max_stop_pct (+0.05 slack).
+CROSS = (100.2, 101.0, 100.2, 100.8)  # buy 101.01, stop 100.19 → ~0.81%
 
 
 def cross_run(rows, ctx=CROSS_CTX, settings=None, **kw):
@@ -668,29 +670,30 @@ def cross_run(rows, ctx=CROSS_CTX, settings=None, **kw):
 def test_cross_detection_and_one_cent_levels():
     [a] = cross_run([CROSS])
     assert a.setup == "6" and a.status == "pending" and a.is_cross
-    assert a.trigger == 101.01 and a.stop == 99.79
+    assert a.trigger == 101.01 and a.stop == 100.19
     assert a.details["entry_trigger"] == ENTRY_EMA_CROSS
+    assert Settings().max_stop_pct == 1.0
     # Prior already above the 6 EMA: not a cross.
     assert cross_run([CROSS], Context(ma_tail=CROSS_CTX.ma_tail, prev_close=100.5)) == []
     # Close still at/under the 6 EMA: not a cross.
-    assert cross_run([(100.2, 101.0, 99.8, 99.9)]) == []
+    assert cross_run([(100.2, 101.0, 100.2, 99.9)]) == []
 
 
 def test_cross_fill_and_cancel_on_break_of_low_no_expiry():
     [filled] = cross_run([CROSS, (100.8, 101.5, 100.5, 101.2)])
     assert filled.status == "triggered" and filled.fill_price == 101.01
-    [cancelled] = cross_run([CROSS, (100.5, 100.7, 99.70, 100.0)])
+    [cancelled] = cross_run([CROSS, (100.5, 100.7, 100.10, 100.3)])
     assert cancelled.status == "cancelled" and cancelled.exit_reason == "broke_setup_low" and not cancelled.filled
     # Many quiet bars: no watch_bars expiry; order stays at the cross candle high.
-    quiet = (100.5, 100.7, 100.0, 100.4)
+    quiet = (100.5, 100.7, 100.3, 100.4)
     [pending] = cross_run([CROSS] + [quiet] * 8)
     assert pending.status == "pending" and pending.trigger == 101.01 and pending.details.get("rearmed", 0) == 0
 
 
 def test_cross_max_stop_pct_skip_and_attempts_cap():
     skipped = []
-    wide = (100.2, 101.0, 98.0, 100.8)  # ~3% stop
-    assert cross_run([wide], settings=Settings(max_stop_pct=2), skipped=skipped) == []
+    wide = (100.2, 101.0, 98.0, 100.8)  # ~3% stop — skipped at the default 1% cap
+    assert cross_run([wide], skipped=skipped) == []
     assert skipped[0]["reason"] == "stop wider than the max"
     # Two filled attempts then a later cross is skipped. Stop is far below so fills are clean.
     ctx = Context(ma_tail={6: [100.0] * 10, 20: [99.0] * 10, 120: [98.0] * 10}, prev_close=99.0)

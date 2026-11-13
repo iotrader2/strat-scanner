@@ -492,7 +492,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     items: [
       ["stop_mode", "MA-touch stop: 0 = lowest low since the touch, 1 = this candle only, 2 = fixed percent (crossback always uses the candle)", ""],
       ["fixed_stop_pct", "Fixed stop", "% of the buy (shorts: of the sell)"],
-      ["max_stop_pct", "Skip an order whose stop is wider than", "%"],
+      ["max_stop_pct", "Skip an order whose stop is wider than (default 1)", "%"],
     ],
   },
   {

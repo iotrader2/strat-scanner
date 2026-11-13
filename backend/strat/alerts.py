@@ -123,7 +123,7 @@ class Settings:
     # Used only for ``entry_trigger=0``. Cross mode always uses the cross candle's low - 1c.
     stop_mode: int = 2
     fixed_stop_pct: float = 1.0
-    max_stop_pct: float = 2.0  # do not arm an order wider than this
+    max_stop_pct: float = 1.0  # do not arm an order wider than this (default 1%; +0.05 slack in apply_order)
     # 1 = a long name needs a daily setup that has not broken yet.
     long_pending_only: int = 0
     # 1 = the post-close watchlist reset also removes names you added yourself. 0 = keep those.

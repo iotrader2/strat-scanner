@@ -962,10 +962,9 @@ export default function Alerts() {
         <div>
           <h1>Alerts</h1>
           <p className="muted">
-            Longs in a top-quartile theme, and the short setups that are switched on in a bottom-quartile theme.
-            The entry is a 15-minute pullback to the rising 120 EMA (240 and 480 are off until you turn them on), or a rally
-            into a falling one. Regular session only. The buy walks to each new 15-minute high + 1c. The default stop is 1%
-            from that buy, and an order wider than 2% is skipped. Times are Phoenix.
+            Longs in a top-quartile theme; shorts via mapped inverse ETFs when EMA Crossback Short is on.
+            Default entry is a 15-minute close back above the 6 EMA (buy that candle&apos;s high + 1c, stop at its low − 1c).
+            The rising-120 pullback remains selectable. An order wider than 1% is skipped. Times are Phoenix.
           </p>
           <AlertDayBanner status={day} />
         </div>
