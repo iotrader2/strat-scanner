@@ -706,6 +706,15 @@ browser; a narrowed range hides names without a score or RS. A name whose daily 
 keeps being tracked while its alert is still live, but cannot start a new one. Regular session only (09:30-16:00 ET, 6:30-1:00 Phoenix in daylight time); nothing can fire
 until the opening 15-minute candle has formed (09:45 ET). No other setups are alerted.
 
+Entry filters, each a setting on the Alerts page:
+
+- **Trade cutoff** (`trade_window_minutes`, 105 = 11:15 ET; 150 = the old noon). No new alert on a candle that ends
+  after it and no entry on a candle that starts at or after it; a waiting alert expires there.
+- **Intraday trend** (`cross_above_ema`, 20; 0 = off). The crossback candle must also close above the 15-minute
+  20 EMA, so a bounce inside an intraday downtrend is not alerted.
+- **Stop size** (`min_stop_pct` 0.5 to `max_stop_pct` 1). A stop closer than 0.5% of the buy sits inside 15-minute
+  noise and is skipped, as is one wider than 1%.
+
 Each alert has two steps, and each chimes / notifies:
 
 1. **Watch.** A completed 15-minute candle touches a rising EMA coming from above: the EMA is higher than

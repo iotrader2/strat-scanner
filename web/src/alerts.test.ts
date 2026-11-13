@@ -72,34 +72,35 @@ export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
 describe("alert day", () => {
   const at = (iso: string, settings?: Record<string, number>) => alertDayStatus(new Date(iso), settings);
 
-  it("runs from the first 15-minute close to the noon ET cutoff, in Phoenix time all year", () => {
+  it("runs from the first 15-minute close to the 11:15 ET cutoff, in Phoenix time all year", () => {
     const summer = at("2026-10-23T13:00:00Z");
     expect(summer.phase).toBe("before");
     expect(summer.headline).toBe("Alerts start at 6:45 AM Phoenix.");
-    expect(summer.detail).toBe("Session 6:45–9:00 AM Phoenix.");
+    expect(summer.detail).toBe("Session 6:45–8:15 AM Phoenix.");
     expect(summer.windows.map((w) => w.setup)).toEqual(["120", "240", "480"]);
     expect(summer.windows.every((w) => w.state === "later")).toBe(true);
 
     const winter = at("2026-11-02T14:00:00Z");
     expect(winter.headline).toBe("Alerts start at 7:45 AM Phoenix.");
-    expect(winter.detail).toBe("Session 7:45–10:00 AM Phoenix.");
+    expect(winter.detail).toBe("Session 7:45–9:15 AM Phoenix.");
+    expect(at("2026-11-02T14:00:00Z", { trade_window_minutes: 150 }).detail).toBe("Session 7:45–10:00 AM Phoenix.");
   });
 
   it("is open during the session and done after it", () => {
     const mid = at("2026-10-23T15:00:00Z");
     expect(mid.phase).toBe("open");
-    expect(mid.headline).toBe("Watching for pullbacks until 9:00 AM Phoenix.");
+    expect(mid.headline).toBe("Watching for pullbacks until 8:15 AM Phoenix.");
     expect(mid.windows.every((w) => w.state === "open")).toBe(true);
-    const done = at("2026-10-23T16:01:00Z"); // just past noon EDT
+    const done = at("2026-10-23T16:01:00Z"); // past the 11:15 EDT cutoff
     expect(done.phase).toBe("done");
-    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The session was 6:45–9:00 AM Phoenix.");
+    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The session was 6:45–8:15 AM Phoenix.");
     expect(todayEmptyLead(mid)).toBeNull();
   });
 
   it("names the next session on a weekend", () => {
     const sat = at("2026-10-24T15:00:00Z");
     expect(sat.phase).toBe("closed");
-    expect(sat.detail).toBe("Next session is Monday, 6:45–9:00 AM Phoenix.");
+    expect(sat.detail).toBe("Next session is Monday, 6:45–8:15 AM Phoenix.");
   });
 
   it("shows a turned-off EMA as off, and all off as alerts off", () => {
@@ -269,7 +270,7 @@ describe("EMA level and settings", () => {
     const keys = SETTING_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
     expect(keys).toEqual(
       expect.arrayContaining([
-        "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "reset_manual", "alert_manual_watchlist", "stop_mode", "fixed_stop_pct", "max_stop_pct",
+        "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "reset_manual", "alert_manual_watchlist", "stop_mode", "fixed_stop_pct", "max_stop_pct", "min_stop_pct", "cross_above_ema", "trade_window_minutes",
         "short_hvc", "short_crossback", "short_ma10", "short_ma20", "shorts_ma120_enabled", "inverse_etf_shorts",
         "entry_trigger", "cross_ema_period", "cross_min_body_pct", "trim_daily_ema_1", "trim_daily_ema_2", "trail_stop_bars", "breakeven_after_bars",
         "ma_120", "ma_240", "ma_480", "long_ext_ema_period", "long_max_ext_vs_d10ema_pct", "long_ext_waive_at_d4ema",

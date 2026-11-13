@@ -635,14 +635,21 @@ def test_open_r_is_for_triggered_trades_still_open():
     assert open_r(short_row, 48.0) == pytest.approx(2.0)
 
 
-def test_no_alert_or_entry_after_noon_eastern():
+def test_no_alert_or_entry_after_the_trade_cutoff():
     from strat.alerts import trade_cutoff
 
-    # Noon ET year-round: 17:00 UTC under EST, 16:00 UTC under EDT.
-    assert trade_cutoff(datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)) == datetime(2026, 11, 10, 17, 0, tzinfo=timezone.utc)
-    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)
+    # Default 105 minutes after the open = 11:15 ET year-round: 16:15 UTC under EST, 15:15 UTC under EDT.
+    assert Settings().trade_window_minutes == 105
+    assert trade_cutoff(datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)) == datetime(2026, 11, 10, 16, 15, tzinfo=timezone.utc)
+    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 15, 15, tzinfo=timezone.utc)
+    # The setting moves it: 150 minutes is the old noon ET.
+    noon = Settings(trade_window_minutes=150)
+    assert trade_cutoff(OPEN, noon) == datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)
+    late = datetime(2026, 10, 23, 15, 30, tzinfo=timezone.utc)  # 11:30 ET: past the default, inside 150
+    assert simulate("AAA", "2026-10-23", bars([TOUCH], start=late), CTX, touch_settings()) == []
+    assert len(simulate("AAA", "2026-10-23", bars([TOUCH], start=late), CTX, touch_settings(trade_window_minutes=150))) == 1
 
-    cutoff = datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)
+    cutoff = datetime(2026, 10, 23, 15, 15, tzinfo=timezone.utc)
     go = (100.2, 101.0, 100.1, 100.9)
     # A touch bar that closes exactly at the cutoff still alerts and can fill on the forming bar before it.
     [a] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, touch_settings())
@@ -656,7 +663,7 @@ def test_no_alert_or_entry_after_noon_eastern():
     # A touch at or after the cutoff is not alerted.
     skipped = []
     assert simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff), CTX, touch_settings(), skipped=skipped) == []
-    assert skipped[0]["reason"] == "after the 12:00 ET trade cutoff"
+    assert skipped[0]["reason"] == "after the 11:15 ET trade cutoff"
     # A trade filled before the cutoff is still managed after it.
     [d] = simulate("AAA", "2026-10-23", bars([TOUCH, go, (100.9, 101.1, 99.5, 99.6)], start=cutoff - timedelta(minutes=30)), CTX, touch_settings())
     assert d.filled and d.status == "stopped"
@@ -683,6 +690,7 @@ def test_cross_detection_and_one_cent_levels():
     assert a.details["entry_trigger"] == ENTRY_EMA_CROSS
     assert Settings().max_stop_pct == 1.0
     assert Settings().cross_min_body_pct == 50.0
+    assert Settings().cross_above_ema == 20 and Settings().min_stop_pct == 0.5
     # Prior already above the 6 EMA: not a cross.
     assert cross_run([CROSS], Context(ma_tail=CROSS_CTX.ma_tail, prev_close=100.5)) == []
     # Close still at/under the 6 EMA: not a cross.
@@ -709,6 +717,28 @@ def test_cross_candle_strength_filter():
     assert later.status == "pending" and later.trigger == 101.01 and later.stop == 100.19
 
 
+def test_cross_must_close_above_the_20_ema():
+    # The 20 EMA sits above the cross close (100.8): a bounce inside an intraday downtrend is not alerted.
+    under = Context(ma_tail={6: [100.0] * 10, 20: [101.5] * 10, 120: [98.0] * 10}, prev_close=99.0)
+    assert cross_run([CROSS], under) == []
+    # 0 turns the filter off; another period is read instead (120 EMA at 98 is below the close).
+    assert len(cross_run([CROSS], under, settings=Settings(cross_above_ema=0))) == 1
+    assert len(cross_run([CROSS], under, settings=Settings(cross_above_ema=120))) == 1
+    # No history for that EMA: the filter does not block.
+    assert len(cross_run([CROSS], Context(ma_tail={6: [100.0] * 10}, prev_close=99.0))) == 1
+
+
+def test_cross_min_stop_pct_skips_a_tiny_candle():
+    tiny = (100.2, 100.5, 100.15, 100.45)  # buy 100.51, stop 100.14 -> 0.37%
+    skipped: list = []
+    assert cross_run([tiny], skipped=skipped) == []
+    assert skipped[0]["reason"] == "stop tighter than the min"
+    [a] = cross_run([tiny], settings=Settings(min_stop_pct=0))
+    assert a.status == "pending" and a.stop == 100.14
+    # At the floor or wider still arms (CROSS is 0.81%).
+    assert len(cross_run([CROSS], settings=Settings(min_stop_pct=0.8))) == 1
+
+
 def test_cross_fill_and_cancel_on_break_of_low_no_expiry():
     [filled] = cross_run([CROSS, (100.8, 101.5, 100.5, 101.2)])
     assert filled.status == "triggered" and filled.fill_price == 101.01
@@ -716,7 +746,7 @@ def test_cross_fill_and_cancel_on_break_of_low_no_expiry():
     assert cancelled.status == "cancelled" and cancelled.exit_reason == "broke_setup_low" and not cancelled.filled
     # Many quiet bars: no watch_bars expiry; order stays at the cross candle high.
     quiet = (100.5, 100.7, 100.3, 100.4)
-    [pending] = cross_run([CROSS] + [quiet] * 8)
+    [pending] = cross_run([CROSS] + [quiet] * 8, settings=Settings(trade_window_minutes=150))
     assert pending.status == "pending" and pending.trigger == 101.01 and pending.details.get("rearmed", 0) == 0
 
 

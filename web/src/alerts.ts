@@ -142,8 +142,8 @@ function shiftDate(year: number, month: number, day: number, days: number): { ye
   return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
 }
 
-/** Minutes from the 9:30 ET open to the noon ET trade cutoff. */
-export const TRADE_WINDOW_MINUTES = 150;
+/** Default minutes from the 9:30 ET open to the trade cutoff (11:15 ET); the `trade_window_minutes` setting overrides it. */
+export const TRADE_WINDOW_MINUTES = 105;
 
 function phoenixClock(date: Date): Clock {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: ALERT_TZ, hour: "numeric", minute: "2-digit" }).formatToParts(date);
@@ -163,8 +163,8 @@ function rangeLabel(start: Date, end: Date): string {
 
 /**
  * Whether alerts are running, and which EMAs are watched, in Phoenix time.
- * Alerts run from the close of the opening 15-minute candle (9:45 New York) to the 12:00 noon New York cutoff
- * (the backend trade window: no new alert or entry after it).
+ * Alerts run from the close of the opening 15-minute candle (9:45 New York) to the trade cutoff, `trade_window_minutes`
+ * after the open (default 11:15 New York; the backend trade window: no new alert or entry after it).
  * `now` defaults to the current instant. Weekends use the next session's clock times.
  */
 export function alertDayStatus(now: Date = new Date(), settings?: Record<string, number>): AlertDayStatus {
@@ -173,7 +173,7 @@ export function alertDayStatus(now: Date = new Date(), settings?: Record<string,
   const session = weekend ? shiftDate(here.year, here.month, here.day, here.weekday === "Sat" ? 2 : 1) : { year: here.year, month: here.month, day: here.day };
   const open = zonedDateTime(ET, session.year, session.month, session.day, 9, 30);
   const first = new Date(open.getTime() + BAR_MINUTES * 60_000);
-  const last = new Date(open.getTime() + TRADE_WINDOW_MINUTES * 60_000);
+  const last = new Date(open.getTime() + (settings?.trade_window_minutes ?? TRADE_WINDOW_MINUTES) * 60_000);
   const span = rangeLabel(first, last);
   const state: SetupWindowState = weekend || now < first ? "later" : now <= last ? "open" : "done";
   const on = (p: string) => (settings?.[`ma_${p}`] ?? 1) !== 0;
@@ -251,7 +251,7 @@ export function happenedText(a: TradeAlert): string {
   if (a.status === "expired") {
     if (a.exit_reason === "max_attempts") return "Expired: 2 attempts already";
     if (a.exit_reason === "session_end") return "Not triggered by the close";
-    if (a.exit_reason === "trade_window") return "Not triggered by the 12:00 ET cutoff";
+    if (a.exit_reason === "trade_window") return "Not triggered by the trade cutoff";
     return "Not triggered in time";
   }
   if (a.status === "cancelled") return `Closed ${short ? "over" : "under"} the ${ema} before triggering`;
@@ -542,6 +542,8 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["entry_trigger", "Entry: 1 = 6 EMA crossback (default), 0 = pullback to rising 120/240/480", ""],
       ["cross_ema_period", "Crossback EMA period", ""],
       ["cross_min_body_pct", "Cross candle: green, body ≥", "% of range"],
+      ["cross_above_ema", "Cross candle must close above this 15-minute EMA (default 20, 0 = off)", ""],
+      ["trade_window_minutes", "No new alert or entry after this many minutes from the 9:30 ET open (105 = 11:15 ET, 150 = noon)", "minutes"],
       ["trail_stop_bars", "Crossback: stop to the lowest low of this many bars after the trigger candle - 1c (0 = break-even rule below)", "bars"],
       ["breakeven_after_bars", "Crossback with trail off: stop to break-even after", "completed bars after the fill"],
       ["trim_daily_ema_1", "Daily trims at 15:59 ET: 1/3 on the entry day, next 1/3 under this daily EMA", ""],
@@ -563,6 +565,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["stop_mode", "MA-touch stop: 0 = lowest low since the touch, 1 = this candle only, 2 = fixed percent (crossback always uses the candle)", ""],
       ["fixed_stop_pct", "Fixed stop", "% of the buy (shorts: of the sell)"],
       ["max_stop_pct", "Skip an order whose stop is wider than (default 1)", "%"],
+      ["min_stop_pct", "Skip an order whose stop is closer than (default 0.5, 0 = off)", "%"],
     ],
   },
   {

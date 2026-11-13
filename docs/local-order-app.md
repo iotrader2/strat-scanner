@@ -8,7 +8,7 @@ manages every order. The broker's fills are the truth. strat-scanner's prices ar
 
 | Event | When | What to do |
 |---|---|---|
-| Buy | As before (alert triggers, before 12:00 ET) | Buy, `clientOrderId` = alert id. Place the protective stop at `stop_price`. |
+| Buy | As before (alert triggers, before the trade cutoff, 11:15 ET by default) | Buy, `clientOrderId` = alert id. Place the protective stop at `stop_price`. |
 | Stop move | Once, after the 3 15-minute bars that follow the trigger candle complete (about 45-60 min after the fill) | Replace the working stop with the new `stop_price` for the shares left. |
 | Trim 1/3 | 15:59 ET on the entry day, every time | Sell a third. |
 | Trim 1/3 | 15:59 ET on a later day, when price is under the daily 6 EMA | Sell a third. |
