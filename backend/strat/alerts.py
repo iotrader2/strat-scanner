@@ -1,13 +1,15 @@
 """Intraday entries for daily setups on 15-minute bars.
 
 Default (``entry_trigger=1``): a completed 15-minute bar that closes **above** the configurable
-cross EMA (default 6) after the prior bar closed at or below it. Buy = that candle's high + $0.01;
-stop = that candle's low - $0.01. The order does not re-arm. While pending it fills at the buy or
-cancels if price trades the candle low - $0.01; the 12:00 ET cutoff and session end still apply (no
-``watch_bars`` expiry). After the fill: break-even after ``breakeven_after_bars`` completed bars;
-trim in thirds on closes back through ``trim_ema_1`` / ``trim_ema_2`` / ``trim_ema_3`` (defaults
-6 / 20 / 120), each once and in order (one bar may take several thirds at the same close); plus stop
-and session end on whatever remains. Partial exits use weighted R.
+cross EMA (default 6) after the prior bar closed at or below it. The cross candle must also be
+green (close > open) with body at least ``cross_min_body_pct`` percent of its range (default 50;
+0 disables; a zero-range candle fails). Buy = that candle's high + $0.01; stop = that candle's
+low - $0.01. The order does not re-arm. While pending it fills at the buy or cancels if price
+trades the candle low - $0.01; the 12:00 ET cutoff and session end still apply (no ``watch_bars``
+expiry). After the fill: break-even after ``breakeven_after_bars`` completed bars; trim in thirds
+on closes back through ``trim_ema_1`` / ``trim_ema_2`` / ``trim_ema_3`` (defaults 6 / 20 / 120),
+each once and in order (one bar may take several thirds at the same close); plus stop and session
+end on whatever remains. Partial exits use weighted R. Same cross rules apply to inverse-ETF longs.
 
 Legacy (``entry_trigger=0``): pullback to a rising 120 / 240 / 480 EMA with re-arm and ``stop_mode``.
 
@@ -103,6 +105,8 @@ class Settings:
     # 1 = 15-min EMA crossback (default). 0 = pullback to rising 120/240/480 EMA.
     entry_trigger: int = ENTRY_EMA_CROSS
     cross_ema_period: int = 6  # 15-min EMA period for the crossback entry
+    # Cross candle strength: green body must be at least this % of (high-low). 0 = off. Default 50.
+    cross_min_body_pct: float = 50.0
     # Cross mode trim ladder (each fires once, in order, one third of the original size):
     # close through trim_ema_1, then trim_ema_2, then trim_ema_3 (against the position).
     trim_ema_1: int = 6
@@ -250,7 +254,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "theme_gate": (0, 1), "theme_top_pct": (1, 50),
     "shorts": (0, 1), "max_short_symbols": (0, 1000), "shorts_ma120_enabled": (0, 1),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
-    "entry_trigger": (0, 1), "cross_ema_period": (2, 50),
+    "entry_trigger": (0, 1), "cross_ema_period": (2, 50), "cross_min_body_pct": (0, 100),
     "trim_ema_1": (2, 200), "trim_ema_2": (2, 200), "trim_ema_3": (2, 200),
     "breakeven_after_bars": (1, 50), "inverse_etf_shorts": (0, 1),
     "long_max_ext_vs_d10ema_pct": (0, 100), "long_ext_ema_period": (1, 200),
@@ -690,8 +694,24 @@ def match_short(f: Frame, i: int, p: int, s: Settings) -> Optional[dict]:
     return {"ma": m, "slope_pct": (mp - mb) / mb * 100}
 
 
-def match_cross(f: Frame, i: int, period: int) -> Optional[dict]:
-    """Bar ``i`` closes above the ``period`` EMA after the prior close was at or below it (strict)."""
+def cross_body_ok(bar: Mapping, min_body_pct: float) -> bool:
+    """Cross-candle strength: green with body >= ``min_body_pct``% of range (0 disables; zero range fails)."""
+    if float(min_body_pct) <= 0:
+        return True
+    o, h, l, c = float(bar["o"]), float(bar["h"]), float(bar["l"]), float(bar["c"])
+    if not (c > o):
+        return False
+    rng = h - l
+    if rng <= 0:
+        return False
+    return (c - o) / rng * 100.0 >= float(min_body_pct)
+
+
+def match_cross(f: Frame, i: int, period: int, s: Settings) -> Optional[dict]:
+    """Bar ``i`` closes above the ``period`` EMA after the prior close was at or below it (strict).
+
+    Also requires a green candle whose body is at least ``cross_min_body_pct`` of its range (unless 0).
+    """
     m, mp = f.ma_at(period, i), f.ma_at(period, i - 1)
     pc = f.close_at(i - 1)
     if m is None or mp is None or pc is None or m <= 0:
@@ -700,6 +720,8 @@ def match_cross(f: Frame, i: int, period: int) -> Optional[dict]:
         return None
     b = f.bars[i]
     if not (float(b["c"]) > m):
+        return None
+    if not cross_body_ok(b, s.cross_min_body_pct):
         return None
     slope = ((mp - (f.ma_at(period, i - 2) or mp)) / mp * 100) if mp else 0.0
     return {"ma": m, "slope_pct": slope}
@@ -1140,7 +1162,7 @@ def simulate(
                 step(a, bar, i, f, s)
         if use_cross:
             period = int(s.cross_ema_period)
-            lv = match_cross(f, i, period)
+            lv = match_cross(f, i, period, s)
             if not lv:
                 continue
             touched = [period]
