@@ -134,8 +134,8 @@ class Settings:
     # but not from the hard ATR floor (MIN_ALERT_ATR_PCT).
     alert_manual_watchlist: int = 1
     # Daily-scan gates, applied before the name caps. Same scale as the scanner sliders.
-    # $10M is the left end. ATR 0–12 means the full range ("Any"): no ATR cut, and 12 is "12%+".
-    min_avg_dollar_volume: float = 10_000_000
+    # Slider left end is $10M; default is $100M. ATR 0–12 means the full range ("Any"): no ATR cut, and 12 is "12%+".
+    min_avg_dollar_volume: float = 100_000_000
     atr_pct_min: float = 0.0
     atr_pct_max: float = 12.0
     # Short daily setups (1 = on, 0 = off). Default: only EMA Crossback Short (via inverse ETFs).
