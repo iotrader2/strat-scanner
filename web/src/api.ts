@@ -555,7 +555,7 @@ export const api = {
 };
 
 /** The EMA the stock pulled back to on the 15-minute chart. */
-export type AlertSetup = "120" | "240" | "480" | "s120" | "s240" | "s480";
+export type AlertSetup = "6" | "120" | "240" | "480" | "s120" | "s240" | "s480";
 export type AlertStatus = "pending" | "triggered" | "stopped" | "breakeven" | "exited" | "expired" | "cancelled";
 
 /** One setup alert and what happened after it. Times are UTC ISO; the UI shows them in Phoenix time. */
@@ -602,6 +602,12 @@ export interface TradeAlert {
     fill_on_forming_bar?: boolean;
     /** Daily setups that put the name on the alert list. Older rows stored the label as a string. */
     daily_setups?: Array<string | DailySetupRef>;
+    /** Inverse-ETF short proxy: the stock the ETF shorts. */
+    underlying?: string;
+    /** True when this alert is a long on a mapped inverse ETF for a short daily setup. */
+    inverse_etf?: boolean;
+    /** "short" when the alert is an inverse-ETF short proxy (setup key stays a long period). */
+    side_role?: string;
   };
   acknowledged: boolean;
   /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
