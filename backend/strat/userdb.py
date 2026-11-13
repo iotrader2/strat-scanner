@@ -1,4 +1,4 @@
-"""Durable user data: watchlist, positions, trims, off-universe symbols, alerts, alert history and settings.
+"""Durable user data: watchlist (and its daily history), positions, trims, off-universe symbols, alerts, alert history and settings.
 
 Postgres when ``DATABASE_URL`` is set (Neon free tier on stage), so a deploy no longer wipes these
 tables. Without it (local runs, tests) they live in the SQLite cache file, exactly as before.
@@ -107,6 +107,19 @@ CREATE INDEX IF NOT EXISTS alerts_symbol ON alerts(symbol);
 CREATE TABLE IF NOT EXISTS alert_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+-- The watchlist as it stood at the close of each trading day, written by the post-close reset just
+-- before it clears the list. Forward only: nothing is backfilled for days before this table existed.
+-- scan_row is the scan row (JSON) at that close, so the day reads as it looked then.
+CREATE TABLE IF NOT EXISTS watchlist_history (
+    trading_date TEXT NOT NULL,
+    symbol       TEXT NOT NULL,
+    source       TEXT NOT NULL,
+    setups       TEXT NOT NULL DEFAULT '[]',
+    added_at     TEXT NOT NULL,
+    scan_row     TEXT,
+    snapshot_at  TEXT NOT NULL,
+    PRIMARY KEY (trading_date, symbol)
 );
 """
 

@@ -353,3 +353,43 @@ def test_a_scan_that_has_not_finished_does_not_clear_the_list(db, monkeypatch):
     monkeypatch.setattr(api.config, "AS_OF", None)
     api._sync_alert_watchlist(Settings(reset_manual=1))
     assert data.watchlist() == ["MINE"]
+
+
+def test_the_reset_stores_the_closing_list_under_that_day(db):
+    data.add_to_watchlist("KEEP")
+    ma20 = {"OLD": [{"kind": "ma", "label": "20-day MA", "period": 20}]}
+    data.sync_alert_watchlist(["OLD"], setups=ma20, now=MONDAY)
+    data.sync_alert_watchlist(["OLD", "NEW"], setups=ma20, now=TUESDAY.replace(hour=11))
+    assert data.watchlist_history_dates() == ["2026-11-09"]  # Monday's reset stored Monday's closing list
+    rows = {"OLD": {"symbol": "OLD", "price": 12.5}, "NEW": {"symbol": "NEW", "price": 3.0}}
+    data.sync_alert_watchlist(["OLD"], now=TUESDAY, snapshot_rows=rows)
+    assert data.watchlist_history_dates() == ["2026-11-10", "2026-11-09"]
+    tuesday = data.watchlist_history("2026-11-10")
+    assert [r["symbol"] for r in tuesday] == ["KEEP", "OLD", "NEW"]
+    by = {r["symbol"]: r for r in tuesday}
+    assert by["KEEP"]["source"] == "manual" and by["KEEP"]["row"] is None
+    assert by["OLD"]["row"] == {"symbol": "OLD", "price": 12.5}
+    assert by["OLD"]["setups"][0]["kind"] == "ma"
+    assert by["NEW"]["source"] == "alert"
+    # The live list moved on; the stored day did not.
+    assert data.watchlist() == ["KEEP", "OLD"]
+
+
+def test_no_history_without_a_reset(db):
+    data.sync_alert_watchlist(["AAA"], now=MONDAY.replace(hour=11))
+    data.add_to_watchlist("BBB")
+    assert data.watchlist_history_dates() == []
+    assert data.watchlist_history("2026-11-09") == []
+
+
+def test_watchlist_history_endpoint(db, monkeypatch):
+    data.sync_alert_watchlist(["AAA"], now=MONDAY)
+    data.sync_alert_watchlist(["BBB"], now=TUESDAY, snapshot_rows={"AAA": {"symbol": "AAA", "price": 1.0}})
+    out = api.get_watchlist_history(None)
+    assert out["date"] == "2026-11-10" and out["dates"] == ["2026-11-10"]  # Monday's list was empty
+    assert out["symbols"] == ["AAA"] and out["rows"][0]["symbol"] == "AAA" and out["missing"] == []
+    assert out["rows"][0]["watch_source"] == "alert"
+    empty = api.get_watchlist_history("2026-10-01")
+    assert empty["symbols"] == [] and empty["rows"] == []
+    with pytest.raises(api.HTTPException):
+        api.get_watchlist_history("nope")

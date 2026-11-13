@@ -485,6 +485,10 @@ Scanner** (drill into daily setups, optionally filtered to a theme), **Watchlist
     check/**−** toggle removes a name.
   - Names stay on the list whether or not they are leaders or have a daily setup; they are then marked “no active setup” (leaders: “Leader · no setup”).
   - The list is stored in the `watchlist` table of the local SQLite cache, so it survives restarts and data refreshes.
+  - **History** (tab on the Watchlist page): pick a trading day to see the list as it stood at that day's close, with
+    the scan row (prices, score, setups) saved then and whether each name was auto-added or yours. The post-close reset
+    (4:01 PM New York) copies the whole list into `watchlist_history` just before it clears, in the same transaction.
+    Forward only: nothing is backfilled for days before this existed, and a day with an empty list stores nothing.
   - **Add symbol** (on the Watchlist tab) takes any Yahoo Finance ticker, not just universe names: type it (it is
     upper-cased) and press Enter.
     - Tickers outside the S&P 500 / Nasdaq-100 / ETF universe (e.g. `SOFI`) are first validated by downloading
@@ -627,6 +631,7 @@ The UI talks to the backend on `127.0.0.1:8000` (proxied through Vite as `/api` 
 | `GET /api/watchlist` | Watched symbols (`symbols`), their scan rows (`rows`) and any without cached data yet (`missing`) |
 | `POST /api/watchlist` | Add any ticker, body `{"symbol": "SOFI"}`. Returns 404 only if Yahoo Finance has no such symbol and 502 if the lookup fails |
 | `DELETE /api/watchlist/{symbol}` | Remove a symbol |
+| `GET /api/watchlist/history?date=YYYY-MM-DD` | The list stored at that day's close (`symbols`, saved scan `rows`, `missing`), plus every stored day (`dates`). No date picks the latest |
 | `GET /api/positions` | Open positions: `symbols` and `positions` (`symbol`, `entry_price`, `shares`, `entry_date`, scan `row` or `null` before data is cached) |
 | `POST /api/positions` | Open a position in any ticker, body `{"symbol": "NVDA", "entry_price": 196.4, "shares": 40, "entry_date": "2026-09-22"}`. `entry_price` defaults to the last price, `entry_date` to today (US/Eastern) and `shares` is optional. Removes the name from the watchlist. 404 for unknown tickers, 409 if already held, 422 for a future date or non-positive numbers |
 | `PUT /api/positions/{symbol}` | Edit `entry_price`, `shares` and `entry_date` |

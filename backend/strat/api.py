@@ -464,6 +464,7 @@ def _sync_alert_watchlist(settings: alert_rules.Settings, now=None) -> Optional[
     try:
         changed = data.sync_alert_watchlist(
             names, setups=setups, include_manual=bool(settings.reset_manual), now=now,
+            snapshot_rows={r["symbol"]: r for r in State.scan},
         )
     except Exception:
         log.exception("alert watchlist sync failed")
@@ -1144,6 +1145,37 @@ def _watchlist_payload() -> dict:
 def get_watchlist():
     """Watched names with their full scan row, whether or not they still have a daily setup."""
     return _watchlist_payload()
+
+
+@app.get("/api/watchlist/history")
+def get_watchlist_history(day: Optional[str] = Query(None, alias="date")):
+    """The watchlist as it stood at one day's close (read only). No date picks the latest stored day.
+
+    Days are stored going forward by the post-close reset; there is nothing before the first one.
+    Rows are the scan rows saved at that close, not today's prices.
+    """
+    dates = data.watchlist_history_dates()
+    if day:
+        try:
+            chosen: Optional[str] = date.fromisoformat(day).isoformat()
+        except ValueError:
+            raise HTTPException(422, "date must be YYYY-MM-DD") from None
+    else:
+        chosen = dates[0] if dates else None
+    stored = data.watchlist_history(chosen) if chosen else []
+    rows = []
+    for item in stored:
+        if item["row"] is None:
+            continue
+        rows.append({**item["row"], "watch_setups": item["setups"], "watch_source": item["source"], "earnings": None})
+    return {
+        "date": chosen,
+        "dates": dates,
+        "symbols": [item["symbol"] for item in stored],
+        "rows": rows,
+        "missing": [item["symbol"] for item in stored if item["row"] is None],
+        "snapshot_at": stored[0]["snapshot_at"] if stored else None,
+    }
 
 
 @app.post("/api/watchlist")

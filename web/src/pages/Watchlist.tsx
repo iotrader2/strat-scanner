@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import type { ScanRow } from "../api";
+import { api, type ScanRow, type WatchlistHistory } from "../api";
+import { usePersisted } from "../persist";
 import { SkeletonTable } from "../components/Loading";
 import { ListTable } from "../components/ListTable";
 import type { ExtraColumn } from "../components/ScanTable";
@@ -117,36 +118,153 @@ export function WatchlistLoaded({
   );
 }
 
+const SOURCE_COLUMN: ExtraColumn = {
+  key: "source",
+  label: "Added",
+  title: "Auto: the alerts put the name on the list. You: you added it by hand.",
+  ascendingFirst: true,
+  sortValue: (row) => (row as WatchlistHistory["rows"][number]).watch_source ?? null,
+  render: (row) => {
+    const source = (row as WatchlistHistory["rows"][number]).watch_source;
+    return source ? <span className="muted">{source === "alert" ? "Auto" : "You"}</span> : <span className="muted">—</span>;
+  },
+};
+
+const HISTORY_COLUMNS = [SOURCE_COLUMN, SETUP_COLUMN];
+
+/** Read-only view of the list stored at one day's close. Stored from the post-close reset onward; never backfilled. */
+export function WatchlistHistoryView() {
+  const [date, setDate] = useState("");
+  const [data, setData] = useState<WatchlistHistory | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .watchlistHistory(date || undefined)
+      .then((d) => {
+        if (cancelled) return;
+        setData(d);
+        setError(null);
+        if (!date && d.date) setDate(d.date);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
+
+  const rows = data?.rows ?? [];
+  const missing = data?.missing ?? [];
+  return (
+    <>
+      <div className="table-meta alerts-toolbar">
+        <div className="alerts-toolbar-left">
+          <label className="muted small" htmlFor="watchlist-history-date">
+            Trading day
+          </label>
+          <input
+            id="watchlist-history-date"
+            className="input date"
+            type="date"
+            value={date}
+            max={data?.dates[0]}
+            min={data?.dates[data.dates.length - 1]}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          {data && data.date && (
+            <span className="muted small">
+              {data.symbols.length} names{data.dates.length > 1 ? ` · ${data.dates.length} days kept` : ""}
+            </span>
+          )}
+        </div>
+        <span className="muted small">
+          {data?.snapshot_at ? `Saved ${phoenixStamp(data.snapshot_at)}. ` : ""}Prices as of that close. Read only.
+        </span>
+      </div>
+      {error && <div className="banner error">{error}</div>}
+      {missing.length > 0 && <div className="banner">No scan data was saved for {missing.join(", ")} that day.</div>}
+      {data === null ? (
+        <SkeletonTable rows={5} cols={13} label="Loading history…" />
+      ) : data.dates.length === 0 ? (
+        <div className="card empty-state">
+          No watchlist history yet. The list is saved each trading day at the close (4:01 PM New York), starting from
+          the next close.
+        </div>
+      ) : data.symbols.length === 0 ? (
+        <div className="card empty-state">No watchlist saved{data.date ? ` for ${data.date}` : ""}.</div>
+      ) : (
+        <ListTable rows={rows} intraday={undefined} extraColumns={HISTORY_COLUMNS} />
+      )}
+    </>
+  );
+}
+
 export default function Watchlist() {
+  const [view, setView] = usePersisted<"current" | "history">("watchlistView", "current");
+  return (
+    <div className="page">
+      {view === "current" ? <CurrentWatchlist /> : (
+        <section className="hero">
+          <div>
+            <h1>Watchlist</h1>
+            <p className="muted">The list as it stood at the close of a past trading day.</p>
+          </div>
+        </section>
+      )}
+      <div className="alerts-tabs">
+        <div className="seg" role="tablist">
+          <button type="button" role="tab" aria-selected={view === "current"} className={view === "current" ? "active" : ""} onClick={() => setView("current")}>
+            Current
+          </button>
+          <button type="button" role="tab" aria-selected={view === "history"} className={view === "history" ? "active" : ""} onClick={() => setView("history")}>
+            History
+          </button>
+        </div>
+      </div>
+      {view === "current" ? <CurrentWatchlistTable /> : <WatchlistHistoryView />}
+    </div>
+  );
+}
+
+function CurrentWatchlist() {
+  const { symbols, data } = useWatchlist();
+  const rows = useMemo(() => watchedRows(data?.rows ?? [], symbols), [data, symbols]);
+  const active = rows.filter((r) => r.has_setup).length;
+  return (
+    <section className="hero">
+      <div>
+        <h1>Watchlist</h1>
+        <WatchlistLoaded loadedAt={data?.loaded_at} updatedAt={data?.updated_at} />
+        <p className="muted">
+          Stocks you&apos;re watching. They stay until you take them off. Setup is the daily setup that put an
+          auto-added name on the list. A dash is a name you added that does not currently qualify. When you buy
+          one, use Bought on Alerts.
+        </p>
+      </div>
+      <div className="stat-cards">
+        <div className="stat-card">
+          <span className="stat-value">{symbols.length}</span>
+          <span className="stat-label">watched</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-value accent-text">{active}</span>
+          <span className="stat-label">with a daily setup</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CurrentWatchlistTable() {
   const { symbols, data, error } = useWatchlist();
   const rows = useMemo(() => watchedRows(data?.rows ?? [], symbols), [data, symbols]);
   const missing = (data?.missing ?? []).filter((s) => symbols.includes(s));
-  const active = rows.filter((r) => r.has_setup).length;
 
   return (
-    <div className="page">
-      <section className="hero">
-        <div>
-          <h1>Watchlist</h1>
-          <WatchlistLoaded loadedAt={data?.loaded_at} updatedAt={data?.updated_at} />
-          <p className="muted">
-            Stocks you&apos;re watching. They stay until you take them off. Setup is the daily setup that put an
-            auto-added name on the list. A dash is a name you added that does not currently qualify. When you buy
-            one, use Bought on Alerts.
-          </p>
-        </div>
-        <div className="stat-cards">
-          <div className="stat-card">
-            <span className="stat-value">{symbols.length}</span>
-            <span className="stat-label">watched</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-value accent-text">{active}</span>
-            <span className="stat-label">with a daily setup</span>
-          </div>
-        </div>
-      </section>
-
+    <>
       <AddSymbol />
 
       <div className="table-meta">
@@ -167,6 +285,6 @@ export default function Watchlist() {
       ) : (
         <ListTable rows={rows} intraday={data?.intraday} extraColumns={[SETUP_COLUMN]} />
       )}
-    </div>
+    </>
   );
 }

@@ -314,6 +314,7 @@ def sync_alert_watchlist(
     setups: dict[str, list] | None = None,
     include_manual: bool = False,
     now: datetime | None = None,
+    snapshot_rows: dict[str, dict] | None = None,
     db_path: Path | None = None,
 ) -> dict:
     """Add ``symbols`` as alert names, and reset the list once after the close.
@@ -329,6 +330,9 @@ def sync_alert_watchlist(
     already listed: a name in ``symbols`` keeps that day's setups, and every other name is cleared
     so a hand-added name that does not qualify shows a dash.
     ``include_manual`` also clears names the user added; otherwise those stay.
+    Before the reset clears anything, the whole list is copied to ``watchlist_history`` under the
+    Eastern date of the close, in the same transaction. ``snapshot_rows`` (symbol -> scan row) is
+    stored with each name so that day can be shown as it looked at the close.
     """
     from .scheduler import now_et, watchlist_reset_target
 
@@ -345,6 +349,7 @@ def sync_alert_watchlist(
         session = target.isoformat() if target is not None else stored
         reset = target is not None and stored != session
         if reset:
+            _snapshot_watchlist(conn, now_et(clock).date().isoformat(), clock, snapshot_rows)
             if include_manual:
                 conn.execute("DELETE FROM watchlist")
             else:
@@ -373,6 +378,64 @@ def sync_alert_watchlist(
             conn.execute("UPDATE watchlist SET setups = ? WHERE symbol = ?", (blob, sym))
             setups_changed += 1
     return {"reset": reset, "added": added, "session": session, "setups_changed": setups_changed}
+
+
+def _snapshot_watchlist(conn, trading_date: str, clock: datetime, rows: dict[str, dict] | None) -> int:
+    """Copy the current watchlist into ``watchlist_history`` for ``trading_date``. A day already stored is kept."""
+    stamp = _utc_stamp(clock)
+    listed = conn.execute("SELECT symbol, source, setups, added_at FROM watchlist").fetchall()
+    for sym, source, setups, added_at in listed:
+        row = (rows or {}).get(sym)
+        blob = json.dumps(row, separators=(",", ":"), default=str) if row else None
+        conn.execute(
+            "INSERT INTO watchlist_history(trading_date, symbol, source, setups, added_at, scan_row, snapshot_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(trading_date, symbol) DO NOTHING",
+            (trading_date, sym, source or WATCH_MANUAL, setups or _EMPTY_SETUPS, added_at, blob, stamp),
+        )
+    return len(listed)
+
+
+def watchlist_history_dates(db_path: Path | None = None) -> list[str]:
+    """Trading dates with a stored watchlist, newest first."""
+
+    def read() -> list[str]:
+        with userdb.connect(db_path) as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT DISTINCT trading_date FROM watchlist_history ORDER BY trading_date DESC"
+            ).fetchall()]
+
+    return list(userdb.cached("watchlist_history_dates", read, db_path))
+
+
+def watchlist_history(trading_date: str, db_path: Path | None = None) -> list[dict]:
+    """The list stored for one trading date, in watchlist order: symbol, source, setups, added_at, row, snapshot_at.
+
+    ``row`` is the scan row saved at that close, or None when the name had no scan row then.
+    """
+
+    def read() -> list:
+        with userdb.connect(db_path) as conn:
+            return conn.execute(
+                "SELECT symbol, source, setups, added_at, scan_row, snapshot_at FROM watchlist_history "
+                "WHERE trading_date = ? ORDER BY added_at, symbol",
+                (trading_date,),
+            ).fetchall()
+
+    out = []
+    for sym, source, setups, added_at, raw, snapshot_at in userdb.cached(("watchlist_history", trading_date), read, db_path):
+        try:
+            row = json.loads(raw) if raw else None
+        except ValueError:
+            row = None
+        out.append({
+            "symbol": sym,
+            "source": source,
+            "setups": _parse_setups(setups),
+            "added_at": added_at,
+            "row": row if isinstance(row, dict) else None,
+            "snapshot_at": snapshot_at,
+        })
+    return out
 
 
 def remove_from_watchlist(symbol: str, db_path: Path | None = None) -> None:

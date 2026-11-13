@@ -22,6 +22,18 @@ INVERSE_ETF_MAP: dict[str, str] = {
     "AMD": "AMDD",
     "GOOGL": "GGLS",
     "MU": "MUD",
+    # Mostly -2x (Defiance and others). The alert runs on the ETF's own 15-minute bars, so the stop and
+    # R are in the ETF's price; size these smaller than a 1x pair.
+    "MSTR": "SMST",
+    "SMCI": "SMCZ",
+    "RGTI": "RGTZ",
+    "IONQ": "IONZ",
+    "RKLB": "RKLZ",
+    "BMNR": "BMNZ",
+    "ASTS": "ASTN",
+    "QBTS": "QBTZ",
+    "SPCX": "SPCQ",
+    "COIN": "CONI",
 }
 
 # Inverse ETF -> underlying (built once)

@@ -795,4 +795,7 @@ def test_inverse_etf_mapping_and_only_mapped_names():
     assert inverse_etf_for("NVDA") == "NVDD"
     assert inverse_etf_for("FAKE") is None
     assert map_underlyings_to_etfs(["NVDA", "AAPL", "ZZZ", "nvda"]) == [("NVDD", "NVDA"), ("AAPD", "AAPL")]
-    assert set(INVERSE_ETF_MAP) >= {"NFLX", "PLTR", "MSFT", "AAPL", "META", "NVDA", "AMZN", "TSLA", "TSM", "AMD", "GOOGL", "MU"}
+    assert set(INVERSE_ETF_MAP) >= {"NFLX", "PLTR", "MSFT", "AAPL", "META", "NVDA", "AMZN", "TSLA", "TSM", "AMD", "GOOGL", "MU",
+        "MSTR", "SMCI", "RGTI", "IONQ", "RKLB", "BMNR", "ASTS", "QBTS", "SPCX", "COIN"}
+    # One ETF per underlying, and no ETF is mapped twice.
+    assert len(set(INVERSE_ETF_MAP.values())) == len(INVERSE_ETF_MAP)
