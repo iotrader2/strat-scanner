@@ -42,7 +42,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 from . import alerts_store
 from .alerts import (
     ACTIVE, BAR, BAR_MINUTES, CLOSE_CHECK_AT, ENTRY_EMA_CROSS, SESSION_BARS, Alert, Context, Settings,
-    advance_carried, advance_stored, apply_order, carry_alert, context_from_closes, ema_periods_for,
+    advance_carried, advance_stored, apply_order, carry_alert, stop_too_tight, context_from_closes, ema_periods_for,
     known_setup, simulate,
 )
 from .inverse_etfs import map_underlyings_to_etfs
@@ -365,11 +365,11 @@ def correct_pending(
         old = scratch.trigger
         if not apply_order(scratch, float(bar["h"]), float(bar["l"]), settings):
             scratch.status = "cancelled"
-            scratch.exit_reason = "stop_too_wide"
+            scratch.exit_reason = "stop_too_tight" if stop_too_tight(scratch, settings) else "stop_too_wide"
             scratch.exit_at = bar["t"] + BAR
             scratch.details["bar_feed"] = bar["src"]
             out.append(scratch)
-            log.info("pending %s cancelled after reprice; stop wider than the max", row["symbol"])
+            log.info("pending %s cancelled after reprice; stop outside the min/max", row["symbol"])
             continue
         scratch.details["bar_feed"] = bar["src"]
         ctx = ctx_by.get(row["symbol"])

@@ -185,17 +185,17 @@ describe("Alert day window", () => {
   it("shows each EMA chip watching during the session", () => {
     const html = renderToStaticMarkup(<AlertDayBanner status={alertDayStatus(new Date("2026-10-23T15:00:00Z"))} />);
     expect(html).toContain('role="status"');
-    expect(html).toContain("Watching for pullbacks until 9:00 AM Phoenix.");
+    expect(html).toContain("Watching for pullbacks until 8:15 AM Phoenix.");
     expect(html).toContain('class="alert-window-chip open"');
     for (const p of ["120", "240", "480"]) expect(html).toContain(`${p} EMA`);
     expect(/\p{Extended_Pictographic}/u.test(html)).toBe(false);
   });
 
-  it("says the day is finished after the noon ET cutoff", () => {
+  it("says the day is finished after the trade cutoff", () => {
     const html = renderToStaticMarkup(<AlertDayBanner status={alertDayStatus(new Date("2026-10-23T16:01:00Z"))} />);
     expect(html).toContain('class="alert-day done"');
     expect(html).toContain("Alerts are done for the day.");
-    expect(html).toContain("The session was 6:45–9:00 AM Phoenix.");
+    expect(html).toContain("The session was 6:45–8:15 AM Phoenix.");
   });
 });
 

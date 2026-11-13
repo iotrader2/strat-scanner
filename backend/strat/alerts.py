@@ -3,10 +3,12 @@
 Default (``entry_trigger=1``): a completed 15-minute bar that closes **above** the configurable
 cross EMA (default 6) after the prior bar closed at or below it. The cross candle must also be
 green (close > open) with body at least ``cross_min_body_pct`` percent of its range (default 50;
-0 disables; a zero-range candle fails). Buy = that candle's high + $0.01;
-stop = that candle's low - $0.01. The order does not re-arm. While pending it fills at the buy or
-cancels if price trades the candle low - $0.01; the 12:00 ET cutoff and session end still apply (no
-``watch_bars`` expiry). After the fill, once ``trail_stop_bars`` (3) 15-minute bars have completed after
+0 disables; a zero-range candle fails), and close above the 15-minute ``cross_above_ema`` EMA
+(default 20; 0 disables). Buy = that candle's high + $0.01;
+stop = that candle's low - $0.01; a stop closer than ``min_stop_pct`` (default 0.5%) or wider than
+``max_stop_pct`` is not armed. The order does not re-arm. While pending it fills at the buy or
+cancels if price trades the candle low - $0.01; the trade cutoff (``trade_window_minutes`` after the
+open, default 11:15 ET) and session end still apply (no ``watch_bars`` expiry). After the fill, once ``trail_stop_bars`` (3) 15-minute bars have completed after
 the trigger candle, the stop moves up to the lowest low of those bars - $0.01 (``trail_stop_bars=0``: the
 old break-even after ``breakeven_after_bars``). Each stop move is recorded in ``details["stops"]`` so the
 local order app can replace its stop order.
@@ -58,10 +60,12 @@ TICK = 0.01
 BAR_MINUTES = 15
 BAR = timedelta(minutes=BAR_MINUTES)
 SESSION_BARS = 390 // BAR_MINUTES  # bars in a full regular session
-# Trade window: 09:30-12:00 ET (2.5 hours), year-round. No new alert and no new entry at or after noon ET
-# (10:00 Arizona in winter, 09:00 Arizona in summer). Open trades are still managed to their exit.
+# Trade window: from the 09:30 ET open for ``Settings.trade_window_minutes`` (default 105 = 11:15 ET, year-round:
+# 09:15 Arizona in winter, 08:15 in summer). No new alert on a bar that ends after the cutoff and no new entry
+# on a bar that starts at or after it. Open trades are still managed to their exit.
 TRADE_CUTOFF_TZ = ZoneInfo("America/New_York")
-TRADE_CUTOFF = time(12, 0)
+SESSION_OPEN = time(9, 30)
+TRADE_WINDOW_MINUTES = 105
 MA_PERIODS = (120, 240, 480)
 EMA_LONG = MA_PERIODS[-1]
 ENTRY_MA_TOUCH = 0
@@ -120,6 +124,12 @@ class Settings:
     cross_ema_period: int = 6  # 15-min EMA period for the crossback entry
     # Cross candle strength: green body must be at least this % of (high-low). 0 = off. Default 50.
     cross_min_body_pct: float = 50.0
+    # Cross candle must also close above this 15-minute EMA (a bounce under it is against the intraday trend).
+    # 0 = off. An EMA with no history yet does not block.
+    cross_above_ema: int = 20
+    # No new alert on a bar ending after this many minutes from the 09:30 ET open, and no entry on a bar
+    # starting at or after it. 105 = 11:15 ET (150 = the old 12:00 ET).
+    trade_window_minutes: int = TRADE_WINDOW_MINUTES
     # Cross mode trim ladder, checked at 15:59 ET on the daily chart (each third once, in order):
     # 1/3 at the entry day's check, 1/3 under the daily trim_daily_ema_1, the last 1/3 under trim_daily_ema_2.
     trim_daily_ema_1: int = 6
@@ -143,6 +153,8 @@ class Settings:
     stop_mode: int = 2
     fixed_stop_pct: float = 1.0
     max_stop_pct: float = 1.0  # do not arm an order wider than this (default 1%; +0.05 slack in apply_order)
+    # Do not arm an order whose stop is closer than this percent of the buy (inside 15-minute noise). 0 = off.
+    min_stop_pct: float = 0.5
     # 1 = a long name needs a daily setup that has not broken yet.
     long_pending_only: int = 0
     # 1 = the post-close watchlist reset also removes names you added yourself. 0 = keep those.
@@ -224,6 +236,7 @@ def ema_periods_for(settings: Optional["Settings"] = None) -> tuple[int, ...]:
     s = settings or Settings()
     found = set(MA_PERIODS)
     found.add(int(s.cross_ema_period))
+    found.add(int(s.cross_above_ema))
     return tuple(sorted(p for p in found if p > 0))
 
 
@@ -269,11 +282,12 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "shorts": (0, 1), "max_short_symbols": (0, 1000), "shorts_ma120_enabled": (0, 1),
     "ma_120": (0, 1), "ma_240": (0, 1), "ma_480": (0, 1),
     "entry_trigger": (0, 1), "cross_ema_period": (2, 50), "cross_min_body_pct": (0, 100),
+    "cross_above_ema": (0, 200), "trade_window_minutes": (15, 390),
     "trim_daily_ema_1": (2, 200), "trim_daily_ema_2": (2, 200), "trail_stop_bars": (0, 20),
     "breakeven_after_bars": (1, 50), "inverse_etf_shorts": (0, 1),
     "long_max_ext_vs_d10ema_pct": (0, 100), "long_ext_ema_period": (1, 200),
     "long_ext_waive_at_d4ema": (0, 1),
-    "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10),
+    "stop_mode": (0, 2), "fixed_stop_pct": (0.1, 5), "max_stop_pct": (0.1, 10), "min_stop_pct": (0, 5),
     "long_pending_only": (0, 1), "reset_manual": (0, 1), "alert_manual_watchlist": (0, 1),
     "min_avg_dollar_volume": (10_000_000, 5_000_000_000),
     "atr_pct_min": (0, 12), "atr_pct_max": (0, 12),
@@ -425,27 +439,36 @@ def _r(v: Optional[float]) -> Optional[float]:
     return None if v is None else round(v, 4)
 
 
-def trade_cutoff(ts: datetime) -> datetime:
-    """The 12:00 ET cutoff on the trading day of ``ts`` (a naive ``ts`` is read as UTC)."""
+def trade_cutoff(ts: datetime, settings: Optional["Settings"] = None) -> datetime:
+    """The trade cutoff on the trading day of ``ts``: ``trade_window_minutes`` after the 09:30 ET open
+    (a naive ``ts`` is read as UTC)."""
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
+    minutes = int(settings.trade_window_minutes) if settings is not None else TRADE_WINDOW_MINUTES
     day = ts.astimezone(TRADE_CUTOFF_TZ).date()
-    return datetime.combine(day, TRADE_CUTOFF, tzinfo=TRADE_CUTOFF_TZ)
+    wall = datetime.combine(day, SESSION_OPEN) + timedelta(minutes=minutes)
+    return wall.replace(tzinfo=TRADE_CUTOFF_TZ)
 
 
-def after_cutoff(ts: datetime) -> bool:
+def cutoff_label(settings: Optional["Settings"] = None) -> str:
+    """The cutoff as an ET clock time, e.g. ``11:15``."""
+    minutes = int(settings.trade_window_minutes) if settings is not None else TRADE_WINDOW_MINUTES
+    return (datetime.combine(date(2000, 1, 3), SESSION_OPEN) + timedelta(minutes=minutes)).strftime("%H:%M")
+
+
+def after_cutoff(ts: datetime, settings: Optional["Settings"] = None) -> bool:
     """True when ``ts`` is at or past the trade-window cutoff."""
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
-    return ts >= trade_cutoff(ts)
+    return ts >= trade_cutoff(ts, settings)
 
 
-def _close_window(a: "Alert", bar: Mapping) -> bool:
+def _close_window(a: "Alert", bar: Mapping, settings: Optional["Settings"] = None) -> bool:
     """A waiting alert expires at the cutoff instead of filling on a bar that starts after it."""
-    if a.status != "pending" or not after_cutoff(bar["t"]):
+    if a.status != "pending" or not after_cutoff(bar["t"], settings):
         return False
     a.status = "expired"
-    a.exit_at = trade_cutoff(bar["t"]).astimezone(timezone.utc)
+    a.exit_at = trade_cutoff(bar["t"], settings).astimezone(timezone.utc)
     a.exit_reason = "trade_window"
     return True
 
@@ -731,7 +754,8 @@ def cross_body_ok(bar: Mapping, min_body_pct: float) -> bool:
 def match_cross(f: Frame, i: int, period: int, s: Settings) -> Optional[dict]:
     """Bar ``i`` closes above the ``period`` EMA after the prior close was at or below it (strict).
 
-    Also requires a green candle whose body is at least ``cross_min_body_pct`` of its range (unless 0).
+    Also requires a green candle whose body is at least ``cross_min_body_pct`` of its range (unless 0), and a
+    close above the ``cross_above_ema`` EMA (unless 0, or that EMA has no history yet).
     """
     m, mp = f.ma_at(period, i), f.ma_at(period, i - 1)
     pc = f.close_at(i - 1)
@@ -744,6 +768,11 @@ def match_cross(f: Frame, i: int, period: int, s: Settings) -> Optional[dict]:
         return None
     if not cross_body_ok(b, s.cross_min_body_pct):
         return None
+    above = int(s.cross_above_ema)
+    if above > 0:
+        trend = f.ma_at(above, i)
+        if trend is not None and not (float(b["c"]) > trend):
+            return None
     slope = ((mp - (f.ma_at(period, i - 2) or mp)) / mp * 100) if mp else 0.0
     return {"ma": m, "slope_pct": slope}
 
@@ -770,7 +799,8 @@ def touch(f: Frame, i: int, s: Settings, side: str = "long") -> Optional[tuple[i
 
 
 def apply_order(a: "Alert", high: float, low: float, s: Settings) -> bool:
-    """Point the working order at this candle. False when the stop is past ``max_stop_pct`` or on the wrong side.
+    """Point the working order at this candle. False when the stop is past ``max_stop_pct``, closer than
+    ``min_stop_pct``, or on the wrong side (:func:`stop_too_tight` tells the two size cases apart).
 
     Cross mode always uses this candle's high + 1c / low - 1c. MA-touch uses ``stop_mode``.
     """
@@ -798,7 +828,13 @@ def apply_order(a: "Alert", high: float, low: float, s: Settings) -> bool:
         return False
     a.trigger = trigger
     a.stop = a.current_stop = stop
-    return abs(trigger - stop) / trigger * 100 <= s.max_stop_pct + 0.05
+    pct = abs(trigger - stop) / trigger * 100
+    return pct <= s.max_stop_pct + 0.05 and not pct < float(s.min_stop_pct)
+
+
+def stop_too_tight(a: "Alert", s: Settings) -> bool:
+    """After :func:`apply_order` returned False: True when the stop was closer than ``min_stop_pct``."""
+    return a.trigger > 0 and abs(a.trigger - a.stop) / a.trigger * 100 < float(s.min_stop_pct)
 
 
 def _note_feed(a: "Alert", bar: Mapping) -> None:
@@ -813,7 +849,7 @@ def _rearm(a: "Alert", bar: Mapping, index: int, s: Settings, end: datetime) -> 
     a.setup_bar, a.setup_index = bar["t"], index
     if not apply_order(a, float(bar["h"]), float(bar["l"]), s):
         a.status = "cancelled"
-        a.exit_reason = "stop_too_wide"
+        a.exit_reason = "stop_too_tight" if stop_too_tight(a, s) else "stop_too_wide"
         a.exit_at = end
         return False
     a.details["rearmed"] = a.details.get("rearmed", 0) + 1
@@ -1129,9 +1165,9 @@ def step(a: Alert, bar: Mapping, index: int, f: Frame, s: Settings) -> None:
         _close_trade(a, float(bar["c"]), end, "close_under_ma", "exited")
 
 
-def check_forming(a: Alert, bar: Mapping) -> None:
+def check_forming(a: Alert, bar: Mapping, settings: Optional[Settings] = None) -> None:
     """Forming bar: fill on buy stop, or (cross) cancel if price breaks the setup low - 1c."""
-    if a.status != "pending" or after_cutoff(bar["t"]):
+    if a.status != "pending" or after_cutoff(bar["t"], settings):
         return
     if a.is_cross and not a.short and float(bar["l"]) <= a.stop and float(bar["h"]) < a.trigger:
         a.status = "cancelled"
@@ -1212,7 +1248,7 @@ def advance_stored(
     for i in range(setup_i + 1, len(bars)):
         if a.status not in ACTIVE:
             break
-        if _close_window(a, bars[i]):
+        if _close_window(a, bars[i], s):
             break
         _close_check_before([a], bars[i], ctx, s)
         if a.status not in ACTIVE:
@@ -1222,7 +1258,7 @@ def advance_stored(
     if a.status in ACTIVE and ctx.session_bars and len(bars) >= ctx.session_bars:
         finish_session(a, bars[-1])
     elif forming is not None:
-        check_forming(a, forming)
+        check_forming(a, forming, s)
     return a
 
 
@@ -1257,7 +1293,7 @@ def simulate(
     for i, bar in enumerate(f.bars):
         _close_check_before(alerts, bar, ctx, s)
         for a in alerts:
-            if a.status in ACTIVE and a.setup_index < i and not _close_window(a, bar):
+            if a.status in ACTIVE and a.setup_index < i and not _close_window(a, bar, s):
                 step(a, bar, i, f, s)
         if use_cross:
             period = int(s.cross_ema_period)
@@ -1275,8 +1311,8 @@ def simulate(
         reason = None
         if i + 1 >= ctx.session_bars:
             reason = "last bar of the session"
-        elif bar["t"] + BAR > trade_cutoff(bar["t"]):
-            reason = "after the 12:00 ET trade cutoff"
+        elif bar["t"] + BAR > trade_cutoff(bar["t"], s):
+            reason = "after the %s ET trade cutoff" % cutoff_label(s)
         elif any(a.status in ACTIVE for a in alerts):
             reason = "an alert on this name is still live"
         elif sum(1 for a in alerts if a.filled) >= s.max_attempts:
@@ -1302,7 +1338,7 @@ def simulate(
         )
         if not apply_order(alert, float(bar["h"]), float(bar["l"]), s):
             if skipped is not None:
-                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": "stop wider than the max"})
+                skipped.append({"symbol": symbol, "bar": _iso(bar["t"]), "setup": setup_key, "reason": "stop tighter than the min" if stop_too_tight(alert, s) else "stop wider than the max"})
             continue
         if side == "short" and period == 120 and not s.shorts_ma120_enabled:
             record_skip(
@@ -1345,7 +1381,7 @@ def simulate(
             finish_session(a, f.bars[-1])
     elif forming is not None:
         for a in alerts:
-            check_forming(a, forming)
+            check_forming(a, forming, s)
     return alerts
 
 
