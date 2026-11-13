@@ -117,7 +117,7 @@ function AlertScore({ a }: { a: TradeAlert }) {
     a.score_raw != null && a.score_max_raw != null
       ? { score: a.score, score_raw: a.score_raw, score_max_raw: a.score_max_raw, score_breakdown: a.score_breakdown ?? [] }
       : undefined;
-  return <ScorePill score={a.score} row={row} />;
+  return <ScorePill score={a.score} row={row} title={a.score_at_entry ? "Setup score at entry" : "Score breakdown"} />;
 }
 
 /** RS percentile as a pill, coloured on the same cuts as the score pill. */

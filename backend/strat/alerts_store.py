@@ -132,6 +132,26 @@ def acknowledge(ids: Optional[Iterable[int]] = None, db_path: Optional[Path] = N
         return n
 
 
+# Detail keys written once, when the alert is first saved, and never replaced by a later poll: the setup score is the
+# score the trade was taken with (the scan row behind it keeps changing through the day).
+FROZEN_DETAILS = ("score",)
+
+
+def keep_frozen_details(old: Optional[str], new: Optional[str]) -> Optional[str]:
+    """``new`` details JSON with the frozen keys of ``old`` put back."""
+    try:
+        before = json.loads(old) if old else {}
+        after = json.loads(new) if new else {}
+    except (TypeError, ValueError):
+        return new
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return new
+    kept = {k: before[k] for k in FROZEN_DETAILS if k in before}
+    if not kept or all(after.get(k) == v for k, v in kept.items()):
+        return new
+    return json.dumps({**after, **kept}, sort_keys=True)
+
+
 def save_session(
     session: str,
     alerts: Iterable[Alert],
@@ -184,6 +204,7 @@ def save_session(
                 continue
             if rec["key"] in known:
                 old = known[rec["key"]]
+                rec["details"] = keep_frozen_details(old[OUTCOME.index("details")], rec["details"])
                 if tuple(old[: len(OUTCOME)]) != tuple(rec[c] for c in OUTCOME):
                     conn.execute(
                         f"UPDATE alerts SET {', '.join(c + ' = ?' for c in OUTCOME)}, updated_at = ? WHERE key = ?",

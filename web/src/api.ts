@@ -139,6 +139,10 @@ export interface ScoreComponent {
   /** Internal weighting, e.g. "1M 20%" for relative strength or "52-week high 6 pts" for near highs. */
   sub_weights: string[];
   detail: string;
+  /** Setup score group: tightness, short_rs, setup, theme or long_rs. */
+  group?: string;
+  /** True for the parts only an alert has (intraday RS, stop / ATR, trigger-day volume). */
+  entry?: boolean;
 }
 
 export interface ScanRow {
@@ -618,6 +622,10 @@ export interface TradeAlert {
   score_raw?: number | null;
   score_max_raw?: number | null;
   score_breakdown?: ScoreComponent[];
+  /** True when ``score`` is the setup score frozen on the alert when it fired (scan parts + entry parts). */
+  score_at_entry?: boolean;
+  /** The symbol's scan score right now, for comparison with the score at entry. */
+  scan_score_now?: number | null;
   /** "long" or "short" (from the setup key). */
   side?: "long" | "short";
   /** Last price on the scan. */

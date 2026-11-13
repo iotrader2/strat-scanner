@@ -35,7 +35,7 @@ from .candles import (
 )
 from .data import resample
 from .periods import daily_bar_complete
-from . import legacy_scoring, scoring
+from . import legacy_scoring, scoring, setup_score
 from .leadership import (
     BENCHMARK,
     assess_breakdown,
@@ -112,6 +112,7 @@ def in_progress_high(daily: pd.DataFrame, completed: pd.DataFrame, tf: str, pric
 HIGHER_TFS = ("3M", "6M")  # shown on the index cards, not part of the score
 LEADERS = "leaders"
 LEGACY = "legacy"  # the previous Strat-first score, for the backtest comparison only
+LEADERSHIP = "leadership"  # the leadership-first score for stocks and ETFs too (before the setup score), for the backtest
 ATR_PERIOD = 14
 
 
@@ -208,6 +209,8 @@ def scan_symbol(
     benchmark_close: Optional[pd.Series] = None,
     opening_high: Optional[float] = None,
     opening_low: Optional[float] = None,
+    srs: Optional[setup_score.ShortRS] = None,
+    srs_peers: int = 0,
 ) -> Optional[dict]:
     """Scan one symbol.
 
@@ -216,7 +219,10 @@ def scan_symbol(
 
     ``ranks`` supplies the peer distributions for relative strength and ``qqq`` the QQQ returns; stocks
     also get Theme strength from ``strengths`` (see ``theme_strengths``) for their primary theme in ``themes``.
-    ``method`` is ``"leaders"`` (the leadership-first score) or ``"legacy"`` (the old Strat-first score).
+    ``method`` is ``"leaders"`` (the default: stocks and ETFs get the setup score of :mod:`setup_score`, themes the
+    leadership score), ``"leadership"`` (the leadership score for every kind) or ``"legacy"`` (the old Strat-first score).
+    ``srs`` is the name's 10 / 20-day RS with its universe percentiles (see ``scan_all``); computed here, without
+    percentiles, when not given.
     ``prior`` supplies the peer distributions at earlier sessions (see ``change.prior_ranks``) for the RS change and the
     new breakdown / new leader flags; without it those fields are empty.
     ``benchmark_close`` is QQQ's close, already in the price cache. The RS-line flag is a bool computed on a
@@ -296,12 +302,21 @@ def scan_symbol(
         )
         theme_points = legacy_scoring.theme_strength_points
     else:
-        sc = scoring.score_symbol(
+        lead = scoring.score_symbol(
             states, price, adv, range_pct, kind=member.kind, theme=strength, momentum=momentum,
             theme_name=theme.name if theme else "", trend=trend, excess=excess, trend_break=trend_break,
             tightness=tightness, kill=kill,
         )
-        theme_points = scoring.theme_strength_points
+        sc, theme_points = lead, scoring.theme_strength_points
+        if method == LEADERS and member.kind in ("stock", "etf"):
+            if srs is None:
+                srs = setup_score.short_rs(completed, benchmark_close) if member.symbol != BENCHMARK else None
+            sc = setup_score.score_symbol(
+                states, price, adv, range_pct, kind=member.kind, theme=strength, momentum=momentum,
+                theme_name=theme.name if theme else "", trend=trend, trend_break=trend_break, kill=kill,
+                base=setup_score.base_metrics(completed), srs=srs, peers=srs_peers,
+            )
+            theme_points = setup_score.theme_strength_points
     primary = sc.primary
     rs = momentum.blended if momentum else None
     status = leader_status(rs, trend_break)
@@ -392,6 +407,11 @@ def scan_symbol(
         "score": sc.score,
         "score_raw": sc.raw,
         "score_max_raw": sc.max_raw,
+        # Share of the points kept after the penalties, and the raw inputs: the alert's entry score reuses both.
+        "score_keep": round(getattr(sc, "keep", 1.0), 4),
+        "score_inputs": _plain(getattr(sc, "inputs", None)),
+        # The leadership-first score (themes rank on it; the Leaders view gates on it).
+        "leadership_score": lead.score if method != LEGACY else sc.score,
         "score_breakdown": [
             {
                 "key": c.key,
@@ -401,6 +421,7 @@ def scan_symbol(
                 "weight_pct": c.weight_pct,
                 "sub_weights": c.sub_weights,
                 "detail": c.detail,
+                **({"group": g} if (g := _group_of(c.key)) else {}),
             }
             for c in sc.breakdown
         ],
@@ -436,6 +457,32 @@ def scan_symbol(
     }
 
 
+def _group_of(key: str) -> Optional[str]:
+    return next((g for g, keys in setup_score.GROUPS.items() if key in keys), None)
+
+
+def _plain(value):
+    """JSON-safe copy (no NaN / numpy scalars) of the score inputs."""
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(f, 5) if math.isfinite(f) else None
+
+
+def completed_daily(daily: pd.DataFrame) -> pd.DataFrame:
+    """The daily frame without today's bar while it is still trading."""
+    if daily is None or daily.empty:
+        return daily
+    return daily if daily_bar_complete(pd.Timestamp(daily.index[-1]).date()) else daily.iloc[:-1]
+
+
 @dataclass
 class ScanResult:
     rows: list[dict]  # stocks and ETFs, strongest first
@@ -447,6 +494,7 @@ class ScanResult:
     qqq: dict[str, Optional[float]] = field(default_factory=dict)  # QQQ returns
     method: str = LEADERS
     prior: dict[int, PriorRanks] = field(default_factory=dict)  # peer distributions at earlier sessions
+    short_rs: dict[str, dict] = field(default_factory=dict)  # group -> symbol -> ranked setup_score.ShortRS
 
 
 MIN_THEME_MEMBERS_WITH_DATA = 2
@@ -482,6 +530,16 @@ def scan_all(
     # The same series the cache already holds. Not a copy, and not retained beyond the bool on each row.
     bench_close = bench_daily["close"] if bench_daily is not None and len(bench_daily) else None
 
+    # 10 / 20-day RS vs QQQ on completed bars, ranked within stocks and within ETFs.
+    short = {"stock": {}, "etf": {}}
+    if method == LEADERS and bench_close is not None:
+        bench_done = completed_daily(bench_daily)["close"]
+        for m in members:
+            if m.kind in short and m.symbol in perf_by_group[m.kind] and m.symbol != BENCHMARK:
+                short[m.kind][m.symbol] = setup_score.short_rs(completed_daily(daily_by_symbol[m.symbol]), bench_done)
+    short = setup_score.rank_short_rs(short)
+    short_peers = {g: sum(1 for s in v.values() if s.excess_20d is not None) for g, v in short.items()}
+
     prior: dict[int, PriorRanks] = {}
     if changes:
         groups: dict[str, dict[str, pd.DataFrame]] = {"stock": {}, "etf": {}, "theme": dict(theme_daily)}
@@ -507,11 +565,26 @@ def scan_all(
                 m, daily_by_symbol.get(m.symbol), strengths, ranks, themes, qqq, method, prior, bench_close,
                 opening_high=(opening_ranges or {}).get(m.symbol, (None, None))[0],
                 opening_low=(opening_ranges or {}).get(m.symbol, (None, None))[1],
+                srs=short.get(m.kind, {}).get(m.symbol), srs_peers=short_peers.get(m.kind, 0),
             )
             if row:
                 rows.append(row)
     rows.sort(key=lambda r: r["score"], reverse=True)
-    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes, qqq, method, prior)
+    return ScanResult(rows, theme_rows, theme_daily, strengths, ranks, themes, qqq, method, prior, short)
+
+
+def short_rs_for(
+    member: Member, daily: pd.DataFrame, benchmark: Optional[pd.DataFrame], ranked: Mapping[str, Mapping]
+) -> tuple[Optional[setup_score.ShortRS], int]:
+    """One symbol's 10 / 20-day RS, ranked against the last full scan's distribution (for a single-symbol rescan)."""
+    if member.kind not in ("stock", "etf") or member.symbol == BENCHMARK or benchmark is None or benchmark.empty:
+        return None, 0
+    if daily is None or daily.empty:
+        return None, 0
+    mine = setup_score.short_rs(completed_daily(daily), completed_daily(benchmark)["close"])
+    group = {**(ranked.get(member.kind) or {}), member.symbol: mine}
+    peers = sum(1 for s in group.values() if s.excess_20d is not None)
+    return setup_score.rank_short_rs({member.kind: group})[member.kind][member.symbol], peers
 
 
 def chart_payload(daily: pd.DataFrame, tf: str, limit: int) -> list[dict]:
