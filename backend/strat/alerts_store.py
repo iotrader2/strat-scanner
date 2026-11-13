@@ -52,6 +52,50 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+TRIM_REASON_PREFIX = "trim_ema_"
+
+
+def ladder_trims(alert_id: int, details: Optional[dict]) -> list[dict]:
+    """The thirds-ladder sells taken so far, in order, each with a stable order id for the local order app.
+
+    ``client_order_id`` is ``<alert id>-t<step>`` (the buy uses the bare alert id), so placing the
+    same trim twice is rejected by the broker. ``frac`` is of the original size. ``close_all`` is set
+    when nothing is left after this sell (the third step): sell the whole remaining position rather
+    than a third, so rounding never leaves a share behind. Stop and session-end exits are not trims.
+    """
+    out: list[dict] = []
+    remaining = 1.0
+    for t in (details or {}).get("trims") or []:
+        if not isinstance(t, dict):
+            continue
+        try:
+            frac = float(t.get("frac") or 0)
+        except (TypeError, ValueError):
+            frac = 0.0
+        remaining = max(0.0, remaining - frac)
+        # Fractions are stored to 4 places, so three thirds leave 0.0001: anything under 1% is flat.
+        if remaining < 0.01:
+            remaining = 0.0
+        reason = str(t.get("reason") or "")
+        if not reason.startswith(TRIM_REASON_PREFIX):
+            continue
+        step = len(out) + 1
+        ema = reason[len(TRIM_REASON_PREFIX):]
+        out.append({
+            "step": step,
+            "client_order_id": f"{alert_id}-t{step}",
+            "side": "sell",
+            "frac": round(frac, 4),
+            "remaining_frac": round(remaining, 4),
+            "close_all": remaining == 0.0,
+            "price": t.get("price"),
+            "at": t.get("at"),
+            "reason": reason,
+            "ema": int(ema) if ema.isdigit() else None,
+        })
+    return out
+
+
 def _row(r) -> dict:
     d = dict(zip(COLUMNS, r))
     for k in ("late", "top", "filled", "stop_hit", "acknowledged"):
@@ -60,7 +104,16 @@ def _row(r) -> dict:
         d["details"] = json.loads(d["details"] or "{}")
     except ValueError:
         d["details"] = {}
+    d["trims"] = ladder_trims(d["id"], d["details"])
     return d
+
+
+def _trim_count(details_json: Optional[str]) -> int:
+    try:
+        details = json.loads(details_json or "{}")
+    except ValueError:
+        return 0
+    return len(ladder_trims(0, details if isinstance(details, dict) else {}))
 
 
 def _select(where: str = "", params: tuple = (), order: str = "fired_at DESC, id DESC", limit: Optional[int] = None):
@@ -140,7 +193,9 @@ def save_session(
     """Insert new alerts and update the outcome of known ones (by key) for one session, then mark "top".
 
     An alert that moves from watching (``pending``) to ``triggered`` is marked unread again and
-    returned in ``triggered``, so the page chimes a second time for the entry.
+    returned in ``triggered``, so the page chimes a second time for the entry. Each new thirds-ladder
+    trim does the same and is returned in ``trimmed`` (one entry per new step), so the page chimes
+    and the local order app can place that sell.
 
     A key already in ``alerts_history`` has already fired. It is not inserted again — the local
     order app uses the alert id as ``clientOrderId``, so a new id would be a second order — and a
@@ -149,7 +204,7 @@ def save_session(
     """
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     stamp = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
-    inserted, triggered, updated, removed = [], [], 0, 0
+    inserted, triggered, trimmed, updated, removed = [], [], [], 0, 0
     with _lock, _writing(), userdb.connect(db_path) as conn:
         archived = {
             r[0]
@@ -176,6 +231,7 @@ def save_session(
             ).fetchall()
         }
         status_at = OUTCOME.index("status")
+        details_at = OUTCOME.index("details")
         for a in alerts:
             rec = a.record()
             if rec["key"] in archived:
@@ -191,6 +247,14 @@ def save_session(
                     if old[status_at] == "pending" and rec["filled"]:
                         conn.execute("UPDATE alerts SET acknowledged = 0 WHERE key = ?", (rec["key"],))
                         triggered.append({"id": old[-1], "symbol": a.symbol, "setup": a.setup})
+                    before, after = _trim_count(old[details_at]), _trim_count(rec["details"])
+                    if after > before:
+                        conn.execute("UPDATE alerts SET acknowledged = 0 WHERE key = ?", (rec["key"],))
+                        for step in range(before + 1, after + 1):
+                            trimmed.append({
+                                "id": old[-1], "symbol": a.symbol, "setup": a.setup, "step": step,
+                                "client_order_id": f"{old[-1]}-t{step}",
+                            })
                 continue
             late = (clock - a.fired_at).total_seconds() > LATE_AFTER_SECONDS
             cols = list(rec) + ["detected_at", "late", "top", "acknowledged", "updated_at"]
@@ -212,7 +276,7 @@ def save_session(
             # New alerts for names that are already top get the tag too.
             for sym in sorted(already):
                 conn.execute("UPDATE alerts SET top = 1 WHERE session = ? AND symbol = ? AND top = 0", (session, sym))
-    return {"inserted": inserted, "triggered": triggered, "updated": updated, "removed": removed}
+    return {"inserted": inserted, "triggered": triggered, "trimmed": trimmed, "updated": updated, "removed": removed}
 
 
 def _migrate_max_stop_pct_to_1(conn) -> bool:

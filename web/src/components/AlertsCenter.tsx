@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type AlertsPayload, type TradeAlert } from "../api";
-import { freshAlerts, notificationText, playChime, triggeredAlerts } from "../alerts";
+import { freshAlerts, notificationText, playChime, triggeredAlerts, trimCounts, trimmedAlerts, trimNotificationText } from "../alerts";
 import { usePersisted } from "../persist";
 
 /** Fallback poll when the socket push is missed; the server pushes right after each poll. */
@@ -32,7 +32,8 @@ function notificationSupport(): NotificationPermission | "unsupported" {
 /**
  * App-wide alert watcher, so a new alert chimes and notifies on any tab: fetches today's alerts when the server
  * pushes an "alerts" message (epoch) and once a minute, and plays the chime / shows a notification for new ones:
- * once when a stock touches a rising EMA (watch) and again when it trades over the previous candle's high (trigger).
+ * once when a stock touches a rising EMA (watch), again when it trades over the previous candle's high (trigger),
+ * and once more for each thirds-ladder trim.
  */
 export function AlertsProvider({ epoch, children }: { epoch: number; children: ReactNode }) {
   const [today, setToday] = useState<AlertsPayload | null>(null);
@@ -45,13 +46,15 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
   const seen = useRef<Set<number> | null>(null);
   /** Status of each alert in the previous fetch, so a watch that triggers chimes a second time. */
   const statuses = useRef<Map<number, string> | null>(null);
+  /** Trims taken by each alert in the previous fetch, so each new third chimes. */
+  const trimsSeen = useRef<Map<number, number> | null>(null);
   const request = useRef(0);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
 
-  const announce = useCallback((fresh: TradeAlert[], payload: AlertsPayload) => {
-    if (!fresh.length) return;
-    const ids = fresh.map((a) => a.id);
+  const announce = useCallback((fresh: TradeAlert[], payload: AlertsPayload, trimmed: TradeAlert[] = []) => {
+    if (!fresh.length && !trimmed.length) return;
+    const ids = [...fresh, ...trimmed].map((a) => a.id);
     setFlashing((prev) => new Set([...prev, ...ids]));
     window.setTimeout(() => {
       setFlashing((prev) => {
@@ -74,6 +77,18 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
           // Some browsers only allow notifications from a service worker; the chime and flash still happen.
         }
       }
+      for (const a of trimmed) {
+        const { title, body } = trimNotificationText(a);
+        try {
+          const n = new Notification(title, { body, tag: `alert-${a.id}-trim-${a.trims?.length ?? 0}`, icon: "/apple-touch-icon.png" });
+          n.onclick = () => {
+            window.focus();
+            n.close();
+          };
+        } catch {
+          // As above.
+        }
+      }
     }
   }, []);
 
@@ -88,9 +103,11 @@ export function AlertsProvider({ epoch, children }: { epoch: number; children: R
         const fresh = [...freshAlerts(payload.alerts, seen.current), ...triggeredAlerts(payload.alerts, statuses.current)];
         seen.current = new Set([...(seen.current ?? []), ...payload.alerts.map((a) => a.id)]);
         statuses.current = new Map([...(statuses.current ?? []), ...payload.alerts.map((a) => [a.id, a.status] as [number, string])]);
+        const trimmed = trimmedAlerts(payload.alerts, trimsSeen.current);
+        trimsSeen.current = new Map([...(trimsSeen.current ?? []), ...trimCounts(payload.alerts)]);
         setToday(payload);
         setError(null);
-        announce(fresh, payload);
+        announce(fresh, payload, trimmed);
       })
       .catch((e) => {
         if (id !== request.current) return;

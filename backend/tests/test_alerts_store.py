@@ -514,3 +514,66 @@ def test_first_passes_after_the_open_do_not_ask_for_sip_bars(db):
     stats = alerts_live.refresh(["AAA"], now=now, client=client, settings=Settings(entry_trigger=0, max_stop_pct=5))
     assert stats["alerts"] == 1 and not stats["inserted"][0]["late"]
     alerts_live.clear()
+
+
+FILLED_ROWS = A_ROWS + [(100.2, 101.3, 100.1, 101.2)]
+
+
+def _with_trims(found, steps):
+    """Take the first ``steps`` thirds of the ladder on each filled alert, as the crossback ladder does."""
+    emas = (6, 20, 120)
+    for a in found:
+        for i in range(steps):
+            at = OPEN + timedelta(minutes=45 + 15 * i)
+            alerts._close_trade(a, 102.0 + i, at, f"trim_ema_{emas[i]}", "exited", frac=min(alerts.TRIM_FRAC, a.remaining_frac))
+            a.trims_done = i + 1
+    return found
+
+
+def test_each_new_trim_is_reported_once_and_marks_the_alert_unread(db):
+    now = OPEN + timedelta(minutes=31)
+    alerts_store.save_session("2026-10-23", _alerts("AAA", FILLED_ROWS), now=now)
+    alerts_store.acknowledge()
+    first = alerts_store.save_session("2026-10-23", _with_trims(_alerts("AAA", FILLED_ROWS), 1), now=now + timedelta(minutes=15))
+    row = alerts_store.list_alerts(session="2026-10-23")[0]
+    aid = row["id"]
+    assert first["trimmed"] == [{"id": aid, "symbol": "AAA", "setup": "120", "step": 1, "client_order_id": f"{aid}-t1"}]
+    assert not row["acknowledged"]
+    assert row["trims"][0]["client_order_id"] == f"{aid}-t1" and row["trims"][0]["ema"] == 6
+    assert not row["trims"][0]["close_all"]
+    # Same poll again: nothing new.
+    alerts_store.acknowledge()
+    again = alerts_store.save_session("2026-10-23", _with_trims(_alerts("AAA", FILLED_ROWS), 1), now=now + timedelta(minutes=20))
+    assert again["trimmed"] == []
+    assert alerts_store.list_alerts(session="2026-10-23")[0]["acknowledged"]
+    # One bar takes the last two thirds: two sells, and the last one closes the position.
+    last = alerts_store.save_session("2026-10-23", _with_trims(_alerts("AAA", FILLED_ROWS), 3), now=now + timedelta(minutes=30))
+    assert [t["step"] for t in last["trimmed"]] == [2, 3]
+    trims = alerts_store.list_alerts(session="2026-10-23")[0]["trims"]
+    assert [t["client_order_id"] for t in trims] == [f"{aid}-t1", f"{aid}-t2", f"{aid}-t3"]
+    assert [t["close_all"] for t in trims] == [False, False, True]
+    assert trims[2]["remaining_frac"] == 0
+
+
+def test_stop_and_session_end_exits_are_not_trims():
+    details = {"trims": [
+        {"frac": 0.3333, "price": 10.0, "reason": "trim_ema_6", "at": "2026-10-23T15:00:00Z"},
+        {"frac": 0.6667, "price": 9.5, "reason": "breakeven_stop", "at": "2026-10-23T16:00:00Z"},
+    ]}
+    trims = alerts_store.ladder_trims(7, details)
+    assert [t["client_order_id"] for t in trims] == ["7-t1"]
+    assert alerts_store.ladder_trims(7, {}) == []
+
+
+def test_orders_feed_lists_buys_then_trims(db):
+    from strat import api
+
+    now = OPEN + timedelta(minutes=31)
+    alerts_store.save_session("2026-10-23", _with_trims(_alerts("AAA", FILLED_ROWS), 2), now=now)
+    aid = alerts_store.list_alerts(session="2026-10-23")[0]["id"]
+    out = api.get_alert_orders("2026-10-23")
+    assert out["session"] == "2026-10-23"
+    kinds = [(o["kind"], o["client_order_id"], o["side"]) for o in out["orders"]]
+    assert kinds == [("buy", str(aid), "buy"), ("trim", f"{aid}-t1", "sell"), ("trim", f"{aid}-t2", "sell")]
+    buy = out["orders"][0]
+    assert buy["filled"] and buy["price"] == 100.81 and buy["symbol"] == "AAA"

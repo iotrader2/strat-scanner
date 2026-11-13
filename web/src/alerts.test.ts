@@ -28,6 +28,9 @@ import {
   stopPct,
   todayEmptyLead,
   triggeredAlerts,
+  trimCounts,
+  trimmedAlerts,
+  trimNotificationText,
 } from "./alerts";
 
 export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
@@ -142,6 +145,33 @@ describe("alerts helpers", () => {
     expect(triggeredAlerts([fired], new Map([[1, "triggered"]]))).toEqual([]);
     expect(triggeredAlerts([watching], new Map([[1, "pending"]]))).toEqual([]);
     expect(STATUS_LABEL.pending).toBe("Watch");
+  });
+
+  it("chimes for each new thirds-ladder trim, never on the first load", () => {
+    const trim = (step: number, close_all = false) => ({
+      step,
+      client_order_id: `1-t${step}`,
+      side: "sell" as const,
+      frac: 0.3333,
+      remaining_frac: close_all ? 0 : 1 - step * 0.3333,
+      close_all,
+      price: 104.5,
+      at: "2026-10-23T15:00:00Z",
+      reason: "trim_ema_6",
+      ema: 6,
+    });
+    const one = sample({ id: 1, status: "triggered", filled: true, trims: [trim(1)] });
+    const none = sample({ id: 1, status: "triggered", filled: true, trims: [] });
+    expect(trimmedAlerts([one], null)).toEqual([]);
+    expect(trimmedAlerts([one], trimCounts([none]))).toEqual([one]);
+    expect(trimmedAlerts([one], trimCounts([one]))).toEqual([]);
+    // First seen with a trim already taken (page opened mid-trade): no chime.
+    expect(trimmedAlerts([one], new Map())).toEqual([]);
+    expect(trimNotificationText(one).title).toBe("AAPL trim 1/3 at 104.50");
+    expect(trimNotificationText(one).body).toContain("6 EMA");
+    expect(trimNotificationText(one).body).toContain("2 thirds left");
+    const last = sample({ id: 1, trims: [trim(1), trim(2), trim(3, true)] });
+    expect(trimNotificationText(last).body).toContain("position closed");
   });
 
   it("chimes only for alerts new since the last fetch, never on the first load or for late ones", () => {

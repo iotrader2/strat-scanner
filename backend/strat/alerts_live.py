@@ -476,6 +476,7 @@ def refresh(
         "alerts": len(found),
         "inserted": saved["inserted"],
         "triggered": saved["triggered"],
+        "trimmed": saved["trimmed"],
         "updated": saved["updated"],
         "removed": saved["removed"],
         "requests": client.requests - before,

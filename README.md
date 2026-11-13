@@ -672,6 +672,17 @@ Each alert has two steps, and each chimes / notifies:
    The watch is cancelled on a close more than `hold_pct` under the EMA and expires after `watch_bars` (4)
    candles. The 5-minute poll also checks the candle still forming (IEX, real time), so a trigger shows up
    within a poll; the row turns unread again and the tab chimes a second time.
+3. **Trims.** In the default crossback mode the position is sold in thirds on 15-minute closes back
+   through the 6, then 20, then 120 EMA (`trim_ema_1..3`). Each third chimes, notifies ("AMD trim 1/3 at
+   585.30") and turns the row unread again. Every alert row carries `trims`: one entry per third taken,
+   with `client_order_id` `<alert id>-t1/-t2/-t3` (the buy uses the bare alert id, so the broker rejects a
+   repeat), `frac` of the original size, and `close_all` on the step that leaves nothing (sell everything
+   that remains rather than a third). The socket `alerts` message lists new ones under `trimmed`.
+
+**Local order app feed.** `GET /api/alerts/orders?session=YYYY-MM-DD` (default today) returns that
+session's buys and trims oldest first: one `buy` per alert (`client_order_id` = alert id, `filled`,
+trigger or fill price, stop) and one `sell` per trim. Stop and session-end exits are not listed; the
+app's own stop order covers those.
 
 After the fill the trade is tracked on completed candles: the stop, break-even after 3 new-high candles,
 an exit on a close under the EMA (`exit_close_under_ma`), and the session end. The EMAs are regular-session

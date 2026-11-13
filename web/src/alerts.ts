@@ -384,6 +384,35 @@ export function triggeredAlerts(alerts: TradeAlert[], before: Map<number, string
   return alerts.filter((a) => before.get(a.id) === "pending" && a.filled);
 }
 
+/** Trims taken by each alert, for comparing one fetch with the next. */
+export function trimCounts(alerts: TradeAlert[]): Map<number, number> {
+  return new Map(alerts.map((a) => [a.id, a.trims?.length ?? 0] as [number, number]));
+}
+
+/**
+ * Alerts that took a new thirds-ladder trim since the previous fetch of this page load. `before` is each
+ * alert's trim count then (null on the first fetch, which never chimes). An alert first seen with trims
+ * already taken does not chime either.
+ */
+export function trimmedAlerts(alerts: TradeAlert[], before: Map<number, number> | null): TradeAlert[] {
+  if (before === null) return [];
+  return alerts.filter((a) => {
+    const prev = before.get(a.id);
+    return prev !== undefined && (a.trims?.length ?? 0) > prev;
+  });
+}
+
+export function trimNotificationText(a: TradeAlert): { title: string; body: string } {
+  const t = a.trims?.[a.trims.length - 1];
+  if (!t) return { title: `${a.symbol} trim`, body: "" };
+  const price = t.price === null ? "" : ` at ${t.price.toFixed(2)}`;
+  const what = t.close_all ? "last third, position closed" : `${3 - t.step} third${3 - t.step === 1 ? "" : "s"} left`;
+  return {
+    title: `${a.symbol} trim ${t.step}/3${price}`,
+    body: `Closed under the ${t.ema ?? "?"} EMA (15-min); ${what}. ${phoenixTime(t.at)} Phoenix.`,
+  };
+}
+
 export function notificationText(a: TradeAlert, setupName: string): { title: string; body: string } {
   const name = setupName || SETUP_NAMES[a.setup] || `EMA ${a.setup}`;
   const short = isShortSetup(a.setup);

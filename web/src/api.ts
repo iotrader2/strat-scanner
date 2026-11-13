@@ -558,6 +558,25 @@ export const api = {
 export type AlertSetup = "6" | "120" | "240" | "480" | "s120" | "s240" | "s480";
 export type AlertStatus = "pending" | "triggered" | "stopped" | "breakeven" | "exited" | "expired" | "cancelled";
 
+/** One thirds-ladder sell: a close back through ``ema`` on the 15-minute chart. */
+export interface AlertTrim {
+  /** 1, 2 or 3. */
+  step: number;
+  /** ``<alert id>-t<step>``; the buy uses the bare alert id. */
+  client_order_id: string;
+  side: "sell";
+  /** Fraction of the original position (a third). */
+  frac: number;
+  /** Fraction left after this sell. */
+  remaining_frac: number;
+  /** Nothing is left after this sell: sell the whole remaining position. */
+  close_all: boolean;
+  price: number | null;
+  at: string | null;
+  reason: string;
+  ema: number | null;
+}
+
 /** One setup alert and what happened after it. Times are UTC ISO; the UI shows them in Phoenix time. */
 export interface TradeAlert {
   id: number;
@@ -610,6 +629,8 @@ export interface TradeAlert {
     side_role?: string;
   };
   acknowledged: boolean;
+  /** Thirds-ladder sells taken so far, in order. Stop and session-end exits are not listed. */
+  trims?: AlertTrim[];
   /** Scanner score for this symbol (the Stock Scanner pill). Null when the name is not in the current scan. */
   score: number | null;
   score_raw?: number | null;

@@ -531,8 +531,9 @@ def _refresh_alerts() -> None:
                 log.info("alerts prepared EMA history for %s symbols", stats["prepared"])
             return
         log.info(
-            "alerts symbols=%s alerts=%s new=%s triggered=%s updated=%s removed=%s requests=%s",
+            "alerts symbols=%s alerts=%s new=%s triggered=%s trimmed=%s updated=%s removed=%s requests=%s",
             stats["symbols"], stats["alerts"], len(stats["inserted"]), len(stats.get("triggered", [])),
+            len(stats.get("trimmed", [])),
             stats["updated"], stats.get("removed", 0), stats["requests"],
         )
         if stats["inserted"] or stats["updated"] or stats.get("removed"):
@@ -540,6 +541,8 @@ def _refresh_alerts() -> None:
                 "type": "alerts",
                 "new": [a["id"] for a in stats["inserted"] if not a["late"]],
                 "triggered": [a["id"] for a in stats.get("triggered", [])],
+                # One entry per new thirds-ladder sell: {id, symbol, setup, step, client_order_id}.
+                "trimmed": stats.get("trimmed", []),
             })
     except Exception:
         log.exception("alerts refresh failed")
@@ -1439,6 +1442,49 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
         # One small reading per symbol, not a copy on every alert row.
         "ema5m": _alert_ema5m(symbols),
     }
+
+
+def alert_orders(rows: list[dict]) -> list[dict]:
+    """Buys and thirds-ladder sells for the local order app, oldest first.
+
+    One buy per alert (``client_order_id`` = alert id; ``filled`` says whether the trigger traded) and
+    one sell per trim taken (``client_order_id`` = ``<id>-t<step>``). Stop and session-end exits are
+    not listed: the app's own stop order covers those.
+    """
+    out: list[dict] = []
+    for r in rows:
+        details = r.get("details") or {}
+        base = {
+            "alert_id": r["id"],
+            "symbol": r["symbol"],
+            "setup": r["setup"],
+            "underlying": details.get("underlying"),
+        }
+        out.append({
+            **base,
+            "kind": "buy",
+            "client_order_id": str(r["id"]),
+            "side": "buy",
+            "status": r["status"],
+            "filled": r["filled"],
+            "price": r["fill_price"] if r["filled"] else r["trigger_price"],
+            "stop_price": r["stop_price"],
+            "at": r["fill_at"] or r["fired_at"],
+        })
+        for t in r.get("trims") or []:
+            out.append({**base, "kind": "trim", **t})
+    out.sort(key=lambda o: (o["at"] or "", o["alert_id"], o.get("step") or 0))
+    return out
+
+
+@app.get("/api/alerts/orders")
+def get_alert_orders(session: Optional[str] = None):
+    """Order feed for the local order app: one session's buys and trims (default today), oldest first."""
+    day = _alerts_session(session)
+    rows = [r for r in alerts_store.list_alerts(session=day, limit=None) if _has_daily_setup(r)]
+    if not rows:
+        rows = [r for r in alerts_store.list_history(day, limit=None) if _has_daily_setup(r)]
+    return {"session": day, "orders": alert_orders(rows)}
 
 
 @app.post("/api/alerts/history/clear")
