@@ -28,6 +28,13 @@ import {
   stopPct,
   todayEmptyLead,
   triggeredAlerts,
+  happenedText,
+  stopCounts,
+  stopMovedAlerts,
+  stopNotificationText,
+  trimCounts,
+  trimmedAlerts,
+  trimNotificationText,
 } from "./alerts";
 
 export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
@@ -144,6 +151,52 @@ describe("alerts helpers", () => {
     expect(STATUS_LABEL.pending).toBe("Watch");
   });
 
+  it("chimes for each new thirds-ladder trim, never on the first load", () => {
+    const trim = (step: number, close_all = false) => ({
+      step,
+      client_order_id: `1-t${step}`,
+      side: "sell" as const,
+      frac: 0.3333,
+      remaining_frac: close_all ? 0 : 1 - step * 0.3333,
+      close_all,
+      price: 104.5,
+      at: "2026-10-23T15:00:00Z",
+      reason: step === 1 ? "trim_day_close" : step === 2 ? "trim_daily_ema_6" : "trim_daily_ema_20",
+      ema: step === 1 ? null : step === 2 ? 6 : 20,
+    });
+    const one = sample({ id: 1, status: "triggered", filled: true, trims: [trim(1)] });
+    const none = sample({ id: 1, status: "triggered", filled: true, trims: [] });
+    expect(trimmedAlerts([one], null)).toEqual([]);
+    expect(trimmedAlerts([one], trimCounts([none]))).toEqual([one]);
+    expect(trimmedAlerts([one], trimCounts([one]))).toEqual([]);
+    // First seen with a trim already taken (page opened mid-trade): no chime.
+    expect(trimmedAlerts([one], new Map())).toEqual([]);
+    expect(trimNotificationText(one).title).toBe("AAPL trim 1/3 at 104.50");
+    expect(trimNotificationText(one).body).toContain("Entry-day close");
+    expect(trimNotificationText(one).body).toContain("2 thirds left");
+    const two = sample({ id: 1, status: "triggered", filled: true, trims: [trim(1), trim(2)] });
+    expect(trimNotificationText(two).body).toContain("daily 6 EMA");
+    expect(happenedText(two)).toContain("2/3 sold");
+    expect(happenedText(two)).toContain("holding the rest overnight");
+    const last = sample({ id: 1, trims: [trim(1), trim(2), trim(3, true)] });
+    expect(trimNotificationText(last).body).toContain("position closed");
+  });
+
+  it("chimes for each intraday stop move, never on the first load", () => {
+    const move = {
+      step: 1, client_order_id: "1-s1", side: "sell" as const, stop_price: 105.19, previous_stop: 99.89,
+      at: "2026-10-23T14:45:00Z", reason: "low_of_3_bars",
+    };
+    const moved = sample({ id: 1, status: "triggered", filled: true, stops: [move] });
+    const flat = sample({ id: 1, status: "triggered", filled: true, stops: [] });
+    expect(stopMovedAlerts([moved], null)).toEqual([]);
+    expect(stopMovedAlerts([moved], stopCounts([flat]))).toEqual([moved]);
+    expect(stopMovedAlerts([moved], stopCounts([moved]))).toEqual([]);
+    expect(stopNotificationText(moved).title).toBe("AAPL stop to 105.19");
+    expect(stopNotificationText(moved).body).toContain("Was 99.89");
+    expect(happenedText(moved)).toContain("stop to 105.19");
+  });
+
   it("chimes only for alerts new since the last fetch, never on the first load or for late ones", () => {
     const a = sample({ id: 1 });
     const b = sample({ id: 2 });
@@ -218,7 +271,7 @@ describe("EMA level and settings", () => {
       expect.arrayContaining([
         "max_symbols", "theme_gate", "theme_top_pct", "long_pending_only", "reset_manual", "alert_manual_watchlist", "stop_mode", "fixed_stop_pct", "max_stop_pct",
         "short_hvc", "short_crossback", "short_ma10", "short_ma20", "shorts_ma120_enabled", "inverse_etf_shorts",
-        "entry_trigger", "cross_ema_period", "cross_min_body_pct", "trim_ema_1", "trim_ema_2", "trim_ema_3", "breakeven_after_bars",
+        "entry_trigger", "cross_ema_period", "cross_min_body_pct", "trim_daily_ema_1", "trim_daily_ema_2", "trail_stop_bars", "breakeven_after_bars",
         "ma_120", "ma_240", "ma_480", "long_ext_ema_period", "long_max_ext_vs_d10ema_pct", "long_ext_waive_at_d4ema",
         "touch_tol_pct", "hold_pct", "rising_bars", "watch_bars",
       ]),

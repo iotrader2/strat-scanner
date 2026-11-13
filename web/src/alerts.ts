@@ -1,4 +1,4 @@
-import type { AlertStatus, DailySetupRef, TradeAlert } from "./api";
+import type { AlertStatus, AlertTrim, DailySetupRef, TradeAlert } from "./api";
 
 /** Market times are shown in the user's zone (Arizona, no daylight saving). */
 export const ALERT_TZ = "America/Phoenix";
@@ -255,8 +255,12 @@ export function happenedText(a: TradeAlert): string {
     return "Not triggered in time";
   }
   if (a.status === "cancelled") return `Closed ${short ? "over" : "under"} the ${ema} before triggering`;
-  const parts = [`Filled ${px(a.fill_price)} at ${phoenixTime(a.fill_at)}`];
+  const parts = [`${a.carried ? `Held from ${a.session}: filled` : "Filled"} ${px(a.fill_price)} at ${phoenixTime(a.fill_at)}`];
   if (a.breakeven_at) parts.push(`stop to break-even ${phoenixTime(a.breakeven_at)}`);
+  for (const m of a.stops ?? []) parts.push(`stop to ${px(m.stop_price)} ${phoenixTime(m.at)}`);
+  const trims = a.trims ?? [];
+  const last = trims[trims.length - 1];
+  if (trims.length && !last.close_all) parts.push(`${trims.length}/3 sold, last ${px(last.price)} (${trimReasonText(last)})`);
   if (a.exit_price != null) {
     const why =
       a.exit_reason === "close_under_ma"
@@ -265,8 +269,14 @@ export function happenedText(a: TradeAlert): string {
           ? `close over ${ema}`
           : a.exit_reason === "session_end"
             ? "session end"
-            : "stop";
+            : a.exit_reason?.startsWith("trim_") && last
+              ? `last third, ${trimReasonText(last)}`
+              : a.exit_reason === "trail_stop"
+                ? "trailed stop"
+                : "stop";
     parts.push(`out ${px(a.exit_price)} at ${phoenixTime(a.exit_at)} (${why})`);
+  } else if (a.status === "triggered" && trims.length) {
+    parts.push("holding the rest overnight");
   }
   return parts.join(", ");
 }
@@ -384,6 +394,65 @@ export function triggeredAlerts(alerts: TradeAlert[], before: Map<number, string
   return alerts.filter((a) => before.get(a.id) === "pending" && a.filled);
 }
 
+/** Trims taken by each alert, for comparing one fetch with the next. */
+export function trimCounts(alerts: TradeAlert[]): Map<number, number> {
+  return new Map(alerts.map((a) => [a.id, a.trims?.length ?? 0] as [number, number]));
+}
+
+/**
+ * Alerts that took a new thirds-ladder trim since the previous fetch of this page load. `before` is each
+ * alert's trim count then (null on the first fetch, which never chimes). An alert first seen with trims
+ * already taken does not chime either.
+ */
+export function trimmedAlerts(alerts: TradeAlert[], before: Map<number, number> | null): TradeAlert[] {
+  if (before === null) return [];
+  return alerts.filter((a) => {
+    const prev = before.get(a.id);
+    return prev !== undefined && (a.trims?.length ?? 0) > prev;
+  });
+}
+
+/** Why a third was sold: the entry day's 15:59 check, or the 15:59 price under a daily EMA. */
+export function trimReasonText(t: AlertTrim): string {
+  if (t.reason === "trim_day_close") return "entry-day close";
+  return `under the daily ${t.ema ?? "?"} EMA`;
+}
+
+export function trimNotificationText(a: TradeAlert): { title: string; body: string } {
+  const t = a.trims?.[a.trims.length - 1];
+  if (!t) return { title: `${a.symbol} trim`, body: "" };
+  const price = t.price === null ? "" : ` at ${t.price.toFixed(2)}`;
+  const what = t.close_all ? "last third, position closed" : `${3 - t.step} third${3 - t.step === 1 ? "" : "s"} left`;
+  const why = t.reason === "trim_day_close" ? "Entry-day close (15:59 ET)" : `15:59 ET price under the daily ${t.ema ?? "?"} EMA`;
+  return {
+    title: `${a.symbol} trim ${t.step}/3${price}`,
+    body: `${why}; ${what}. ${phoenixTime(t.at)} Phoenix.`,
+  };
+}
+
+/** Stop moves of each alert, for comparing one fetch with the next. */
+export function stopCounts(alerts: TradeAlert[]): Map<number, number> {
+  return new Map(alerts.map((a) => [a.id, a.stops?.length ?? 0] as [number, number]));
+}
+
+/** Alerts whose stop moved since the previous fetch of this page load (same rules as ``trimmedAlerts``). */
+export function stopMovedAlerts(alerts: TradeAlert[], before: Map<number, number> | null): TradeAlert[] {
+  if (before === null) return [];
+  return alerts.filter((a) => {
+    const prev = before.get(a.id);
+    return prev !== undefined && (a.stops?.length ?? 0) > prev;
+  });
+}
+
+export function stopNotificationText(a: TradeAlert): { title: string; body: string } {
+  const m = a.stops?.[a.stops.length - 1];
+  if (!m) return { title: `${a.symbol} stop moved`, body: "" };
+  return {
+    title: `${a.symbol} stop to ${px(m.stop_price)}`,
+    body: `Was ${px(m.previous_stop)}; low of the 3 bars after the trigger candle, minus 1c. ${phoenixTime(m.at)} Phoenix.`,
+  };
+}
+
 export function notificationText(a: TradeAlert, setupName: string): { title: string; body: string } {
   const name = setupName || SETUP_NAMES[a.setup] || `EMA ${a.setup}`;
   const short = isShortSetup(a.setup);
@@ -473,10 +542,10 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["entry_trigger", "Entry: 1 = 6 EMA crossback (default), 0 = pullback to rising 120/240/480", ""],
       ["cross_ema_period", "Crossback EMA period", ""],
       ["cross_min_body_pct", "Cross candle: green, body ≥", "% of range"],
-      ["trim_ema_1", "Trim 1/3 on close through this EMA (against the position)", ""],
-      ["trim_ema_2", "Trim next 1/3 on close through this EMA", ""],
-      ["trim_ema_3", "Trim last 1/3 on close through this EMA", ""],
-      ["breakeven_after_bars", "Crossback: stop to break-even after", "completed bars after the fill"],
+      ["trail_stop_bars", "Crossback: stop to the lowest low of this many bars after the trigger candle - 1c (0 = break-even rule below)", "bars"],
+      ["breakeven_after_bars", "Crossback with trail off: stop to break-even after", "completed bars after the fill"],
+      ["trim_daily_ema_1", "Daily trims at 15:59 ET: 1/3 on the entry day, next 1/3 under this daily EMA", ""],
+      ["trim_daily_ema_2", "Daily trims: last 1/3 under this daily EMA", ""],
       ["ma_120", "MA-touch mode: 120 EMA, red (1 = on, 0 = off)", ""],
       ["ma_240", "MA-touch mode: 240 EMA, yellow (1 = on, 0 = off)", ""],
       ["ma_480", "MA-touch mode: 480 EMA, blue (1 = on, 0 = off)", ""],

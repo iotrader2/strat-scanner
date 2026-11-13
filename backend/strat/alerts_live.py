@@ -18,6 +18,14 @@ Only 09:30-16:00 ET is used, and nothing runs until the opening 15-minute candle
 outside it the poll does nothing, apart from one run just after the close so the last bar is scored and
 open trades are closed.
 
+Daily trim ladder: crossback positions are held overnight. One pass at 15:59 ET (``close_check_due``)
+takes each held symbol's latest price (the forming bar's close) as the "close" for the daily trim check
+and stores it (``alerts_store.save_close_marks``), so later passes that day reproduce the same trims. A
+symbol with an open position and no mark by the after-close pass is marked from the last bar, ``late``.
+Positions from earlier sessions are walked from a snapshot of their start-of-day state
+(``carry_alert``): stop on today's bars, then the 15:59 check. A name with a carried position does not
+open a new alert.
+
 Completed bars SIP has already published keep SIP prices. Bars newer than the SIP delay are priced from
 Yahoo's consolidated 15-minute chart, and from IEX only when that symbol's Yahoo request fails. The bar
 still forming is judged the same way, so a trigger is not set off an IEX-only high.
@@ -33,8 +41,9 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 from . import alerts_store
 from .alerts import (
-    ACTIVE, BAR, BAR_MINUTES, SESSION_BARS, Alert, Context, Settings,
-    advance_stored, apply_order, context_from_closes, ema_periods_for, known_setup, simulate,
+    ACTIVE, BAR, BAR_MINUTES, CLOSE_CHECK_AT, ENTRY_EMA_CROSS, SESSION_BARS, Alert, Context, Settings,
+    advance_carried, advance_stored, apply_order, carry_alert, context_from_closes, ema_periods_for,
+    known_setup, simulate,
 )
 from .inverse_etfs import map_underlyings_to_etfs
 from .leadership import BENCHMARK
@@ -56,6 +65,8 @@ PREPARE_FROM = time(8, 0)  # premarket polls from here fetch the per-day inputs 
 
 _lock = threading.Lock()
 _profiles: dict[str, dict] = {}  # symbol -> {"day": iso, "tail": {period: [ema...]}, "prev_close": float}
+_daily: dict[str, dict] = {}  # symbol -> {"day": iso, "closes": [finished daily closes before day]}
+DAILY_CALENDAR_DAYS = 200  # ~135 sessions: the daily 20 EMA has settled
 _last_run: dict = {}
 
 
@@ -108,6 +119,30 @@ def ensure_profiles(client: AlpacaClient, symbols: list[str], day: date) -> int:
                 _profiles[sym] = {"day": day.isoformat(), "tail": dict(ctx.ma_tail), "prev_close": ctx.prev_close}
         del sip
     return len(stale)
+
+
+def ensure_daily_closes(client: AlpacaClient, symbols: list[str], day: date) -> dict[str, list[float]]:
+    """Finished daily closes before ``day`` (split-adjusted, regular session) for the daily trim EMAs. Cached per day."""
+    with _lock:
+        for sym in [s for s, p in _daily.items() if p.get("day") != day.isoformat()]:
+            _daily.pop(sym, None)
+        stale = [s for s in symbols if s not in _daily]
+    if stale:
+        open_ = _at(day, OPEN)
+        rows, _ = client.bars(stale, "1Day", open_ - timedelta(days=DAILY_CALENDAR_DAYS), end=open_ - timedelta(seconds=1), feed="sip", adjustment="split")
+        for sym in stale:
+            got = sorted((_ts(b["t"]), float(b["c"])) for b in rows.get(sym, []))
+            closes = [c for t, c in got if t.astimezone(ET).date() < day]
+            with _lock:
+                _daily[sym] = {"day": day.isoformat(), "closes": closes}
+    with _lock:
+        return {s: list((_daily.get(s) or {}).get("closes") or []) for s in symbols}
+
+
+def close_check_due(now: datetime) -> bool:
+    """15:59-16:00 ET on a weekday: take the prices for the daily trim check."""
+    local = now_et(now)
+    return local.weekday() < 5 and CLOSE_CHECK_AT <= local.time() < CLOSE
 
 
 def _minute(ts: datetime) -> datetime:
@@ -201,6 +236,8 @@ def context_for(
     sym: str,
     session_bars: int,
     prior_daily_bars: Optional[Sequence] = None,
+    daily_closes: Optional[Sequence[float]] = None,
+    close_mark: Optional[Mapping] = None,
 ) -> Context:
     with _lock:
         p = dict(_profiles.get(sym) or {})
@@ -209,6 +246,8 @@ def context_for(
         prev_close=p.get("prev_close"),
         session_bars=session_bars,
         prior_daily_bars=tuple(prior_daily_bars or ()),
+        daily_closes=tuple(daily_closes or ()),
+        close_mark=close_mark,
     )
 
 
@@ -395,11 +434,12 @@ def refresh(
         return {"symbols": len(syms), "skipped": True, "inserted": []}
     # A name whose daily setup went away keeps being tracked while its alert is live, but only its
     # existing alert is advanced: it cannot start a new one.
-    live = [
-        r["symbol"] for r in alerts_store.list_alerts(session=day.isoformat())
-        if r["status"] in ACTIVE and known_setup(r["setup"])
-    ]
-    syms = list(dict.fromkeys(syms + live))
+    today_rows = alerts_store.list_alerts(session=day.isoformat(), limit=None)
+    live = [r["symbol"] for r in today_rows if r["status"] in ACTIVE and known_setup(r["setup"])]
+    # Crossback positions from earlier sessions, held overnight for the daily trim ladder.
+    carried = alerts_store.open_carried(day.isoformat())
+    held_over = {r["symbol"] for r in carried}
+    syms = list(dict.fromkeys(syms + live + sorted(held_over)))
     if not syms:
         return {"symbols": 0, "skipped": True, "inserted": []}
     if scan_rows is not None and BENCHMARK not in syms:
@@ -421,6 +461,15 @@ def refresh(
     else:
         yahoo_failed = set()
     session_over = clock >= close_ + BAR
+    # Daily trim check: open crossback positions (today's fills and carried ones) need today's 15:59 price.
+    holding = held_over | {
+        r["symbol"] for r in today_rows
+        if r["status"] == "triggered" and (r.get("details") or {}).get("entry_trigger") == ENTRY_EMA_CROSS
+    }
+    marks = alerts_store.close_marks(day.isoformat()) if holding else {}
+    taking = holding and (close_check_due(clock) or clock >= close_)
+    daily_closes = ensure_daily_closes(client, sorted(holding), day) if taking or marks else {}
+    new_marks: dict[str, dict] = {}
     found: list[Alert] = []
     bars_by: dict[str, list] = {}
     ctx_by: dict[str, Context] = {}
@@ -434,11 +483,25 @@ def refresh(
             log.warning("alerts %s: recent 15m bars priced from IEX after Yahoo failed", sym)
         # Inverse ETFs skip the long extension cap; underlyings are screened before mapping.
         prior = () if sym in inverse_etfs else prior_bars.get(sym)
+        forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock, yahoo_bars.get(sym))
+        mark = marks.get(sym)
+        if mark is None and taking and sym in holding:
+            if clock < close_:
+                # 15:59: the latest price (forming bar's close) stands in for the daily close.
+                last = forming if forming is not None else bars[-1]
+                mark = {"price": round(float(last["c"]), 4), "at": clock.strftime("%Y-%m-%dT%H:%M:%SZ"), "late": False}
+            else:
+                # The 15:59 pass was missed: decide on the last bar, after the close.
+                mark = {"price": round(float(bars[-1]["c"]), 4), "at": close_.strftime("%Y-%m-%dT%H:%M:%SZ"), "late": True}
+            new_marks[sym] = mark
         ctx = context_for(
             sym, len(bars) if session_over else SESSION_BARS, prior_daily_bars=prior,
+            daily_closes=daily_closes.get(sym), close_mark=mark,
         )
-        forming = None if session_over else forming_bar(iex.get(sym, []), day, len(bars), clock, yahoo_bars.get(sym))
         bars_by[sym], ctx_by[sym], forming_by[sym] = bars, ctx, forming
+        if sym in held_over:
+            # One position per name: a carried position blocks a new entry until it is closed.
+            continue
         if sym in picked:
             labels = (daily_setups or {}).get(sym) or {}
             if daily_setups is None or labels.get("long"):
@@ -480,13 +543,32 @@ def refresh(
     )
     # save_session treats a key already in alerts_history as fired. This pass stays inside
     # RUN_UNTIL (16:15), which is after the 16:05 archive, including on a restart warm-up.
+    if new_marks:
+        alerts_store.save_close_marks(day.isoformat(), new_marks)
     saved = alerts_store.save_session(day.isoformat(), found, now=clock, top_names=settings.top_names)
+    # Carried positions: stop on today's bars and today's 15:59 check, saved under their own session.
+    by_session: dict[str, list[Alert]] = {}
+    for row in carried:
+        bars = bars_by.get(row["symbol"])
+        if not bars:
+            continue
+        a = advance_carried(carry_alert(row, day.isoformat()), bars, ctx_by[row["symbol"]], settings)
+        by_session.setdefault(row["session"], []).append(a)
+    for old_session, items in sorted(by_session.items()):
+        more = alerts_store.save_session(old_session, items, now=clock, top_names=0)
+        for k in ("triggered", "trimmed", "stop_moved"):
+            saved[k] = saved[k] + more[k]
+        saved["updated"] += more["updated"]
+        saved["removed"] += more["removed"]
     stats = {
         "symbols": len(syms),
         "prepared": prepared,
         "alerts": len(found),
         "inserted": saved["inserted"],
         "triggered": saved["triggered"],
+        "trimmed": saved["trimmed"],
+        "stop_moved": saved["stop_moved"],
+        "carried": sum(len(v) for v in by_session.values()),
         "updated": saved["updated"],
         "removed": saved["removed"],
         "requests": client.requests - before,
@@ -544,4 +626,5 @@ def last_run() -> dict:
 def clear() -> None:
     with _lock:
         _profiles.clear()
+        _daily.clear()
         _last_run.clear()

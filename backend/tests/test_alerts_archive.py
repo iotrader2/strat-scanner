@@ -54,7 +54,7 @@ def test_archive_is_idempotent_and_keeps_ids(db):
     original = {r["id"]: r for r in live}
 
     moved = alerts_store.archive_if_due(datetime(2026, 10, 23, 20, 5, tzinfo=timezone.utc))  # 16:05 EDT
-    assert moved == {"moved": 2, "dropped": 0, "through": "2026-10-23", "skipped": False}
+    assert moved == {"moved": 2, "dropped": 0, "through": "2026-10-23", "skipped": False, "held": 0}
     assert alerts_store.list_alerts(session="2026-10-23") == []
     history = alerts_store.list_history("2026-10-23")
     assert _ids(history) == _ids(live)
@@ -241,7 +241,7 @@ def test_a_live_duplicate_key_is_dropped_and_history_keeps_the_original(db):
             conn.execute(old_insert, ("2026-10-28T20:06:00Z", "2026-10-28"))
 
     result = alerts_store.archive_alerts(date(2026, 10, 28), now=stamp + timedelta(minutes=1))
-    assert result == {"moved": 0, "dropped": 1, "through": "2026-10-28", "skipped": False}
+    assert result == {"moved": 0, "dropped": 1, "through": "2026-10-28", "skipped": False, "held": 0}
     assert alerts_store.list_alerts() == []
     kept = alerts_store.list_history("2026-10-28")
     assert kept == history

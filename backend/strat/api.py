@@ -8,7 +8,7 @@ import math
 import re
 import threading
 import time
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Literal, Mapping, Optional
 
 import pandas as pd
@@ -22,6 +22,7 @@ from .hub import hub
 from .stage import StageGateMiddleware, configure_logging, mount_ui, use_private_yfinance_cache
 from .provider import live_bars_enabled
 from .scheduler import (
+    ET,
     archive_through,
     decide,
     fetch_period,
@@ -534,8 +535,9 @@ def _refresh_alerts() -> None:
                 log.info("alerts prepared EMA history for %s symbols", stats["prepared"])
             return
         log.info(
-            "alerts symbols=%s alerts=%s new=%s triggered=%s updated=%s removed=%s requests=%s",
+            "alerts symbols=%s alerts=%s new=%s triggered=%s trimmed=%s stop_moved=%s carried=%s updated=%s removed=%s requests=%s",
             stats["symbols"], stats["alerts"], len(stats["inserted"]), len(stats.get("triggered", [])),
+            len(stats.get("trimmed", [])), len(stats.get("stop_moved", [])), stats.get("carried", 0),
             stats["updated"], stats.get("removed", 0), stats["requests"],
         )
         if stats["inserted"] or stats["updated"] or stats.get("removed"):
@@ -543,6 +545,10 @@ def _refresh_alerts() -> None:
                 "type": "alerts",
                 "new": [a["id"] for a in stats["inserted"] if not a["late"]],
                 "triggered": [a["id"] for a in stats.get("triggered", [])],
+                # One entry per new thirds-ladder sell: {id, symbol, setup, step, client_order_id}.
+                "trimmed": stats.get("trimmed", []),
+                # One entry per new intraday stop move: {id, symbol, setup, step, stop_price, client_order_id}.
+                "stop_moved": stats.get("stop_moved", []),
             })
     except Exception:
         log.exception("alerts refresh failed")
@@ -553,6 +559,21 @@ def _run_watch15m() -> None:
         _refresh_watch15m()
     finally:
         _release_job()
+
+
+def _run_close_check() -> None:
+    try:
+        _refresh_alerts()
+    finally:
+        _release_job()
+
+
+def start_close_check() -> bool:
+    """The 15:59 ET alerts pass: today's price for the daily trim ladder (see ``alerts_live``)."""
+    if not _claim_job("alerts_close"):
+        return False
+    threading.Thread(target=_run_close_check, daemon=True).start()
+    return True
 
 
 def start_watch15m() -> bool:
@@ -857,6 +878,8 @@ def _scheduler_loop() -> None:
     # Eastern date whose 16:01 watchlist reset has been stored. In memory only: a restart
     # after 16:01 checks the stored session and runs the reset if that close was missed.
     close_reset_on: date | None = None
+    # Eastern date whose 15:59 daily trim pass has started.
+    close_check_on: date | None = None
     while True:
         time.sleep(scheduler_sleep(now_et(), live_bars_enabled()))
         now = now_et()
@@ -872,6 +895,10 @@ def _scheduler_loop() -> None:
         if session_phase(now) not in ("premarket", "after_hours") and data.clear_index_quotes():
             _publish_index_quotes()
         live = live_bars_enabled()
+        if live and close_check_on != now.date() and alerts_live.close_check_due(now):
+            if start_close_check():
+                close_check_on = now.date()
+            continue
         kind = decide(now, data.newest_bar_date(), last_poll, last_extended, aligned=live, last_lists=last_lists)
         if kind is None and live and State.lists_dirty:
             kind = "lists"
@@ -1482,6 +1509,12 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
     day = _alerts_session(session)
     # Only alerts that came from a daily setup (rows from the older score / laggard rules are left off).
     found = [r for r in alerts_store.list_alerts(session=day, symbol=symbol) if _has_daily_setup(r)]
+    if day == now_et().date().isoformat():
+        # Crossback positions held overnight from earlier sessions, until the daily trims or the stop close them.
+        found += [
+            {**r, "carried": True} for r in alerts_store.list_carried(day)
+            if _has_daily_setup(r) and (symbol is None or r["symbol"] == symbol.upper())
+        ]
     rows, symbols = _decorate_alerts(found)
     return {
         "session": day,
@@ -1496,6 +1529,71 @@ def get_alerts(session: Optional[str] = None, symbol: Optional[str] = None):
         # One small reading per symbol, not a copy on every alert row.
         "ema5m": _alert_ema5m(symbols),
     }
+
+
+def _et_day(iso: Optional[str]) -> Optional[str]:
+    if not iso:
+        return None
+    return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone(ET).date().isoformat()
+
+
+def alert_orders(rows: list[dict], day: Optional[str] = None) -> list[dict]:
+    """Buys, stop moves and thirds-ladder sells for the local order app, oldest first.
+
+    One buy per alert of session ``day`` (``client_order_id`` = alert id; ``filled`` says whether the
+    trigger traded), one ``stop`` per intraday stop move (``client_order_id`` = ``<id>-s<step>``: replace
+    the working stop with ``stop_price``) and one sell per trim (``client_order_id`` = ``<id>-t<step>``).
+    Trims and stop moves are listed on the Eastern day they happened, so a position held overnight
+    shows its later trims on that later day. Stop and session-end exits are not listed: the app's own
+    stop order covers those. ``day=None`` lists everything given.
+    """
+    out: list[dict] = []
+    for r in rows:
+        details = r.get("details") or {}
+        base = {
+            "alert_id": r["id"],
+            "symbol": r["symbol"],
+            "setup": r["setup"],
+            "session": r["session"],
+            "underlying": details.get("underlying"),
+        }
+        if day is None or r["session"] == day:
+            out.append({
+                **base,
+                "kind": "buy",
+                "client_order_id": str(r["id"]),
+                "side": "buy",
+                "status": r["status"],
+                "filled": r["filled"],
+                "price": r["fill_price"] if r["filled"] else r["trigger_price"],
+                "stop_price": r["stop_price"],
+                "at": r["fill_at"] or r["fired_at"],
+            })
+        for m in r.get("stops") or []:
+            if day is None or _et_day(m.get("at")) == day:
+                out.append({**base, "kind": "stop", **m})
+        for t in r.get("trims") or []:
+            if day is None or _et_day(t.get("at")) == day:
+                out.append({**base, "kind": "trim", **t})
+    order = {"buy": 0, "stop": 1, "trim": 2}
+    out.sort(key=lambda o: (o["at"] or "", o["alert_id"], order[o["kind"]], o.get("step") or 0))
+    return out
+
+
+# Positions are held at most this long for the orders feed's look-back into earlier sessions.
+ORDERS_LOOKBACK_DAYS = 120
+
+
+@app.get("/api/alerts/orders")
+def get_alert_orders(session: Optional[str] = None):
+    """Order feed for the local order app: one Eastern day's buys, stop moves and trims (default today), oldest first."""
+    day = _alerts_session(session)
+    since = (date.fromisoformat(day) - timedelta(days=ORDERS_LOOKBACK_DAYS)).isoformat()
+    live = alerts_store.list_alerts(start=since, end=day, limit=None)
+    seen = {r["id"] for r in live}
+    archived = [r for r in alerts_store.list_history(start=since, end=day, limit=None) if r["id"] not in seen]
+    rows = [r for r in live + archived if _has_daily_setup(r)]
+    return {"session": day, "orders": alert_orders(rows, day)}
 
 
 @app.post("/api/alerts/history/clear")
