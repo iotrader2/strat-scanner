@@ -240,9 +240,10 @@ def save_settings(changes: dict, db_path: Optional[Path] = None) -> Settings:
             raise SettingsError(f"{k} must be between {lo:g} and {hi:g}")
         clean[k] = int(num) if isinstance(current[k], int) else num
     merged = {**current, **clean}
-    if not any(merged[f"ma_{p}"] for p in MA_PERIODS):
+    # MA-touch mode needs at least one of 120/240/480 on; cross mode uses cross_ema_period instead.
+    if int(merged.get("entry_trigger", 1)) == 0 and not any(merged[f"ma_{p}"] for p in MA_PERIODS):
         raise SettingsError("Turn on at least one moving average")
-    if int(merged["stop_mode"]) == 2 and float(merged["fixed_stop_pct"]) > float(merged["max_stop_pct"]):
+    if int(merged["stop_mode"]) == 2 and float(merged["fixed_stop_pct"]) > float(merged["max_stop_pct"]) and int(merged.get("entry_trigger", 1)) == 0:
         raise SettingsError("The fixed stop is wider than the max stop, so every order would be skipped")
     if float(merged["atr_pct_min"]) > float(merged["atr_pct_max"]):
         raise SettingsError("ATR % minimum is above the maximum")

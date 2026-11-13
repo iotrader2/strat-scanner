@@ -14,6 +14,7 @@ import {
 import {
   SETTING_GROUPS,
   SETUP_NAMES,
+  isShortAlert,
   SETUP_RULES,
   STATUS_LABEL,
   alertDayStatus,
@@ -339,6 +340,11 @@ export function AlertsTable({
                 <Link className="sym sym-with-logo" to={`/stock/${encodeURIComponent(a.symbol)}`}>
                   <TickerLogo symbol={a.symbol} size={20} />
                   {a.symbol}
+                  {a.details?.underlying && (
+                    <span className="muted small" title="Underlying for this inverse ETF short">
+                      {" "}← {String(a.details.underlying)}
+                    </span>
+                  )}
                   <EarningsIcon earnings={a.earnings} />
                   {a.top && <span className="top-chip">TOP</span>}
                 </Link>
@@ -350,8 +356,8 @@ export function AlertsTable({
                 <RsPill rs={a.rs} />
               </td>
               <td>
-                <span className={`side-chip ${isShortSetup(a.setup) ? "short" : "long"}`}>
-                  {isShortSetup(a.setup) ? "SHORT" : "LONG"}
+                <span className={`side-chip ${isShortAlert(a) ? "short" : "long"}`}>
+                  {isShortAlert(a) ? "SHORT" : "LONG"}
                 </span>
               </td>
               <td className="daily-setup-cell">
@@ -411,7 +417,7 @@ export function AlertsTable({
                     onClick={() => onBought(a)}
                     title="Record the entry and track it on the Positions tab"
                   >
-                    {isShortSetup(a.setup) ? "Shorted →" : "Bought →"}
+                    {isShortAlert(a) ? "Shorted →" : "Bought →"}
                   </button>
                 )}
               </td>
@@ -557,7 +563,7 @@ function AlertsView({ day }: { day: AlertDayStatus }) {
         <EntryModal
           title="Move to Positions"
           symbol={moving.symbol}
-          initial={{ price: entryPrice(moving), shares: null, side: isShortSetup(moving.setup) ? "short" : "long" }}
+          initial={{ price: entryPrice(moving), shares: null, side: isShortAlert(moving) ? "short" : "long" }}
           lastPrice={entryPrice(moving)}
           submitLabel="Move to Positions"
           onSubmit={(v) => open(moving.symbol, v)}

@@ -40,6 +40,7 @@ export const BAR_MINUTES = 15;
 export const ALERT_EMAS = ["120", "240", "480"] as const;
 
 export const SETUP_NAMES: Record<string, string> = {
+  "6": "15-min 6 EMA crossback",
   "120": "Pullback to rising 120 EMA",
   "240": "Pullback to rising 240 EMA",
   "480": "Pullback to rising 480 EMA",
@@ -57,13 +58,23 @@ export function dailySetupText(setups: ReadonlyArray<string | Partial<DailySetup
     .join(", ");
 }
 
-/** Short-side alert ("s120" / "s240" / "s480"): sell stop under the candle low, stop above the rally high. */
+/** Legacy short setup key ("s120" / "s240" / "s480"). */
 export const isShortSetup = (setup: string): boolean => setup.startsWith("s");
+/** Inverse-ETF short proxy: a long on the mapped ETF tagged with an underlying. */
+export const isInverseShortAlert = (a: { details?: { inverse_etf?: boolean; side_role?: string } | null }): boolean =>
+  Boolean(a.details?.inverse_etf || a.details?.side_role === "short");
+/** Short chip: legacy s* setup or inverse-ETF tagged alert. */
+export const isShortAlert = (a: { setup: string; details?: { inverse_etf?: boolean; side_role?: string } | null }): boolean =>
+  isShortSetup(a.setup) || isInverseShortAlert(a);
 /** The EMA period of a long or short setup key. */
 export const setupPeriod = (setup: string): string => setup.replace(/^s/, "");
 
 /** One-line rule, shown on hover over the setup column. */
 export const SETUP_RULES: Record<string, string> = Object.fromEntries([
+  [
+    "6",
+    "A completed 15-minute bar closes above the 6 EMA after the prior close was at or below it. Buy the high + 1c; stop at the low - 1c. No re-arm. Trim in thirds on closes back through the 6 / 20 / 120 EMAs.",
+  ],
   ...ALERT_EMAS.map((p) => [
     p,
     `A name with a long daily setup pulls back from above to the rising ${p} EMA on the 15-minute chart and holds it. Watch; the trigger is the previous 15-minute candle's high + 1c. The stop follows the stop rule (lowest low, this candle, or a fixed percent).`,
@@ -438,16 +449,17 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     ],
   },
   {
-    title: "Short side",
+    title: "Short side (inverse ETFs)",
     items: [
-      ["shorts", "Alert short daily setups too: rallies into a falling EMA (1 = on, 0 = off)", ""],
+      ["shorts", "Alert short daily setups via mapped inverse ETFs (1 = on, 0 = off)", ""],
+      ["inverse_etf_shorts", "Use inverse ETF longs for shorts (1 = on, 0 = off)", ""],
       ["max_short_symbols", "Check at most (weakest RS first)", "names"],
-      ["shorts_ma120_enabled", "Short entries on the 120 EMA / s120 (1 = on, 0 = off). Off by default; 240 and 480 shorts are unchanged", ""],
+      ["shorts_ma120_enabled", "Legacy: short entries on the 120 EMA / s120 (1 = on, 0 = off). Unused when inverse ETFs are on", ""],
+      ["short_crossback", "EMA Crossback Short (1 = on, 0 = off). Default on; drives inverse ETF alerts", ""],
       ["short_ma10", "MA Overcut and Fail, 10-day (1 = on, 0 = off)", ""],
       ["short_ma20", "MA Overcut and Fail, 20-day (1 = on, 0 = off)", ""],
       ["short_ma50", "MA Overcut and Fail, 50-day (1 = on, 0 = off)", ""],
       ["short_hvc", "Delayed HVC Short (1 = on, 0 = off)", ""],
-      ["short_crossback", "EMA Crossback Short (1 = on, 0 = off)", ""],
       ["short_overcut", "Overcut and Fail (1 = on, 0 = off)", ""],
       ["short_wedge", "Wedge Drop (1 = on, 0 = off)", ""],
       ["short_flat", "Flat Base Breakdown (1 = on, 0 = off)", ""],
@@ -456,23 +468,29 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
     ],
   },
   {
-    title: "Pullback to a rising EMA (15-minute chart)",
+    title: "Entry trigger (15-minute chart)",
     items: [
-      ["ma_120", "120 EMA, red (1 = on, 0 = off)", ""],
-      ["ma_240", "240 EMA, yellow (1 = on, 0 = off)", ""],
-      ["ma_480", "480 EMA, blue (1 = on, 0 = off)", ""],
+      ["entry_trigger", "Entry: 1 = 6 EMA crossback (default), 0 = pullback to rising 120/240/480", ""],
+      ["cross_ema_period", "Crossback EMA period", ""],
+      ["trim_ema_1", "Trim 1/3 on close through this EMA (against the position)", ""],
+      ["trim_ema_2", "Trim next 1/3 on close through this EMA", ""],
+      ["trim_ema_3", "Trim last 1/3 on close through this EMA", ""],
+      ["breakeven_after_bars", "Crossback: stop to break-even after", "completed bars after the fill"],
+      ["ma_120", "MA-touch mode: 120 EMA, red (1 = on, 0 = off)", ""],
+      ["ma_240", "MA-touch mode: 240 EMA, yellow (1 = on, 0 = off)", ""],
+      ["ma_480", "MA-touch mode: 480 EMA, blue (1 = on, 0 = off)", ""],
       ["long_ext_ema_period", "Long extension cap: prior-day daily EMA period", ""],
       ["long_max_ext_vs_d10ema_pct", "Skip a long when the buy is more than this % above that prior-day EMA (0 = off)", "%"],
       ["long_ext_waive_at_d4ema", "Keep a long over the cap when the buy is at or under the prior-day daily 4 EMA (1 = on, 0 = off)", ""],
-      ["touch_tol_pct", "Touch: low within", "% over the EMA"],
+      ["touch_tol_pct", "MA-touch: low within", "% over the EMA"],
       ["hold_pct", "Lost the EMA: a close more than", "% under it"],
-      ["rising_bars", "Rising: higher than", "candles earlier"],
+      ["rising_bars", "MA-touch rising: higher than", "candles earlier"],
     ],
   },
   {
     title: "Stop",
     items: [
-      ["stop_mode", "Stop mode: 0 = lowest low since the touch, 1 = this 15-minute candle only, 2 = fixed percent", ""],
+      ["stop_mode", "MA-touch stop: 0 = lowest low since the touch, 1 = this candle only, 2 = fixed percent (crossback always uses the candle)", ""],
       ["fixed_stop_pct", "Fixed stop", "% of the buy (shorts: of the sell)"],
       ["max_stop_pct", "Skip an order whose stop is wider than", "%"],
     ],
@@ -480,10 +498,10 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
   {
     title: "Trigger and tracking",
     items: [
-      ["watch_bars", "Watch for a trigger for", "15-min candles after the touch"],
+      ["watch_bars", "MA-touch: watch for a trigger for", "15-min candles after the touch"],
       ["max_attempts", "Triggered attempts per name per day", ""],
-      ["breakeven_after_new_highs", "Stop to break-even after", "new-high candles"],
-      ["exit_close_under_ma", "Exit on a close under the EMA (1 = on, 0 = off)", ""],
+      ["breakeven_after_new_highs", "MA-touch: stop to break-even after", "new-high candles"],
+      ["exit_close_under_ma", "MA-touch: exit on a close under the EMA (1 = on, 0 = off)", ""],
       ["top_names", "Top names per day", ""],
     ],
   },
