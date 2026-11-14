@@ -386,7 +386,8 @@ def render(results: Mapping[str, Sequence[Mapping]], sessions: Sequence[date], s
         "",
         _table(["Days"] + [h for h, _, _ in STAT_COLS],
                [_stat_row(k[3:], s) for k, s in _group(
-                   base, lambda r: None if _hold_days(r) is None else _bucket(_hold_days(r), (1, 2, 4, 8), " days"))]),
+                   base, lambda r: None if _hold_days(r) is None else "0: same day" if _hold_days(r) == 0
+                   else _bucket(_hold_days(r), (2, 4, 8), " calendar days"))]),
         "",
         "## By side",
         "",
@@ -415,7 +416,8 @@ def render(results: Mapping[str, Sequence[Mapping]], sessions: Sequence[date], s
             [[f"{i + 1}{' (lowest)' if i == 0 else ' (highest)' if i == 4 else ''}",
               f"{_score(g[0]):.0f} to {_score(g[-1]):.0f}"] + _stat_row("", stats(g))[1:] for i, g in enumerate(q) if g],
         ))
-        rho = pd.Series([_score(r) for r in scored]).corr(pd.Series([float(r["r_multiple"]) for r in scored]), method="spearman")
+        # Spearman as Pearson of the ranks (pandas' own "spearman" needs scipy).
+        rho = pd.Series([_score(r) for r in scored]).rank().corr(pd.Series([float(r["r_multiple"]) for r in scored]).rank())
         out += ["", f"Spearman rank correlation of score with R: {rho:+.3f} over {len(scored)} trades."]
     else:
         out.append("Too few scored trades.")
