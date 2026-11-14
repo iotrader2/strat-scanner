@@ -72,35 +72,35 @@ export const sample = (over: Partial<TradeAlert> = {}): TradeAlert => ({
 describe("alert day", () => {
   const at = (iso: string, settings?: Record<string, number>) => alertDayStatus(new Date(iso), settings);
 
-  it("runs from the first 15-minute close to the 11:15 ET cutoff, in Phoenix time all year", () => {
+  it("runs from the first 15-minute close to the 10:45 ET cutoff, in Phoenix time all year", () => {
     const summer = at("2026-10-23T13:00:00Z");
     expect(summer.phase).toBe("before");
     expect(summer.headline).toBe("Alerts start at 6:45 AM Phoenix.");
-    expect(summer.detail).toBe("Session 6:45–8:15 AM Phoenix.");
+    expect(summer.detail).toBe("Session 6:45–7:45 AM Phoenix.");
     expect(summer.windows.map((w) => w.setup)).toEqual(["120", "240", "480"]);
     expect(summer.windows.every((w) => w.state === "later")).toBe(true);
 
     const winter = at("2026-11-02T14:00:00Z");
     expect(winter.headline).toBe("Alerts start at 7:45 AM Phoenix.");
-    expect(winter.detail).toBe("Session 7:45–9:15 AM Phoenix.");
+    expect(winter.detail).toBe("Session 7:45–8:45 AM Phoenix.");
     expect(at("2026-11-02T14:00:00Z", { trade_window_minutes: 150 }).detail).toBe("Session 7:45–10:00 AM Phoenix.");
   });
 
   it("is open during the session and done after it", () => {
-    const mid = at("2026-10-23T15:00:00Z");
+    const mid = at("2026-10-23T14:30:00Z");
     expect(mid.phase).toBe("open");
-    expect(mid.headline).toBe("Watching for pullbacks until 8:15 AM Phoenix.");
+    expect(mid.headline).toBe("Watching for pullbacks until 7:45 AM Phoenix.");
     expect(mid.windows.every((w) => w.state === "open")).toBe(true);
-    const done = at("2026-10-23T16:01:00Z"); // past the 11:15 EDT cutoff
+    const done = at("2026-10-23T16:01:00Z"); // past the 10:45 EDT cutoff
     expect(done.phase).toBe("done");
-    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The session was 6:45–8:15 AM Phoenix.");
+    expect(todayEmptyLead(done)).toBe("Alerts are done for the day. The session was 6:45–7:45 AM Phoenix.");
     expect(todayEmptyLead(mid)).toBeNull();
   });
 
   it("names the next session on a weekend", () => {
     const sat = at("2026-10-24T15:00:00Z");
     expect(sat.phase).toBe("closed");
-    expect(sat.detail).toBe("Next session is Monday, 6:45–8:15 AM Phoenix.");
+    expect(sat.detail).toBe("Next session is Monday, 6:45–7:45 AM Phoenix.");
   });
 
   it("shows a turned-off EMA as off, and all off as alerts off", () => {
@@ -161,7 +161,7 @@ describe("alerts helpers", () => {
       remaining_frac: close_all ? 0 : 1 - step * 0.3333,
       close_all,
       price: 104.5,
-      at: "2026-10-23T15:00:00Z",
+      at: "2026-10-23T14:30:00Z",
       reason: step === 1 ? "trim_day_close" : step === 2 ? "trim_daily_ema_6" : "trim_daily_ema_20",
       ema: step === 1 ? null : step === 2 ? 6 : 20,
     });
@@ -404,7 +404,7 @@ describe("alert filters", () => {
 
 describe("alert table sort", () => {
   const rows = [
-    sample({ id: 1, symbol: "MU", r_multiple: null, open_r: 0.5, score: 40, fired_at: "2026-10-23T15:00:00Z" }),
+    sample({ id: 1, symbol: "MU", r_multiple: null, open_r: 0.5, score: 40, fired_at: "2026-10-23T14:30:00Z" }),
     sample({ id: 2, symbol: "AAPL", r_multiple: 2, open_r: null, score: 90, fired_at: "2026-10-23T14:00:00Z" }),
     sample({ id: 3, symbol: "ZZZ", r_multiple: -1, open_r: null, score: null, fired_at: "2026-10-23T16:00:00Z" }),
   ];

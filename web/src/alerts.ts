@@ -142,8 +142,8 @@ function shiftDate(year: number, month: number, day: number, days: number): { ye
   return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
 }
 
-/** Default minutes from the 9:30 ET open to the trade cutoff (11:15 ET); the `trade_window_minutes` setting overrides it. */
-export const TRADE_WINDOW_MINUTES = 105;
+/** Default minutes from the 9:30 ET open to the trade cutoff (10:45 ET); the `trade_window_minutes` setting overrides it. */
+export const TRADE_WINDOW_MINUTES = 75;
 
 function phoenixClock(date: Date): Clock {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: ALERT_TZ, hour: "numeric", minute: "2-digit" }).formatToParts(date);
@@ -164,7 +164,7 @@ function rangeLabel(start: Date, end: Date): string {
 /**
  * Whether alerts are running, and which EMAs are watched, in Phoenix time.
  * Alerts run from the close of the opening 15-minute candle (9:45 New York) to the trade cutoff, `trade_window_minutes`
- * after the open (default 11:15 New York; the backend trade window: no new alert or entry after it).
+ * after the open (default 10:45 New York; the backend trade window: no new alert or entry after it).
  * `now` defaults to the current instant. Weekends use the next session's clock times.
  */
 export function alertDayStatus(now: Date = new Date(), settings?: Record<string, number>): AlertDayStatus {
@@ -543,7 +543,7 @@ export const SETTING_GROUPS: { title: string; items: [key: string, label: string
       ["cross_ema_period", "Crossback EMA period", ""],
       ["cross_min_body_pct", "Cross candle: green, body ≥", "% of range"],
       ["cross_above_ema", "Cross candle must close above this 15-minute EMA (default 20, 0 = off)", ""],
-      ["trade_window_minutes", "No new alert or entry after this many minutes from the 9:30 ET open (105 = 11:15 ET, 150 = noon)", "minutes"],
+      ["trade_window_minutes", "No new alert or entry after this many minutes from the 9:30 ET open (75 = 10:45 ET, 150 = noon)", "minutes"],
       ["trail_stop_bars", "Crossback: stop to the lowest low of this many bars after the trigger candle - 1c (0 = break-even rule below)", "bars"],
       ["breakeven_after_bars", "Crossback with trail off: stop to break-even after", "completed bars after the fill"],
       ["trim_daily_ema_1", "Daily trims at 15:59 ET: 1/3 on the entry day, next 1/3 under this daily EMA", ""],
