@@ -164,8 +164,11 @@ def _context(sym: str, day: str, bars15: Mapping[str, Mapping[str, list]], scan:
 
 
 def run(sessions: Sequence[date], scans: Mapping[str, Mapping], bars15: Mapping[str, Mapping[str, list]],
-        settings: Settings) -> list[dict]:
-    """Every alert over ``sessions`` as a record row, with carried positions walked to their exit."""
+        settings: Settings, flat_at_close: bool = False) -> list[dict]:
+    """Every alert over ``sessions`` as a record row, with carried positions walked to their exit.
+
+    ``flat_at_close`` sells whatever is still held at the entry day's last bar close instead of
+    carrying it overnight for the daily trim ladder."""
     done: list[dict] = []
     open_rows: dict[str, dict] = {}  # symbol -> stored row of the open position
     last_price: dict[str, float] = {}
@@ -212,7 +215,14 @@ def run(sessions: Sequence[date], scans: Mapping[str, Mapping], bars15: Mapping[
                 alerts_live.attach_entry_score(a, bars, qqq, scan["rows"].get(sym))
                 rec = _row(a)
                 rec["scan_score"] = (scan["rows"].get(sym) or {}).get("score")
-                if a.status == "triggered":
+                if a.status == "triggered" and flat_at_close:
+                    close = float(bars[-1]["c"])
+                    rec.update({
+                        "r_multiple": rules.open_r(rec, close), "status": "exited", "exit_price": close,
+                        "exit_reason": "day_close", "exit_at": (_ts(bars[-1]["t"]) + timedelta(minutes=15)).isoformat(),
+                    })
+                    done.append(rec)
+                elif a.status == "triggered":
                     open_rows[sym] = rec
                     last_price[sym] = float(bars[-1]["c"])
                 else:
