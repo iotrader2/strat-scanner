@@ -8,3 +8,6 @@ backend/data/cache.sqlite3*
 .DS_Store
 *.tsbuildinfo
 backend/data/logos/
+# Alert backtest working files (python -m strat.alerts_backtest): data caches and the raw console copy
+backtest/*.pkl
+backtest_stdout.md
