@@ -1,0 +1,124 @@
+session,symbol,fired_at,status,filled,trigger,stop,stop_pct,fill_at,exit_at,exit_price,exit_reason,r,score,open_at_end,inverse_etf,daily_setups
+2026-08-14,FDS,2026-08-14T15:00:00Z,stopped,1,282.89,280.44,0.866,2026-08-14T15:00:00Z,2026-08-14T16:15:00Z,282.43,trail_stop,-0.188,63.3,False,False,EMA Crossback
+2026-08-14,VRSK,2026-08-14T15:00:00Z,exited,1,182.68,181.67,0.553,2026-08-14T15:00:00Z,2026-08-14T16:15:00Z,182.76,trail_stop,0.079,20.6,False,False,Moving Average Undercut and Rally (50-day)
+2026-08-14,ADBE,2026-08-14T15:15:00Z,expired,0,263.73,262.41,0.501,,2026-08-14T15:15:00Z,,trade_window,,65.7,False,False,EMA Crossback
+2026-08-14,ADSK,2026-08-14T15:15:00Z,expired,0,252.74,251.39,0.534,,2026-08-14T15:15:00Z,,trade_window,,62.9,False,False,EMA Crossback
+2026-08-14,BRO,2026-08-14T15:15:00Z,expired,0,71.0,70.63,0.521,,2026-08-14T15:15:00Z,,trade_window,,61.3,False,False,EMA Crossback
+2026-08-17,HWM,2026-08-17T14:30:00Z,stopped,1,289.73,288.23,0.518,2026-08-17T14:45:00Z,2026-08-17T15:15:00Z,288.23,stop,-1.0,61.8,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-08-18,ADSK,2026-08-18T13:45:00Z,stopped,1,247.54,244.99,1.03,2026-08-18T13:45:00Z,2026-08-18T20:00:00Z,247.405,trail_stop,-0.214,53.5,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-08-18,CHKP,2026-08-18T15:00:00Z,exited,1,129.5,128.81,0.533,2026-08-18T15:00:00Z,2026-08-19T14:15:00Z,129.64,trail_stop,0.527,22.3,False,False,Moving Average Undercut and Rally (10-day)
+2026-08-18,NOW,2026-08-18T15:00:00Z,stopped,1,120.4,119.48,0.764,2026-08-18T15:00:00Z,2026-08-18T20:00:00Z,119.53,trail_stop,-0.989,56.5,False,False,EMA Crossback
+2026-08-20,BAX,2026-08-20T14:00:00Z,cancelled,0,26.79,26.54,0.933,,2026-08-20T14:15:00Z,,broke_setup_low,,64.5,False,False,EMA Crossback
+2026-08-20,IP,2026-08-20T14:00:00Z,cancelled,0,41.14,40.84,0.729,,2026-08-20T14:15:00Z,,broke_setup_low,,56.9,False,False,Moving Average Undercut and Rally (20-day)
+2026-08-20,IP,2026-08-20T15:00:00Z,stopped,1,41.11,40.76,0.851,2026-08-20T15:00:00Z,2026-08-20T16:00:00Z,40.76,stop,-1.0,55.7,False,False,Moving Average Undercut and Rally (20-day)
+2026-08-20,TECK,2026-08-20T15:00:00Z,stopped,1,65.69,65.16,0.807,2026-08-20T15:00:00Z,2026-08-20T18:30:00Z,65.54,trail_stop,-0.283,66.3,False,False,EMA Crossback
+2026-08-20,BAX,2026-08-20T15:15:00Z,expired,0,26.51,26.29,0.83,,2026-08-20T15:15:00Z,,trade_window,,65.4,False,False,EMA Crossback
+2026-08-21,ANET,2026-08-21T14:45:00Z,stopped,1,186.13,184.82,0.704,2026-08-21T14:45:00Z,2026-08-21T15:00:00Z,184.82,stop,-1.0,56.9,False,False,Moving Average Undercut and Rally (20-day)
+2026-08-24,IDXX,2026-08-24T14:30:00Z,cancelled,0,558.19,555.18,0.539,,2026-08-24T14:45:00Z,,broke_setup_low,,24.1,False,False,Moving Average Undercut and Rally (20-day)
+2026-08-24,FIS,2026-08-24T14:45:00Z,stopped,1,41.91,41.52,0.931,2026-08-24T14:45:00Z,2026-08-24T16:00:00Z,41.725,trail_stop,-0.474,22.0,False,False,Moving Average Undercut and Rally (50-day)
+2026-08-26,ARES,2026-08-26T14:30:00Z,stopped,1,143.54,142.4,0.794,2026-08-26T14:30:00Z,2026-08-26T17:00:00Z,142.96,trail_stop,-0.509,65.7,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-08-26,DDOG,2026-08-26T14:45:00Z,exited,1,229.03,227.69,0.585,2026-08-26T14:45:00Z,2026-08-26T17:00:00Z,229.135,trail_stop,0.078,28.5,False,False,Undercut and Rally
+2026-08-26,HUBS,2026-08-26T15:00:00Z,cancelled,0,236.55,234.61,0.82,,2026-08-26T15:15:00Z,,broke_setup_low,,59.3,False,False,EMA Crossback
+2026-08-28,FIS,2026-08-28T14:00:00Z,exited,1,40.99,40.57,1.025,2026-08-28T14:00:00Z,2026-08-31T13:45:00Z,41.07,trail_stop,0.492,16.2,False,False,Wedge Pop; Moving Average Undercut and Rally (50-day)
+2026-08-28,INTU,2026-08-28T14:30:00Z,stopped,1,351.35,348.34,0.857,2026-08-28T14:30:00Z,2026-09-01T13:45:00Z,350.04,trail_stop,0.453,26.6,False,False,Moving Average Undercut and Rally (10-day)
+2026-08-28,ARES,2026-08-28T14:45:00Z,stopped,1,143.21,141.91,0.908,2026-08-28T14:45:00Z,2026-08-28T16:00:00Z,142.865,trail_stop,-0.265,58.4,False,False,EMA Crossback
+2026-08-31,APO,2026-08-31T13:45:00Z,stopped,1,135.68,134.34,0.988,2026-08-31T13:45:00Z,2026-09-01T13:45:00Z,133.93,trail_stop,-0.629,64.5,False,False,EMA Crossback
+2026-08-31,ARES,2026-08-31T15:00:00Z,stopped,1,143.25,141.95,0.908,2026-08-31T15:00:00Z,2026-08-31T15:15:00Z,141.95,stop,-1.0,67.7,False,False,EMA Crossback
+2026-09-01,CRL,2026-09-01T14:15:00Z,stopped,1,288.97,286.52,0.848,2026-09-01T14:15:00Z,2026-09-01T15:00:00Z,286.52,stop,-1.0,61.5,False,False,High Tight Flag; EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-01,EFX,2026-09-01T14:30:00Z,stopped,1,189.92,188.15,0.932,2026-09-01T14:30:00Z,2026-09-01T15:00:00Z,188.15,stop,-1.0,58.4,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-01,JKHY,2026-09-01T14:30:00Z,stopped,1,168.79,167.84,0.563,2026-09-01T14:30:00Z,2026-09-01T15:00:00Z,167.84,stop,-1.0,65.1,False,False,EMA Crossback
+2026-09-02,ILMN,2026-09-02T14:45:00Z,cancelled,0,211.49,209.98,0.714,,2026-09-02T15:00:00Z,,broke_setup_low,,54.6,False,False,EMA Crossback
+2026-09-02,JKHY,2026-09-02T14:45:00Z,stopped,1,168.06,166.76,0.774,2026-09-02T14:45:00Z,2026-09-02T16:00:00Z,167.51,trail_stop,-0.423,58.5,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-03,CRL,2026-09-03T15:00:00Z,cancelled,0,290.82,289.26,0.536,,2026-09-03T15:15:00Z,,broke_setup_low,,61.9,False,False,High Tight Flag; EMA Crossback; Moving Average Undercut and Rally (20-day)
+2026-09-03,SMCI,2026-09-03T15:00:00Z,stopped,1,36.73,36.35,1.035,2026-09-03T15:00:00Z,2026-09-14T13:45:00Z,36.665,trail_stop,1.522,30.0,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-03,PTC,2026-09-03T15:15:00Z,expired,0,152.04,150.53,0.993,,2026-09-03T15:15:00Z,,trade_window,,34.2,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-04,ANET,2026-09-04T14:45:00Z,cancelled,0,194.63,193.49,0.586,,2026-09-04T15:00:00Z,,broke_setup_low,,51.1,False,False,Moving Average Undercut and Rally (10-day)
+2026-09-04,ILMN,2026-09-04T15:00:00Z,stopped,1,216.87,215.09,0.821,2026-09-04T15:00:00Z,2026-09-08T13:45:00Z,216.63,trail_stop,0.144,63.4,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-04,KGC,2026-09-04T15:15:00Z,expired,0,31.23,30.98,0.801,,2026-09-04T15:15:00Z,,trade_window,,58.9,False,False,Moving Average Undercut and Rally (10-day)
+2026-09-08,APA,2026-09-08T15:15:00Z,expired,0,43.88,43.53,0.798,,2026-09-08T15:15:00Z,,trade_window,,53.0,False,False,EMA Crossback
+2026-09-09,THC,2026-09-09T14:15:00Z,exited,1,260.61,258.54,0.794,2026-09-09T14:15:00Z,2026-09-11T14:45:00Z,262.09,trail_stop,2.072,37.5,False,False,High Tight Flag
+2026-09-10,NTRA,2026-09-10T14:15:00Z,stopped,1,329.47,326.06,1.035,2026-09-10T14:15:00Z,2026-09-10T15:30:00Z,326.43,trail_stop,-0.891,63.4,False,False,EMA Crossback
+2026-09-10,NOW,2026-09-10T14:30:00Z,stopped,1,132.96,131.87,0.82,2026-09-10T14:30:00Z,2026-09-10T16:45:00Z,132.79,trail_stop,-0.156,51.4,False,False,Moving Average Undercut and Rally (20-day)
+2026-09-11,GDDY,2026-09-11T14:30:00Z,stopped,1,96.73,95.76,1.003,2026-09-11T14:30:00Z,2026-09-17T14:00:00Z,96.72,trail_stop,1.263,36.5,False,False,Moving Average Undercut and Rally (50-day)
+2026-09-11,HUM,2026-09-11T15:00:00Z,stopped,1,405.32,402.01,0.817,2026-09-11T15:00:00Z,2026-09-15T13:45:00Z,404.565,trail_stop,0.304,64.0,False,False,EMA Crossback
+2026-09-11,WPM,2026-09-11T15:00:00Z,expired,0,154.78,153.53,0.808,,2026-09-11T15:15:00Z,,trade_window,,55.2,False,False,EMA Crossback
+2026-09-11,CNC,2026-09-11T15:15:00Z,expired,0,65.76,65.27,0.745,,2026-09-11T15:15:00Z,,trade_window,,22.0,False,False,Moving Average Undercut and Rally (50-day)
+2026-09-15,CF,2026-09-15T15:00:00Z,exited,1,132.85,131.88,0.73,2026-09-15T15:00:00Z,2026-09-16T13:45:00Z,133.155,trail_stop,1.162,59.3,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-15,VEEV,2026-09-15T15:00:00Z,exited,1,265.01,263.12,0.713,2026-09-15T15:00:00Z,2026-09-15T19:30:00Z,267.18,trail_stop,1.148,73.8,False,False,EMA Crossback
+2026-09-15,ADSK,2026-09-15T15:15:00Z,expired,0,229.7,228.06,0.714,,2026-09-15T15:15:00Z,,trade_window,,27.1,False,False,Moving Average Undercut and Rally (50-day)
+2026-09-15,BG,2026-09-15T15:15:00Z,expired,0,122.72,121.99,0.595,,2026-09-15T15:15:00Z,,trade_window,,60.8,False,False,Delayed High Volume Close; EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-16,NTAP,2026-09-16T14:45:00Z,exited,1,190.91,189.83,0.566,2026-09-16T14:45:00Z,2026-09-16T19:15:00Z,191.665,trail_stop,0.699,50.5,False,False,EMA Crossback
+2026-09-16,WPM,2026-09-16T15:00:00Z,expired,0,150.88,149.85,0.683,,2026-09-16T15:15:00Z,,trade_window,,49.7,False,False,Moving Average Undercut and Rally (20-day)
+2026-09-17,ULTA,2026-09-17T13:45:00Z,stopped,1,544.03,539.3,0.869,2026-09-17T13:45:00Z,2026-09-18T13:45:00Z,540.01,trail_stop,-0.554,49.7,False,False,Moving Average Undercut and Rally (20-day)
+2026-09-17,EPAM,2026-09-17T15:00:00Z,expired,0,118.65,117.62,0.868,,2026-09-17T15:15:00Z,,trade_window,,49.6,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-18,DG,2026-09-18T14:00:00Z,expired,0,124.53,123.26,1.02,,2026-09-18T15:15:00Z,,trade_window,,40.7,False,False,Moving Average Undercut and Rally (50-day)
+2026-09-18,APA,2026-09-18T14:45:00Z,cancelled,0,45.24,44.96,0.619,,2026-09-18T15:00:00Z,,broke_setup_low,,58.1,False,False,EMA Crossback
+2026-09-18,ADBE,2026-09-18T15:00:00Z,expired,0,250.64,248.78,0.742,,2026-09-18T15:15:00Z,,trade_window,,19.2,False,False,Moving Average Undercut and Rally (50-day)
+2026-09-18,ULTA,2026-09-18T15:00:00Z,expired,0,545.42,540.82,0.843,,2026-09-18T15:15:00Z,,trade_window,,54.7,False,False,EMA Crossback; Moving Average Undercut and Rally (20-day)
+2026-09-21,FCX,2026-09-21T14:30:00Z,stopped,1,71.56,71.19,0.517,2026-09-21T14:30:00Z,2026-09-21T14:45:00Z,71.19,stop,-1.0,53.4,False,False,Wedge Pop
+2026-09-21,FIX,2026-09-21T14:30:00Z,stopped,1,1624.01,1609.99,0.863,2026-09-21T14:30:00Z,2026-09-22T13:45:00Z,1605.0,trail_stop,-0.7,27.0,False,False,Moving Average Undercut and Rally (10-day)
+2026-09-21,PWR,2026-09-21T14:30:00Z,stopped,1,636.85,631.55,0.832,2026-09-21T14:30:00Z,2026-09-23T14:30:00Z,634.86,trail_stop,0.123,25.4,False,False,Moving Average Undercut and Rally (10-day)
+2026-09-21,FCX,2026-09-21T15:15:00Z,expired,0,71.49,71.03,0.643,,2026-09-21T15:15:00Z,,trade_window,,52.5,False,False,Wedge Pop
+2026-09-22,UHS,2026-09-22T13:45:00Z,breakeven,1,177.94,176.19,0.983,2026-09-22T13:45:00Z,2026-09-24T17:45:00Z,177.94,trail_stop,0.261,48.1,False,False,Moving Average Undercut and Rally (10-day)
+2026-09-22,HL,2026-09-22T15:00:00Z,stopped,1,18.64,18.45,1.019,2026-09-22T15:00:00Z,2026-09-23T13:45:00Z,18.4,trail_stop,-0.123,31.7,False,False,Delayed High Volume Close
+2026-09-23,HUBS,2026-09-23T14:45:00Z,exited,1,222.32,219.99,1.048,2026-09-23T14:45:00Z,2026-09-24T13:45:00Z,223.72,trail_stop,0.843,19.0,False,False,Undercut and Rally
+2026-09-24,WDAY,2026-09-24T14:30:00Z,stopped,1,192.33,190.75,0.822,2026-09-24T14:30:00Z,2026-09-24T15:45:00Z,192.05,trail_stop,-0.177,44.5,False,False,Moving Average Undercut and Rally (10-day)
+2026-09-25,WDAY,2026-09-25T14:30:00Z,cancelled,0,191.76,190.43,0.694,,2026-09-25T15:00:00Z,,broke_setup_low,,53.0,False,False,Moving Average Undercut and Rally (20-day)
+2026-09-29,SNDK,2026-09-29T14:00:00Z,exited,1,1719.01,1704.99,0.816,2026-09-29T14:00:00Z,2026-09-29T15:15:00Z,1730.0201,trail_stop,0.785,30.4,False,False,Moving Average Undercut and Rally (10-day)
+2026-09-29,INTU,2026-09-29T14:15:00Z,stopped,1,270.09,267.44,0.981,2026-09-29T14:15:00Z,2026-09-29T14:45:00Z,267.44,stop,-1.0,12.9,False,False,Undercut and Rally
+2026-09-29,S,2026-09-29T15:15:00Z,expired,0,22.86,22.73,0.569,,2026-09-29T15:15:00Z,,trade_window,,64.3,False,False,Delayed High Volume Close; EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-09-30,EME,2026-09-30T14:00:00Z,cancelled,0,761.06,754.5,0.862,,2026-09-30T14:15:00Z,,broke_setup_low,,27.9,False,False,Wedge Pop; Moving Average Undercut and Rally (50-day)
+2026-09-30,ETN,2026-09-30T14:00:00Z,cancelled,0,434.76,430.61,0.955,,2026-09-30T14:15:00Z,,broke_setup_low,,59.9,False,False,EMA Crossback
+2026-09-30,MPC,2026-09-30T14:30:00Z,stopped,1,397.16,394.8,0.594,2026-09-30T14:30:00Z,2026-09-30T19:45:00Z,396.985,trail_stop,-0.074,43.5,False,False,Moving Average Undercut and Rally (20-day)
+2026-09-30,ZS,2026-09-30T14:30:00Z,stopped,1,199.37,197.81,0.782,2026-09-30T14:30:00Z,2026-10-02T13:45:00Z,198.24,trail_stop,-0.194,61.5,False,False,Moving Average Undercut and Rally (10-day)
+2026-10-01,Q,2026-10-01T14:45:00Z,stopped,1,126.01,124.85,0.921,2026-10-01T14:45:00Z,2026-10-01T15:15:00Z,124.85,stop,-1.0,34.1,False,False,Wedge Pop
+2026-10-02,WDAY,2026-10-02T14:45:00Z,stopped,1,188.26,186.67,0.845,2026-10-02T14:45:00Z,2026-10-02T15:15:00Z,186.67,stop,-1.0,43.0,False,False,Moving Average Undercut and Rally (10-day)
+2026-10-05,ANET,2026-10-05T14:15:00Z,stopped,1,207.26,205.52,0.84,2026-10-05T14:15:00Z,2026-10-05T20:00:00Z,207.02,trail_stop,-0.146,69.9,False,False,EMA Crossback
+2026-10-05,HBM,2026-10-05T14:45:00Z,stopped,1,27.18,26.99,0.699,2026-10-05T14:45:00Z,2026-10-06T13:45:00Z,27.125,trail_stop,-0.053,53.3,False,False,Moving Average Undercut and Rally (50-day)
+2026-10-05,SNOW,2026-10-05T15:00:00Z,expired,0,341.64,339.31,0.682,,2026-10-05T15:15:00Z,,trade_window,,57.6,False,False,Flat Base Breakout
+2026-10-05,COIN,2026-10-05T15:15:00Z,expired,0,188.37,187.29,0.573,,2026-10-05T15:15:00Z,,trade_window,,44.3,False,False,Delayed High Volume Close; EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-10-06,BMNR,2026-10-06T14:45:00Z,stopped,1,26.92,26.71,0.78,2026-10-06T14:45:00Z,2026-10-06T16:00:00Z,26.76,trail_stop,-0.762,60.3,False,False,EMA Crossback
+2026-10-06,EL,2026-10-06T14:45:00Z,stopped,1,94.23,93.65,0.616,2026-10-06T14:45:00Z,2026-10-06T17:00:00Z,94.085,trail_stop,-0.25,21.3,False,False,Moving Average Undercut and Rally (50-day)
+2026-10-06,EPAM,2026-10-06T14:45:00Z,stopped,1,109.29,108.64,0.595,2026-10-06T14:45:00Z,2026-10-06T16:45:00Z,108.71,trail_stop,-0.892,39.6,False,False,Moving Average Undercut and Rally (50-day)
+2026-10-06,MU,2026-10-06T14:45:00Z,stopped,1,1066.91,1059.78,0.668,2026-10-06T14:45:00Z,2026-10-06T16:15:00Z,1061.82,trail_stop,-0.714,56.3,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-10-09,EME,2026-10-09T14:30:00Z,stopped,1,784.24,776.51,0.986,2026-10-09T14:30:00Z,2026-10-12T13:45:00Z,782.18,trail_stop,0.047,41.3,False,False,EMA Crossback
+2026-10-09,FIX,2026-10-09T14:30:00Z,stopped,1,1712.11,1700.33,0.688,2026-10-09T14:30:00Z,2026-10-12T13:45:00Z,1700.11,trail_stop,-0.177,48.6,False,False,EMA Crossback
+2026-10-09,PWR,2026-10-09T14:30:00Z,stopped,1,690.23,683.83,0.927,2026-10-09T14:30:00Z,2026-10-13T13:45:00Z,682.92,trail_stop,0.059,48.2,False,False,EMA Crossback
+2026-10-09,KLAC,2026-10-09T15:00:00Z,stopped,1,197.3,195.61,0.857,2026-10-09T15:00:00Z,2026-10-09T16:15:00Z,196.13,trail_stop,-0.692,25.2,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-10-09,MPWR,2026-10-09T15:00:00Z,cancelled,0,1383.91,1369.51,1.041,,2026-10-09T15:15:00Z,,broke_setup_low,,44.5,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-10-09,ONTO,2026-10-09T15:00:00Z,cancelled,0,295.15,292.57,0.874,,2026-10-09T15:15:00Z,,broke_setup_low,,41.6,False,False,Moving Average Undercut and Rally (10-day)
+2026-10-09,BBY,2026-10-09T15:15:00Z,expired,0,88.06,87.54,0.591,,2026-10-09T15:15:00Z,,trade_window,,46.9,False,False,Undercut and Rally; Moving Average Undercut and Rally (20-day)
+2026-10-12,EME,2026-10-12T14:00:00Z,expired,0,791.89,784.73,0.904,,2026-10-12T15:15:00Z,,trade_window,,50.6,False,False,EMA Crossback
+2026-10-13,URI,2026-10-13T14:15:00Z,cancelled,0,1066.6,1057.89,0.817,,2026-10-13T14:45:00Z,,broke_setup_low,,28.6,False,False,EMA Crossback; Wedge Pop
+2026-10-13,RVTY,2026-10-13T15:00:00Z,stopped,1,155.24,154.27,0.625,2026-10-13T15:00:00Z,2026-10-13T19:45:00Z,154.73,trail_stop,-0.526,71.7,False,False,EMA Crossback
+2026-10-19,HUBS,2026-10-19T14:15:00Z,exited,1,230.06,228.11,0.848,2026-10-19T14:15:00Z,2026-10-29T19:59:00Z,239.73,trim_daily_ema_20,5.959,51.1,False,False,EMA Crossback
+2026-10-19,URI,2026-10-19T14:15:00Z,stopped,1,1044.82,1035.34,0.907,2026-10-19T14:15:00Z,2026-10-19T14:30:00Z,1035.34,stop,-1.0,23.6,False,False,EMA Crossback; Moving Average Undercut and Rally (20-day)
+2026-10-19,CRM,2026-10-19T15:00:00Z,stopped,1,240.01,238.26,0.729,2026-10-19T15:00:00Z,2026-10-19T16:15:00Z,239.41,trail_stop,-0.343,58.0,False,False,EMA Crossback
+2026-10-21,CRM,2026-10-21T15:00:00Z,stopped,1,242.34,240.64,0.701,2026-10-21T15:00:00Z,2026-10-21T17:15:00Z,241.79,trail_stop,-0.324,65.3,False,False,EMA Crossback
+2026-10-23,PSX,2026-10-23T14:30:00Z,stopped,1,285.39,282.92,0.865,2026-10-23T14:30:00Z,2026-10-23T17:30:00Z,284.725,trail_stop,-0.269,54.1,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-10-26,ELF,2026-10-26T15:15:00Z,expired,0,114.3,113.72,0.507,,2026-10-26T15:15:00Z,,trade_window,,64.9,False,False,EMA Crossback
+2026-10-29,ADBE,2026-10-29T14:00:00Z,stopped,1,248.72,246.11,1.049,2026-10-29T14:00:00Z,2026-10-29T14:30:00Z,246.11,stop,-1.0,27.7,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-10-29,VLO,2026-10-29T14:15:00Z,stopped,1,388.37,385.68,0.693,2026-10-29T14:15:00Z,2026-10-29T15:00:00Z,385.68,stop,-1.0,19.6,False,False,Moving Average Undercut and Rally (50-day)
+2026-11-03,ELF,2026-11-03T15:45:00Z,exited,1,111.57,110.68,0.798,2026-11-03T15:45:00Z,2026-11-03T20:00:00Z,112.01,trail_stop,0.494,40.8,False,False,EMA Crossback; Moving Average Undercut and Rally (20-day)
+2026-11-04,TMO,2026-11-04T15:45:00Z,stopped,1,699.91,693.36,0.936,2026-11-04T15:45:00Z,2026-11-04T16:00:00Z,693.36,stop,-1.0,56.4,False,False,Moving Average Undercut and Rally (10-day)
+2026-11-04,DHR,2026-11-04T16:15:00Z,expired,0,232.11,230.7,0.607,,2026-11-04T16:15:00Z,,trade_window,,49.6,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-11-04,TMO,2026-11-04T16:15:00Z,expired,0,702.47,695.38,1.009,,2026-11-04T16:15:00Z,,trade_window,,54.6,False,False,Moving Average Undercut and Rally (10-day)
+2026-11-09,INCY,2026-11-09T15:00:00Z,exited,1,119.42,118.25,0.98,2026-11-09T15:00:00Z,2026-11-10T15:45:00Z,119.645,trail_stop,0.832,54.7,False,False,EMA Crossback
+2026-11-09,GILD,2026-11-09T15:30:00Z,stopped,1,168.74,167.43,0.776,2026-11-09T15:30:00Z,2026-11-10T15:00:00Z,168.42,trail_stop,-0.018,54.3,False,False,EMA Crossback
+2026-11-09,VRTX,2026-11-09T15:45:00Z,stopped,1,546.67,542.44,0.774,2026-11-09T15:45:00Z,2026-11-10T14:45:00Z,544.28,trail_stop,-0.041,53.5,False,False,EMA Crossback
+2026-11-11,REGN,2026-11-11T15:30:00Z,triggered,1,911.45,902.34,1.0,2026-11-11T15:30:00Z,,,,4.98354288254664,60.7,True,False,Delayed High Volume Close; EMA Crossback
+2026-11-12,INCY,2026-11-12T15:30:00Z,exited,1,122.05,121.42,0.516,2026-11-12T15:30:00Z,2026-11-12T19:00:00Z,122.365,trail_stop,0.5,60.0,False,False,EMA Crossback
+2026-11-12,VRTX,2026-11-12T15:30:00Z,stopped,1,546.87,543.59,0.6,2026-11-12T15:30:00Z,2026-11-12T17:30:00Z,544.94,trail_stop,-0.588,56.3,False,False,EMA Crossback
+2026-11-12,IT,2026-11-12T15:45:00Z,exited,1,191.82,190.25,0.818,2026-11-12T15:45:00Z,2026-11-12T20:59:00Z,190.95,trim_daily_ema_20,-0.554,22.8,False,False,Moving Average Undercut and Rally (50-day)
+2026-11-12,CSGP,2026-11-12T16:15:00Z,expired,0,30.44,30.26,0.591,,2026-11-12T16:15:00Z,,trade_window,,46.9,False,False,Moving Average Undercut and Rally (10-day)
+2026-11-13,AJG,2026-11-13T14:45:00Z,exited,1,281.83,279.6,0.791,2026-11-13T14:45:00Z,2026-11-13T18:30:00Z,282.53,trail_stop,0.314,59.4,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-11-13,BRO,2026-11-13T14:45:00Z,triggered,1,71.48,71.08,0.56,2026-11-13T14:45:00Z,,,,1.1250003749999942,49.5,True,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-11-13,KMB,2026-11-13T14:45:00Z,triggered,1,108.05,107.38,0.62,2026-11-13T14:45:00Z,,,,2.0745852686567137,40.8,True,False,Moving Average Undercut and Rally (10-day)
+2026-11-13,ACN,2026-11-13T15:30:00Z,stopped,1,253.32,251.57,0.691,2026-11-13T15:30:00Z,2026-11-13T16:45:00Z,252.52,trail_stop,-0.457,60.8,False,False,High Tight Flag; EMA Crossback; Moving Average Undercut and Rally (20-day)
+2026-11-13,EL,2026-11-13T15:30:00Z,exited,1,110.93,110.19,0.667,2026-11-13T15:30:00Z,2026-11-13T21:00:00Z,111.67,trail_stop,1.045,59.2,False,False,EMA Crossback
+2026-11-13,CSGP,2026-11-13T15:45:00Z,triggered,1,30.45,30.17,0.92,2026-11-13T15:45:00Z,,,,1.8213863214285857,29.5,True,False,Delayed High Volume Close
+2026-11-13,GEHC,2026-11-13T15:45:00Z,stopped,1,82.77,82.05,0.87,2026-11-13T16:00:00Z,2026-11-13T17:30:00Z,82.49,trail_stop,-0.389,66.7,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-11-13,PAYX,2026-11-13T15:45:00Z,expired,0,116.9,115.81,0.932,,2026-11-13T16:15:00Z,,trade_window,,60.9,False,False,EMA Crossback; Moving Average Undercut and Rally (10-day)
+2026-11-13,RMD,2026-11-13T15:45:00Z,expired,0,241.5,240.09,0.584,,2026-11-13T16:15:00Z,,trade_window,,55.4,False,False,Delayed High Volume Close; Moving Average Undercut and Rally (20-day)
+2026-11-13,SHW,2026-11-13T15:45:00Z,expired,0,353.32,350.27,0.863,,2026-11-13T16:15:00Z,,trade_window,,65.7,False,False,EMA Crossback
+2026-11-13,MAS,2026-11-13T16:15:00Z,expired,0,84.64,84.06,0.685,,2026-11-13T16:15:00Z,,trade_window,,69.7,False,False,EMA Crossback

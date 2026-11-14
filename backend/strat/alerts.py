@@ -8,7 +8,7 @@ green (close > open) with body at least ``cross_min_body_pct`` percent of its ra
 stop = that candle's low - $0.01; a stop closer than ``min_stop_pct`` (default 0.5%) or wider than
 ``max_stop_pct`` is not armed. The order does not re-arm. While pending it fills at the buy or
 cancels if price trades the candle low - $0.01; the trade cutoff (``trade_window_minutes`` after the
-open, default 11:15 ET) and session end still apply (no ``watch_bars`` expiry). After the fill, once ``trail_stop_bars`` (3) 15-minute bars have completed after
+open, default 10:45 ET) and session end still apply (no ``watch_bars`` expiry). After the fill, once ``trail_stop_bars`` (3) 15-minute bars have completed after
 the trigger candle, the stop moves up to the lowest low of those bars - $0.01 (``trail_stop_bars=0``: the
 old break-even after ``breakeven_after_bars``). Each stop move is recorded in ``details["stops"]`` so the
 local order app can replace its stop order.
@@ -60,12 +60,12 @@ TICK = 0.01
 BAR_MINUTES = 15
 BAR = timedelta(minutes=BAR_MINUTES)
 SESSION_BARS = 390 // BAR_MINUTES  # bars in a full regular session
-# Trade window: from the 09:30 ET open for ``Settings.trade_window_minutes`` (default 105 = 11:15 ET, year-round:
-# 09:15 Arizona in winter, 08:15 in summer). No new alert on a bar that ends after the cutoff and no new entry
+# Trade window: from the 09:30 ET open for ``Settings.trade_window_minutes`` (default 75 = 10:45 ET, year-round:
+# 08:45 Arizona in winter, 07:45 in summer). No new alert on a bar that ends after the cutoff and no new entry
 # on a bar that starts at or after it. Open trades are still managed to their exit.
 TRADE_CUTOFF_TZ = ZoneInfo("America/New_York")
 SESSION_OPEN = time(9, 30)
-TRADE_WINDOW_MINUTES = 105
+TRADE_WINDOW_MINUTES = 75
 MA_PERIODS = (120, 240, 480)
 EMA_LONG = MA_PERIODS[-1]
 ENTRY_MA_TOUCH = 0
@@ -128,7 +128,7 @@ class Settings:
     # 0 = off. An EMA with no history yet does not block.
     cross_above_ema: int = 20
     # No new alert on a bar ending after this many minutes from the 09:30 ET open, and no entry on a bar
-    # starting at or after it. 105 = 11:15 ET (150 = the old 12:00 ET).
+    # starting at or after it. 75 = 10:45 ET (150 = the old 12:00 ET).
     trade_window_minutes: int = TRADE_WINDOW_MINUTES
     # Cross mode trim ladder, checked at 15:59 ET on the daily chart (each third once, in order):
     # 1/3 at the entry day's check, 1/3 under the daily trim_daily_ema_1, the last 1/3 under trim_daily_ema_2.
@@ -451,7 +451,7 @@ def trade_cutoff(ts: datetime, settings: Optional["Settings"] = None) -> datetim
 
 
 def cutoff_label(settings: Optional["Settings"] = None) -> str:
-    """The cutoff as an ET clock time, e.g. ``11:15``."""
+    """The cutoff as an ET clock time, e.g. ``10:45``."""
     minutes = int(settings.trade_window_minutes) if settings is not None else TRADE_WINDOW_MINUTES
     return (datetime.combine(date(2000, 1, 3), SESSION_OPEN) + timedelta(minutes=minutes)).strftime("%H:%M")
 

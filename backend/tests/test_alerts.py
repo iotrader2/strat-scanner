@@ -638,10 +638,10 @@ def test_open_r_is_for_triggered_trades_still_open():
 def test_no_alert_or_entry_after_the_trade_cutoff():
     from strat.alerts import trade_cutoff
 
-    # Default 105 minutes after the open = 11:15 ET year-round: 16:15 UTC under EST, 15:15 UTC under EDT.
-    assert Settings().trade_window_minutes == 105
-    assert trade_cutoff(datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)) == datetime(2026, 11, 10, 16, 15, tzinfo=timezone.utc)
-    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 15, 15, tzinfo=timezone.utc)
+    # Default 75 minutes after the open = 10:45 ET year-round: 15:45 UTC under EST, 14:45 UTC under EDT.
+    assert Settings().trade_window_minutes == 75
+    assert trade_cutoff(datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)) == datetime(2026, 11, 10, 15, 45, tzinfo=timezone.utc)
+    assert trade_cutoff(OPEN) == datetime(2026, 10, 23, 14, 45, tzinfo=timezone.utc)
     # The setting moves it: 150 minutes is the old noon ET.
     noon = Settings(trade_window_minutes=150)
     assert trade_cutoff(OPEN, noon) == datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)
@@ -649,7 +649,7 @@ def test_no_alert_or_entry_after_the_trade_cutoff():
     assert simulate("AAA", "2026-10-23", bars([TOUCH], start=late), CTX, touch_settings()) == []
     assert len(simulate("AAA", "2026-10-23", bars([TOUCH], start=late), CTX, touch_settings(trade_window_minutes=150))) == 1
 
-    cutoff = datetime(2026, 10, 23, 15, 15, tzinfo=timezone.utc)
+    cutoff = datetime(2026, 10, 23, 14, 45, tzinfo=timezone.utc)
     go = (100.2, 101.0, 100.1, 100.9)
     # A touch bar that closes exactly at the cutoff still alerts and can fill on the forming bar before it.
     [a] = simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff - timedelta(minutes=15)), CTX, touch_settings())
@@ -663,7 +663,7 @@ def test_no_alert_or_entry_after_the_trade_cutoff():
     # A touch at or after the cutoff is not alerted.
     skipped = []
     assert simulate("AAA", "2026-10-23", bars([TOUCH], start=cutoff), CTX, touch_settings(), skipped=skipped) == []
-    assert skipped[0]["reason"] == "after the 11:15 ET trade cutoff"
+    assert skipped[0]["reason"] == "after the 10:45 ET trade cutoff"
     # A trade filled before the cutoff is still managed after it.
     [d] = simulate("AAA", "2026-10-23", bars([TOUCH, go, (100.9, 101.1, 99.5, 99.6)], start=cutoff - timedelta(minutes=30)), CTX, touch_settings())
     assert d.filled and d.status == "stopped"
@@ -759,7 +759,7 @@ def test_cross_max_stop_pct_skip_and_attempts_cap():
     # Two filled attempts then a later cross is skipped. Stop is far below so fills are clean.
     # Each cross is green with body >= 50% of range so the strength filter does not block them.
     ctx = Context(ma_tail={6: [100.0] * 10, 20: [99.0] * 10, 120: [98.0] * 10}, prev_close=99.0)
-    s = Settings(max_attempts=2, max_stop_pct=5, breakeven_after_bars=50)
+    s = Settings(max_attempts=2, max_stop_pct=5, breakeven_after_bars=50, trade_window_minutes=150)
     rows = [
         (99.0, 101.0, 99.0, 100.8),  # cross 1 — body 90%
         (100.8, 101.5, 100.5, 101.2),  # fill 1
