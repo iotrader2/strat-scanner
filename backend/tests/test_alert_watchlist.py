@@ -103,7 +103,7 @@ def test_the_alert_refresh_adds_qualifying_names(db, monkeypatch):
     }]
     monkeypatch.setattr(api.config, "AS_OF", None)
     try:
-        api._sync_alert_watchlist(Settings())
+        api._sync_alert_watchlist(Settings(), now=MONDAY)  # fixed clock: the sync does nothing on weekends
         assert data.watchlist() == ["AAA"]
         assert data.watch_sources()["AAA"] == "alert"
         assert data.watch_setups()["AAA"] == [{"kind": "ema-crossback", "label": "EMA Crossback", "side": "long"}]
